@@ -48,7 +48,7 @@ dependencies:
   xml: ^7.0.1
   home_widget: ^0.9.3
   path_provider: ^2.1.6
-  file_picker: 8.3.7
+  file_picker: 10.3.10
 
 dev_dependencies:
   flutter_test:

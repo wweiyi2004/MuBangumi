@@ -6,7 +6,8 @@ plugins {
 
 android {
     namespace = "com.wweiyi.mubangumi"
-    compileSdk = flutter.compileSdkVersion
+    // file_picker / flutter_plugin_android_lifecycle require API 36 metadata.
+    compileSdk = 36
     ndkVersion = flutter.ndkVersion
 
     compileOptions {
