@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../core/layout/app_layout.dart';
 import '../core/network/bangumi_endpoints.dart';
 import '../core/network/bangumi_support.dart';
 import '../models/bangumi_models.dart';
@@ -11,6 +12,7 @@ import '../widgets/episode_grid_sheet.dart';
 import '../widgets/subject_widgets.dart';
 import 'character_detail_screen.dart';
 import 'person_detail_screen.dart';
+import 'score_trends_page.dart';
 import 'subject_detail_screen.dart';
 
 enum DiscoverSearchTarget { subject, character, person }
@@ -439,29 +441,101 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
       for (final item in collections) item.subjectId: item,
     };
 
+    final phone = AppLayout.isPhone(context);
     return SingleChildScrollView(
       controller: _scrollController,
-      padding: const EdgeInsets.fromLTRB(20, 24, 20, 60),
+      padding: AppLayout.pageInsets(context, top: 24, bottom: 60),
       child: Center(
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 1220),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text('发现', style: Theme.of(context).textTheme.headlineLarge),
+              Text('发现', style: AppLayout.pageTitleStyle(context)),
               const SizedBox(height: 6),
               Text(
                 switch (_searchTarget) {
                   DiscoverSearchTarget.character => '搜索角色 · 点进角色详情',
                   DiscoverSearchTarget.person => '搜索人物 · 点进人物详情',
                   DiscoverSearchTarget.subject =>
-                    '按类型浏览与搜索 · 当前：${_subjectType.label}',
+                    phone
+                        ? '浏览 / 搜索 · ${_subjectType.label}'
+                        : '按类型浏览与搜索 · 当前：${_subjectType.label}',
                 },
                 style: TextStyle(
                   color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  fontSize: phone ? 13 : null,
                 ),
               ),
-              const SizedBox(height: 24),
+              const SizedBox(height: 14),
+              Card(
+                clipBehavior: Clip.antiAlias,
+                child: InkWell(
+                  onTap: () {
+                    Navigator.of(context).push(
+                      MaterialPageRoute<void>(
+                        builder: (_) => const ScoreTrendsPage(),
+                      ),
+                    );
+                  },
+                  child: Padding(
+                    padding: EdgeInsets.fromLTRB(
+                      phone ? 12 : 16,
+                      phone ? 12 : 14,
+                      10,
+                      phone ? 12 : 14,
+                    ),
+                    child: Row(
+                      children: [
+                        Container(
+                          width: phone ? 38 : 42,
+                          height: phone ? 38 : 42,
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFF3A646).withValues(alpha: 0.16),
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: const Icon(
+                            Icons.ssid_chart_rounded,
+                            color: Color(0xFFF3A646),
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                '评分趋势',
+                                style: Theme.of(context).textTheme.titleMedium
+                                    ?.copyWith(fontWeight: FontWeight.w800),
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                phone
+                                    ? '涨跌榜 · 口碑提升 · netaba.re'
+                                    : '涨跌榜 · 口碑提升 · 历史曲线（netaba.re）',
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: Theme.of(context).textTheme.bodySmall
+                                    ?.copyWith(
+                                      color: Theme.of(context)
+                                          .colorScheme
+                                          .onSurfaceVariant,
+                                    ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        Icon(
+                          Icons.chevron_right_rounded,
+                          color: Theme.of(context).colorScheme.onSurfaceVariant,
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+              SizedBox(height: AppLayout.sectionGap(context)),
               Row(
                 children: [
                   Expanded(
@@ -494,17 +568,27 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
                   Badge.count(
                     count: _activeFilterCount,
                     isLabelVisible: _activeFilterCount > 0,
-                    child: FilledButton.tonalIcon(
-                      onPressed: _searchTarget == DiscoverSearchTarget.subject
-                          ? _showFilters
-                          : null,
-                      icon: const Icon(Icons.tune_rounded),
-                      label: const Text('筛选'),
-                    ),
+                    child: phone
+                        ? IconButton.filledTonal(
+                            tooltip: '筛选',
+                            onPressed:
+                                _searchTarget == DiscoverSearchTarget.subject
+                                ? _showFilters
+                                : null,
+                            icon: const Icon(Icons.tune_rounded),
+                          )
+                        : FilledButton.tonalIcon(
+                            onPressed:
+                                _searchTarget == DiscoverSearchTarget.subject
+                                ? _showFilters
+                                : null,
+                            icon: const Icon(Icons.tune_rounded),
+                            label: const Text('筛选'),
+                          ),
                   ),
                 ],
               ),
-              const SizedBox(height: 14),
+              const SizedBox(height: 12),
               SingleChildScrollView(
                 scrollDirection: Axis.horizontal,
                 child: Row(

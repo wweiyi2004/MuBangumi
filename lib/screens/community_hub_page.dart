@@ -54,11 +54,12 @@ class _CommunityPageState extends State<CommunityPage> {
   @override
   Widget build(BuildContext context) {
     final compact = MediaQuery.sizeOf(context).width < 620;
+    final phone = MediaQuery.sizeOf(context).width < 420;
     return Padding(
       padding: EdgeInsets.fromLTRB(
-        compact ? 12 : 20,
-        18,
-        compact ? 12 : 20,
+        phone ? 12 : (compact ? 14 : 20),
+        phone ? 12 : 18,
+        phone ? 8 : (compact ? 14 : 20),
         12,
       ),
       child: Column(
@@ -69,17 +70,22 @@ class _CommunityPageState extends State<CommunityPage> {
               Expanded(
                 child: Text(
                   '社区',
-                  style: Theme.of(context).textTheme.headlineLarge,
+                  style: phone
+                      ? Theme.of(context).textTheme.headlineMedium
+                      : Theme.of(context).textTheme.headlineLarge,
                 ),
               ),
               IconButton(
+                visualDensity: phone
+                    ? VisualDensity.compact
+                    : VisualDensity.standard,
                 tooltip: '在 Bangumi 网页查看',
                 onPressed: _openWeb,
                 icon: const Icon(Icons.language_rounded),
               ),
             ],
           ),
-          const SizedBox(height: 13),
+          SizedBox(height: phone ? 10 : 13),
           SingleChildScrollView(
             scrollDirection: Axis.horizontal,
             child: SegmentedButton<_CommunityArea>(

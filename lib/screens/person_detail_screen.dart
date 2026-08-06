@@ -112,7 +112,12 @@ class _PersonDetailScreenState extends ConsumerState<PersonDetailScreen> {
               )
             : ListView(
                 physics: const AlwaysScrollableScrollPhysics(),
-                padding: const EdgeInsets.fromLTRB(16, 12, 16, 40),
+                padding: EdgeInsets.fromLTRB(
+                  MediaQuery.sizeOf(context).width < 420 ? 12 : 16,
+                  12,
+                  MediaQuery.sizeOf(context).width < 420 ? 12 : 16,
+                  40,
+                ),
                 children: [
                   _PersonHeader(
                     name: detail?.displayName ?? title,

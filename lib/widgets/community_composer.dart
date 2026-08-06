@@ -4,6 +4,7 @@ import 'turnstile_dialog.dart';
 
 typedef CommunitySubmit =
     Future<void> Function(String title, String content, String token);
+typedef CommunityTokenProvider = Future<String?> Function(BuildContext context);
 
 Future<bool> showCommunityComposer(
   BuildContext context, {
@@ -12,6 +13,7 @@ Future<bool> showCommunityComposer(
   bool requireTitle = false,
   String contentLabel = '内容',
   int? maxLength,
+  CommunityTokenProvider tokenProvider = showTurnstileDialog,
 }) async =>
     await showDialog<bool>(
       context: context,
@@ -22,6 +24,7 @@ Future<bool> showCommunityComposer(
         requireTitle: requireTitle,
         contentLabel: contentLabel,
         maxLength: maxLength,
+        tokenProvider: tokenProvider,
       ),
     ) ??
     false;
@@ -32,6 +35,7 @@ class _CommunityComposerDialog extends StatefulWidget {
     required this.onSubmit,
     required this.requireTitle,
     required this.contentLabel,
+    required this.tokenProvider,
     this.maxLength,
   });
 
@@ -39,6 +43,7 @@ class _CommunityComposerDialog extends StatefulWidget {
   final CommunitySubmit onSubmit;
   final bool requireTitle;
   final String contentLabel;
+  final CommunityTokenProvider tokenProvider;
   final int? maxLength;
 
   @override
@@ -63,10 +68,10 @@ class _CommunityComposerDialogState extends State<_CommunityComposerDialog> {
 
   Future<void> _submit() async {
     if (!_canSubmit || _submitting) return;
-    final token = await showTurnstileDialog(context);
+    final token = await widget.tokenProvider(context);
     if (!mounted) return;
     if (token == null || token.trim().isEmpty) {
-      setState(() => _error = '未完成人机验证，请重试发送');
+      setState(() => _error = '未完成人机验证，请重新点击发送');
       return;
     }
     setState(() {

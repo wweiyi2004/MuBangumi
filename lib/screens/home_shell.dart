@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../app.dart';
+import '../core/layout/app_layout.dart';
 import '../core/widget/home_widget_sync_host.dart';
+import '../state/background_controller.dart';
 import '../state/notify_controller.dart';
 import 'community_hub_page.dart';
 import 'discover_page.dart';
@@ -73,10 +75,15 @@ class _HomeShellState extends ConsumerState<HomeShell> {
       _communityOpened ? const CommunityPage() : const SizedBox.shrink(),
       const ProfilePage(),
     ];
-    final desktop = MediaQuery.sizeOf(context).width >= 900;
+    final desktop = AppLayout.isDesktop(context);
+    final navHeight = AppLayout.navHeight(context);
+    final glassBg = ref.watch(
+      backgroundSettingsProvider.select((s) => s.isActive),
+    );
     return HomeWidgetSyncHost(
       onOpenSchedule: () => _selectPage(3),
       child: Scaffold(
+        backgroundColor: glassBg ? Colors.transparent : null,
         body: SafeArea(
           child: Row(
             children: [
@@ -85,6 +92,7 @@ class _HomeShellState extends ConsumerState<HomeShell> {
                   index: _index,
                   onChanged: _selectPage,
                   unreadCount: unread,
+                  glass: glassBg,
                 ),
               Expanded(
                 child: IndexedStack(index: _index, children: pages),
@@ -95,9 +103,9 @@ class _HomeShellState extends ConsumerState<HomeShell> {
         bottomNavigationBar: desktop
             ? null
             : NavigationBar(
+                height: navHeight,
                 selectedIndex: _index,
-                labelBehavior:
-                    NavigationDestinationLabelBehavior.onlyShowSelected,
+                labelBehavior: AppLayout.navLabelBehavior(context),
                 onDestinationSelected: _selectPage,
                 destinations: [
                   for (var i = 0; i < _destinations.length; i++)
@@ -130,17 +138,21 @@ class _DesktopNavigation extends StatelessWidget {
     required this.index,
     required this.onChanged,
     required this.unreadCount,
+    this.glass = false,
   });
 
   final int index;
   final ValueChanged<int> onChanged;
   final int unreadCount;
+  final bool glass;
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     return Material(
-      color: scheme.surface,
+      color: glass
+          ? scheme.surface.withValues(alpha: 0.55)
+          : scheme.surface,
       child: Container(
         width: 230,
         decoration: BoxDecoration(

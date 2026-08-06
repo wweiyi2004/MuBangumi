@@ -131,7 +131,8 @@ class _TurnstileViewState extends State<TurnstileView> {
       ..setBackgroundColor(Colors.transparent)
       ..addJavaScriptChannel(
         'Turnstile',
-        onMessageReceived: (message) => _acceptToken(message.message),
+        onMessageReceived: (message) =>
+            _handleTurnstileMessage(message.message),
       )
       ..setNavigationDelegate(
         mobile.NavigationDelegate(
@@ -173,60 +174,44 @@ class _TurnstileViewState extends State<TurnstileView> {
   }
 
   void _handleWindowsMessage(dynamic message) {
-    if (message is Map) {
-      final values = message.values.map((item) => item?.toString() ?? '');
-      _acceptToken(
-        message['token']?.toString() ??
-            message['data']?.toString() ??
-            values.cast<String>().firstWhere(
-              (item) => item.trim().isNotEmpty,
-              orElse: () => '',
-            ),
-      );
-      return;
-    }
+    _handleTurnstileMessage(message);
+  }
+
+  void _handleTurnstileMessage(dynamic message) {
+    dynamic decoded = message;
     if (message is String) {
       final text = message.trim();
       if (text.isEmpty) return;
       try {
-        final decoded = jsonDecode(text);
-        if (decoded is Map) {
-          _acceptToken(decoded['token']?.toString() ?? '');
-          return;
-        }
-        if (decoded is String) {
-          _acceptToken(decoded);
-          return;
-        }
+        decoded = jsonDecode(text);
       } on FormatException {
-        // Plain token string from WebView2.
+        decoded = text;
       }
-      _acceptToken(text);
+    }
+    if (decoded is Map) {
+      final type = decoded['type']?.toString() ?? '';
+      if (type == 'turnstile-token') {
+        _acceptToken(decoded['token']?.toString() ?? '');
+      } else if (type == 'turnstile-error') {
+        _setError(decoded['message']?.toString() ?? '验证失败，请重试');
+      }
       return;
     }
-    _acceptToken(message?.toString() ?? '');
+    // Backward compatibility for a directly posted JSON string token.
+    if (decoded is String) _acceptToken(decoded);
   }
 
   void _acceptToken(String token) {
     if (!mounted || _accepted) return;
     final value = token.trim();
     if (value.isEmpty || value == 'null' || value == '{}') return;
-    // Strip accidental JSON wrappers.
-    var resolved = value;
-    if (value.startsWith('{') && value.contains('token')) {
-      try {
-        final decoded = jsonDecode(value);
-        if (decoded is Map && decoded['token'] != null) {
-          resolved = decoded['token'].toString();
-        }
-      } on FormatException {
-        // keep raw
-      }
-    }
-    if (resolved.isEmpty) return;
+    // Turnstile response tokens are opaque, long strings (max 2048
+    // characters). Ignore unrelated WebView messages instead of accidentally
+    // submitting them as a captcha response.
+    if (value.length < 100 || value.length > 2048) return;
     _accepted = true;
     _timeout?.cancel();
-    widget.onToken(resolved);
+    widget.onToken(value);
   }
 
   void _setError(String message) {
@@ -269,20 +254,23 @@ const _turnstileScript = r'''
   document.body.style.padding = '8px';
   document.body.style.overflow = 'hidden';
 
-  const deliver = (token) => {
-    if (!token) return;
+  const post = (payload) => {
+    const message = JSON.stringify(payload);
     try {
       if (window.chrome && window.chrome.webview) {
-        // WebView2 is most reliable with string messages.
-        window.chrome.webview.postMessage(String(token));
-        window.chrome.webview.postMessage(JSON.stringify({token: String(token)}));
+        window.chrome.webview.postMessage(message);
       }
     } catch (_) {}
     try {
       if (window.Turnstile && window.Turnstile.postMessage) {
-        window.Turnstile.postMessage(String(token));
+        window.Turnstile.postMessage(message);
       }
     } catch (_) {}
+  };
+
+  const deliver = (token) => {
+    if (!token) return;
+    post({type: 'turnstile-token', token: String(token)});
   };
 
   const render = () => {
@@ -291,8 +279,14 @@ const _turnstileScript = r'''
         sitekey: '0x4AAAAAAABkMYinukE8nzYS',
         theme: 'auto',
         callback: deliver,
-        'error-callback': () => {},
-        'expired-callback': () => {},
+        'error-callback': (code) => post({
+          type: 'turnstile-error',
+          message: `验证组件错误（${code || 'unknown'}），请重试`,
+        }),
+        'expired-callback': () => post({
+          type: 'turnstile-error',
+          message: '验证已过期，请重试',
+        }),
       });
     } catch (error) {
       console && console.error && console.error(error);
@@ -308,7 +302,10 @@ const _turnstileScript = r'''
   script.async = true;
   script.defer = true;
   script.onload = render;
-  script.onerror = () => {};
+  script.onerror = () => post({
+    type: 'turnstile-error',
+    message: '验证脚本加载失败，请检查网络后重试',
+  });
   document.head.appendChild(script);
 })();
 ''';

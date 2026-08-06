@@ -178,7 +178,12 @@ class _FriendsPageState extends ConsumerState<FriendsPage> {
             : ListView.builder(
                 controller: _scrollController,
                 physics: const AlwaysScrollableScrollPhysics(),
-                padding: const EdgeInsets.fromLTRB(16, 12, 16, 40),
+                padding: EdgeInsets.fromLTRB(
+                  MediaQuery.sizeOf(context).width < 420 ? 12 : 16,
+                  12,
+                  MediaQuery.sizeOf(context).width < 420 ? 12 : 16,
+                  40,
+                ),
                 itemCount: items.length + 2,
                 itemBuilder: (context, index) {
                   if (index == 0) {

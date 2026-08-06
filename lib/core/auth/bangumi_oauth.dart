@@ -48,7 +48,7 @@ class BangumiOAuth {
           receiveTimeout: const Duration(seconds: 20),
           headers: const {
             'Accept': 'application/json',
-            'User-Agent': 'MuBangumi/0.4.0 (Flutter; personal Bangumi client)',
+            'User-Agent': 'MuBangumi/1.0.0 (Flutter; personal Bangumi client)',
           },
         ),
       );

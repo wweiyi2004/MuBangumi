@@ -4,6 +4,8 @@ MuBangumi 是一个使用 Flutter 编写的第三方 Bangumi 追番客户端，�
 
 > 本项目是非官方客户端，与 Bangumi 番组计划官方无隶属关系。条目、收藏和章节数据来自 [Bangumi API](https://github.com/bangumi/api)。
 
+当前版本：**v1.0.0**
+
 ## 已实现
 
 - 使用 Bangumi OAuth 登录，自动保存并刷新登录凭据
@@ -12,7 +14,10 @@ MuBangumi 是一个使用 Flutter 编写的第三方 Bangumi 追番客户端，�
 - 收藏状态文案按类型切换（想看/想读/想听/想玩 等）
 - 在首页和收藏卡片直接“点格子”，切换单集的看过、想看、抛弃状态
 - 查看在看进度，一键将真实的下一集标记为“看过”
+- 「番会荐」：按个人收藏口味或一句话需求，从 Bangumi 筛选推荐动画
 - 查看条目详情、简介、评分、平台 / 官网 / NSFW、标签、章节、角色 / 制作人员 / 关联条目
+- 条目历史评分 / 排名 / 收藏变化曲线（数据来自 [netaba.re](https://netaba.re)）
+- 发现页「评分趋势」：近月涨跌榜、完结波动与口碑提升排行
 - 用户主页展示最近动态（时光机）
 - 角色页与人物页（出演作品、声优 / 饰演角色互相跳转）
 - 条目吐槽分页、讨论列表；标签一点即可跳转发现搜索
@@ -25,12 +30,15 @@ MuBangumi 是一个使用 Flutter 编写的第三方 Bangumi 追番客户端，�
 - 原生电波提醒列表（P1，支持标已读）；「我的」Tab 未读角标
 - 站内短信：应用内 WebView 打开官网收件箱 / 写信（P1 无私信 API）
 - 深色 / 浅色 / 跟随系统主题
+- 自定义背景图 + 分层毛玻璃（壁纸 / 压暗 / 磨砂强度 / 玻璃不透明度）
 - 借鉴超合金组件：评分详情与争议度、好友看？、看过自动补进度、楼主/好友高亮
 - 本地「新番表」：用 Bangumi 条目信息，自己按周几安排本季追番（本地存储）
+- 新番表导出为 PNG 海报（浅色 / 深色），桌面保存到下载目录并可打开位置
 - 原生浏览超展开、小组最新话题、所有小组、主题正文与嵌套回复
 - 超展开支持按全部、小组、条目、章节和人物分类筛选
 - 社区发帖 / 回复等写操作优先走 next.bgm.tv P1 + Turnstile；加组等仍可走内嵌官网
 - 手机底部导航与 Windows 宽屏侧栏自适应布局
+- 全应用窄屏适配：页边距 / 标题字号 / 列表密度 / 导航栏标签 / 新番表格子防溢出
 
 Bangumi 当前公开 OpenAPI 不提供完整的小组、私信与通知接口。MuBangumi 对社区列表与话题使用 P1 JSON（失败时回退 HTML 解析），并使用短时缓存减少重复请求；如果网站结构发生变化，解析规则可能需要随之更新。
 
@@ -122,5 +130,6 @@ lib/
 - `GET /v0/users/-/collections/{subject_id}/episodes`
 - `POST /v0/users/-/collections/{subject_id}`
 - `PUT /v0/users/-/collections/-/episodes/{episode_id}`
+- netaba.re：`GET https://api.netaba.re/subject/{id}`、`/trending`、`/score-increases`
 
-所有请求统一携带明确的 `User-Agent`；需要登录的请求使用 `Authorization: Bearer ...` 请求头。
+所有请求统一携带明确的 `User-Agent`；需要登录的请求使用 `Authorization: Bearer ...` 请求头。评分历史为第三方公开数据，与 Bangumi 官方无隶属关系。

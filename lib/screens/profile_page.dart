@@ -3,13 +3,16 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../core/layout/app_layout.dart';
 import '../core/network/bangumi_endpoints.dart';
 import '../models/bangumi_models.dart';
+import '../state/background_controller.dart';
 import '../state/session_controller.dart';
 import '../state/theme_controller.dart';
 import '../widgets/network_route_picker.dart';
 import '../widgets/subject_widgets.dart';
 import '../state/notify_controller.dart';
+import 'background_settings_sheet.dart';
 import 'calendar_page.dart';
 import 'friends_page.dart';
 import 'notify_page.dart';
@@ -33,23 +36,23 @@ class ProfilePage extends ConsumerWidget {
             .where((item) => item.subject.type == type)
             .length,
     };
-    final pageWidth = MediaQuery.sizeOf(context).width;
-    final pagePad = pageWidth < 420 ? 14.0 : 20.0;
+    final phone = AppLayout.isPhone(context);
+    final background = ref.watch(backgroundSettingsProvider);
     return SingleChildScrollView(
-      padding: EdgeInsets.fromLTRB(pagePad, 24, pagePad, 60),
+      padding: AppLayout.pageInsets(context, top: 24, bottom: 60),
       child: Center(
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 900),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Text('我的', style: Theme.of(context).textTheme.headlineLarge),
-              const SizedBox(height: 24),
+              Text('我的', style: AppLayout.pageTitleStyle(context)),
+              SizedBox(height: phone ? 16 : 24),
               // Stretch full width: previously narrow panes collapsed the card to
               // avatar/text intrinsic width (looked like a thin strip).
               Card(
                 child: Padding(
-                  padding: const EdgeInsets.fromLTRB(20, 20, 20, 20),
+                  padding: EdgeInsets.all(phone ? 14 : 20),
                   child: LayoutBuilder(
                     builder: (context, constraints) {
                       final compact = constraints.maxWidth < 360;
@@ -274,6 +277,20 @@ class ProfilePage extends ConsumerWidget {
                     ),
                     const Divider(height: 1, indent: 56),
                     ListTile(
+                      leading: const Icon(Icons.wallpaper_rounded),
+                      title: const Text('背景与毛玻璃'),
+                      subtitle: Text(
+                        !background.hasImage
+                            ? '自选壁纸 · 分层磨砂效果'
+                            : background.isActive
+                                ? '已启用 · 可调模糊/压暗/玻璃浓度'
+                                : '已选图 · 未启用',
+                      ),
+                      trailing: const Icon(Icons.chevron_right_rounded),
+                      onTap: () => showBackgroundSettingsSheet(context, ref),
+                    ),
+                    const Divider(height: 1, indent: 56),
+                    ListTile(
                       leading: const Icon(Icons.alt_route_rounded),
                       title: const Text('Bangumi 网络线路'),
                       subtitle: Text(
@@ -322,7 +339,7 @@ class ProfilePage extends ConsumerWidget {
               const SizedBox(height: 26),
               Center(
                 child: Text(
-                  'MuBangumi 0.4.0 · 数据来自 Bangumi.tv',
+                  'MuBangumi 1.0.0 · 数据来自 Bangumi.tv',
                   style: Theme.of(context).textTheme.bodySmall?.copyWith(
                     color: Theme.of(context).colorScheme.onSurfaceVariant,
                   ),

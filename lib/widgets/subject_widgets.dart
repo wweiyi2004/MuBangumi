@@ -129,153 +129,166 @@ class SubjectTile extends StatelessWidget {
     final progress = _progressValue(subject, collection);
     final showProgressBar = collection != null && progress != null;
     final scheme = Theme.of(context).colorScheme;
+    final narrow = MediaQuery.sizeOf(context).width < 400;
     // Fixed content height matches cover so Spacer works in ListView items
     // (unbounded list height + Spacer otherwise throws).
-    const coverHeight = 104.0;
+    final coverHeight = narrow ? 92.0 : 104.0;
+    final coverWidth = narrow ? 66.0 : 74.0;
     return Card(
       clipBehavior: Clip.antiAlias,
       child: InkWell(
         onTap: onTap,
         child: Padding(
-          padding: const EdgeInsets.all(10),
+          padding: EdgeInsets.all(narrow ? 8 : 10),
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               SubjectCover(
                 subject: subject,
-                width: 74,
+                width: coverWidth,
                 height: coverHeight,
                 borderRadius: 12,
               ),
-              const SizedBox(width: 12),
+              SizedBox(width: narrow ? 8 : 12),
               Expanded(
                 child: SizedBox(
                   height: coverHeight,
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                    Text(
-                      subject.displayName,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: Theme.of(context).textTheme.titleMedium,
-                    ),
-                    const SizedBox(height: 4),
-                    Row(
-                      children: [
-                        if (showTypeBadge) ...[
-                          SubjectTypeBadge(type: subject.type),
-                          const SizedBox(width: 6),
-                        ],
-                        if (collection != null)
-                          Text(
-                            collection!.type.labelFor(subject.type),
-                            style: Theme.of(context).textTheme.labelSmall
-                                ?.copyWith(
-                                  color: scheme.primary,
-                                  fontWeight: FontWeight.w700,
-                                ),
-                          )
-                        else if (subject.nameCn.isNotEmpty &&
-                            subject.name.isNotEmpty)
-                          Expanded(
-                            child: Text(
-                              subject.name,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: Theme.of(context).textTheme.bodySmall
-                                  ?.copyWith(color: scheme.onSurfaceVariant),
-                            ),
-                          ),
-                      ],
-                    ),
-                    const Spacer(),
-                    if (collection != null) ...[
-                      Row(
-                        children: [
-                          Expanded(
-                            child: Text(
-                              progressText,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: Theme.of(context).textTheme.labelMedium
-                                  ?.copyWith(color: scheme.onSurfaceVariant),
-                            ),
-                          ),
-                          if (subject.score > 0) ...[
-                            const Icon(
-                              Icons.star_rounded,
-                              color: Color(0xFFF3A646),
-                              size: 16,
-                            ),
-                            const SizedBox(width: 2),
-                            Text(
-                              subject.score.toStringAsFixed(1),
-                              style: Theme.of(context).textTheme.labelMedium,
-                            ),
-                          ],
-                          if (collection!.rate > 0) ...[
-                            const SizedBox(width: 6),
-                            Text(
-                              '我的 ${collection!.rate}',
-                              style: Theme.of(context).textTheme.labelSmall
-                                  ?.copyWith(
-                                    color: scheme.onSecondaryContainer,
-                                    fontWeight: FontWeight.w700,
-                                  ),
-                            ),
-                          ],
-                        ],
+                      Text(
+                        subject.displayName,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context).textTheme.titleMedium
+                            ?.copyWith(fontSize: narrow ? 15 : null),
                       ),
-                      if (showProgressBar) ...[
-                        const SizedBox(height: 6),
-                        ClipRRect(
-                          borderRadius: BorderRadius.circular(10),
-                          child: LinearProgressIndicator(
-                            value: progress,
-                            minHeight: 5,
-                            backgroundColor: scheme.surfaceContainer,
-                          ),
-                        ),
-                      ],
-                    ] else ...[
+                      const SizedBox(height: 4),
                       Row(
                         children: [
-                          if (subject.score > 0) ...[
-                            const Icon(
-                              Icons.star_rounded,
-                              color: Color(0xFFF3A646),
-                              size: 17,
-                            ),
-                            const SizedBox(width: 3),
-                            Text(subject.score.toStringAsFixed(1)),
+                          if (showTypeBadge) ...[
+                            SubjectTypeBadge(type: subject.type),
+                            const SizedBox(width: 6),
                           ],
-                          if (subject.ratingTotal > 0) ...[
-                            const SizedBox(width: 8),
-                            Text(
-                              '${subject.ratingTotal}人',
-                              style: TextStyle(
-                                color: scheme.onSurfaceVariant,
-                                fontSize: 12,
+                          if (collection != null)
+                            Flexible(
+                              child: Text(
+                                collection!.type.labelFor(subject.type),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: Theme.of(context).textTheme.labelSmall
+                                    ?.copyWith(
+                                      color: scheme.primary,
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                              ),
+                            )
+                          else if (subject.nameCn.isNotEmpty &&
+                              subject.name.isNotEmpty)
+                            Expanded(
+                              child: Text(
+                                subject.name,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: Theme.of(context).textTheme.bodySmall
+                                    ?.copyWith(color: scheme.onSurfaceVariant),
                               ),
                             ),
-                          ],
-                          if (subject.rank > 0) ...[
-                            const SizedBox(width: 10),
-                            Text(
-                              '#${subject.rank}',
-                              style: TextStyle(color: scheme.onSurfaceVariant),
-                            ),
-                          ],
                         ],
                       ),
+                      const Spacer(),
+                      if (collection != null) ...[
+                        Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                progressText,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: Theme.of(context).textTheme.labelMedium
+                                    ?.copyWith(color: scheme.onSurfaceVariant),
+                              ),
+                            ),
+                            if (subject.score > 0) ...[
+                              const Icon(
+                                Icons.star_rounded,
+                                color: Color(0xFFF3A646),
+                                size: 16,
+                              ),
+                              const SizedBox(width: 2),
+                              Text(
+                                subject.score.toStringAsFixed(1),
+                                style: Theme.of(context).textTheme.labelMedium,
+                              ),
+                            ],
+                            if (collection!.rate > 0 && !narrow) ...[
+                              const SizedBox(width: 6),
+                              Text(
+                                '我的 ${collection!.rate}',
+                                style: Theme.of(context).textTheme.labelSmall
+                                    ?.copyWith(
+                                      color: scheme.onSecondaryContainer,
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                              ),
+                            ],
+                          ],
+                        ),
+                        if (showProgressBar) ...[
+                          const SizedBox(height: 6),
+                          ClipRRect(
+                            borderRadius: BorderRadius.circular(10),
+                            child: LinearProgressIndicator(
+                              value: progress,
+                              minHeight: 5,
+                              backgroundColor: scheme.surfaceContainer,
+                            ),
+                          ),
+                        ],
+                      ] else ...[
+                        Row(
+                          children: [
+                            if (subject.score > 0) ...[
+                              const Icon(
+                                Icons.star_rounded,
+                                color: Color(0xFFF3A646),
+                                size: 17,
+                              ),
+                              const SizedBox(width: 3),
+                              Text(subject.score.toStringAsFixed(1)),
+                            ],
+                            if (subject.ratingTotal > 0) ...[
+                              const SizedBox(width: 8),
+                              Flexible(
+                                child: Text(
+                                  '${subject.ratingTotal}人',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    color: scheme.onSurfaceVariant,
+                                    fontSize: 12,
+                                  ),
+                                ),
+                              ),
+                            ],
+                            if (subject.rank > 0) ...[
+                              const SizedBox(width: 8),
+                              Text(
+                                '#${subject.rank}',
+                                style: TextStyle(
+                                  color: scheme.onSurfaceVariant,
+                                ),
+                              ),
+                            ],
+                          ],
+                        ),
+                      ],
                     ],
-                  ],
                   ),
                 ),
               ),
               if (onEpisodeGrid != null || onNextEpisode != null) ...[
-                const SizedBox(width: 6),
+                SizedBox(width: narrow ? 2 : 6),
                 SizedBox(
                   height: coverHeight,
                   child: Column(
@@ -286,10 +299,13 @@ class SubjectTile extends StatelessWidget {
                           tooltip: '点格子',
                           visualDensity: VisualDensity.compact,
                           onPressed: busy ? null : onEpisodeGrid,
-                          icon: const Icon(Icons.grid_view_rounded, size: 18),
+                          icon: Icon(
+                            Icons.grid_view_rounded,
+                            size: narrow ? 16 : 18,
+                          ),
                         ),
                       if (onNextEpisode != null) ...[
-                        const SizedBox(height: 2),
+                        SizedBox(height: narrow ? 0 : 2),
                         IconButton.filledTonal(
                           tooltip: '看完下一集',
                           visualDensity: VisualDensity.compact,
@@ -301,7 +317,10 @@ class SubjectTile extends StatelessWidget {
                                     strokeWidth: 2,
                                   ),
                                 )
-                              : const Icon(Icons.add_rounded, size: 18),
+                              : Icon(
+                                  Icons.add_rounded,
+                                  size: narrow ? 16 : 18,
+                                ),
                         ),
                       ],
                     ],
@@ -361,6 +380,7 @@ class SubjectGrid extends StatelessWidget {
           : constraints.maxWidth >= 640
           ? 2
           : 1;
+      final narrow = constraints.maxWidth < 400;
       return GridView.builder(
         shrinkWrap: true,
         physics: const NeverScrollableScrollPhysics(),
@@ -368,9 +388,9 @@ class SubjectGrid extends StatelessWidget {
         addRepaintBoundaries: true,
         gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
           crossAxisCount: columns,
-          mainAxisExtent: 128,
-          mainAxisSpacing: 14,
-          crossAxisSpacing: 14,
+          mainAxisExtent: narrow ? 116 : 128,
+          mainAxisSpacing: narrow ? 10 : 14,
+          crossAxisSpacing: narrow ? 10 : 14,
         ),
         itemCount: itemCount,
         itemBuilder: itemBuilder,

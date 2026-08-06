@@ -24,7 +24,7 @@ class BangumiApi {
           headers: const {
             'Accept': 'application/json',
             'Content-Type': 'application/json',
-            'User-Agent': 'MuBangumi/0.4.0 (Flutter; personal Bangumi client)',
+            'User-Agent': 'MuBangumi/1.0.0 (Flutter; personal Bangumi client)',
           },
         ),
       ) {
@@ -416,7 +416,7 @@ class BangumiApi {
           receiveTimeout: const Duration(seconds: 20),
           headers: const {
             'User-Agent':
-                'MuBangumi/0.4.0 (Flutter; personal Bangumi client)',
+                'MuBangumi/1.0.0 (Flutter; personal Bangumi client)',
             'Accept': 'text/html,application/xhtml+xml',
           },
           responseType: ResponseType.plain,

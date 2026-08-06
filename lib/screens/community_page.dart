@@ -78,25 +78,29 @@ class _CommunityWebScreenState extends State<CommunityWebScreen> {
   @override
   Widget build(BuildContext context) {
     final compact = MediaQuery.sizeOf(context).width < 620;
+    final phone = MediaQuery.sizeOf(context).width < 420;
     return ColoredBox(
       color: Theme.of(context).scaffoldBackgroundColor,
       child: SafeArea(
         child: Padding(
           padding: EdgeInsets.fromLTRB(
-            compact ? 12 : 20,
-            12,
-            compact ? 12 : 20,
+            phone ? 10 : (compact ? 12 : 20),
+            phone ? 8 : 12,
+            phone ? 8 : (compact ? 12 : 20),
             12,
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Padding(
-                padding: EdgeInsets.symmetric(horizontal: compact ? 4 : 0),
+                padding: EdgeInsets.symmetric(horizontal: compact ? 2 : 0),
                 child: Row(
                   children: [
                     if (Navigator.canPop(context))
                       IconButton(
+                        visualDensity: phone
+                            ? VisualDensity.compact
+                            : VisualDensity.standard,
                         tooltip: '返回',
                         onPressed: () => Navigator.pop(context),
                         icon: const Icon(Icons.arrow_back_rounded),
@@ -106,7 +110,9 @@ class _CommunityWebScreenState extends State<CommunityWebScreen> {
                         widget.title,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: Theme.of(context).textTheme.headlineMedium,
+                        style: phone
+                            ? Theme.of(context).textTheme.titleLarge
+                            : Theme.of(context).textTheme.headlineMedium,
                       ),
                     ),
                     _BrowserButton(

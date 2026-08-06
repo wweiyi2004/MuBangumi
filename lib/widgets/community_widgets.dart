@@ -243,7 +243,12 @@ class CommunityPostCard extends StatelessWidget {
     final colors = Theme.of(context).colorScheme;
     final highlight = post.isOriginal || isFriend;
     return Padding(
-      padding: EdgeInsets.only(left: post.isNested ? 38 : 0, bottom: 10),
+      padding: EdgeInsets.only(
+        left: post.isNested
+            ? (MediaQuery.sizeOf(context).width < 420 ? 18 : 38)
+            : 0,
+        bottom: 10,
+      ),
       child: Card(
         margin: EdgeInsets.zero,
         color: post.isOriginal

@@ -195,12 +195,14 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
   @override
   Widget build(BuildContext context) {
     final session = ref.watch(sessionProvider);
-    final wide = MediaQuery.sizeOf(context).width >= 850;
+    final width = MediaQuery.sizeOf(context).width;
+    final wide = width >= 850;
+    final phone = width < 600;
     return Scaffold(
       body: SafeArea(
         child: Center(
           child: SingleChildScrollView(
-            padding: const EdgeInsets.all(24),
+            padding: EdgeInsets.all(phone ? 14 : 24),
             child: ConstrainedBox(
               constraints: const BoxConstraints(maxWidth: 1040),
               child: Card(
@@ -212,8 +214,16 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
                       Expanded(
                         child: Padding(
                           padding: EdgeInsets.symmetric(
-                            horizontal: wide ? 56 : 24,
-                            vertical: wide ? 58 : 38,
+                            horizontal: wide
+                                ? 56
+                                : phone
+                                    ? 18
+                                    : 24,
+                            vertical: wide
+                                ? 58
+                                : phone
+                                    ? 28
+                                    : 38,
                           ),
                           child: ConstrainedBox(
                             constraints: const BoxConstraints(maxWidth: 420),

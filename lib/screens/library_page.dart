@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../core/layout/app_layout.dart';
 import '../models/bangumi_models.dart';
 import '../state/session_controller.dart';
 import '../widgets/episode_grid_sheet.dart';
@@ -75,18 +76,20 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
 
     return LayoutBuilder(
       builder: (context, constraints) {
+        final phone = constraints.maxWidth < AppLayout.phone;
         final columns = constraints.maxWidth >= 1050
             ? 3
             : constraints.maxWidth >= 640
             ? 2
             : 1;
+        final pagePad = AppLayout.pagePadding(context);
         return RefreshIndicator(
           onRefresh: () => ref.read(sessionProvider.notifier).refresh(),
           child: CustomScrollView(
             physics: const AlwaysScrollableScrollPhysics(),
             slivers: [
               SliverPadding(
-                padding: const EdgeInsets.fromLTRB(20, 24, 20, 0),
+                padding: EdgeInsets.fromLTRB(pagePad, phone ? 16 : 24, pagePad, 0),
                 sliver: SliverToBoxAdapter(
                   child: Center(
                     child: ConstrainedBox(
@@ -96,46 +99,59 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
                         children: [
                           Text(
                             '我的收藏',
-                            style: Theme.of(context).textTheme.headlineLarge,
+                            style: AppLayout.pageTitleStyle(context),
                           ),
                           const SizedBox(height: 6),
                           Text(
-                            '找到 ${items.length} 部 · '
-                            '当前类型 $typedCount 部 · '
-                            '全部 ${collections.length} 部'
-                            '${isLoadingCollections ? ' · 同步中' : ''}',
+                            phone
+                                ? '找到 ${items.length} 部'
+                                    '${isLoadingCollections ? ' · 同步中' : ''}'
+                                : '找到 ${items.length} 部 · '
+                                    '当前类型 $typedCount 部 · '
+                                    '全部 ${collections.length} 部'
+                                    '${isLoadingCollections ? ' · 同步中' : ''}',
                             style: TextStyle(
                               color: Theme.of(
                                 context,
                               ).colorScheme.onSurfaceVariant,
+                              fontSize: phone ? 13 : null,
                             ),
                           ),
                           if (isLoadingCollections) ...[
                             const SizedBox(height: 10),
                             const LinearProgressIndicator(minHeight: 3),
                           ],
-                          const SizedBox(height: 24),
+                          SizedBox(height: phone ? 16 : 24),
                           Row(
                             children: [
                               Expanded(
                                 child: TextField(
                                   onChanged: (value) =>
                                       setState(() => _query = value),
-                                  decoration: const InputDecoration(
+                                  decoration: InputDecoration(
                                     hintText: '在收藏中搜索',
-                                    prefixIcon: Icon(Icons.search_rounded),
+                                    isDense: phone,
+                                    prefixIcon: const Icon(
+                                      Icons.search_rounded,
+                                    ),
                                   ),
                                 ),
                               ),
-                              const SizedBox(width: 10),
+                              const SizedBox(width: 8),
                               Badge.count(
                                 count: _activeFilters,
                                 isLabelVisible: _activeFilters > 0,
-                                child: FilledButton.tonalIcon(
-                                  onPressed: _showFilters,
-                                  icon: const Icon(Icons.tune_rounded),
-                                  label: const Text('筛选'),
-                                ),
+                                child: phone
+                                    ? IconButton.filledTonal(
+                                        tooltip: '筛选',
+                                        onPressed: _showFilters,
+                                        icon: const Icon(Icons.tune_rounded),
+                                      )
+                                    : FilledButton.tonalIcon(
+                                        onPressed: _showFilters,
+                                        icon: const Icon(Icons.tune_rounded),
+                                        label: const Text('筛选'),
+                                      ),
                               ),
                             ],
                           ),
@@ -247,7 +263,7 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
                 )
               else
                 SliverPadding(
-                  padding: const EdgeInsets.fromLTRB(20, 0, 20, 60),
+                  padding: EdgeInsets.fromLTRB(pagePad, 0, pagePad, 60),
                   sliver: SliverLayoutBuilder(
                     builder: (context, constraints) {
                       final width = constraints.crossAxisExtent;

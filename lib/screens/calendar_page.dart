@@ -88,9 +88,16 @@ class _CalendarPageState extends ConsumerState<CalendarPage> {
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
+                  padding: EdgeInsets.fromLTRB(
+                    MediaQuery.sizeOf(context).width < 420 ? 12 : 16,
+                    8,
+                    MediaQuery.sizeOf(context).width < 420 ? 12 : 16,
+                    4,
+                  ),
                   child: Text(
-                    '官方放送日历 · 与本地「新番表」独立，不会覆盖你的排期',
+                    MediaQuery.sizeOf(context).width < 420
+                        ? '官方放送日历 · 与本地新番表独立'
+                        : '官方放送日历 · 与本地「新番表」独立，不会覆盖你的排期',
                     style: Theme.of(context).textTheme.bodySmall?.copyWith(
                       color: Theme.of(context).colorScheme.onSurfaceVariant,
                     ),

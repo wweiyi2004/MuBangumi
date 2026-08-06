@@ -4,8 +4,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'core/theme/app_theme.dart';
 import 'screens/auth_screen.dart';
 import 'screens/home_shell.dart';
+import 'state/background_controller.dart';
 import 'state/session_controller.dart';
 import 'state/theme_controller.dart';
+import 'widgets/app_background.dart';
 
 class MuBangumiApp extends ConsumerWidget {
   const MuBangumiApp({super.key});
@@ -15,12 +17,18 @@ class MuBangumiApp extends ConsumerWidget {
     // Only rebuild the root shell when auth phase changes.
     final phase = ref.watch(sessionProvider.select((state) => state.phase));
     final themeMode = ref.watch(themeModeProvider);
+    final background = ref.watch(backgroundSettingsProvider);
     return MaterialApp(
       title: 'MuBangumi',
       debugShowCheckedModeBanner: false,
-      theme: AppTheme.light,
-      darkTheme: AppTheme.dark,
+      theme: applyBackgroundTheme(AppTheme.light, background),
+      darkTheme: applyBackgroundTheme(AppTheme.dark, background),
       themeMode: themeMode,
+      builder: (context, child) {
+        return AppBackgroundHost(
+          child: child ?? const SizedBox.shrink(),
+        );
+      },
       home: switch (phase) {
         SessionPhase.booting => const _LaunchScreen(),
         SessionPhase.signedOut => const AuthScreen(),

@@ -9,6 +9,7 @@ import '../models/schedule_models.dart';
 import '../state/rss_controller.dart';
 import '../state/schedule_controller.dart';
 import '../state/session_controller.dart';
+import '../widgets/schedule_export_poster.dart';
 import '../widgets/subject_widgets.dart';
 import 'rss_sheets.dart';
 import 'subject_detail_screen.dart';
@@ -27,9 +28,7 @@ class SchedulePage extends ConsumerWidget {
     final collections = ref.watch(
       sessionProvider.select((value) => value.collections),
     );
-    final progressMap = {
-      for (final item in collections) item.subjectId: item,
-    };
+    final progressMap = {for (final item in collections) item.subjectId: item};
     final width = MediaQuery.sizeOf(context).width;
     final isWide = width >= wideBreakpoint;
 
@@ -76,9 +75,9 @@ class SchedulePage extends ConsumerWidget {
                   children: [
                     Padding(
                       padding: EdgeInsets.fromLTRB(
-                        16,
-                        isWide ? 18 : 12,
-                        8,
+                        isWide ? 16 : 12,
+                        isWide ? 18 : 10,
+                        4,
                         8,
                       ),
                       child: Column(
@@ -98,50 +97,90 @@ class SchedulePage extends ConsumerWidget {
                                         ).textTheme.headlineMedium,
                                 ),
                               ),
-                              IconButton(
-                                tooltip: '更新提醒',
-                                onPressed: () => showRssUpdatesSheet(context),
-                                icon: Badge(
-                                  isLabelVisible: rss.totalUnread > 0,
-                                  label: Text(
-                                    rss.totalUnread > 99
-                                        ? '99+'
-                                        : '${rss.totalUnread}',
-                                  ),
-                                  child: const Icon(
-                                    Icons.notifications_outlined,
+                              Flexible(
+                                child: FittedBox(
+                                  fit: BoxFit.scaleDown,
+                                  alignment: Alignment.centerRight,
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      IconButton(
+                                        visualDensity: isWide
+                                            ? VisualDensity.standard
+                                            : VisualDensity.compact,
+                                        tooltip: '导出图片',
+                                        onPressed: () => unawaited(
+                                          showScheduleExportDialog(
+                                            context,
+                                            schedule: state.schedule,
+                                          ),
+                                        ),
+                                        icon: const Icon(Icons.image_outlined),
+                                      ),
+                                      IconButton(
+                                        visualDensity: isWide
+                                            ? VisualDensity.standard
+                                            : VisualDensity.compact,
+                                        tooltip: '更新提醒',
+                                        onPressed: () =>
+                                            showRssUpdatesSheet(context),
+                                        icon: Badge(
+                                          isLabelVisible: rss.totalUnread > 0,
+                                          label: Text(
+                                            rss.totalUnread > 99
+                                                ? '99+'
+                                                : '${rss.totalUnread}',
+                                          ),
+                                          child: const Icon(
+                                            Icons.notifications_outlined,
+                                          ),
+                                        ),
+                                      ),
+                                      IconButton(
+                                        visualDensity: isWide
+                                            ? VisualDensity.standard
+                                            : VisualDensity.compact,
+                                        tooltip: rss.refreshing
+                                            ? '检查中…'
+                                            : '检查更新',
+                                        onPressed: rss.refreshing
+                                            ? null
+                                            : () => ref
+                                                  .read(rssProvider.notifier)
+                                                  .refreshAll(force: true),
+                                        icon: rss.refreshing
+                                            ? const SizedBox(
+                                                width: 22,
+                                                height: 22,
+                                                child:
+                                                    CircularProgressIndicator(
+                                                  strokeWidth: 2,
+                                                ),
+                                              )
+                                            : const Icon(Icons.sync_rounded),
+                                      ),
+                                      IconButton(
+                                        visualDensity: isWide
+                                            ? VisualDensity.standard
+                                            : VisualDensity.compact,
+                                        tooltip: '更新源 RSS',
+                                        onPressed: () =>
+                                            showRssSourcesSheet(context),
+                                        icon: const Icon(
+                                          Icons.rss_feed_rounded,
+                                        ),
+                                      ),
+                                    ],
                                   ),
                                 ),
-                              ),
-                              IconButton(
-                                tooltip: rss.refreshing ? '检查中…' : '检查更新',
-                                onPressed: rss.refreshing
-                                    ? null
-                                    : () => ref
-                                          .read(rssProvider.notifier)
-                                          .refreshAll(force: true),
-                                icon: rss.refreshing
-                                    ? const SizedBox(
-                                        width: 22,
-                                        height: 22,
-                                        child: CircularProgressIndicator(
-                                          strokeWidth: 2,
-                                        ),
-                                      )
-                                    : const Icon(Icons.sync_rounded),
-                              ),
-                              IconButton(
-                                tooltip: '更新源 RSS',
-                                onPressed: () => showRssSourcesSheet(context),
-                                icon: const Icon(Icons.rss_feed_rounded),
                               ),
                             ],
                           ),
                           const SizedBox(height: 4),
                           Text(
                             isWide
-                                ? '搜索加番 · 拖拽改期 · 种子站 RSS 提醒「该看了」'
-                                : '拖拽改期 · ⋮ 绑定 RSS · 角标=有新',
+                                ? '搜索加番 · 拖拽改期 · 导出海报 · 种子站 RSS 提醒'
+                                : '拖拽改期 · 导出图片 · RSS 角标',
                             style: TextStyle(
                               color: Theme.of(
                                 context,
@@ -185,8 +224,7 @@ class SchedulePage extends ConsumerWidget {
                               child: EmptyState(
                                 icon: Icons.calendar_view_week_rounded,
                                 title: '本季课表还是空的',
-                                message:
-                                    '点右下角搜索加番；加源后可在格子 ⋮ 里绑定 RSS 提醒。',
+                                message: '点右下角搜索加番；加源后可在格子 ⋮ 里绑定 RSS 提醒。',
                               ),
                             )
                           : _ScheduleBoard(
@@ -458,10 +496,7 @@ class _SearchAddSheetState extends ConsumerState<_SearchAddSheet> {
             padding: const EdgeInsets.symmetric(horizontal: 16),
             child: Row(
               children: [
-                Text(
-                  '类型',
-                  style: Theme.of(context).textTheme.labelLarge,
-                ),
+                Text('类型', style: Theme.of(context).textTheme.labelLarge),
                 const SizedBox(width: 8),
                 for (final type in const [
                   SubjectType.anime,
@@ -486,10 +521,7 @@ class _SearchAddSheetState extends ConsumerState<_SearchAddSheet> {
             padding: const EdgeInsets.symmetric(horizontal: 16),
             child: Row(
               children: [
-                Text(
-                  '放到',
-                  style: Theme.of(context).textTheme.labelLarge,
-                ),
+                Text('放到', style: Theme.of(context).textTheme.labelLarge),
                 const SizedBox(width: 8),
                 ChoiceChip(
                   label: const Text('待安排'),
@@ -497,9 +529,11 @@ class _SearchAddSheetState extends ConsumerState<_SearchAddSheet> {
                   onSelected: (_) => setState(() => _weekday = null),
                 ),
                 const SizedBox(width: 8),
-                for (var day = DateTime.monday;
-                    day <= DateTime.sunday;
-                    day++) ...[
+                for (
+                  var day = DateTime.monday;
+                  day <= DateTime.sunday;
+                  day++
+                ) ...[
                   ChoiceChip(
                     label: Text(weekdayLabel(day)),
                     selected: _weekday == day,
@@ -576,9 +610,9 @@ class _SearchAddSheetState extends ConsumerState<_SearchAddSheet> {
                                 label: const Text('已在表中'),
                                 visualDensity: VisualDensity.compact,
                                 side: BorderSide.none,
-                                backgroundColor: Theme.of(context)
-                                    .colorScheme
-                                    .surfaceContainerHigh,
+                                backgroundColor: Theme.of(
+                                  context,
+                                ).colorScheme.surfaceContainerHigh,
                               )
                             : FilledButton.tonalIcon(
                                 onPressed: () => unawaited(_add(subject)),
@@ -710,11 +744,7 @@ class _ScheduleBoardState extends ConsumerState<_ScheduleBoard> {
     setState(() => _dragging = value);
   }
 
-  Future<void> _place(
-    int subjectId, {
-    int? weekday,
-    int? insertIndex,
-  }) async {
+  Future<void> _place(int subjectId, {int? weekday, int? insertIndex}) async {
     await ref
         .read(scheduleProvider.notifier)
         .moveItem(subjectId, weekday: weekday, insertIndex: insertIndex);
@@ -972,21 +1002,25 @@ class _CourseTable extends StatelessWidget {
 
     return LayoutBuilder(
       builder: (context, constraints) {
-        final pad = 8.0;
+        final pad = constraints.maxWidth < 400 ? 6.0 : 8.0;
         final tableWidth = math.max(0.0, constraints.maxWidth - pad * 2);
-        final indexWidth = tableWidth < 420 ? 22.0 : 32.0;
+        final indexWidth = tableWidth < 420
+            ? (tableWidth < 340 ? 18.0 : 22.0)
+            : 32.0;
         final dayWidth = (tableWidth - indexWidth) / 7;
-        final dense = dayWidth < 72;
-        final medium = dayWidth < 110;
-        final cellStyle = dense ? _CellStyle.dense : _CellStyle.grid;
+        // Cover-on-top layout must kick in before the horizontal row overflows.
+        final dense = dayWidth < 108;
+        final medium = dayWidth < 128;
+        final cellStyle = dayWidth < 78
+            ? _CellStyle.dense
+            : _CellStyle.grid;
         final rowHeight = dense
-            ? 88.0
+            ? (dayWidth < 56 ? 82.0 : 90.0)
             : medium
             ? 96.0
             : 100.0;
-        final headerHeight = dense ? 36.0 : 44.0;
-        final tableBodyHeight = slots * rowHeight;
-        final shortHeader = dayWidth < 56;
+        final headerHeight = dense ? 34.0 : 44.0;
+        final shortHeader = dayWidth < 64;
 
         return SingleChildScrollView(
           padding: EdgeInsets.fromLTRB(pad, 0, pad, dragging ? 12 : 96),
@@ -1014,9 +1048,11 @@ class _CourseTable extends StatelessWidget {
                           color: scheme.onSurfaceVariant,
                         ),
                       ),
-                      for (var day = DateTime.monday;
-                          day <= DateTime.sunday;
-                          day++)
+                      for (
+                        var day = DateTime.monday;
+                        day <= DateTime.sunday;
+                        day++
+                      )
                         Expanded(
                           child: DragTarget<_DragPayload>(
                             onWillAcceptWithDetails: (_) => true,
@@ -1076,8 +1112,7 @@ class _CourseTable extends StatelessWidget {
                     ],
                   ),
                 ),
-                Container(
-                  height: tableBodyHeight,
+                DecoratedBox(
                   decoration: BoxDecoration(
                     border: Border(
                       left: BorderSide(color: scheme.outlineVariant),
@@ -1089,6 +1124,7 @@ class _CourseTable extends StatelessWidget {
                     ),
                   ),
                   child: Column(
+                    mainAxisSize: MainAxisSize.min,
                     children: [
                       for (var slot = 0; slot < slots; slot++)
                         SizedBox(
@@ -1116,9 +1152,11 @@ class _CourseTable extends StatelessWidget {
                                   ),
                                 ),
                               ),
-                              for (var day = DateTime.monday;
-                                  day <= DateTime.sunday;
-                                  day++)
+                              for (
+                                var day = DateTime.monday;
+                                day <= DateTime.sunday;
+                                day++
+                              )
                                 Expanded(
                                   child: _DaySlot(
                                     day: day,
@@ -1128,14 +1166,14 @@ class _CourseTable extends StatelessWidget {
                                     item: slot < schedule.itemsOn(day).length
                                         ? schedule.itemsOn(day)[slot]
                                         : null,
-                                    collection: slot <
-                                            schedule.itemsOn(day).length
+                                    collection:
+                                        slot < schedule.itemsOn(day).length
                                         ? progressMap[schedule
                                               .itemsOn(day)[slot]
                                               .subjectId]
                                         : null,
-                                    unreadCount: slot <
-                                            schedule.itemsOn(day).length
+                                    unreadCount:
+                                        slot < schedule.itemsOn(day).length
                                         ? (unreadBySubject[schedule
                                                   .itemsOn(day)[slot]
                                                   .subjectId] ??
@@ -1305,11 +1343,15 @@ class _CourseCell extends StatelessWidget {
             Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                SubjectCover(
-                  subject: subject,
-                  width: 48,
-                  height: 64,
-                  borderRadius: 8,
+                Expanded(
+                  child: LayoutBuilder(
+                    builder: (context, constraints) => SubjectCover(
+                      subject: subject,
+                      width: 48,
+                      height: constraints.maxHeight,
+                      borderRadius: 8,
+                    ),
+                  ),
                 ),
                 const SizedBox(height: 3),
                 Text(
@@ -1353,16 +1395,19 @@ class _CourseCell extends StatelessWidget {
                 ),
               ),
               const SizedBox(height: 2),
-              Text(
-                item.displayName,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  fontSize: 9,
-                  height: 1.1,
-                  fontWeight: FontWeight.w800,
-                  color: scheme.onSecondaryContainer,
+              SizedBox(
+                height: 22,
+                child: Text(
+                  item.displayName,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 9,
+                    height: 1.1,
+                    fontWeight: FontWeight.w800,
+                    color: scheme.onSecondaryContainer,
+                  ),
                 ),
               ),
             ],
@@ -1385,101 +1430,112 @@ class _CourseCell extends StatelessWidget {
           ),
         ],
       ),
-      _CellStyle.grid => dense
-          ? Stack(
-              children: [
-                Column(
-                  children: [
-                    Expanded(
-                      child: LayoutBuilder(
-                        builder: (context, constraints) => SubjectCover(
-                          subject: subject,
-                          width: constraints.maxWidth,
-                          height: constraints.maxHeight,
-                          borderRadius: 6,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      item.displayName,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        fontSize: 10,
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
-                  ],
-                ),
-                Positioned(
-                  top: -6,
-                  right: -8,
-                  child: IconButton(
-                    visualDensity: VisualDensity.compact,
-                    padding: EdgeInsets.zero,
-                    constraints: const BoxConstraints(
-                      minWidth: 26,
-                      minHeight: 26,
-                    ),
-                    tooltip: '删除/改期',
-                    icon: const Icon(Icons.more_horiz_rounded, size: 16),
-                    onPressed: () => _showActions(context),
-                  ),
-                ),
-              ],
-            )
-          : Row(
-              children: [
-                SubjectCover(
-                  subject: subject,
-                  width: 40,
-                  height: 56,
-                  borderRadius: 7,
-                ),
-                const SizedBox(width: 6),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisAlignment: MainAxisAlignment.center,
+      _CellStyle.grid =>
+        dense
+            ? Stack(
+                children: [
+                  Column(
                     children: [
-                      Text(
-                        item.displayName,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w800,
-                          height: 1.15,
-                        ),
-                      ),
-                      if (progress != null) ...[
-                        const SizedBox(height: 2),
-                        Text(
-                          progress,
-                          style: TextStyle(
-                            fontSize: 10,
-                            color: scheme.onSecondaryContainer,
+                      Expanded(
+                        child: LayoutBuilder(
+                          builder: (context, constraints) => SubjectCover(
+                            subject: subject,
+                            width: constraints.maxWidth,
+                            height: constraints.maxHeight,
+                            borderRadius: 6,
                           ),
                         ),
-                      ],
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        item.displayName,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontSize: 10,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
                     ],
                   ),
-                ),
-                if (showMenuButton)
-                  IconButton(
-                    visualDensity: VisualDensity.compact,
-                    padding: EdgeInsets.zero,
-                    constraints: const BoxConstraints(
-                      minWidth: 28,
-                      minHeight: 28,
+                  Positioned(
+                    top: -6,
+                    right: -8,
+                    child: IconButton(
+                      visualDensity: VisualDensity.compact,
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints(
+                        minWidth: 26,
+                        minHeight: 26,
+                      ),
+                      tooltip: '删除/改期',
+                      icon: const Icon(Icons.more_horiz_rounded, size: 16),
+                      onPressed: () => _showActions(context),
                     ),
-                    tooltip: '更多',
-                    icon: const Icon(Icons.more_vert_rounded, size: 18),
-                    onPressed: () => _showActions(context),
                   ),
-              ],
-            ),
+                ],
+              )
+            : LayoutBuilder(
+                builder: (context, cellConstraints) {
+                  final tight = cellConstraints.maxWidth < 120;
+                  final coverW = tight ? 32.0 : 40.0;
+                  final coverH = tight ? 46.0 : 56.0;
+                  return Row(
+                    children: [
+                      SubjectCover(
+                        subject: subject,
+                        width: coverW,
+                        height: coverH,
+                        borderRadius: 7,
+                      ),
+                      SizedBox(width: tight ? 4 : 6),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(
+                              item.displayName,
+                              maxLines: tight ? 1 : 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                fontSize: tight ? 11 : 12,
+                                fontWeight: FontWeight.w800,
+                                height: 1.15,
+                              ),
+                            ),
+                            if (progress != null && !tight) ...[
+                              const SizedBox(height: 2),
+                              Text(
+                                progress,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  fontSize: 10,
+                                  color: scheme.onSecondaryContainer,
+                                ),
+                              ),
+                            ],
+                          ],
+                        ),
+                      ),
+                      if (showMenuButton && !tight)
+                        IconButton(
+                          visualDensity: VisualDensity.compact,
+                          padding: EdgeInsets.zero,
+                          constraints: const BoxConstraints(
+                            minWidth: 28,
+                            minHeight: 28,
+                          ),
+                          tooltip: '更多',
+                          icon: const Icon(Icons.more_vert_rounded, size: 18),
+                          onPressed: () => _showActions(context),
+                        ),
+                    ],
+                  );
+                },
+              ),
     };
 
     final radius = dense || style == _CellStyle.dense ? 8.0 : 10.0;
@@ -1554,7 +1610,10 @@ class _CourseCell extends StatelessWidget {
               ColoredBox(
                 color: scheme.secondaryContainer,
                 child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 4,
+                    vertical: 2,
+                  ),
                   child: Text(
                     item.displayName,
                     maxLines: 1,

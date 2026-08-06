@@ -15,7 +15,7 @@ class CommunityService {
           receiveTimeout: const Duration(seconds: 20),
           responseType: ResponseType.plain,
           headers: const {
-            'User-Agent': 'MuBangumi/0.4.0 (Flutter; personal Bangumi client)',
+            'User-Agent': 'MuBangumi/1.0.0 (Flutter; personal Bangumi client)',
             'Accept': 'text/html,application/xhtml+xml',
           },
         ),
@@ -27,7 +27,7 @@ class CommunityService {
           receiveTimeout: const Duration(seconds: 20),
           responseType: ResponseType.json,
           headers: const {
-            'User-Agent': 'MuBangumi/0.4.0 (Flutter; personal Bangumi client)',
+            'User-Agent': 'MuBangumi/1.0.0 (Flutter; personal Bangumi client)',
             'Accept': 'application/json',
           },
         ),
@@ -98,7 +98,9 @@ class CommunityService {
     final users = data is List
         ? data
               .whereType<Map>()
-              .map((item) => BangumiUser.fromJson(Map<String, dynamic>.from(item)))
+              .map(
+                (item) => BangumiUser.fromJson(Map<String, dynamic>.from(item)),
+              )
               .where((user) => user.username.isNotEmpty)
               .toList()
         : const <BangumiUser>[];
@@ -328,7 +330,7 @@ class CommunityService {
       throw const FormatException('回复内容不能为空');
     }
     if (turnstileToken.trim().isEmpty) {
-      throw const FormatException('人机验证未完成，请重试');
+      throw const FormatException('人机验证未完成，请重新点击发送');
     }
     // API: replyTo=0 means top-level reply; otherwise nest under that reply id.
     await _postJson(
@@ -667,12 +669,7 @@ class CommunityService {
             status == 401 &&
             onUnauthorizedRefresh != null &&
             await onUnauthorizedRefresh!()) {
-          return _getJson(
-            path,
-            query: query,
-            refresh: true,
-            retriedAuth: true,
-          );
+          return _getJson(path, query: query, refresh: true, retriedAuth: true);
         }
         final shouldRetry =
             status == null ||
@@ -745,10 +742,7 @@ class CommunityService {
     _requireAuthentication();
     final page = await _getJson(
       '/notify',
-      query: {
-        'limit': limit.clamp(1, 40),
-        if (unreadOnly) 'unread': true,
-      },
+      query: {'limit': limit.clamp(1, 40), if (unreadOnly) 'unread': true},
       refresh: refresh,
     );
     return CommunityPageResult(
@@ -760,12 +754,7 @@ class CommunityService {
   /// Mark notices read. Empty [ids] clears all unread.
   Future<void> clearNotices({List<int> ids = const []}) async {
     _requireAuthentication();
-    await _postJson(
-      '/clear-notify',
-      data: {
-        if (ids.isNotEmpty) 'id': ids,
-      },
-    );
+    await _postJson('/clear-notify', data: {if (ids.isNotEmpty) 'id': ids});
     _jsonCache.removeWhere((key, _) => key.contains('/notify'));
   }
 
@@ -900,7 +889,7 @@ class CommunityService {
         // Turnstile failures are otherwise opaque.
         if (text.toLowerCase().contains('turnstile') ||
             text.toLowerCase().contains('captcha')) {
-          return '人机验证失败或已过期，请关闭后重新发送并完成验证';
+          return '人机验证失败或已过期，请重新点击发送并完成验证';
         }
         return text;
       }

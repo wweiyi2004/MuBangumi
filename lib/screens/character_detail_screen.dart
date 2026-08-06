@@ -113,7 +113,12 @@ class _CharacterDetailScreenState extends ConsumerState<CharacterDetailScreen> {
               )
             : ListView(
                 physics: const AlwaysScrollableScrollPhysics(),
-                padding: const EdgeInsets.fromLTRB(16, 12, 16, 40),
+                padding: EdgeInsets.fromLTRB(
+                  MediaQuery.sizeOf(context).width < 420 ? 12 : 16,
+                  12,
+                  MediaQuery.sizeOf(context).width < 420 ? 12 : 16,
+                  40,
+                ),
                 children: [
                   _MonoHeader(
                     name: detail?.displayName ?? title,
