@@ -18,11 +18,16 @@ class DiscoverPage extends ConsumerStatefulWidget {
 
 class _DiscoverPageState extends ConsumerState<DiscoverPage> {
   final _searchController = TextEditingController();
+  final _scrollController = ScrollController();
   Timer? _debounce;
   List<Subject> _subjects = const [];
   bool _loading = true;
+  bool _loadingMore = false;
+  bool _hasMore = true;
   String? _error;
   int _requestId = 0;
+  int _offset = 0;
+  static const _pageSize = 24;
 
   SubjectType _subjectType = SubjectType.anime;
   late int _browseYear;
@@ -88,14 +93,25 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
     final now = DateTime.now();
     _browseYear = now.year;
     _browseQuarter = (now.month - 1) ~/ 3;
+    _scrollController.addListener(_onScroll);
     Future.microtask(_runCurrentQuery);
   }
 
   @override
   void dispose() {
     _debounce?.cancel();
+    _scrollController
+      ..removeListener(_onScroll)
+      ..dispose();
     _searchController.dispose();
     super.dispose();
+  }
+
+  void _onScroll() {
+    if (!_hasMore || _loading || _loadingMore) return;
+    if (_scrollController.position.extentAfter < 480) {
+      unawaited(_loadMore());
+    }
   }
 
   void _onSearchChanged(String value) {
@@ -149,11 +165,18 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
     unawaited(_loadBrowse());
   }
 
-  Future<void> _loadBrowse() async {
-    final requestId = ++_requestId;
+  Future<void> _loadBrowse({bool append = false}) async {
+    final requestId = append ? _requestId : ++_requestId;
+    final offset = append ? _offset : 0;
     setState(() {
-      _loading = true;
-      _error = null;
+      if (append) {
+        _loadingMore = true;
+      } else {
+        _loading = true;
+        _error = null;
+        _offset = 0;
+        _hasMore = true;
+      }
     });
     try {
       final api = ref.read(bangumiApiProvider);
@@ -163,31 +186,48 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
               year: _browseYear,
               month: _browseQuarter * 3 + 1,
               sort: 'rank',
+              limit: _pageSize,
+              offset: offset,
             )
           : await api.browseSubjects(
               type: _subjectType,
               year: _browseYear,
               sort: _browseSort,
+              limit: _pageSize,
+              offset: offset,
             );
       if (!mounted || requestId != _requestId) return;
       setState(() {
-        _subjects = subjects;
+        _subjects = append ? [..._subjects, ...subjects] : subjects;
+        _offset = offset + subjects.length;
+        _hasMore = subjects.length >= _pageSize;
         _loading = false;
+        _loadingMore = false;
       });
     } catch (error) {
       if (!mounted || requestId != _requestId) return;
       setState(() {
         _loading = false;
-        _error = error.toString().replaceFirst('Exception: ', '');
+        _loadingMore = false;
+        if (!append) {
+          _error = error.toString().replaceFirst('Exception: ', '');
+        }
       });
     }
   }
 
-  Future<void> _search(String keyword) async {
-    final requestId = ++_requestId;
+  Future<void> _search(String keyword, {bool append = false}) async {
+    final requestId = append ? _requestId : ++_requestId;
+    final offset = append ? _offset : 0;
     setState(() {
-      _loading = true;
-      _error = null;
+      if (append) {
+        _loadingMore = true;
+      } else {
+        _loading = true;
+        _error = null;
+        _offset = 0;
+        _hasMore = true;
+      }
     });
     try {
       final tags = _tag
@@ -204,18 +244,36 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
             startYear: _startYear,
             tags: tags,
             subjectType: _subjectType,
+            limit: _pageSize,
+            offset: offset,
           );
       if (!mounted || requestId != _requestId) return;
       setState(() {
-        _subjects = subjects;
+        _subjects = append ? [..._subjects, ...subjects] : subjects;
+        _offset = offset + subjects.length;
+        _hasMore = subjects.length >= _pageSize;
         _loading = false;
+        _loadingMore = false;
       });
     } catch (error) {
       if (!mounted || requestId != _requestId) return;
       setState(() {
         _loading = false;
-        _error = error.toString().replaceFirst('Exception: ', '');
+        _loadingMore = false;
+        if (!append) {
+          _error = error.toString().replaceFirst('Exception: ', '');
+        }
       });
+    }
+  }
+
+  Future<void> _loadMore() async {
+    if (!_hasMore || _loadingMore || _loading) return;
+    final keyword = _searchController.text.trim();
+    if (keyword.isNotEmpty) {
+      await _search(keyword, append: true);
+    } else {
+      await _loadBrowse(append: true);
     }
   }
 
@@ -229,6 +287,7 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
     };
 
     return SingleChildScrollView(
+      controller: _scrollController,
       padding: const EdgeInsets.fromLTRB(20, 24, 20, 60),
       child: Center(
         child: ConstrainedBox(
@@ -390,7 +449,7 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
                   },
                   onOpenFilters: _showFilters,
                 )
-              else
+              else ...[
                 SubjectGrid(
                   itemCount: _subjects.length,
                   itemBuilder: (context, index) {
@@ -413,6 +472,22 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
                     );
                   },
                 ),
+                if (_hasMore) ...[
+                  const SizedBox(height: 16),
+                  Center(
+                    child: _loadingMore
+                        ? const SizedBox.square(
+                            dimension: 28,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : TextButton.icon(
+                            onPressed: _loadMore,
+                            icon: const Icon(Icons.expand_more_rounded),
+                            label: const Text('加载更多'),
+                          ),
+                  ),
+                ],
+              ],
             ],
           ),
         ),

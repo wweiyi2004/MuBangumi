@@ -5,6 +5,7 @@ import 'core/theme/app_theme.dart';
 import 'screens/auth_screen.dart';
 import 'screens/home_shell.dart';
 import 'state/session_controller.dart';
+import 'state/theme_controller.dart';
 
 class MuBangumiApp extends ConsumerWidget {
   const MuBangumiApp({super.key});
@@ -13,10 +14,13 @@ class MuBangumiApp extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     // Only rebuild the root shell when auth phase changes.
     final phase = ref.watch(sessionProvider.select((state) => state.phase));
+    final themeMode = ref.watch(themeModeProvider);
     return MaterialApp(
       title: 'MuBangumi',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.light,
+      darkTheme: AppTheme.dark,
+      themeMode: themeMode,
       home: switch (phase) {
         SessionPhase.booting => const _LaunchScreen(),
         SessionPhase.signedOut => const AuthScreen(),

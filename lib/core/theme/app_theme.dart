@@ -5,6 +5,44 @@ class AppTheme {
   static const ink = Color(0xFF1D2433);
   static const canvas = Color(0xFFF7F7FA);
 
+  static ThemeData get dark {
+    final scheme = ColorScheme.fromSeed(
+      seedColor: seed,
+      brightness: Brightness.dark,
+    ).copyWith(
+      primary: const Color(0xFFFF779D),
+      secondary: const Color(0xFF5ED1C5),
+      tertiary: const Color(0xFFF3A646),
+    );
+    return ThemeData(
+      useMaterial3: true,
+      colorScheme: scheme,
+      scaffoldBackgroundColor: const Color(0xFF12141A),
+      fontFamilyFallback: const [
+        'Microsoft YaHei UI',
+        'PingFang SC',
+        'Noto Sans CJK SC',
+      ],
+      appBarTheme: AppBarTheme(
+        backgroundColor: scheme.surface,
+        foregroundColor: scheme.onSurface,
+        elevation: 0,
+      ),
+      cardTheme: CardThemeData(
+        color: scheme.surfaceContainerLow,
+        elevation: 0,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+      ),
+      inputDecorationTheme: InputDecorationTheme(
+        filled: true,
+        border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
+      ),
+      chipTheme: ChipThemeData(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      ),
+    );
+  }
+
   static ThemeData get light {
     final scheme =
         ColorScheme.fromSeed(

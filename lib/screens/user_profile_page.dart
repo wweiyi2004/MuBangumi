@@ -159,6 +159,26 @@ class _UserProfilePageState extends ConsumerState<UserProfilePage> {
         title: Text(user?.displayName ?? widget.username),
         actions: [
           IconButton(
+            tooltip: '加为好友（官网）',
+            onPressed: () => launchUrl(
+              Uri.parse(
+                'https://bgm.tv/user/${Uri.encodeComponent(widget.username)}',
+              ),
+              mode: LaunchMode.externalApplication,
+            ),
+            icon: const Icon(Icons.person_add_alt_1_outlined),
+          ),
+          IconButton(
+            tooltip: '发短信（官网）',
+            onPressed: () => launchUrl(
+              Uri.parse(
+                'https://bgm.tv/pm/compose/${Uri.encodeComponent(widget.username)}.chii',
+              ),
+              mode: LaunchMode.externalApplication,
+            ),
+            icon: const Icon(Icons.mail_outline_rounded),
+          ),
+          IconButton(
             tooltip: '在 Bangumi 打开',
             onPressed: () => launchUrl(
               Uri.parse(

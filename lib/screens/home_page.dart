@@ -5,6 +5,7 @@ import '../models/bangumi_models.dart';
 import '../state/session_controller.dart';
 import '../widgets/episode_grid_sheet.dart';
 import '../widgets/subject_widgets.dart';
+import 'calendar_page.dart';
 import 'subject_detail_screen.dart';
 
 class HomePage extends ConsumerWidget {
@@ -85,6 +86,18 @@ class HomePage extends ConsumerWidget {
                         ],
                       ),
                     ),
+                    IconButton.filledTonal(
+                      tooltip: '每日放送',
+                      onPressed: () {
+                        Navigator.of(context).push(
+                          MaterialPageRoute<void>(
+                            builder: (_) => const CalendarPage(),
+                          ),
+                        );
+                      },
+                      icon: const Icon(Icons.live_tv_outlined),
+                    ),
+                    const SizedBox(width: 8),
                     IconButton.filledTonal(
                       tooltip: '同步收藏',
                       onPressed: isRefreshing

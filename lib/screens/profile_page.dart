@@ -6,8 +6,10 @@ import 'package:url_launcher/url_launcher.dart';
 import '../core/network/bangumi_endpoints.dart';
 import '../models/bangumi_models.dart';
 import '../state/session_controller.dart';
+import '../state/theme_controller.dart';
 import '../widgets/network_route_picker.dart';
 import '../widgets/subject_widgets.dart';
+import 'calendar_page.dart';
 import 'friends_page.dart';
 
 class ProfilePage extends ConsumerWidget {
@@ -149,14 +151,56 @@ class ProfilePage extends ConsumerWidget {
               Text('社交', style: Theme.of(context).textTheme.titleLarge),
               const SizedBox(height: 12),
               Card(
+                child: Column(
+                  children: [
+                    ListTile(
+                      leading: const Icon(Icons.people_alt_rounded),
+                      title: const Text('我的好友'),
+                      subtitle: const Text('查看好友列表，浏览对方公开收藏'),
+                      trailing: const Icon(Icons.chevron_right_rounded),
+                      onTap: () => Navigator.of(context).push(
+                        MaterialPageRoute<void>(
+                          builder: (_) => const FriendsPage(),
+                        ),
+                      ),
+                    ),
+                    const Divider(height: 1, indent: 56),
+                    ListTile(
+                      leading: const Icon(Icons.notifications_outlined),
+                      title: const Text('电波提醒'),
+                      subtitle: const Text('打开官网通知（原生列表待 Cookie 能力）'),
+                      trailing: const Icon(Icons.open_in_new_rounded),
+                      onTap: () => launchUrl(
+                        Uri.parse('https://bgm.tv/notify/all'),
+                        mode: LaunchMode.externalApplication,
+                      ),
+                    ),
+                    const Divider(height: 1, indent: 56),
+                    ListTile(
+                      leading: const Icon(Icons.mail_outline_rounded),
+                      title: const Text('站内短信'),
+                      subtitle: const Text('在官网查看与回复私信'),
+                      trailing: const Icon(Icons.open_in_new_rounded),
+                      onTap: () => launchUrl(
+                        Uri.parse('https://bgm.tv/pm'),
+                        mode: LaunchMode.externalApplication,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 30),
+              Text('发现', style: Theme.of(context).textTheme.titleLarge),
+              const SizedBox(height: 12),
+              Card(
                 child: ListTile(
-                  leading: const Icon(Icons.people_alt_rounded),
-                  title: const Text('我的好友'),
-                  subtitle: const Text('查看好友列表，浏览对方公开收藏'),
+                  leading: const Icon(Icons.live_tv_outlined),
+                  title: const Text('每日放送'),
+                  subtitle: const Text('官方放送日历（非本地新番表）'),
                   trailing: const Icon(Icons.chevron_right_rounded),
                   onTap: () => Navigator.of(context).push(
                     MaterialPageRoute<void>(
-                      builder: (_) => const FriendsPage(),
+                      builder: (_) => const CalendarPage(),
                     ),
                   ),
                 ),
@@ -173,6 +217,14 @@ class ProfilePage extends ConsumerWidget {
                       subtitle: const Text('重新获取全部类型的 Bangumi 收藏'),
                       trailing: const Icon(Icons.chevron_right_rounded),
                       onTap: () => ref.read(sessionProvider.notifier).refresh(),
+                    ),
+                    const Divider(height: 1, indent: 56),
+                    ListTile(
+                      leading: const Icon(Icons.brightness_6_outlined),
+                      title: const Text('外观主题'),
+                      subtitle: Text(_themeLabel(ref.watch(themeModeProvider))),
+                      trailing: const Icon(Icons.chevron_right_rounded),
+                      onTap: () => _pickTheme(context, ref),
                     ),
                     const Divider(height: 1, indent: 56),
                     ListTile(
@@ -235,6 +287,46 @@ class ProfilePage extends ConsumerWidget {
         ),
       ),
     );
+  }
+
+  String _themeLabel(ThemeMode mode) => switch (mode) {
+    ThemeMode.light => '浅色',
+    ThemeMode.dark => '深色',
+    ThemeMode.system => '跟随系统',
+  };
+
+  Future<void> _pickTheme(BuildContext context, WidgetRef ref) async {
+    final current = ref.read(themeModeProvider);
+    final selected = await showModalBottomSheet<ThemeMode>(
+      context: context,
+      showDragHandle: true,
+      builder: (context) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            for (final mode in ThemeMode.values)
+              ListTile(
+                leading: Icon(
+                  mode == ThemeMode.dark
+                      ? Icons.dark_mode_outlined
+                      : mode == ThemeMode.light
+                      ? Icons.light_mode_outlined
+                      : Icons.brightness_auto_outlined,
+                ),
+                title: Text(_themeLabel(mode)),
+                trailing: current == mode
+                    ? const Icon(Icons.check_rounded)
+                    : null,
+                onTap: () => Navigator.pop(context, mode),
+              ),
+            const SizedBox(height: 8),
+          ],
+        ),
+      ),
+    );
+    if (selected != null) {
+      await ref.read(themeModeProvider.notifier).setMode(selected);
+    }
   }
 
   Future<void> _confirmSignOut(BuildContext context, WidgetRef ref) async {

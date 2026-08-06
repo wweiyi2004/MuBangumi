@@ -2,6 +2,7 @@ import 'package:dio/dio.dart';
 
 import '../../models/bangumi_models.dart';
 import 'bangumi_endpoints.dart';
+import 'bangumi_support.dart';
 
 class BangumiApiException implements Exception {
   const BangumiApiException(this.message, {this.statusCode});
@@ -200,6 +201,7 @@ class BangumiApi {
   Future<List<Subject>> searchSubjects(
     String keyword, {
     int limit = 24,
+    int offset = 0,
     String sort = 'match',
     int minimumRating = 0,
     int startYear = 0,
@@ -217,7 +219,7 @@ class BangumiApi {
     final response = await _request(
       () => _dio.post<Map<String, dynamic>>(
         '/search/subjects',
-        queryParameters: {'limit': limit, 'offset': 0},
+        queryParameters: BangumiSupport.pageQuery(limit: limit, offset: offset),
         data: {'keyword': keyword, 'sort': sort, 'filter': filter},
       ),
     );
@@ -241,6 +243,7 @@ class BangumiApi {
     int? month,
     String sort = 'rank',
     int limit = 24,
+    int offset = 0,
   }) async {
     final response = await _request(
       () => _dio.get<Map<String, dynamic>>(
@@ -250,8 +253,7 @@ class BangumiApi {
           'sort': sort,
           'year': ?year,
           'month': ?month,
-          'limit': limit,
-          'offset': 0,
+          ...BangumiSupport.pageQuery(limit: limit, offset: offset),
         },
       ),
     );
@@ -265,7 +267,71 @@ class BangumiApi {
     return Subject.fromJson(response.data ?? const {});
   }
 
-  Future<List<Episode>> getEpisodes(int subjectId) async {
+  Future<List<SubjectCharacter>> getSubjectCharacters(int subjectId) async {
+    final response = await _request(
+      () => _dio.get<List<dynamic>>('/subjects/$subjectId/characters'),
+      checkToken: false,
+    );
+    return BangumiSupport.parseCharacters(response.data);
+  }
+
+  Future<List<SubjectPerson>> getSubjectPersons(int subjectId) async {
+    final response = await _request(
+      () => _dio.get<List<dynamic>>('/subjects/$subjectId/persons'),
+      checkToken: false,
+    );
+    return BangumiSupport.parsePersons(response.data);
+  }
+
+  Future<List<RelatedSubject>> getRelatedSubjects(int subjectId) async {
+    final response = await _request(
+      () => _dio.get<List<dynamic>>('/subjects/$subjectId/subjects'),
+      checkToken: false,
+    );
+    return BangumiSupport.parseRelatedSubjects(response.data);
+  }
+
+  /// Official weekly broadcast calendar (not local 新番表).
+  Future<List<CalendarDay>> getCalendar() async {
+    final response = await _request(
+      () => _dio.get<List<dynamic>>('/calendar'),
+      checkToken: false,
+    );
+    return BangumiSupport.parseCalendar(response.data);
+  }
+
+  /// Public subject comments (吐槽). Tries HTML page; returns empty if blocked.
+  Future<List<SubjectComment>> getSubjectComments(
+    int subjectId, {
+    int page = 1,
+  }) async {
+    try {
+      final dio = Dio(
+        BaseOptions(
+          connectTimeout: const Duration(seconds: 15),
+          receiveTimeout: const Duration(seconds: 20),
+          headers: const {
+            'User-Agent':
+                'MuBangumi/0.4.0 (Flutter; personal Bangumi client)',
+            'Accept': 'text/html,application/xhtml+xml',
+          },
+          responseType: ResponseType.plain,
+        ),
+      );
+      final response = await dio.get<String>(
+        'https://bgm.tv/subject/$subjectId/comments',
+        queryParameters: {'page': page},
+      );
+      return BangumiSupport.parseSubjectCommentsHtml(response.data ?? '');
+    } catch (_) {
+      return const [];
+    }
+  }
+
+  Future<List<Episode>> getEpisodes(
+    int subjectId, {
+    int? episodeType,
+  }) async {
     final result = <Episode>[];
     var offset = 0;
     const limit = 100;
@@ -276,7 +342,7 @@ class BangumiApi {
           '/episodes',
           queryParameters: {
             'subject_id': subjectId,
-            'type': 0,
+            'type': ?episodeType,
             'limit': limit,
             'offset': offset,
           },
@@ -297,8 +363,9 @@ class BangumiApi {
   }
 
   Future<List<UserEpisodeCollection>> getEpisodeCollections(
-    int subjectId,
-  ) async {
+    int subjectId, {
+    int? episodeType,
+  }) async {
     final result = <UserEpisodeCollection>[];
     var offset = 0;
     const limit = 100;
@@ -308,7 +375,7 @@ class BangumiApi {
         () => _dio.get<Map<String, dynamic>>(
           '/users/-/collections/$subjectId/episodes',
           queryParameters: {
-            'episode_type': 0,
+            'episode_type': ?episodeType,
             'limit': limit,
             'offset': offset,
           },
@@ -372,20 +439,17 @@ class BangumiApi {
     List<String> tags = const [],
     bool private = false,
   }) async {
-    final clampedRate = rate.clamp(0, 10);
+    final data = BangumiSupport.collectionUpdatePayload(
+      type: type,
+      rate: rate,
+      comment: comment,
+      tags: tags,
+      private: private,
+    );
     await _request(
       () => _dio.post<void>(
         '/users/-/collections/$subjectId',
-        data: {
-          'type': type.value,
-          'rate': clampedRate,
-          'comment': comment,
-          'tags': [
-            for (final tag in tags)
-              if (tag.trim().isNotEmpty) tag.trim(),
-          ],
-          'private': private,
-        },
+        data: data,
       ),
     );
   }

@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../core/network/bangumi_endpoints.dart';
+import '../core/network/bangumi_support.dart';
 import '../core/network/community_service.dart';
 import '../models/bangumi_models.dart';
 import '../state/session_controller.dart';
@@ -28,9 +29,16 @@ class _SubjectDetailScreenState extends ConsumerState<SubjectDetailScreen> {
   List<Episode> _episodes = const [];
   Map<int, int> _episodeTypes = const {};
   List<FriendSubjectStatus> _friendStatuses = const [];
+  List<SubjectCharacter> _characters = const [];
+  List<SubjectPerson> _persons = const [];
+  List<RelatedSubject> _related = const [];
+  List<SubjectComment> _comments = const [];
   bool _loadingFriends = false;
   bool _friendsExpanded = false;
   bool _friendsLoaded = false;
+  bool _loadingMeta = false;
+  bool _loadingComments = false;
+  int? _episodeTypeFilter; // null = all, 0 = main
   final Set<int> _updatingEpisodes = {};
   late final SessionController _sessionController;
   bool _episodesChanged = false;
@@ -74,6 +82,7 @@ class _SubjectDetailScreenState extends ConsumerState<SubjectDetailScreen> {
             for (final item in episodeCollections) item.episode.id: item.type,
           };
         } else {
+          // Omit type filter so SP/OP/ED also load for filtering.
           episodes = await api.getEpisodes(widget.subject.id);
         }
       }
@@ -87,12 +96,53 @@ class _SubjectDetailScreenState extends ConsumerState<SubjectDetailScreen> {
         _friendsLoaded = false;
         _friendStatuses = const [];
       });
+      unawaited(_loadMeta(widget.subject.id));
+      unawaited(_loadComments(widget.subject.id));
     } catch (error) {
       if (!mounted) return;
       setState(() {
         _loading = false;
         _error = error.toString();
       });
+    }
+  }
+
+  Future<void> _loadMeta(int subjectId) async {
+    setState(() => _loadingMeta = true);
+    try {
+      final api = ref.read(bangumiApiProvider);
+      final results = await Future.wait([
+        api.getSubjectCharacters(subjectId),
+        api.getSubjectPersons(subjectId),
+        api.getRelatedSubjects(subjectId),
+      ]);
+      if (!mounted) return;
+      setState(() {
+        _characters = results[0] as List<SubjectCharacter>;
+        _persons = results[1] as List<SubjectPerson>;
+        _related = results[2] as List<RelatedSubject>;
+        _loadingMeta = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _loadingMeta = false);
+    }
+  }
+
+  Future<void> _loadComments(int subjectId) async {
+    setState(() => _loadingComments = true);
+    try {
+      final comments = await ref
+          .read(bangumiApiProvider)
+          .getSubjectComments(subjectId);
+      if (!mounted) return;
+      setState(() {
+        _comments = comments;
+        _loadingComments = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _loadingComments = false);
     }
   }
 
@@ -227,8 +277,8 @@ class _SubjectDetailScreenState extends ConsumerState<SubjectDetailScreen> {
                             ),
                             Text(
                               collection == null
-                                  ? '${_episodes.length} 话'
-                                  : '已看 $watchedCount / ${_episodes.length}',
+                                  ? '${_visibleEpisodes.length} 话'
+                                  : '已看 $watchedCount / ${_visibleEpisodes.length}',
                               style: TextStyle(
                                 color: Theme.of(
                                   context,
@@ -237,8 +287,35 @@ class _SubjectDetailScreenState extends ConsumerState<SubjectDetailScreen> {
                             ),
                           ],
                         ),
+                        const SizedBox(height: 10),
+                        SingleChildScrollView(
+                          scrollDirection: Axis.horizontal,
+                          child: Row(
+                            children: [
+                              ChoiceChip(
+                                label: const Text('全部'),
+                                selected: _episodeTypeFilter == null,
+                                onSelected: (_) =>
+                                    setState(() => _episodeTypeFilter = null),
+                              ),
+                              const SizedBox(width: 8),
+                              for (final type in _availableEpisodeTypes) ...[
+                                ChoiceChip(
+                                  label: Text(
+                                    BangumiSupport.episodeTypeLabel(type),
+                                  ),
+                                  selected: _episodeTypeFilter == type,
+                                  onSelected: (_) => setState(
+                                    () => _episodeTypeFilter = type,
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                              ],
+                            ],
+                          ),
+                        ),
                         const SizedBox(height: 14),
-                        if (_episodes.isEmpty)
+                        if (_visibleEpisodes.isEmpty)
                           const EmptyState(
                             icon: Icons.format_list_numbered_rounded,
                             title: '暂无章节数据',
@@ -246,7 +323,7 @@ class _SubjectDetailScreenState extends ConsumerState<SubjectDetailScreen> {
                           )
                         else
                           _EpisodeGrid(
-                            episodes: _episodes,
+                            episodes: _visibleEpisodes,
                             episodeTypes: _episodeTypes,
                             updatingEpisodes: _updatingEpisodes,
                             enabled: collection != null && !busy,
@@ -258,12 +335,145 @@ class _SubjectDetailScreenState extends ConsumerState<SubjectDetailScreen> {
                             ),
                           ),
                       ],
+                      const SizedBox(height: 30),
+                      _MetaSection(
+                        title: '角色',
+                        loading: _loadingMeta,
+                        empty: _characters.isEmpty,
+                        child: Column(
+                          children: [
+                            for (final c in _characters.take(24))
+                              ListTile(
+                                contentPadding: EdgeInsets.zero,
+                                leading: _MetaAvatar(url: c.imageUrl),
+                                title: Text(c.displayName),
+                                subtitle: Text(
+                                  [
+                                    if (c.relation.isNotEmpty) c.relation,
+                                    if (c.actors.isNotEmpty)
+                                      'CV: ${c.actors.join(' / ')}',
+                                  ].join(' · '),
+                                ),
+                              ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 18),
+                      _MetaSection(
+                        title: '制作人员',
+                        loading: _loadingMeta,
+                        empty: _persons.isEmpty,
+                        child: Column(
+                          children: [
+                            for (final p in _persons.take(24))
+                              ListTile(
+                                contentPadding: EdgeInsets.zero,
+                                leading: _MetaAvatar(url: p.imageUrl),
+                                title: Text(p.displayName),
+                                subtitle: Text(
+                                  [
+                                    if (p.relation.isNotEmpty) p.relation,
+                                    if (p.career.isNotEmpty)
+                                      p.career.join(' / '),
+                                  ].join(' · '),
+                                ),
+                              ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 18),
+                      _MetaSection(
+                        title: '关联条目',
+                        loading: _loadingMeta,
+                        empty: _related.isEmpty,
+                        child: Wrap(
+                          spacing: 10,
+                          runSpacing: 10,
+                          children: [
+                            for (final item in _related.take(20))
+                              ActionChip(
+                                avatar: item.imageUrl.isEmpty
+                                    ? null
+                                    : CircleAvatar(
+                                        backgroundImage:
+                                            CachedNetworkImageProvider(
+                                          BangumiEndpoints.imageUrl(
+                                            item.imageUrl,
+                                          ),
+                                        ),
+                                      ),
+                                label: Text(
+                                  item.relation.isEmpty
+                                      ? item.displayName
+                                      : '${item.relation} · ${item.displayName}',
+                                ),
+                                onPressed: () {
+                                  Navigator.of(context).push(
+                                    MaterialPageRoute<void>(
+                                      builder: (_) => SubjectDetailScreen(
+                                        subject: item.toSubject(),
+                                      ),
+                                    ),
+                                  );
+                                },
+                              ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 18),
+                      _MetaSection(
+                        title: '吐槽',
+                        loading: _loadingComments,
+                        empty: _comments.isEmpty,
+                        trailing: TextButton(
+                          onPressed: () => launchUrl(
+                            Uri.parse(
+                              'https://bgm.tv/subject/${subject.id}/comments',
+                            ),
+                            mode: LaunchMode.externalApplication,
+                          ),
+                          child: const Text('官网'),
+                        ),
+                        child: Column(
+                          children: [
+                            for (final c in _comments.take(30))
+                              ListTile(
+                                contentPadding: EdgeInsets.zero,
+                                title: Text(
+                                  c.userName.isEmpty ? '用户' : c.userName,
+                                ),
+                                subtitle: Text(c.comment),
+                                trailing: c.rate > 0
+                                    ? Text(
+                                        '${c.rate}',
+                                        style: const TextStyle(
+                                          color: Color(0xFFF3A646),
+                                          fontWeight: FontWeight.w800,
+                                        ),
+                                      )
+                                    : null,
+                              ),
+                          ],
+                        ),
+                      ),
                     ],
                   ),
                 ),
               ),
             ),
     );
+  }
+
+  List<Episode> get _visibleEpisodes =>
+      BangumiSupport.filterEpisodesByType(_episodes, _episodeTypeFilter);
+
+  List<int> get _availableEpisodeTypes {
+    final set = <int>{};
+    for (final ep in _episodes) {
+      set.add(ep.type);
+    }
+    final list = set.toList()..sort();
+    return list;
   }
 
   Future<void> _changeCollection(Subject subject, CollectionType type) async {
@@ -879,4 +1089,87 @@ class _EpisodeGrid extends StatelessWidget {
 
   String _episodeNumber(double value) =>
       value % 1 == 0 ? value.toInt().toString() : value.toStringAsFixed(1);
+}
+
+class _MetaSection extends StatelessWidget {
+  const _MetaSection({
+    required this.title,
+    required this.loading,
+    required this.empty,
+    required this.child,
+    this.trailing,
+  });
+
+  final String title;
+  final bool loading;
+  final bool empty;
+  final Widget child;
+  final Widget? trailing;
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Text(
+                  title,
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w800,
+                      ),
+                ),
+                const Spacer(),
+                ?trailing,
+              ],
+            ),
+            const SizedBox(height: 10),
+            if (loading)
+              const Padding(
+                padding: EdgeInsets.symmetric(vertical: 16),
+                child: Center(
+                  child: SizedBox.square(
+                    dimension: 22,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  ),
+                ),
+              )
+            else if (empty)
+              Text(
+                '暂无数据',
+                style: TextStyle(
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
+              )
+            else
+              child,
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _MetaAvatar extends StatelessWidget {
+  const _MetaAvatar({required this.url});
+
+  final String url;
+
+  @override
+  Widget build(BuildContext context) {
+    if (url.isEmpty) {
+      return CircleAvatar(
+        backgroundColor: Theme.of(context).colorScheme.surfaceContainerHighest,
+        child: const Icon(Icons.person_outline_rounded, size: 18),
+      );
+    }
+    return CircleAvatar(
+      backgroundImage: CachedNetworkImageProvider(
+        BangumiEndpoints.imageUrl(url),
+      ),
+    );
+  }
 }

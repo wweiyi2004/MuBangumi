@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../core/network/bangumi_support.dart';
 import '../models/bangumi_models.dart';
 import '../state/session_controller.dart';
 import 'subject_widgets.dart';
@@ -40,6 +41,7 @@ class _EpisodeGridPanelState extends ConsumerState<_EpisodeGridPanel> {
   final Set<int> _updating = {};
   bool _loading = true;
   String? _error;
+  int? _typeFilter;
 
   @override
   void initState() {
@@ -70,9 +72,27 @@ class _EpisodeGridPanelState extends ConsumerState<_EpisodeGridPanel> {
     }
   }
 
+  List<UserEpisodeCollection> get _visible {
+    if (_typeFilter == null) return _episodes;
+    return [
+      for (final item in _episodes)
+        if (item.episode.type == _typeFilter) item,
+    ];
+  }
+
+  List<int> get _types {
+    final set = <int>{};
+    for (final item in _episodes) {
+      set.add(item.episode.type);
+    }
+    final list = set.toList()..sort();
+    return list;
+  }
+
   @override
   Widget build(BuildContext context) {
-    final watched = _episodes.where((item) => item.type == 2).length;
+    final visible = _visible;
+    final watched = visible.where((item) => item.type == 2).length;
     return Column(
       children: [
         Padding(
@@ -100,7 +120,7 @@ class _EpisodeGridPanelState extends ConsumerState<_EpisodeGridPanel> {
                     Text(
                       _loading
                           ? '正在读取章节状态…'
-                          : '看过 $watched / ${_episodes.length}',
+                          : '看过 $watched / ${visible.length}',
                       style: TextStyle(
                         color: Theme.of(context).colorScheme.onSurfaceVariant,
                       ),
@@ -117,6 +137,29 @@ class _EpisodeGridPanelState extends ConsumerState<_EpisodeGridPanel> {
           ),
         ),
         const Divider(height: 1),
+        if (_types.length > 1)
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.fromLTRB(16, 10, 16, 0),
+            child: Row(
+              children: [
+                ChoiceChip(
+                  label: const Text('全部'),
+                  selected: _typeFilter == null,
+                  onSelected: (_) => setState(() => _typeFilter = null),
+                ),
+                const SizedBox(width: 8),
+                for (final type in _types) ...[
+                  ChoiceChip(
+                    label: Text(BangumiSupport.episodeTypeLabel(type)),
+                    selected: _typeFilter == type,
+                    onSelected: (_) => setState(() => _typeFilter = type),
+                  ),
+                  const SizedBox(width: 8),
+                ],
+              ],
+            ),
+          ),
         Padding(
           padding: const EdgeInsets.fromLTRB(22, 14, 22, 10),
           child: Row(
@@ -156,11 +199,12 @@ class _EpisodeGridPanelState extends ConsumerState<_EpisodeGridPanel> {
         ),
       );
     }
-    if (_episodes.isEmpty) {
+    final visible = _visible;
+    if (visible.isEmpty) {
       return const EmptyState(
         icon: Icons.grid_view_rounded,
         title: '暂无可点的格子',
-        message: '这个条目还没有普通章节数据。',
+        message: '这个条目还没有章节数据，或当前类型筛选为空。',
       );
     }
     return GridView.builder(
@@ -171,14 +215,17 @@ class _EpisodeGridPanelState extends ConsumerState<_EpisodeGridPanel> {
         mainAxisSpacing: 10,
         crossAxisSpacing: 10,
       ),
-      itemCount: _episodes.length,
+      itemCount: visible.length,
       itemBuilder: (context, index) {
-        final item = _episodes[index];
+        final item = visible[index];
+        final realIndex = _episodes.indexWhere(
+          (e) => e.episode.id == item.episode.id,
+        );
         return _EpisodeCell(
           item: item,
           busy: _updating.contains(item.episode.id),
-          onTap: () => _setStatus(index, item.type == 2 ? 0 : 2),
-          onLongPress: () => _chooseStatus(index),
+          onTap: () => _setStatus(realIndex, item.type == 2 ? 0 : 2),
+          onLongPress: () => _chooseStatus(realIndex),
         );
       },
     );
