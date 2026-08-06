@@ -720,6 +720,75 @@ class CommunityService {
     throw Exception(_errorMessage(lastError?.response?.statusCode));
   }
 
+  /// 电波提醒（P1 OAuth，无需网站 Cookie）。
+  Future<CommunityPageResult<BangumiNotice>> loadNotices({
+    int limit = 40,
+    bool unreadOnly = false,
+    bool refresh = false,
+  }) async {
+    _requireAuthentication();
+    final page = await _getJson(
+      '/notify',
+      query: {
+        'limit': limit.clamp(1, 40),
+        if (unreadOnly) 'unread': true,
+      },
+      refresh: refresh,
+    );
+    return CommunityPageResult(
+      data: _p1Parser.parseNotices(page),
+      total: _pageTotal(page),
+    );
+  }
+
+  /// Mark notices read. Empty [ids] clears all unread.
+  Future<void> clearNotices({List<int> ids = const []}) async {
+    _requireAuthentication();
+    await _postJson(
+      '/clear-notify',
+      data: {
+        if (ids.isNotEmpty) 'id': ids,
+      },
+    );
+    _jsonCache.removeWhere((key, _) => key.contains('/notify'));
+  }
+
+  Future<void> addFriend(String username) async {
+    _requireAuthentication();
+    final value = username.trim();
+    if (value.isEmpty) throw Exception('用户名无效');
+    await _putJson('/friends/${Uri.encodeComponent(value)}');
+    _friendsCache.clear();
+  }
+
+  Future<void> removeFriend(String username) async {
+    _requireAuthentication();
+    final value = username.trim();
+    if (value.isEmpty) throw Exception('用户名无效');
+    await _deleteJson('/friends/${Uri.encodeComponent(value)}');
+    _friendsCache.clear();
+  }
+
+  /// Returns whether [username] is already a friend (via current user's list).
+  Future<bool> isFriend(String username) async {
+    _requireAuthentication();
+    final me = _requireCurrentUsername();
+    final value = username.trim().toLowerCase();
+    if (value.isEmpty || value == me.toLowerCase()) return false;
+    // Walk first pages; friend graphs are usually small enough.
+    var offset = 0;
+    const limit = 50;
+    while (offset < 500) {
+      final page = await loadFriends(me, limit: limit, offset: offset);
+      for (final friend in page.data) {
+        if (friend.username.toLowerCase() == value) return true;
+      }
+      offset += page.data.length;
+      if (page.data.isEmpty || offset >= page.total) break;
+    }
+    return false;
+  }
+
   Future<void> _postJson(
     String path, {
     Map<String, dynamic> data = const {},
@@ -743,6 +812,58 @@ class CommunityService {
           onUnauthorizedRefresh != null &&
           await onUnauthorizedRefresh!()) {
         await _postJson(path, data: data, retriedAuth: true);
+        return;
+      }
+      throw Exception(_postErrorMessage(error));
+    }
+  }
+
+  Future<void> _putJson(
+    String path, {
+    Map<String, dynamic> data = const {},
+    bool retriedAuth = false,
+  }) async {
+    try {
+      await _p1Dio.put<Object?>(
+        '/p1$path',
+        data: data.isEmpty ? null : data,
+        options: Options(
+          contentType: Headers.jsonContentType,
+          headers: const {'Accept': 'application/json'},
+          validateStatus: (status) =>
+              status != null && status >= 200 && status < 300,
+        ),
+      );
+    } on DioException catch (error) {
+      final status = error.response?.statusCode;
+      if (!retriedAuth &&
+          status == 401 &&
+          onUnauthorizedRefresh != null &&
+          await onUnauthorizedRefresh!()) {
+        await _putJson(path, data: data, retriedAuth: true);
+        return;
+      }
+      throw Exception(_postErrorMessage(error));
+    }
+  }
+
+  Future<void> _deleteJson(String path, {bool retriedAuth = false}) async {
+    try {
+      await _p1Dio.delete<Object?>(
+        '/p1$path',
+        options: Options(
+          headers: const {'Accept': 'application/json'},
+          validateStatus: (status) =>
+              status != null && status >= 200 && status < 300,
+        ),
+      );
+    } on DioException catch (error) {
+      final status = error.response?.statusCode;
+      if (!retriedAuth &&
+          status == 401 &&
+          onUnauthorizedRefresh != null &&
+          await onUnauthorizedRefresh!()) {
+        await _deleteJson(path, retriedAuth: true);
         return;
       }
       throw Exception(_postErrorMessage(error));

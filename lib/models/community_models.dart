@@ -232,6 +232,43 @@ class CommunityGroupDetail {
   bool get canCreateTopic => accessible || isJoined;
 }
 
+/// P1 `/p1/notify` notice item (电波提醒).
+class BangumiNotice {
+  const BangumiNotice({
+    required this.id,
+    required this.title,
+    required this.type,
+    required this.mainId,
+    required this.relatedId,
+    required this.unread,
+    required this.createdAt,
+    this.sender,
+  });
+
+  final int id;
+  final String title;
+  final int type;
+  final int mainId;
+  final int relatedId;
+  final bool unread;
+  final DateTime createdAt;
+  final CommunityUser? sender;
+
+  /// Best-effort deep link on bgm.tv; empty when unknown.
+  String get webUrl {
+    // Type numbers follow bangumi/next notify settings (topic/post/user/…).
+    // Prefer stable public paths when ids are present.
+    if (type >= 1 && type <= 8 && mainId > 0) {
+      // Group / subject topic style notices commonly carry topic id in mainID.
+      return 'https://bgm.tv/rakuen/topic/group/$mainId';
+    }
+    if (sender != null && sender!.username.isNotEmpty) {
+      return sender!.webUrl;
+    }
+    return 'https://bgm.tv/notify';
+  }
+}
+
 class CommunityTimelineItem {
   const CommunityTimelineItem({
     required this.id,

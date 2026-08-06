@@ -1,7 +1,6 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:url_launcher/url_launcher.dart';
 
 import '../core/network/community_service.dart';
 import '../models/community_models.dart';
@@ -76,18 +75,18 @@ class _CommunityGroupScreenState extends State<CommunityGroupScreen> {
   }
 
   Future<void> _openMembershipOnWeb() async {
-    final detail = _detail;
-    if (detail == null) return;
-    final uri = Uri.tryParse(detail.group.url);
-    if (uri != null &&
-        await launchUrl(uri, mode: LaunchMode.externalApplication)) {
-      return;
-    }
+    // P1 暂无加入/退出小组写接口；应用内 WebView 完成网站会话操作后可返回刷新。
     if (!mounted) return;
-    _openWeb();
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(const SnackBar(content: Text('无法打开系统浏览器，已改用应用内官网页面')));
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => CommunityWebScreen(
+          initialUrl: widget.group.url,
+          title: _detail?.isJoined == true ? '退出小组' : '加入小组',
+        ),
+      ),
+    );
+    if (!mounted) return;
+    await _load(refresh: true);
   }
 
   Future<void> _createTopic() async {
@@ -295,13 +294,13 @@ class _GroupHeader extends StatelessWidget {
           detail.isJoined
               ? OutlinedButton.icon(
                   onPressed: onOpenMembershipPage,
-                  icon: const Icon(Icons.open_in_new_rounded),
-                  label: const Text('在官网退出'),
+                  icon: const Icon(Icons.logout_rounded),
+                  label: const Text('退出小组'),
                 )
               : FilledButton.icon(
                   onPressed: onOpenMembershipPage,
-                  icon: const Icon(Icons.open_in_new_rounded),
-                  label: const Text('在官网加入'),
+                  icon: const Icon(Icons.group_add_rounded),
+                  label: const Text('加入小组'),
                 ),
         ],
       ),

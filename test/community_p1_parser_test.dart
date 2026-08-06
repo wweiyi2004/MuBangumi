@@ -319,4 +319,42 @@ void main() {
     expect(detail.posts[3].meta, startsWith('#1-1 · '));
     expect(detail.posts[3].body, '（该回复已被删除或不可见）');
   });
+
+  test('parses notify list page', () {
+    final notices = parser.parseNotices({
+      'total': 2,
+      'data': [
+        {
+          'id': 42,
+          'type': 4,
+          'mainID': 1001,
+          'relatedID': 2002,
+          'title': '爱丽丝 回复了你的话题',
+          'unread': true,
+          'createdAt': 1785986029,
+          'sender': {
+            'id': 7,
+            'username': 'alice',
+            'nickname': '爱丽丝',
+            'avatar': {'large': 'https://lain.bgm.tv/alice.jpg'},
+          },
+        },
+        {
+          'id': 43,
+          'type': 1,
+          'mainID': 0,
+          'relatedID': 0,
+          'title': '系统通知',
+          'unread': false,
+          'createdAt': 1785987000,
+        },
+      ],
+    });
+    expect(notices, hasLength(2));
+    expect(notices.first.id, 42);
+    expect(notices.first.unread, isTrue);
+    expect(notices.first.sender?.username, 'alice');
+    expect(notices.first.title, contains('回复'));
+    expect(notices.last.sender, isNull);
+  });
 }

@@ -11,6 +11,7 @@ import '../widgets/network_route_picker.dart';
 import '../widgets/subject_widgets.dart';
 import 'calendar_page.dart';
 import 'friends_page.dart';
+import 'notify_page.dart';
 
 class ProfilePage extends ConsumerWidget {
   const ProfilePage({super.key});
@@ -168,11 +169,12 @@ class ProfilePage extends ConsumerWidget {
                     ListTile(
                       leading: const Icon(Icons.notifications_outlined),
                       title: const Text('电波提醒'),
-                      subtitle: const Text('打开官网通知（原生列表待 Cookie 能力）'),
-                      trailing: const Icon(Icons.open_in_new_rounded),
-                      onTap: () => launchUrl(
-                        Uri.parse('https://bgm.tv/notify/all'),
-                        mode: LaunchMode.externalApplication,
+                      subtitle: const Text('原生通知列表（OAuth / P1）'),
+                      trailing: const Icon(Icons.chevron_right_rounded),
+                      onTap: () => Navigator.of(context).push(
+                        MaterialPageRoute<void>(
+                          builder: (_) => const NotifyPage(),
+                        ),
                       ),
                     ),
                     const Divider(height: 1, indent: 56),

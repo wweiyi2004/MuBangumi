@@ -98,6 +98,29 @@ class CommunityP1Parser {
       .whereType<CommunityTimelineReply>()
       .toList();
 
+  List<BangumiNotice> parseNotices(Map<String, dynamic> page) => _pageData(page)
+      .map(_parseNotice)
+      .whereType<BangumiNotice>()
+      .toList();
+
+  BangumiNotice? _parseNotice(Map<String, dynamic> json) {
+    final id = _integer(json['id']);
+    if (id <= 0) return null;
+    final createdAt = _dateTime(json['createdAt']);
+    if (createdAt == null) return null;
+    final sender = _parseUser(_map(json['sender']));
+    return BangumiNotice(
+      id: id,
+      title: _string(json['title']),
+      type: _integer(json['type']),
+      mainId: _integer(json['mainID']),
+      relatedId: _integer(json['relatedID']),
+      unread: json['unread'] == true,
+      createdAt: createdAt,
+      sender: sender,
+    );
+  }
+
   CommunityTopicDetail parseTopicDetail(
     Map<String, dynamic> json,
     CommunityTopic topic,

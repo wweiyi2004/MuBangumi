@@ -240,19 +240,69 @@ class _FriendsPageState extends ConsumerState<FriendsPage> {
                   return _FriendTile(
                     user: friend,
                     onTap: () => _openFriend(friend),
+                    onRemove: widget.username == null
+                        ? () => _removeFriend(friend)
+                        : null,
                   );
                 },
               ),
       ),
     );
   }
+
+  Future<void> _removeFriend(BangumiUser friend) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('解除好友'),
+        content: Text('确定与 ${friend.displayName} 解除好友关系？'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('解除'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+    try {
+      await _service.removeFriend(friend.username);
+      if (!mounted) return;
+      setState(() {
+        _friends = [
+          for (final item in _friends)
+            if (item.username != friend.username) item,
+        ];
+        if (_total > 0) _total -= 1;
+      });
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('已解除与 ${friend.displayName} 的好友关系')));
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(error.toString().replaceFirst('Exception: ', '')),
+        ),
+      );
+    }
+  }
 }
 
 class _FriendTile extends StatelessWidget {
-  const _FriendTile({required this.user, required this.onTap});
+  const _FriendTile({
+    required this.user,
+    required this.onTap,
+    this.onRemove,
+  });
 
   final BangumiUser user;
   final VoidCallback onTap;
+  final VoidCallback? onRemove;
 
   @override
   Widget build(BuildContext context) {
@@ -261,6 +311,7 @@ class _FriendTile extends StatelessWidget {
       margin: const EdgeInsets.only(bottom: 10),
       child: ListTile(
         contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+        onLongPress: onRemove,
         leading: CircleAvatar(
           radius: 24,
           backgroundColor: scheme.primaryContainer,

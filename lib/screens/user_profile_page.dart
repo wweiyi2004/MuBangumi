@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../core/network/bangumi_endpoints.dart';
+import '../core/network/community_service.dart';
 import '../models/bangumi_models.dart';
 import '../models/community_models.dart';
 import '../state/session_controller.dart';
@@ -78,8 +79,15 @@ class _UserProfilePageState extends ConsumerState<UserProfilePage> {
   List<UserCollection> _items = const [];
   bool _loadingProfile = true;
   bool _loadingCollections = true;
+  bool _friendBusy = false;
+  bool? _isFriend;
   String? _error;
   int _requestId = 0;
+
+  bool get _isSelf {
+    final me = ref.read(sessionProvider).user?.username.toLowerCase();
+    return me != null && me == widget.username.toLowerCase();
+  }
 
   @override
   void initState() {
@@ -89,7 +97,75 @@ class _UserProfilePageState extends ConsumerState<UserProfilePage> {
   }
 
   Future<void> _loadAll() async {
-    await Future.wait([_loadProfile(), _loadCollections()]);
+    await Future.wait([
+      _loadProfile(),
+      _loadCollections(),
+      _loadFriendship(),
+    ]);
+  }
+
+  Future<void> _loadFriendship() async {
+    if (_isSelf || !CommunityService.shared.isAuthenticated) {
+      if (mounted) setState(() => _isFriend = null);
+      return;
+    }
+    try {
+      final isFriend = await CommunityService.shared.isFriend(widget.username);
+      if (!mounted) return;
+      setState(() => _isFriend = isFriend);
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _isFriend = null);
+    }
+  }
+
+  Future<void> _toggleFriend() async {
+    if (_friendBusy || _isSelf) return;
+    final currentlyFriend = _isFriend == true;
+    final confirmed = currentlyFriend
+        ? await showDialog<bool>(
+            context: context,
+            builder: (context) => AlertDialog(
+              title: const Text('解除好友'),
+              content: Text('确定与 @${widget.username} 解除好友关系？'),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context, false),
+                  child: const Text('取消'),
+                ),
+                FilledButton(
+                  onPressed: () => Navigator.pop(context, true),
+                  child: const Text('解除'),
+                ),
+              ],
+            ),
+          )
+        : true;
+    if (confirmed != true || !mounted) return;
+    setState(() => _friendBusy = true);
+    try {
+      if (currentlyFriend) {
+        await CommunityService.shared.removeFriend(widget.username);
+      } else {
+        await CommunityService.shared.addFriend(widget.username);
+      }
+      if (!mounted) return;
+      setState(() {
+        _isFriend = !currentlyFriend;
+        _friendBusy = false;
+      });
+      showAppMessage(
+        context,
+        currentlyFriend ? '已解除好友' : '已发送 / 添加好友',
+      );
+    } catch (error) {
+      if (!mounted) return;
+      setState(() => _friendBusy = false);
+      showAppMessage(
+        context,
+        error.toString().replaceFirst('Exception: ', ''),
+      );
+    }
   }
 
   Future<void> _loadProfile() async {
@@ -158,16 +234,21 @@ class _UserProfilePageState extends ConsumerState<UserProfilePage> {
       appBar: AppBar(
         title: Text(user?.displayName ?? widget.username),
         actions: [
-          IconButton(
-            tooltip: '加为好友（官网）',
-            onPressed: () => launchUrl(
-              Uri.parse(
-                'https://bgm.tv/user/${Uri.encodeComponent(widget.username)}',
-              ),
-              mode: LaunchMode.externalApplication,
+          if (!_isSelf)
+            IconButton(
+              tooltip: _isFriend == true ? '解除好友' : '加为好友',
+              onPressed: _friendBusy ? null : _toggleFriend,
+              icon: _friendBusy
+                  ? const SizedBox.square(
+                      dimension: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : Icon(
+                      _isFriend == true
+                          ? Icons.person_remove_alt_1_outlined
+                          : Icons.person_add_alt_1_outlined,
+                    ),
             ),
-            icon: const Icon(Icons.person_add_alt_1_outlined),
-          ),
           IconButton(
             tooltip: '发短信（官网）',
             onPressed: () => launchUrl(
