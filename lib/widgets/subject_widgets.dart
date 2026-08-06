@@ -129,6 +129,9 @@ class SubjectTile extends StatelessWidget {
     final progress = _progressValue(subject, collection);
     final showProgressBar = collection != null && progress != null;
     final scheme = Theme.of(context).colorScheme;
+    // Fixed content height matches cover so Spacer works in ListView items
+    // (unbounded list height + Spacer otherwise throws).
+    const coverHeight = 104.0;
     return Card(
       clipBehavior: Clip.antiAlias,
       child: InkWell(
@@ -136,18 +139,21 @@ class SubjectTile extends StatelessWidget {
         child: Padding(
           padding: const EdgeInsets.all(10),
           child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               SubjectCover(
                 subject: subject,
                 width: 74,
-                height: 104,
+                height: coverHeight,
                 borderRadius: 12,
               ),
               const SizedBox(width: 12),
               Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
+                child: SizedBox(
+                  height: coverHeight,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
                     Text(
                       subject.displayName,
                       maxLines: 1,
@@ -265,37 +271,41 @@ class SubjectTile extends StatelessWidget {
                       ),
                     ],
                   ],
+                  ),
                 ),
               ),
               if (onEpisodeGrid != null || onNextEpisode != null) ...[
                 const SizedBox(width: 6),
-                Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    if (onEpisodeGrid != null)
-                      IconButton.outlined(
-                        tooltip: '点格子',
-                        visualDensity: VisualDensity.compact,
-                        onPressed: busy ? null : onEpisodeGrid,
-                        icon: const Icon(Icons.grid_view_rounded, size: 18),
-                      ),
-                    if (onNextEpisode != null) ...[
-                      const SizedBox(height: 2),
-                      IconButton.filledTonal(
-                        tooltip: '看完下一集',
-                        visualDensity: VisualDensity.compact,
-                        onPressed: busy ? null : onNextEpisode,
-                        icon: busy
-                            ? const SizedBox.square(
-                                dimension: 16,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                ),
-                              )
-                            : const Icon(Icons.add_rounded, size: 18),
-                      ),
+                SizedBox(
+                  height: coverHeight,
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      if (onEpisodeGrid != null)
+                        IconButton.outlined(
+                          tooltip: '点格子',
+                          visualDensity: VisualDensity.compact,
+                          onPressed: busy ? null : onEpisodeGrid,
+                          icon: const Icon(Icons.grid_view_rounded, size: 18),
+                        ),
+                      if (onNextEpisode != null) ...[
+                        const SizedBox(height: 2),
+                        IconButton.filledTonal(
+                          tooltip: '看完下一集',
+                          visualDensity: VisualDensity.compact,
+                          onPressed: busy ? null : onNextEpisode,
+                          icon: busy
+                              ? const SizedBox.square(
+                                  dimension: 16,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                  ),
+                                )
+                              : const Icon(Icons.add_rounded, size: 18),
+                        ),
+                      ],
                     ],
-                  ],
+                  ),
                 ),
               ],
             ],
