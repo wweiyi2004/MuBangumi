@@ -28,10 +28,16 @@ class CommunityWebScreen extends StatefulWidget {
     super.key,
     this.initialUrl = 'https://bgm.tv/rakuen',
     this.title = 'Bangumi 社区',
+    this.showSectionSwitcher = true,
+    this.loginHint =
+        '社区使用 Bangumi 官方网页。发帖或回复时，需要在这里单独登录一次。',
   });
 
   final String initialUrl;
   final String title;
+  /// When false, hides 超展开/小组 segment chips (e.g. PM / membership flows).
+  final bool showSectionSwitcher;
+  final String loginHint;
 
   @override
   State<CommunityWebScreen> createState() => _CommunityWebScreenState();
@@ -128,23 +134,25 @@ class _CommunityWebScreenState extends State<CommunityWebScreen> {
                   ],
                 ),
               ),
-              const SizedBox(height: 14),
-              SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
-                child: SegmentedButton<_CommunitySection>(
-                  segments: [
-                    for (final section in _CommunitySection.values)
-                      ButtonSegment(
-                        value: section,
-                        icon: Icon(section.icon, size: 19),
-                        label: Text(section.label),
-                      ),
-                  ],
-                  selected: {_section},
-                  onSelectionChanged: (value) => _selectSection(value.first),
-                  showSelectedIcon: false,
+              if (widget.showSectionSwitcher) ...[
+                const SizedBox(height: 14),
+                SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: SegmentedButton<_CommunitySection>(
+                    segments: [
+                      for (final section in _CommunitySection.values)
+                        ButtonSegment(
+                          value: section,
+                          icon: Icon(section.icon, size: 19),
+                          label: Text(section.label),
+                        ),
+                    ],
+                    selected: {_section},
+                    onSelectionChanged: (value) => _selectSection(value.first),
+                    showSelectedIcon: false,
+                  ),
                 ),
-              ),
+              ],
               if (_showLoginHint) ...[
                 const SizedBox(height: 12),
                 Material(
@@ -162,10 +170,10 @@ class _CommunityWebScreenState extends State<CommunityWebScreen> {
                           ).colorScheme.onSecondaryContainer,
                         ),
                         const SizedBox(width: 10),
-                        const Expanded(
+                        Expanded(
                           child: Text(
-                            '社区使用 Bangumi 官方网页。发帖或回复时，需要在这里单独登录一次。',
-                            style: TextStyle(fontSize: 13),
+                            widget.loginHint,
+                            style: const TextStyle(fontSize: 13),
                           ),
                         ),
                         IconButton(

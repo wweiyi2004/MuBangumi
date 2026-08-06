@@ -21,7 +21,8 @@ MuBangumi 是一个使用 Flutter 编写的第三方 Bangumi 追番客户端，�
 - 官方「每日放送」日历（与本地新番表独立）
 - 修改条目收藏状态和单集观看状态（含 SP/OP/ED 筛选；进度以本篇为准）
 - 好友列表；原生加/删好友（P1）；点击好友/时间线/话题头像进入用户主页
-- 原生电波提醒列表（P1，支持标已读）；站内短信仍走官网
+- 原生电波提醒列表（P1，支持标已读）；「我的」Tab 未读角标
+- 站内短信：应用内 WebView 打开官网收件箱 / 写信（P1 无私信 API）
 - 深色 / 浅色 / 跟随系统主题
 - 借鉴超合金组件：评分详情与争议度、好友看？、看过自动补进度、楼主/好友高亮
 - 本地「新番表」：用 Bangumi 条目信息，自己按周几安排本季追番（本地存储）
@@ -32,7 +33,7 @@ MuBangumi 是一个使用 Flutter 编写的第三方 Bangumi 追番客户端，�
 
 Bangumi 当前公开 OpenAPI 不提供完整的小组、私信与通知接口。MuBangumi 对社区列表与话题使用 P1 JSON（失败时回退 HTML 解析），并使用短时缓存减少重复请求；如果网站结构发生变化，解析规则可能需要随之更新。
 
-API 的 OAuth 登录可直接调用 next.bgm.tv P1 完成电波提醒与加/删好友。站内短信、小组加入/退出等网站专属能力仍可能使用内嵌 WebView 或外链官网。Windows 端需要 Microsoft Edge WebView2 Runtime（Windows 11 和较新的 Windows 10 通常已预装）。
+API 的 OAuth 登录可直接调用 next.bgm.tv P1 完成电波提醒与加/删好友。站内短信、小组加入/退出等网站专属能力使用内嵌 WebView（需网站登录态，与 OAuth 独立）。Windows 端需要 Microsoft Edge WebView2 Runtime（Windows 11 和较新的 Windows 10 通常已预装）。
 
 ## 开始运行
 

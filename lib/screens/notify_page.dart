@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -6,6 +8,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../core/network/bangumi_endpoints.dart';
 import '../core/network/community_service.dart';
 import '../models/community_models.dart';
+import '../state/notify_controller.dart';
 import '../widgets/subject_widgets.dart';
 import 'user_profile_page.dart';
 
@@ -47,6 +50,20 @@ class _NotifyPageState extends ConsumerState<NotifyPage> {
         _total = page.total;
         _loading = false;
       });
+      // Keep shell badge in sync with unread totals.
+      if (_unreadOnly) {
+        ref
+            .read(notifyBadgeProvider.notifier)
+            .setUnreadCount(page.total > 0 ? page.total : page.data.length);
+      } else {
+        final unread = page.data.where((n) => n.unread).length;
+        // Prefer total when listing all is truncated; refresh badge separately.
+        if (unread > 0 || page.data.isEmpty) {
+          ref.read(notifyBadgeProvider.notifier).setUnreadCount(unread);
+        } else {
+          unawaited(ref.read(notifyBadgeProvider.notifier).refresh());
+        }
+      }
     } catch (error) {
       if (!mounted) return;
       setState(() {
@@ -61,6 +78,7 @@ class _NotifyPageState extends ConsumerState<NotifyPage> {
     try {
       await _service.clearNotices();
       if (!mounted) return;
+      ref.read(notifyBadgeProvider.notifier).clearLocally();
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(const SnackBar(content: Text('已全部标为已读')));
@@ -82,6 +100,7 @@ class _NotifyPageState extends ConsumerState<NotifyPage> {
     try {
       await _service.clearNotices(ids: [notice.id]);
       if (!mounted) return;
+      ref.read(notifyBadgeProvider.notifier).markOneReadLocally();
       setState(() {
         _items = [
           for (final item in _items)

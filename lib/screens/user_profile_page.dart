@@ -9,6 +9,7 @@ import '../models/bangumi_models.dart';
 import '../models/community_models.dart';
 import '../state/session_controller.dart';
 import '../widgets/subject_widgets.dart';
+import 'pm_page.dart';
 import 'subject_detail_screen.dart';
 
 /// Opens a Bangumi user profile with collection / progress overview.
@@ -250,13 +251,8 @@ class _UserProfilePageState extends ConsumerState<UserProfilePage> {
                     ),
             ),
           IconButton(
-            tooltip: '发短信（官网）',
-            onPressed: () => launchUrl(
-              Uri.parse(
-                'https://bgm.tv/pm/compose/${Uri.encodeComponent(widget.username)}.chii',
-              ),
-              mode: LaunchMode.externalApplication,
-            ),
+            tooltip: '发短信',
+            onPressed: () => openPmPage(context, composeTo: widget.username),
             icon: const Icon(Icons.mail_outline_rounded),
           ),
           IconButton(

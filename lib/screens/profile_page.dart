@@ -9,9 +9,11 @@ import '../state/session_controller.dart';
 import '../state/theme_controller.dart';
 import '../widgets/network_route_picker.dart';
 import '../widgets/subject_widgets.dart';
+import '../state/notify_controller.dart';
 import 'calendar_page.dart';
 import 'friends_page.dart';
 import 'notify_page.dart';
+import 'pm_page.dart';
 
 class ProfilePage extends ConsumerWidget {
   const ProfilePage({super.key});
@@ -166,27 +168,45 @@ class ProfilePage extends ConsumerWidget {
                       ),
                     ),
                     const Divider(height: 1, indent: 56),
-                    ListTile(
-                      leading: const Icon(Icons.notifications_outlined),
-                      title: const Text('电波提醒'),
-                      subtitle: const Text('原生通知列表（OAuth / P1）'),
-                      trailing: const Icon(Icons.chevron_right_rounded),
-                      onTap: () => Navigator.of(context).push(
-                        MaterialPageRoute<void>(
-                          builder: (_) => const NotifyPage(),
-                        ),
-                      ),
+                    Builder(
+                      builder: (context) {
+                        final unread =
+                            ref.watch(notifyBadgeProvider).unreadCount;
+                        return ListTile(
+                          leading: Badge(
+                            isLabelVisible: unread > 0,
+                            label: Text(unread > 99 ? '99+' : '$unread'),
+                            child: const Icon(Icons.notifications_outlined),
+                          ),
+                          title: const Text('电波提醒'),
+                          subtitle: Text(
+                            unread > 0
+                                ? '$unread 条未读 · 原生通知列表'
+                                : '原生通知列表（OAuth / P1）',
+                          ),
+                          trailing: const Icon(Icons.chevron_right_rounded),
+                          onTap: () async {
+                            await Navigator.of(context).push(
+                              MaterialPageRoute<void>(
+                                builder: (_) => const NotifyPage(),
+                              ),
+                            );
+                            if (context.mounted) {
+                              ref
+                                  .read(notifyBadgeProvider.notifier)
+                                  .refresh();
+                            }
+                          },
+                        );
+                      },
                     ),
                     const Divider(height: 1, indent: 56),
                     ListTile(
                       leading: const Icon(Icons.mail_outline_rounded),
                       title: const Text('站内短信'),
-                      subtitle: const Text('在官网查看与回复私信'),
-                      trailing: const Icon(Icons.open_in_new_rounded),
-                      onTap: () => launchUrl(
-                        Uri.parse('https://bgm.tv/pm'),
-                        mode: LaunchMode.externalApplication,
-                      ),
+                      subtitle: const Text('应用内打开官网收件箱（需网站登录）'),
+                      trailing: const Icon(Icons.chevron_right_rounded),
+                      onTap: () => openPmPage(context),
                     ),
                   ],
                 ),

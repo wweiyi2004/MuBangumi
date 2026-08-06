@@ -82,6 +82,8 @@ class _CommunityGroupScreenState extends State<CommunityGroupScreen> {
         builder: (_) => CommunityWebScreen(
           initialUrl: widget.group.url,
           title: _detail?.isJoined == true ? '退出小组' : '加入小组',
+          showSectionSwitcher: false,
+          loginHint: '加入/退出小组使用官方网页。OAuth 与网站登录独立，首次请在此登录一次。',
         ),
       ),
     );

@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../app.dart';
 import '../core/widget/home_widget_sync_host.dart';
+import '../state/notify_controller.dart';
 import 'community_hub_page.dart';
 import 'discover_page.dart';
 import 'home_page.dart';
@@ -9,14 +11,14 @@ import 'library_page.dart';
 import 'profile_page.dart';
 import 'schedule_page.dart';
 
-class HomeShell extends StatefulWidget {
+class HomeShell extends ConsumerStatefulWidget {
   const HomeShell({super.key});
 
   @override
-  State<HomeShell> createState() => _HomeShellState();
+  ConsumerState<HomeShell> createState() => _HomeShellState();
 }
 
-class _HomeShellState extends State<HomeShell> {
+class _HomeShellState extends ConsumerState<HomeShell> {
   int _index = 0;
   bool _communityOpened = false;
   bool _scheduleOpened = false;
@@ -52,10 +54,17 @@ class _HomeShellState extends State<HomeShell> {
       if (index == 3) _scheduleOpened = true;
       if (index == 4) _communityOpened = true;
     });
+    // Refresh badge when opening 我的.
+    if (index == 5) {
+      ref.read(notifyBadgeProvider.notifier).refresh();
+    }
   }
 
   @override
   Widget build(BuildContext context) {
+    final unread = ref.watch(
+      notifyBadgeProvider.select((s) => s.unreadCount),
+    );
     final pages = [
       HomePage(onDiscover: () => _selectPage(2)),
       const LibraryPage(),
@@ -72,7 +81,11 @@ class _HomeShellState extends State<HomeShell> {
           child: Row(
             children: [
               if (desktop)
-                _DesktopNavigation(index: _index, onChanged: _selectPage),
+                _DesktopNavigation(
+                  index: _index,
+                  onChanged: _selectPage,
+                  unreadCount: unread,
+                ),
               Expanded(
                 child: IndexedStack(index: _index, children: pages),
               ),
@@ -87,24 +100,41 @@ class _HomeShellState extends State<HomeShell> {
                     NavigationDestinationLabelBehavior.onlyShowSelected,
                 onDestinationSelected: _selectPage,
                 destinations: [
-                  for (final destination in _destinations)
+                  for (var i = 0; i < _destinations.length; i++)
                     NavigationDestination(
-                      icon: Icon(destination.icon),
-                      selectedIcon: Icon(destination.selected),
-                      label: destination.label,
+                      icon: _badgedIcon(
+                        Icon(_destinations[i].icon),
+                        count: i == 5 ? unread : 0,
+                      ),
+                      selectedIcon: _badgedIcon(
+                        Icon(_destinations[i].selected),
+                        count: i == 5 ? unread : 0,
+                      ),
+                      label: _destinations[i].label,
                     ),
                 ],
               ),
       ),
     );
   }
+
+  Widget _badgedIcon(Widget icon, {required int count}) {
+    if (count <= 0) return icon;
+    final label = count > 99 ? '99+' : '$count';
+    return Badge(label: Text(label), child: icon);
+  }
 }
 
 class _DesktopNavigation extends StatelessWidget {
-  const _DesktopNavigation({required this.index, required this.onChanged});
+  const _DesktopNavigation({
+    required this.index,
+    required this.onChanged,
+    required this.unreadCount,
+  });
 
   final int index;
   final ValueChanged<int> onChanged;
+  final int unreadCount;
 
   @override
   Widget build(BuildContext context) {
@@ -143,11 +173,22 @@ class _DesktopNavigation extends StatelessWidget {
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(15),
                   ),
-                  leading: Icon(
-                    index == i
-                        ? _HomeShellState._destinations[i].selected
-                        : _HomeShellState._destinations[i].icon,
-                  ),
+                  leading: i == 5 && unreadCount > 0
+                      ? Badge(
+                          label: Text(
+                            unreadCount > 99 ? '99+' : '$unreadCount',
+                          ),
+                          child: Icon(
+                            index == i
+                                ? _HomeShellState._destinations[i].selected
+                                : _HomeShellState._destinations[i].icon,
+                          ),
+                        )
+                      : Icon(
+                          index == i
+                              ? _HomeShellState._destinations[i].selected
+                              : _HomeShellState._destinations[i].icon,
+                        ),
                   title: Text(
                     _HomeShellState._destinations[i].label,
                     style: const TextStyle(fontWeight: FontWeight.w600),
