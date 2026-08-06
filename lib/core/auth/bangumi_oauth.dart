@@ -1,0 +1,203 @@
+import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
+import 'dart:math';
+
+import 'package:dio/dio.dart';
+import 'package:url_launcher/url_launcher.dart';
+
+class OAuthConfig {
+  const OAuthConfig({required this.clientId, required this.clientSecret});
+
+  static const redirectUri = 'http://127.0.0.1:43927/oauth/callback';
+
+  final String clientId;
+  final String clientSecret;
+
+  bool get isValid =>
+      clientId.trim().isNotEmpty && clientSecret.trim().isNotEmpty;
+}
+
+class OAuthTokenBundle {
+  const OAuthTokenBundle({
+    required this.accessToken,
+    required this.refreshToken,
+    required this.expiresAt,
+  });
+
+  final String accessToken;
+  final String refreshToken;
+  final DateTime expiresAt;
+}
+
+class BangumiOAuthException implements Exception {
+  const BangumiOAuthException(this.message);
+
+  final String message;
+
+  @override
+  String toString() => message;
+}
+
+class BangumiOAuth {
+  BangumiOAuth()
+    : _dio = Dio(
+        BaseOptions(
+          baseUrl: 'https://bgm.tv',
+          connectTimeout: const Duration(seconds: 15),
+          receiveTimeout: const Duration(seconds: 20),
+          headers: const {
+            'Accept': 'application/json',
+            'User-Agent': 'MuBangumi/0.4.0 (Flutter; personal Bangumi client)',
+          },
+        ),
+      );
+
+  final Dio _dio;
+
+  Future<OAuthTokenBundle> authorize(OAuthConfig config) async {
+    if (!config.isValid) throw const BangumiOAuthException('OAuth 配置不完整');
+
+    HttpServer server;
+    try {
+      server = await HttpServer.bind(InternetAddress.loopbackIPv4, 43927);
+    } on SocketException {
+      throw const BangumiOAuthException('无法启动本地授权回调，请关闭占用 43927 端口的程序后重试');
+    }
+
+    final state = _createState();
+    final authorizeUri = Uri.https('bgm.tv', '/oauth/authorize', {
+      'client_id': config.clientId.trim(),
+      'response_type': 'code',
+      'redirect_uri': OAuthConfig.redirectUri,
+      'state': state,
+    });
+
+    try {
+      final opened = await launchUrl(
+        authorizeUri,
+        mode: LaunchMode.externalApplication,
+      );
+      if (!opened) throw const BangumiOAuthException('无法打开 Bangumi 登录页面');
+
+      final callback = await _waitForCallback(server).timeout(
+        const Duration(minutes: 3),
+        onTimeout: () => throw const BangumiOAuthException('授权等待超时，请重新登录'),
+      );
+      final returnedState = callback.queryParameters['state'];
+      if (returnedState != state) {
+        throw const BangumiOAuthException('授权状态校验失败，请重新登录');
+      }
+      final error = callback.queryParameters['error'];
+      if (error != null) {
+        throw BangumiOAuthException(
+          callback.queryParameters['error_description'] ?? 'Bangumi 拒绝了授权请求',
+        );
+      }
+      final code = callback.queryParameters['code'];
+      if (code == null || code.isEmpty) {
+        throw const BangumiOAuthException('授权回调中没有 code');
+      }
+      return _exchangeCode(config, code, state);
+    } finally {
+      await server.close(force: true);
+    }
+  }
+
+  Future<OAuthTokenBundle> refresh(OAuthConfig config, String refreshToken) async {
+    final tokens = await _requestToken({
+      'grant_type': 'refresh_token',
+      'client_id': config.clientId.trim(),
+      'client_secret': config.clientSecret.trim(),
+      'refresh_token': refreshToken,
+      'redirect_uri': OAuthConfig.redirectUri,
+    });
+    // Some refresh responses omit refresh_token; keep the previous one.
+    if (tokens.refreshToken.isNotEmpty) return tokens;
+    return OAuthTokenBundle(
+      accessToken: tokens.accessToken,
+      refreshToken: refreshToken,
+      expiresAt: tokens.expiresAt,
+    );
+  }
+
+  Future<OAuthTokenBundle> _exchangeCode(
+    OAuthConfig config,
+    String code,
+    String state,
+  ) => _requestToken({
+    'grant_type': 'authorization_code',
+    'client_id': config.clientId.trim(),
+    'client_secret': config.clientSecret.trim(),
+    'code': code,
+    'redirect_uri': OAuthConfig.redirectUri,
+    'state': state,
+  });
+
+  Future<OAuthTokenBundle> _requestToken(Map<String, dynamic> data) async {
+    DioException? lastError;
+    for (var attempt = 0; attempt < 2; attempt++) {
+      try {
+        final response = await _dio.post<Map<String, dynamic>>(
+          '/oauth/access_token',
+          data: data,
+          options: Options(contentType: Headers.formUrlEncodedContentType),
+        );
+        final json = response.data ?? const <String, dynamic>{};
+        final accessToken = json['access_token']?.toString() ?? '';
+        if (accessToken.isEmpty) {
+          throw const BangumiOAuthException('Bangumi 没有返回 Access Token');
+        }
+        final seconds = (json['expires_in'] as num?)?.toInt() ?? 604800;
+        return OAuthTokenBundle(
+          accessToken: accessToken,
+          refreshToken: json['refresh_token']?.toString() ?? '',
+          expiresAt: DateTime.now().add(Duration(seconds: seconds)),
+        );
+      } on DioException catch (error) {
+        lastError = error;
+        if ((error.response?.statusCode ?? 0) < 500 || attempt == 1) break;
+        await Future<void>.delayed(const Duration(milliseconds: 450));
+      }
+    }
+    final errorData = lastError?.response?.data;
+    if (errorData is Map) {
+      throw BangumiOAuthException(
+        (errorData['error_description'] ?? errorData['error'] ?? 'Bangumi 授权失败')
+            .toString(),
+      );
+    }
+    throw const BangumiOAuthException('连接 Bangumi 授权服务器失败');
+  }
+
+  Future<Uri> _waitForCallback(HttpServer server) async {
+    await for (final request in server) {
+      if (request.uri.path != '/oauth/callback') {
+        request.response.statusCode = HttpStatus.notFound;
+        await request.response.close();
+        continue;
+      }
+      final hasCode = request.uri.queryParameters['code']?.isNotEmpty == true;
+      request.response
+        ..statusCode = HttpStatus.ok
+        ..headers.contentType = ContentType.html
+        ..write(hasCode ? _successHtml : _failureHtml);
+      await request.response.close();
+      return request.uri;
+    }
+    throw const BangumiOAuthException('本地授权回调已关闭');
+  }
+
+  String _createState() {
+    final random = Random.secure();
+    final bytes = List<int>.generate(24, (_) => random.nextInt(256));
+    return base64UrlEncode(bytes).replaceAll('=', '');
+  }
+
+  static const _successHtml = '''
+<!DOCTYPE html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>MuBangumi 授权完成</title><style>body{margin:0;font-family:system-ui;background:#f7f7fa;color:#1d2433;display:grid;place-items:center;min-height:100vh}.card{background:white;padding:48px;border-radius:24px;text-align:center;box-shadow:0 12px 40px #1d243312}.mark{width:64px;height:64px;border-radius:20px;background:#e95383;color:white;display:grid;place-items:center;font-size:36px;margin:auto}h1{margin:24px 0 8px;font-size:24px}p{color:#6d707f;margin:0}</style></head><body><div class="card"><div class="mark">✓</div><h1>授权成功</h1><p>可以关闭浏览器，回到 MuBangumi 了。</p></div></body></html>
+''';
+  static const _failureHtml = '''
+<!DOCTYPE html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>MuBangumi 授权失败</title></head><body style="font-family:system-ui;text-align:center;padding:60px"><h1>授权未完成</h1><p>请返回 MuBangumi 再试一次。</p></body></html>
+''';
+}

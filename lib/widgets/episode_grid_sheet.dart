@@ -1,0 +1,383 @@
+import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+
+import '../models/bangumi_models.dart';
+import '../state/session_controller.dart';
+import 'subject_widgets.dart';
+
+Future<void> showEpisodeGridSheet(
+  BuildContext context,
+  WidgetRef ref,
+  UserCollection collection,
+) async {
+  await showModalBottomSheet<bool>(
+    context: context,
+    isScrollControlled: true,
+    useSafeArea: true,
+    showDragHandle: true,
+    constraints: const BoxConstraints(maxWidth: 760),
+    builder: (_) => FractionallySizedBox(
+      heightFactor: .86,
+      child: _EpisodeGridPanel(collection: collection),
+    ),
+  );
+  if (context.mounted) {
+    await ref.read(sessionProvider.notifier).refresh(showIndicator: false);
+  }
+}
+
+class _EpisodeGridPanel extends ConsumerStatefulWidget {
+  const _EpisodeGridPanel({required this.collection});
+
+  final UserCollection collection;
+
+  @override
+  ConsumerState<_EpisodeGridPanel> createState() => _EpisodeGridPanelState();
+}
+
+class _EpisodeGridPanelState extends ConsumerState<_EpisodeGridPanel> {
+  List<UserEpisodeCollection> _episodes = const [];
+  final Set<int> _updating = {};
+  bool _loading = true;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    Future.microtask(_load);
+  }
+
+  Future<void> _load() async {
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    try {
+      final episodes = await ref
+          .read(bangumiApiProvider)
+          .getEpisodeCollections(widget.collection.subjectId);
+      if (!mounted) return;
+      setState(() {
+        _episodes = episodes;
+        _loading = false;
+      });
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _loading = false;
+        _error = error.toString();
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final watched = _episodes.where((item) => item.type == 2).length;
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(22, 4, 10, 14),
+          child: Row(
+            children: [
+              SubjectCover(
+                subject: widget.collection.subject,
+                width: 46,
+                height: 62,
+                borderRadius: 9,
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      widget.collection.subject.displayName,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.titleLarge,
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      _loading
+                          ? '正在读取章节状态…'
+                          : '看过 $watched / ${_episodes.length}',
+                      style: TextStyle(
+                        color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              IconButton(
+                tooltip: '关闭',
+                onPressed: () => Navigator.pop(context),
+                icon: const Icon(Icons.close_rounded),
+              ),
+            ],
+          ),
+        ),
+        const Divider(height: 1),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(22, 14, 22, 10),
+          child: Row(
+            children: [
+              _Legend(
+                color: Theme.of(context).colorScheme.primary,
+                label: '看过',
+              ),
+              const SizedBox(width: 16),
+              _Legend(
+                color: Theme.of(context).colorScheme.secondaryContainer,
+                label: '想看',
+              ),
+              const SizedBox(width: 16),
+              _Legend(color: Colors.transparent, label: '未标记', outlined: true),
+              const Spacer(),
+              Text('点击切换 · 长按更多', style: Theme.of(context).textTheme.bodySmall),
+            ],
+          ),
+        ),
+        Expanded(child: _buildContent(context)),
+      ],
+    );
+  }
+
+  Widget _buildContent(BuildContext context) {
+    if (_loading) return const Center(child: CircularProgressIndicator());
+    if (_error != null) {
+      return EmptyState(
+        icon: Icons.cloud_off_outlined,
+        title: '章节状态加载失败',
+        message: _error!,
+        action: FilledButton.tonalIcon(
+          onPressed: _load,
+          icon: const Icon(Icons.refresh_rounded),
+          label: const Text('重试'),
+        ),
+      );
+    }
+    if (_episodes.isEmpty) {
+      return const EmptyState(
+        icon: Icons.grid_view_rounded,
+        title: '暂无可点的格子',
+        message: '这个条目还没有普通章节数据。',
+      );
+    }
+    return GridView.builder(
+      padding: const EdgeInsets.fromLTRB(22, 10, 22, 30),
+      gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+        maxCrossAxisExtent: 78,
+        mainAxisExtent: 58,
+        mainAxisSpacing: 10,
+        crossAxisSpacing: 10,
+      ),
+      itemCount: _episodes.length,
+      itemBuilder: (context, index) {
+        final item = _episodes[index];
+        return _EpisodeCell(
+          item: item,
+          busy: _updating.contains(item.episode.id),
+          onTap: () => _setStatus(index, item.type == 2 ? 0 : 2),
+          onLongPress: () => _chooseStatus(index),
+        );
+      },
+    );
+  }
+
+  Future<void> _chooseStatus(int index) async {
+    final item = _episodes[index];
+    final type = await showDialog<int>(
+      context: context,
+      builder: (context) => SimpleDialog(
+        title: Text('第 ${_number(item.episode.number)} 话'),
+        children: [
+          _statusOption(
+            context,
+            2,
+            '看过',
+            Icons.check_circle_rounded,
+            item.type,
+          ),
+          _statusOption(context, 1, '想看', Icons.schedule_rounded, item.type),
+          _statusOption(context, 3, '抛弃', Icons.block_rounded, item.type),
+          _statusOption(
+            context,
+            0,
+            '未标记',
+            Icons.remove_circle_outline,
+            item.type,
+          ),
+        ],
+      ),
+    );
+    if (type != null && type != item.type) await _setStatus(index, type);
+  }
+
+  Widget _statusOption(
+    BuildContext context,
+    int value,
+    String label,
+    IconData icon,
+    int current,
+  ) => SimpleDialogOption(
+    onPressed: () => Navigator.pop(context, value),
+    child: ListTile(
+      leading: Icon(icon),
+      title: Text(label),
+      trailing: current == value ? const Icon(Icons.check_rounded) : null,
+    ),
+  );
+
+  Future<void> _setStatus(int index, int type) async {
+    final item = _episodes[index];
+    if (_updating.contains(item.episode.id)) return;
+    setState(() {
+      _updating.add(item.episode.id);
+      _episodes[index] = item.copyWith(type: type);
+    });
+    final error = await ref
+        .read(sessionProvider.notifier)
+        .setEpisode(
+          subjectId: widget.collection.subjectId,
+          episodeId: item.episode.id,
+          type: type,
+          refreshCollection: false,
+          trackGlobalBusy: false,
+        );
+    if (!mounted) return;
+    setState(() {
+      _updating.remove(item.episode.id);
+      if (error != null) _episodes[index] = item;
+    });
+    if (error != null) showAppMessage(context, error);
+  }
+
+  String _number(double value) =>
+      value % 1 == 0 ? value.toInt().toString() : value.toStringAsFixed(1);
+}
+
+class _EpisodeCell extends StatelessWidget {
+  const _EpisodeCell({
+    required this.item,
+    required this.busy,
+    required this.onTap,
+    required this.onLongPress,
+  });
+
+  final UserEpisodeCollection item;
+  final bool busy;
+  final VoidCallback onTap;
+  final VoidCallback onLongPress;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    final (background, foreground, border) = switch (item.type) {
+      2 => (colors.primary, colors.onPrimary, colors.primary),
+      1 => (
+        colors.secondaryContainer,
+        colors.onSecondaryContainer,
+        colors.secondaryContainer,
+      ),
+      3 => (
+        colors.errorContainer,
+        colors.onErrorContainer,
+        colors.errorContainer,
+      ),
+      _ => (Colors.white, colors.onSurface, colors.outlineVariant),
+    };
+    final number = item.episode.number % 1 == 0
+        ? item.episode.number.toInt().toString()
+        : item.episode.number.toStringAsFixed(1);
+    return Tooltip(
+      message: item.episode.displayName,
+      child: Material(
+        color: background,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(14),
+          side: BorderSide(color: border),
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: busy ? null : onTap,
+          onLongPress: busy ? null : onLongPress,
+          child: Stack(
+            children: [
+              Center(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      number,
+                      style: TextStyle(
+                        color: foreground,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    Text(
+                      item.type == 2
+                          ? '看过'
+                          : item.type == 1
+                          ? '想看'
+                          : item.type == 3
+                          ? '抛弃'
+                          : 'EP',
+                      style: TextStyle(
+                        color: foreground.withValues(alpha: .78),
+                        fontSize: 9,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              if (busy)
+                Positioned(
+                  right: 5,
+                  top: 5,
+                  child: SizedBox.square(
+                    dimension: 9,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 1.5,
+                      color: foreground,
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _Legend extends StatelessWidget {
+  const _Legend({
+    required this.color,
+    required this.label,
+    this.outlined = false,
+  });
+
+  final Color color;
+  final String label;
+  final bool outlined;
+
+  @override
+  Widget build(BuildContext context) => Row(
+    mainAxisSize: MainAxisSize.min,
+    children: [
+      Container(
+        width: 11,
+        height: 11,
+        decoration: BoxDecoration(
+          color: color,
+          shape: BoxShape.circle,
+          border: outlined
+              ? Border.all(color: Theme.of(context).colorScheme.outline)
+              : null,
+        ),
+      ),
+      const SizedBox(width: 5),
+      Text(label, style: Theme.of(context).textTheme.bodySmall),
+    ],
+  );
+}

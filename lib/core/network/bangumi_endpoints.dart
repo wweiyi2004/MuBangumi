@@ -1,0 +1,53 @@
+enum BangumiNetworkRoute {
+  official(
+    '正常线路',
+    'api.bgm.tv + lain.bgm.tv',
+    'https://api.bgm.tv/v0',
+    'lain.bgm.tv',
+  ),
+  reverseProxy(
+    'Bangumi 反代',
+    'bgmapi.anibt.net + bgmimg.anibt.net',
+    'https://bgmapi.anibt.net/v0',
+    'bgmimg.anibt.net',
+  );
+
+  const BangumiNetworkRoute(
+    this.label,
+    this.description,
+    this.apiBaseUrl,
+    this.imageHost,
+  );
+
+  final String label;
+  final String description;
+  final String apiBaseUrl;
+  final String imageHost;
+
+  bool get isThirdParty => this == BangumiNetworkRoute.reverseProxy;
+}
+
+class BangumiEndpoints {
+  BangumiEndpoints._();
+
+  static BangumiNetworkRoute _route = BangumiNetworkRoute.official;
+
+  static BangumiNetworkRoute get route => _route;
+
+  static void setRoute(BangumiNetworkRoute route) => _route = route;
+
+  static String imageUrl(String rawUrl) {
+    final value = rawUrl.trim();
+    if (value.isEmpty) return '';
+    final normalized = value.startsWith('//') ? 'https:$value' : value;
+    final uri = Uri.tryParse(normalized);
+    if (uri == null) return normalized;
+    const officialHost = 'lain.bgm.tv';
+    const proxyHost = 'bgmimg.anibt.net';
+    final targetHost = _route == BangumiNetworkRoute.reverseProxy
+        ? proxyHost
+        : officialHost;
+    if (uri.host != officialHost && uri.host != proxyHost) return normalized;
+    return uri.replace(scheme: 'https', host: targetHost).toString();
+  }
+}
