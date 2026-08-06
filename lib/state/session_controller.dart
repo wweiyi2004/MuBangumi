@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../core/auth/bangumi_oauth.dart';
 import '../core/network/bangumi_api.dart';
 import '../core/network/bangumi_endpoints.dart';
+import '../core/network/bangumi_support.dart';
 import '../core/network/community_service.dart';
 import '../core/storage/token_store.dart';
 import '../models/bangumi_models.dart';
@@ -453,17 +454,15 @@ class SessionController extends StateNotifier<SessionState> {
     if (state.updatingSubjects.contains(collection.subjectId)) return null;
     _setUpdating(collection.subjectId, true);
     try {
+      // Default episodeType=0: only 本篇 for progress tooling.
       final episodes = await _api.getEpisodeCollections(collection.subjectId);
-      UserEpisodeCollection? target;
-      for (final episode in episodes) {
-        if (!episode.isWatched) {
-          target = episode;
-          break;
-        }
-      }
+      final target = BangumiSupport.nextUnwatchedMain(episodes);
       if (target == null) return '已经没有下一集了';
       await _api.updateEpisode(target.episode.id, type: 2);
-      final watchedCount = episodes.where((item) => item.isWatched).length + 1;
+      final watchedCount = BangumiSupport.watchedMainCountAfterMark(
+        episodes,
+        target.episode.id,
+      );
       _replaceCollection(collection.copyWith(episodeStatus: watchedCount));
       return null;
     } catch (error) {
@@ -528,11 +527,9 @@ class SessionController extends StateNotifier<SessionState> {
           type == CollectionType.done &&
           subject.type.hasEpisodes) {
         try {
+          // Default episodeType=0: only auto-complete 本篇, never SP/OP/ED.
           final episodes = await _api.getEpisodeCollections(subject.id);
-          final unfinished = [
-            for (final item in episodes)
-              if (!item.isWatched) item.episode.id,
-          ];
+          final unfinished = BangumiSupport.unfinishedMainEpisodeIds(episodes);
           if (unfinished.isNotEmpty) {
             await _api.updateEpisodesBatch(
               subject.id,
@@ -540,7 +537,7 @@ class SessionController extends StateNotifier<SessionState> {
               type: 2,
             );
           }
-          episodeStatus = episodes.length;
+          episodeStatus = BangumiSupport.mainEpisodeCollections(episodes).length;
         } catch (_) {
           // Collection type is already updated; progress fill is best-effort.
         }

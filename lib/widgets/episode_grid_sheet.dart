@@ -57,7 +57,10 @@ class _EpisodeGridPanelState extends ConsumerState<_EpisodeGridPanel> {
     try {
       final episodes = await ref
           .read(bangumiApiProvider)
-          .getEpisodeCollections(widget.collection.subjectId);
+          .getEpisodeCollections(
+            widget.collection.subjectId,
+            episodeType: null,
+          );
       if (!mounted) return;
       setState(() {
         _episodes = episodes;

@@ -328,9 +328,11 @@ class BangumiApi {
     }
   }
 
+  /// [episodeType] defaults to `0` (本篇) so progress tooling stays main-only.
+  /// Pass `null` to load all types (SP/OP/ED) for UI filters.
   Future<List<Episode>> getEpisodes(
     int subjectId, {
-    int? episodeType,
+    int? episodeType = 0,
   }) async {
     final result = <Episode>[];
     var offset = 0;
@@ -362,9 +364,11 @@ class BangumiApi {
     return result;
   }
 
+  /// [episodeType] defaults to `0` (本篇) for progress (mark-next / done).
+  /// Pass `null` for all types when the UI needs SP/OP/ED filters.
   Future<List<UserEpisodeCollection>> getEpisodeCollections(
     int subjectId, {
-    int? episodeType,
+    int? episodeType = 0,
   }) async {
     final result = <UserEpisodeCollection>[];
     var offset = 0;

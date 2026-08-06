@@ -60,6 +60,81 @@ void main() {
     expect(collection.private, isTrue);
   });
 
+  test('progress tooling centers on main episodes only', () {
+    final mixed = [
+      UserEpisodeCollection(
+        episode: const Episode(
+          id: 1,
+          type: 0,
+          number: 1,
+          sort: 1,
+          name: 'E1',
+          nameCn: '第一话',
+          airDate: '',
+          description: '',
+        ),
+        type: 2, // watched
+        updatedAt: 0,
+      ),
+      UserEpisodeCollection(
+        episode: const Episode(
+          id: 2,
+          type: 0,
+          number: 2,
+          sort: 2,
+          name: 'E2',
+          nameCn: '第二话',
+          airDate: '',
+          description: '',
+        ),
+        type: 0, // unwatched main
+        updatedAt: 0,
+      ),
+      UserEpisodeCollection(
+        episode: const Episode(
+          id: 90,
+          type: 2,
+          number: 0,
+          sort: 0,
+          name: 'OP',
+          nameCn: '',
+          airDate: '',
+          description: '',
+        ),
+        type: 0, // unwatched OP — must not be next
+        updatedAt: 0,
+      ),
+      UserEpisodeCollection(
+        episode: const Episode(
+          id: 91,
+          type: 1,
+          number: 0,
+          sort: 99,
+          name: 'SP',
+          nameCn: '',
+          airDate: '',
+          description: '',
+        ),
+        type: 0,
+        updatedAt: 0,
+      ),
+    ];
+
+    final next = BangumiSupport.nextUnwatchedMain(mixed);
+    expect(next?.episode.id, 2);
+    expect(next?.episode.type, 0);
+
+    final unfinished = BangumiSupport.unfinishedMainEpisodeIds(mixed);
+    expect(unfinished, [2]);
+    expect(unfinished, isNot(contains(90)));
+    expect(unfinished, isNot(contains(91)));
+
+    // Mark-next style count: only 本篇.
+    expect(BangumiSupport.watchedMainCountAfterMark(mixed, 2), 2);
+    // Done auto-complete pool length is main-only.
+    expect(BangumiSupport.mainEpisodeCollections(mixed), hasLength(2));
+  });
+
   test('filterEpisodesByType keeps SP/OP/ED correctly', () {
     final episodes = [
       const Episode(

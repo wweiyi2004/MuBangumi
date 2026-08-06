@@ -74,16 +74,21 @@ class _SubjectDetailScreenState extends ConsumerState<SubjectDetailScreen> {
       Map<int, int> episodeTypes = {};
       if (details.type.hasEpisodes || widget.subject.type.hasEpisodes) {
         if (hasCollection) {
+          // Explicit null = all types for SP/OP/ED filter UI.
           final episodeCollections = await api.getEpisodeCollections(
             widget.subject.id,
+            episodeType: null,
           );
           episodes = [for (final item in episodeCollections) item.episode];
           episodeTypes = {
             for (final item in episodeCollections) item.episode.id: item.type,
           };
         } else {
-          // Omit type filter so SP/OP/ED also load for filtering.
-          episodes = await api.getEpisodes(widget.subject.id);
+          // Explicit null = all types for SP/OP/ED filter UI.
+          episodes = await api.getEpisodes(
+            widget.subject.id,
+            episodeType: null,
+          );
         }
       }
       if (!mounted) return;
@@ -499,7 +504,7 @@ class _SubjectDetailScreenState extends ConsumerState<SubjectDetailScreen> {
     try {
       final episodeCollections = await ref
           .read(bangumiApiProvider)
-          .getEpisodeCollections(subjectId);
+          .getEpisodeCollections(subjectId, episodeType: null);
       if (!mounted) return;
       setState(() {
         _episodes = [

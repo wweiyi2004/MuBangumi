@@ -52,6 +52,44 @@ class BangumiSupport {
     ];
   }
 
+  /// Progress tooling only counts 本篇 (`episode.type == 0`).
+  static List<UserEpisodeCollection> mainEpisodeCollections(
+    List<UserEpisodeCollection> episodes,
+  ) => [
+    for (final item in episodes)
+      if (item.episode.type == 0) item,
+  ];
+
+  /// Next unwatched 本篇; ignores SP/OP/ED even if mixed into [episodes].
+  static UserEpisodeCollection? nextUnwatchedMain(
+    List<UserEpisodeCollection> episodes,
+  ) {
+    for (final item in mainEpisodeCollections(episodes)) {
+      if (!item.isWatched) return item;
+    }
+    return null;
+  }
+
+  /// Unwatched 本篇 ids for “看过” auto-complete.
+  static List<int> unfinishedMainEpisodeIds(
+    List<UserEpisodeCollection> episodes,
+  ) => [
+    for (final item in mainEpisodeCollections(episodes))
+      if (!item.isWatched) item.episode.id,
+  ];
+
+  /// Watched 本篇 count after marking [markedEpisodeId] as watched.
+  static int watchedMainCountAfterMark(
+    List<UserEpisodeCollection> episodes,
+    int markedEpisodeId,
+  ) {
+    var count = 0;
+    for (final item in mainEpisodeCollections(episodes)) {
+      if (item.isWatched || item.episode.id == markedEpisodeId) count++;
+    }
+    return count;
+  }
+
   static List<RelatedSubject> parseRelatedSubjects(List<dynamic>? raw) {
     if (raw == null) return const [];
     final result = <RelatedSubject>[];
