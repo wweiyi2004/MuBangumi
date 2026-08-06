@@ -33,23 +33,29 @@ class ProfilePage extends ConsumerWidget {
             .where((item) => item.subject.type == type)
             .length,
     };
+    final pageWidth = MediaQuery.sizeOf(context).width;
+    final pagePad = pageWidth < 420 ? 14.0 : 20.0;
     return SingleChildScrollView(
-      padding: const EdgeInsets.fromLTRB(20, 24, 20, 60),
+      padding: EdgeInsets.fromLTRB(pagePad, 24, pagePad, 60),
       child: Center(
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 900),
           child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               Text('我的', style: Theme.of(context).textTheme.headlineLarge),
               const SizedBox(height: 24),
+              // Stretch full width: previously narrow panes collapsed the card to
+              // avatar/text intrinsic width (looked like a thin strip).
               Card(
                 child: Padding(
-                  padding: const EdgeInsets.all(24),
+                  padding: const EdgeInsets.fromLTRB(20, 20, 20, 20),
                   child: LayoutBuilder(
                     builder: (context, constraints) {
+                      final compact = constraints.maxWidth < 360;
+                      final avatarRadius = compact ? 34.0 : 42.0;
                       final avatar = CircleAvatar(
-                        radius: 42,
+                        radius: avatarRadius,
                         backgroundColor: Theme.of(
                           context,
                         ).colorScheme.primaryContainer,
@@ -72,11 +78,15 @@ class ProfilePage extends ConsumerWidget {
                         children: [
                           Text(
                             user.nickname,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
                             style: Theme.of(context).textTheme.headlineMedium,
                           ),
                           const SizedBox(height: 4),
                           Text(
                             '@${user.username}',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
                             style: TextStyle(
                               color: Theme.of(
                                 context,
@@ -87,22 +97,28 @@ class ProfilePage extends ConsumerWidget {
                             const SizedBox(height: 9),
                             Text(
                               user.sign,
-                              maxLines: 2,
+                              maxLines: 3,
                               overflow: TextOverflow.ellipsis,
                             ),
                           ],
                         ],
                       );
-                      if (constraints.maxWidth < 520) {
+                      // Prefer horizontal 名片; stack only when extremely narrow.
+                      if (constraints.maxWidth < 280) {
                         return Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [avatar, const SizedBox(height: 18), info],
+                          children: [
+                            avatar,
+                            const SizedBox(height: 14),
+                            info,
+                          ],
                         );
                       }
                       return Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           avatar,
-                          const SizedBox(width: 22),
+                          SizedBox(width: compact ? 14 : 22),
                           Expanded(child: info),
                         ],
                       );
@@ -113,10 +129,18 @@ class ProfilePage extends ConsumerWidget {
               const SizedBox(height: 18),
               LayoutBuilder(
                 builder: (context, constraints) {
-                  final width = (constraints.maxWidth - 24) / 3;
+                  // Avoid three razor-thin stat cards on phone-width panes.
+                  final columns = constraints.maxWidth < 340
+                      ? 1
+                      : constraints.maxWidth < 520
+                      ? 2
+                      : 3;
+                  final gap = 12.0;
+                  final width =
+                      (constraints.maxWidth - gap * (columns - 1)) / columns;
                   return Wrap(
-                    spacing: 12,
-                    runSpacing: 12,
+                    spacing: gap,
+                    runSpacing: gap,
                     children: [
                       _CountCard(
                         width: width,
