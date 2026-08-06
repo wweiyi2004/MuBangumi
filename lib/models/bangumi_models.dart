@@ -210,7 +210,8 @@ class Subject {
       volumeCount: _int(json['volumes']),
       score: _double(rating['score'], fallback: _double(json['score'])),
       rank: _int(rating['rank'], fallback: _int(json['rank'])),
-      date: _string(json['date']),
+      // Legacy calendar items use `air_date` instead of `date`.
+      date: _string(json['date'], fallback: _string(json['air_date'])),
       collectionTotal: _int(
         collection['total'],
         fallback: totalFromBuckets > 0

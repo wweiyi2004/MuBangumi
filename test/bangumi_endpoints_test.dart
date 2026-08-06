@@ -10,6 +10,12 @@ void main() {
       BangumiNetworkRoute.reverseProxy.apiBaseUrl,
       'https://bgmapi.anibt.net/v0',
     );
+    // Legacy calendar lives outside /v0.
+    expect(BangumiNetworkRoute.official.apiRootUrl, 'https://api.bgm.tv');
+    expect(
+      BangumiNetworkRoute.reverseProxy.apiRootUrl,
+      'https://bgmapi.anibt.net',
+    );
   });
 
   test('rewrites Bangumi image URLs in both directions', () {

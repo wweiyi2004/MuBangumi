@@ -340,12 +340,12 @@ void main() {
             'type': 2,
             'name': 'Show',
             'name_cn': '节目',
+            'air_date': '2026-07-06',
             'images': {
               'large': 'https://lain.bgm.tv/pic/cover/l/xx.jpg',
             },
             'rating': {'score': 7.5},
-            'collection': {},
-            'eps': 12,
+            'collection': {'doing': 12},
           },
         ],
       },
@@ -359,6 +359,7 @@ void main() {
     expect(days.first.weekdayLabel, '星期一');
     expect(days.first.subjects.first.id, 100);
     expect(days.first.subjects.first.displayName, '节目');
+    expect(days.first.subjects.first.date, '2026-07-06');
   });
 
   test('parseSubjectCommentsHtml extracts text blocks', () {

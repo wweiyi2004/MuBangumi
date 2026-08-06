@@ -21,10 +21,23 @@ enum BangumiNetworkRoute {
 
   final String label;
   final String description;
+  /// OpenAPI v0 base, e.g. `https://api.bgm.tv/v0`.
   final String apiBaseUrl;
   final String imageHost;
 
   bool get isThirdParty => this == BangumiNetworkRoute.reverseProxy;
+
+  /// API host root without `/v0` (legacy endpoints like `/calendar`).
+  String get apiRootUrl {
+    final base = apiBaseUrl;
+    if (base.endsWith('/v0')) {
+      return base.substring(0, base.length - 3);
+    }
+    if (base.endsWith('/v0/')) {
+      return base.substring(0, base.length - 4);
+    }
+    return base;
+  }
 }
 
 class BangumiEndpoints {

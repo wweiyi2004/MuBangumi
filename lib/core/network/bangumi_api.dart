@@ -390,9 +390,15 @@ class BangumiApi {
   }
 
   /// Official weekly broadcast calendar (not local 新番表).
+  ///
+  /// Bangumi serves this on the **legacy** root (`/calendar`), not under OpenAPI
+  /// `/v0`. Using the Dio baseUrl would hit `/v0/calendar` and 404.
   Future<List<CalendarDay>> getCalendar() async {
+    final route = BangumiEndpoints.route;
     final response = await _request(
-      () => _dio.get<List<dynamic>>('/calendar'),
+      () => _dio.get<List<dynamic>>(
+        '${route.apiRootUrl}/calendar',
+      ),
       checkToken: false,
     );
     return BangumiSupport.parseCalendar(response.data);
