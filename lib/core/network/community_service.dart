@@ -516,6 +516,26 @@ class CommunityService {
     }
   }
 
+  /// Topics under a single subject (条目讨论).
+  Future<List<CommunityTopic>> loadTopicsForSubject(
+    int subjectId, {
+    int limit = 20,
+    int offset = 0,
+    bool refresh = false,
+  }) async {
+    if (subjectId <= 0) return const [];
+    try {
+      final page = await _getJson(
+        '/subjects/$subjectId/topics',
+        query: {'limit': limit, 'offset': offset},
+        refresh: refresh,
+      );
+      return _p1Parser.parseSubjectTopics(page);
+    } catch (_) {
+      return const [];
+    }
+  }
+
   Future<List<CommunityTopic>> _loadRakuenHtml({
     required String type,
     required bool refresh,

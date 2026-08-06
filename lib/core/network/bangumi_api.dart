@@ -226,6 +226,56 @@ class BangumiApi {
     return _subjectsFromPage(response.data);
   }
 
+  Future<List<CharacterDetail>> searchCharacters(
+    String keyword, {
+    int limit = 24,
+    int offset = 0,
+  }) async {
+    final response = await _request(
+      () => _dio.post<Map<String, dynamic>>(
+        '/search/characters',
+        queryParameters: BangumiSupport.pageQuery(limit: limit, offset: offset),
+        data: {
+          'keyword': keyword,
+          'filter': {'nsfw': false},
+        },
+      ),
+      checkToken: false,
+    );
+    final data = response.data?['data'];
+    if (data is! List) return const [];
+    return [
+      for (final item in data)
+        if (item is Map)
+          BangumiSupport.parseCharacterDetail(Map<String, dynamic>.from(item)),
+    ];
+  }
+
+  Future<List<PersonDetail>> searchPersons(
+    String keyword, {
+    int limit = 24,
+    int offset = 0,
+  }) async {
+    final response = await _request(
+      () => _dio.post<Map<String, dynamic>>(
+        '/search/persons',
+        queryParameters: BangumiSupport.pageQuery(limit: limit, offset: offset),
+        data: {
+          'keyword': keyword,
+          'filter': {'nsfw': false},
+        },
+      ),
+      checkToken: false,
+    );
+    final data = response.data?['data'];
+    if (data is! List) return const [];
+    return [
+      for (final item in data)
+        if (item is Map)
+          BangumiSupport.parsePersonDetail(Map<String, dynamic>.from(item)),
+    ];
+  }
+
   Future<List<Subject>> browseSeason({
     required int year,
     required int month,
@@ -289,6 +339,54 @@ class BangumiApi {
       checkToken: false,
     );
     return BangumiSupport.parseRelatedSubjects(response.data);
+  }
+
+  Future<CharacterDetail> getCharacter(int characterId) async {
+    final response = await _request(
+      () => _dio.get<Map<String, dynamic>>('/characters/$characterId'),
+      checkToken: false,
+    );
+    return BangumiSupport.parseCharacterDetail(response.data ?? const {});
+  }
+
+  Future<List<MonoLinkedSubject>> getCharacterSubjects(int characterId) async {
+    final response = await _request(
+      () => _dio.get<List<dynamic>>('/characters/$characterId/subjects'),
+      checkToken: false,
+    );
+    return BangumiSupport.parseMonoSubjects(response.data);
+  }
+
+  Future<List<MonoLinkedPerson>> getCharacterPersons(int characterId) async {
+    final response = await _request(
+      () => _dio.get<List<dynamic>>('/characters/$characterId/persons'),
+      checkToken: false,
+    );
+    return BangumiSupport.parseCharacterPersons(response.data);
+  }
+
+  Future<PersonDetail> getPerson(int personId) async {
+    final response = await _request(
+      () => _dio.get<Map<String, dynamic>>('/persons/$personId'),
+      checkToken: false,
+    );
+    return BangumiSupport.parsePersonDetail(response.data ?? const {});
+  }
+
+  Future<List<MonoLinkedSubject>> getPersonSubjects(int personId) async {
+    final response = await _request(
+      () => _dio.get<List<dynamic>>('/persons/$personId/subjects'),
+      checkToken: false,
+    );
+    return BangumiSupport.parseMonoSubjects(response.data);
+  }
+
+  Future<List<MonoLinkedCharacter>> getPersonCharacters(int personId) async {
+    final response = await _request(
+      () => _dio.get<List<dynamic>>('/persons/$personId/characters'),
+      checkToken: false,
+    );
+    return BangumiSupport.parsePersonCharacters(response.data);
   }
 
   /// Official weekly broadcast calendar (not local 新番表).
@@ -435,6 +533,8 @@ class BangumiApi {
   }
 
   /// Create or update a user collection (status, score, comment, tags, privacy).
+  ///
+  /// [episodeStatus] / [volumeStatus] map to book progress fields only.
   Future<void> updateCollection(
     int subjectId,
     CollectionType type, {
@@ -442,6 +542,8 @@ class BangumiApi {
     String comment = '',
     List<String> tags = const [],
     bool private = false,
+    int? episodeStatus,
+    int? volumeStatus,
   }) async {
     final data = BangumiSupport.collectionUpdatePayload(
       type: type,
@@ -449,6 +551,8 @@ class BangumiApi {
       comment: comment,
       tags: tags,
       private: private,
+      episodeStatus: episodeStatus,
+      volumeStatus: volumeStatus,
     );
     await _request(
       () => _dio.post<void>(

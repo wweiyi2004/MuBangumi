@@ -9,12 +9,17 @@ class BangumiSupport {
       {'limit': limit, 'offset': offset};
 
   /// Payload for POST /v0/users/-/collections/{id}.
+  ///
+  /// [episodeStatus] / [volumeStatus] are only meaningful for books
+  /// (`ep_status` / `vol_status` in OpenAPI). Omit them for other types.
   static Map<String, dynamic> collectionUpdatePayload({
     required CollectionType type,
     int rate = 0,
     String comment = '',
     List<String> tags = const [],
     bool private = false,
+    int? episodeStatus,
+    int? volumeStatus,
   }) {
     final clamped = rate.clamp(0, 10);
     return {
@@ -26,6 +31,8 @@ class BangumiSupport {
           if (tag.trim().isNotEmpty) tag.trim(),
       ],
       'private': private,
+      if (episodeStatus != null) 'ep_status': episodeStatus < 0 ? 0 : episodeStatus,
+      if (volumeStatus != null) 'vol_status': volumeStatus < 0 ? 0 : volumeStatus,
     };
   }
 
@@ -128,30 +135,72 @@ class BangumiSupport {
     return result;
   }
 
+  static String imageUrlFrom(dynamic images, {String fallback = ''}) {
+    if (images is Map) {
+      return images['large']?.toString() ??
+          images['medium']?.toString() ??
+          images['common']?.toString() ??
+          images['small']?.toString() ??
+          images['grid']?.toString() ??
+          fallback;
+    }
+    if (images is String && images.isNotEmpty) return images;
+    return fallback;
+  }
+
+  /// Pull 简体中文名 from OpenAPI infobox array when present.
+  static String nameCnFromInfobox(List<dynamic>? infobox) {
+    if (infobox == null) return '';
+    for (final item in infobox) {
+      if (item is! Map) continue;
+      final key = item['key']?.toString() ?? '';
+      if (key != '简体中文名' && key != '中文名') continue;
+      final value = item['value'];
+      if (value is String && value.trim().isNotEmpty) return value.trim();
+      if (value is List) {
+        for (final entry in value) {
+          if (entry is Map) {
+            final v = entry['v']?.toString() ?? '';
+            if (v.trim().isNotEmpty) return v.trim();
+          } else if (entry != null && entry.toString().trim().isNotEmpty) {
+            return entry.toString().trim();
+          }
+        }
+      }
+    }
+    return '';
+  }
+
+  static List<String> careerFrom(dynamic raw) {
+    if (raw is! List) return const [];
+    return [
+      for (final c in raw)
+        if (c != null && c.toString().isNotEmpty) c.toString(),
+    ];
+  }
+
   static List<SubjectCharacter> parseCharacters(List<dynamic>? raw) {
     if (raw == null) return const [];
     final result = <SubjectCharacter>[];
     for (final item in raw) {
       if (item is! Map) continue;
       final map = Map<String, dynamic>.from(item);
-      final actors = <String>[];
+      final actors = <SubjectActor>[];
       final actorsRaw = map['actors'];
       if (actorsRaw is List) {
         for (final actor in actorsRaw) {
-          if (actor is Map) {
-            final name = actor['name']?.toString() ?? '';
-            if (name.isNotEmpty) actors.add(name);
-          }
+          if (actor is! Map) continue;
+          final actorMap = Map<String, dynamic>.from(actor);
+          final name = actorMap['name']?.toString() ?? '';
+          if (name.isEmpty) continue;
+          actors.add(
+            SubjectActor(
+              id: (actorMap['id'] as num?)?.toInt() ?? 0,
+              name: name,
+              imageUrl: imageUrlFrom(actorMap['images']),
+            ),
+          );
         }
-      }
-      final images = map['images'];
-      var imageUrl = '';
-      if (images is Map) {
-        imageUrl =
-            images['large']?.toString() ??
-            images['medium']?.toString() ??
-            images['grid']?.toString() ??
-            '';
       }
       final id = (map['id'] as num?)?.toInt() ?? 0;
       if (id <= 0) continue;
@@ -160,7 +209,7 @@ class BangumiSupport {
           id: id,
           name: map['name']?.toString() ?? '',
           nameCn: map['name_cn']?.toString() ?? '',
-          imageUrl: imageUrl,
+          imageUrl: imageUrlFrom(map['images']),
           relation: map['relation']?.toString() ?? '',
           actors: actors,
         ),
@@ -175,14 +224,6 @@ class BangumiSupport {
     for (final item in raw) {
       if (item is! Map) continue;
       final map = Map<String, dynamic>.from(item);
-      final images = map['images'];
-      var imageUrl = '';
-      if (images is Map) {
-        imageUrl =
-            images['large']?.toString() ??
-            images['medium']?.toString() ??
-            '';
-      }
       final id = (map['id'] as num?)?.toInt() ?? 0;
       if (id <= 0) continue;
       result.add(
@@ -190,13 +231,133 @@ class BangumiSupport {
           id: id,
           name: map['name']?.toString() ?? '',
           nameCn: map['name_cn']?.toString() ?? '',
-          imageUrl: imageUrl,
+          imageUrl: imageUrlFrom(map['images']),
           relation: map['relation']?.toString() ?? '',
-          career: [
-            if (map['career'] is List)
-              for (final c in map['career'] as List)
-                if (c != null && c.toString().isNotEmpty) c.toString(),
-          ],
+          career: careerFrom(map['career']),
+        ),
+      );
+    }
+    return result;
+  }
+
+  static CharacterDetail parseCharacterDetail(Map<String, dynamic> json) {
+    final infobox = json['infobox'] is List
+        ? List<dynamic>.from(json['infobox'] as List)
+        : null;
+    final nameCn = nameCnFromInfobox(infobox);
+    final stat = json['stat'] is Map
+        ? Map<String, dynamic>.from(json['stat'] as Map)
+        : const <String, dynamic>{};
+    return CharacterDetail(
+      id: (json['id'] as num?)?.toInt() ?? 0,
+      name: json['name']?.toString() ?? '',
+      nameCn: nameCn,
+      imageUrl: imageUrlFrom(json['images']),
+      summary: json['summary']?.toString() ?? '',
+      gender: json['gender']?.toString() ?? '',
+      type: (json['type'] as num?)?.toInt() ?? 0,
+      commentCount: (stat['comments'] as num?)?.toInt() ?? 0,
+      collectCount: (stat['collects'] as num?)?.toInt() ?? 0,
+    );
+  }
+
+  static PersonDetail parsePersonDetail(Map<String, dynamic> json) {
+    final infobox = json['infobox'] is List
+        ? List<dynamic>.from(json['infobox'] as List)
+        : null;
+    final nameCn = nameCnFromInfobox(infobox);
+    final stat = json['stat'] is Map
+        ? Map<String, dynamic>.from(json['stat'] as Map)
+        : const <String, dynamic>{};
+    return PersonDetail(
+      id: (json['id'] as num?)?.toInt() ?? 0,
+      name: json['name']?.toString() ?? '',
+      nameCn: nameCn,
+      imageUrl: imageUrlFrom(
+        json['images'],
+        fallback: json['img']?.toString() ?? '',
+      ),
+      summary: json['summary']?.toString() ??
+          json['short_summary']?.toString() ??
+          '',
+      gender: json['gender']?.toString() ?? '',
+      type: (json['type'] as num?)?.toInt() ?? 0,
+      career: careerFrom(json['career']),
+      commentCount: (stat['comments'] as num?)?.toInt() ?? 0,
+      collectCount: (stat['collects'] as num?)?.toInt() ?? 0,
+    );
+  }
+
+  /// Character/person → subjects links (`staff`, flat subject fields).
+  static List<MonoLinkedSubject> parseMonoSubjects(List<dynamic>? raw) {
+    if (raw == null) return const [];
+    final result = <MonoLinkedSubject>[];
+    for (final item in raw) {
+      if (item is! Map) continue;
+      final map = Map<String, dynamic>.from(item);
+      final id = (map['id'] as num?)?.toInt() ?? 0;
+      if (id <= 0) continue;
+      result.add(
+        MonoLinkedSubject(
+          id: id,
+          name: map['name']?.toString() ?? '',
+          nameCn: map['name_cn']?.toString() ?? '',
+          imageUrl: map['image']?.toString() ?? imageUrlFrom(map['images']),
+          staff: map['staff']?.toString() ?? '',
+          type: SubjectType.fromValue(
+            (map['type'] as num?)?.toInt() ?? SubjectType.anime.value,
+          ),
+        ),
+      );
+    }
+    return result;
+  }
+
+  /// Character → cast persons (`/characters/{id}/persons`).
+  static List<MonoLinkedPerson> parseCharacterPersons(List<dynamic>? raw) {
+    if (raw == null) return const [];
+    final result = <MonoLinkedPerson>[];
+    final seen = <int>{};
+    for (final item in raw) {
+      if (item is! Map) continue;
+      final map = Map<String, dynamic>.from(item);
+      final id = (map['id'] as num?)?.toInt() ?? 0;
+      if (id <= 0 || !seen.add(id)) continue;
+      result.add(
+        MonoLinkedPerson(
+          id: id,
+          name: map['name']?.toString() ?? '',
+          imageUrl: imageUrlFrom(map['images']),
+          staff: map['staff']?.toString() ?? '',
+          subjectName: (map['subject_name_cn']?.toString().trim().isNotEmpty ??
+                  false)
+              ? map['subject_name_cn'].toString()
+              : (map['subject_name']?.toString() ?? ''),
+        ),
+      );
+    }
+    return result;
+  }
+
+  /// Person → characters (`/persons/{id}/characters`).
+  static List<MonoLinkedCharacter> parsePersonCharacters(List<dynamic>? raw) {
+    if (raw == null) return const [];
+    final result = <MonoLinkedCharacter>[];
+    for (final item in raw) {
+      if (item is! Map) continue;
+      final map = Map<String, dynamic>.from(item);
+      final id = (map['id'] as num?)?.toInt() ?? 0;
+      if (id <= 0) continue;
+      result.add(
+        MonoLinkedCharacter(
+          id: id,
+          name: map['name']?.toString() ?? '',
+          imageUrl: imageUrlFrom(map['images']),
+          staff: map['staff']?.toString() ?? '',
+          subjectName: (map['subject_name_cn']?.toString().trim().isNotEmpty ??
+                  false)
+              ? map['subject_name_cn'].toString()
+              : (map['subject_name']?.toString() ?? ''),
         ),
       );
     }
@@ -248,24 +409,27 @@ class BangumiSupport {
     final blockRe = RegExp(
       r'id="item_(\d+)"[\s\S]*?'
       r'class="avatarNeue[^"]*"[^>]*style="background-image:url\(([^)]+)\)"[\s\S]*?'
-      r'class="l"[^>]*>([^<]+)</a>[\s\S]*?'
+      r'(?:href="[^"]*/user/([^"]+)"[^>]*class="l"|class="l"[^>]*href="[^"]*/user/([^"]+)"|class="l")[^>]*>([^<]+)</a>[\s\S]*?'
       r'(?:class="starlight stars(\d+)"[\s\S]*?)?'
       r'class="comment"[^>]*>([\s\S]*?)</div>',
       caseSensitive: false,
     );
     for (final match in blockRe.allMatches(html)) {
       final content = match
-          .group(5)!
+          .group(7)!
           .replaceAll(RegExp(r'<[^>]+>'), ' ')
           .replaceAll(RegExp(r'\s+'), ' ')
           .trim();
       if (content.isEmpty) continue;
+      final username = (match.group(3) ?? match.group(4) ?? '').trim();
+      final display = (match.group(5) ?? '').trim();
       result.add(
         SubjectComment(
           id: int.tryParse(match.group(1) ?? '') ?? 0,
-          userName: match.group(3)?.trim() ?? '',
+          userName: display,
+          username: username.isNotEmpty ? username : display,
           avatarUrl: (match.group(2) ?? '').replaceAll("'", '').trim(),
-          rate: int.tryParse(match.group(4) ?? '') ?? 0,
+          rate: int.tryParse(match.group(6) ?? '') ?? 0,
           comment: content,
         ),
       );
@@ -289,6 +453,7 @@ class BangumiSupport {
         SubjectComment(
           id: i++,
           userName: '',
+          username: '',
           avatarUrl: '',
           rate: 0,
           comment: content,
@@ -332,6 +497,18 @@ class RelatedSubject {
   );
 }
 
+class SubjectActor {
+  const SubjectActor({
+    required this.id,
+    required this.name,
+    this.imageUrl = '',
+  });
+
+  final int id;
+  final String name;
+  final String imageUrl;
+}
+
 class SubjectCharacter {
   const SubjectCharacter({
     required this.id,
@@ -347,9 +524,11 @@ class SubjectCharacter {
   final String nameCn;
   final String imageUrl;
   final String relation;
-  final List<String> actors;
+  final List<SubjectActor> actors;
 
   String get displayName => nameCn.trim().isNotEmpty ? nameCn : name;
+
+  List<String> get actorNames => [for (final a in actors) a.name];
 }
 
 class SubjectPerson {
@@ -372,6 +551,125 @@ class SubjectPerson {
   String get displayName => nameCn.trim().isNotEmpty ? nameCn : name;
 }
 
+class CharacterDetail {
+  const CharacterDetail({
+    required this.id,
+    required this.name,
+    required this.nameCn,
+    required this.imageUrl,
+    required this.summary,
+    required this.gender,
+    required this.type,
+    required this.commentCount,
+    required this.collectCount,
+  });
+
+  final int id;
+  final String name;
+  final String nameCn;
+  final String imageUrl;
+  final String summary;
+  final String gender;
+  final int type;
+  final int commentCount;
+  final int collectCount;
+
+  String get displayName => nameCn.trim().isNotEmpty ? nameCn : name;
+}
+
+class PersonDetail {
+  const PersonDetail({
+    required this.id,
+    required this.name,
+    required this.nameCn,
+    required this.imageUrl,
+    required this.summary,
+    required this.gender,
+    required this.type,
+    required this.career,
+    required this.commentCount,
+    required this.collectCount,
+  });
+
+  final int id;
+  final String name;
+  final String nameCn;
+  final String imageUrl;
+  final String summary;
+  final String gender;
+  final int type;
+  final List<String> career;
+  final int commentCount;
+  final int collectCount;
+
+  String get displayName => nameCn.trim().isNotEmpty ? nameCn : name;
+}
+
+class MonoLinkedSubject {
+  const MonoLinkedSubject({
+    required this.id,
+    required this.name,
+    required this.nameCn,
+    required this.imageUrl,
+    required this.staff,
+    required this.type,
+  });
+
+  final int id;
+  final String name;
+  final String nameCn;
+  final String imageUrl;
+  final String staff;
+  final SubjectType type;
+
+  String get displayName => nameCn.trim().isNotEmpty ? nameCn : name;
+
+  Subject toSubject() => Subject(
+    id: id,
+    name: name,
+    nameCn: nameCn,
+    imageUrl: imageUrl,
+    summary: '',
+    episodeCount: 0,
+    score: 0,
+    rank: 0,
+    date: '',
+    type: type,
+  );
+}
+
+class MonoLinkedPerson {
+  const MonoLinkedPerson({
+    required this.id,
+    required this.name,
+    required this.imageUrl,
+    required this.staff,
+    required this.subjectName,
+  });
+
+  final int id;
+  final String name;
+  final String imageUrl;
+  final String staff;
+  final String subjectName;
+}
+
+class MonoLinkedCharacter {
+  const MonoLinkedCharacter({
+    required this.id,
+    required this.name,
+    required this.imageUrl,
+    required this.staff,
+    required this.subjectName,
+  });
+
+  final int id;
+  final String name;
+  final String imageUrl;
+  final String staff;
+  final String subjectName;
+}
+
 class CalendarDay {
   const CalendarDay({
     required this.weekday,
@@ -388,14 +686,21 @@ class SubjectComment {
   const SubjectComment({
     required this.id,
     required this.userName,
+    this.username = '',
     required this.avatarUrl,
     required this.rate,
     required this.comment,
   });
 
   final int id;
+  /// Display nickname when available.
   final String userName;
+  /// Profile path username (`/user/{username}`); falls back to [userName].
+  final String username;
   final String avatarUrl;
   final int rate;
   final String comment;
+
+  String get profileUsername =>
+      username.trim().isNotEmpty ? username.trim() : userName.trim();
 }

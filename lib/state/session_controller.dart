@@ -505,6 +505,8 @@ class SessionController extends StateNotifier<SessionState> {
     String? comment,
     List<String>? tags,
     bool? private,
+    int? episodeStatus,
+    int? volumeStatus,
   }) async {
     _setUpdating(subject.id, true);
     try {
@@ -513,6 +515,13 @@ class SessionController extends StateNotifier<SessionState> {
       final nextComment = comment ?? old?.comment ?? '';
       final nextTags = tags ?? old?.tags ?? const <String>[];
       final nextPrivate = private ?? old?.private ?? false;
+      // Books only: OpenAPI documents ep_status/vol_status for book progress.
+      final nextEpisodeStatus = subject.type.hasVolumes
+          ? (episodeStatus ?? old?.episodeStatus ?? 0)
+          : (old?.episodeStatus ?? 0);
+      final nextVolumeStatus = subject.type.hasVolumes
+          ? (volumeStatus ?? old?.volumeStatus ?? 0)
+          : (old?.volumeStatus ?? 0);
       await _api.updateCollection(
         subject.id,
         type,
@@ -520,8 +529,10 @@ class SessionController extends StateNotifier<SessionState> {
         comment: nextComment,
         tags: nextTags,
         private: nextPrivate,
+        episodeStatus: subject.type.hasVolumes ? nextEpisodeStatus : null,
+        volumeStatus: subject.type.hasVolumes ? nextVolumeStatus : null,
       );
-      var episodeStatus = old?.episodeStatus ?? 0;
+      var resolvedEpisodeStatus = nextEpisodeStatus;
       // Garage #461: marking as "done" auto-completes regular episode progress.
       if (completeEpisodesWhenDone &&
           type == CollectionType.done &&
@@ -537,7 +548,8 @@ class SessionController extends StateNotifier<SessionState> {
               type: 2,
             );
           }
-          episodeStatus = BangumiSupport.mainEpisodeCollections(episodes).length;
+          resolvedEpisodeStatus =
+              BangumiSupport.mainEpisodeCollections(episodes).length;
         } catch (_) {
           // Collection type is already updated; progress fill is best-effort.
         }
@@ -550,7 +562,8 @@ class SessionController extends StateNotifier<SessionState> {
             comment: nextComment,
             tags: nextTags,
             private: nextPrivate,
-            episodeStatus: episodeStatus,
+            episodeStatus: resolvedEpisodeStatus,
+            volumeStatus: nextVolumeStatus,
           ),
         );
       } else {
@@ -560,7 +573,8 @@ class SessionController extends StateNotifier<SessionState> {
               subjectId: subject.id,
               type: type,
               rate: nextRate,
-              episodeStatus: episodeStatus,
+              episodeStatus: resolvedEpisodeStatus,
+              volumeStatus: nextVolumeStatus,
               updatedAt: DateTime.now(),
               subject: subject,
               comment: nextComment,

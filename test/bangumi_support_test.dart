@@ -31,6 +31,25 @@ void main() {
     expect(payload['comment'], ' 好看 ');
     expect(payload['tags'], ['日常', '治愈']);
     expect(payload['private'], isTrue);
+    expect(payload.containsKey('vol_status'), isFalse);
+    expect(payload.containsKey('ep_status'), isFalse);
+  });
+
+  test('collectionUpdatePayload includes book progress only when set', () {
+    final book = BangumiSupport.collectionUpdatePayload(
+      type: CollectionType.doing,
+      rate: 8,
+      volumeStatus: 3,
+      episodeStatus: 12,
+    );
+    expect(book['vol_status'], 3);
+    expect(book['ep_status'], 12);
+
+    final anime = BangumiSupport.collectionUpdatePayload(
+      type: CollectionType.doing,
+      rate: 8,
+    );
+    expect(anime.containsKey('vol_status'), isFalse);
   });
 
   test('UserCollection parses rate comment tags private', () {
@@ -190,13 +209,14 @@ void main() {
         'relation': '主角',
         'images': {'large': 'https://example.com/c.jpg'},
         'actors': [
-          {'name': '声优A'},
+          {'id': 99, 'name': '声优A', 'images': {'large': 'https://a.jpg'}},
         ],
       },
     ]);
     expect(characters, hasLength(1));
     expect(characters.first.displayName, '角色');
-    expect(characters.first.actors, ['声优A']);
+    expect(characters.first.actorNames, ['声优A']);
+    expect(characters.first.actors.first.id, 99);
 
     final persons = BangumiSupport.parsePersons([
       {
@@ -224,6 +244,90 @@ void main() {
     ]);
     expect(related.first.id, 22);
     expect(related.first.toSubject().displayName, '续作');
+  });
+
+  test('parse character and person detail mono graph from API-shaped json', () {
+    final character = BangumiSupport.parseCharacterDetail({
+      'id': 1,
+      'name': 'ルルーシュ',
+      'summary': '主角',
+      'gender': 'male',
+      'type': 1,
+      'images': {'large': 'https://example.com/c.jpg'},
+      'infobox': [
+        {'key': '简体中文名', 'value': '鲁路修'},
+      ],
+      'stat': {'comments': 10, 'collects': 20},
+    });
+    expect(character.displayName, '鲁路修');
+    expect(character.summary, '主角');
+    expect(character.collectCount, 20);
+
+    final person = BangumiSupport.parsePersonDetail({
+      'id': 3818,
+      'name': '福山潤',
+      'summary': '声优',
+      'gender': 'male',
+      'type': 1,
+      'career': ['seiyu', 'artist'],
+      'images': {'large': 'https://example.com/p.jpg'},
+      'infobox': [
+        {'key': '简体中文名', 'value': '福山润'},
+      ],
+      'stat': {'comments': 3, 'collects': 5},
+    });
+    expect(person.displayName, '福山润');
+    expect(person.career, ['seiyu', 'artist']);
+
+    final subjects = BangumiSupport.parseMonoSubjects([
+      {
+        'id': 8,
+        'name': 'Code Geass R2',
+        'name_cn': '反叛的鲁路修R2',
+        'image': 'https://example.com/s.jpg',
+        'type': 2,
+        'staff': '主角',
+      },
+    ]);
+    expect(subjects, hasLength(1));
+    expect(subjects.first.displayName, '反叛的鲁路修R2');
+    expect(subjects.first.toSubject().id, 8);
+
+    final cast = BangumiSupport.parseCharacterPersons([
+      {
+        'id': 3818,
+        'name': '福山潤',
+        'staff': '主角',
+        'subject_id': 8,
+        'subject_name': 'R2',
+        'subject_name_cn': 'R2中文',
+        'images': {'large': 'https://p.jpg'},
+      },
+      {
+        'id': 3818,
+        'name': '福山潤',
+        'staff': '主角',
+        'subject_id': 793,
+        'subject_name': 'R1',
+        'subject_name_cn': '',
+        'images': {'large': 'https://p.jpg'},
+      },
+    ]);
+    expect(cast, hasLength(1));
+    expect(cast.first.subjectName, 'R2中文');
+
+    final roles = BangumiSupport.parsePersonCharacters([
+      {
+        'id': 1,
+        'name': 'ルルーシュ',
+        'staff': '主角',
+        'subject_name': 'Code',
+        'subject_name_cn': '鲁路修',
+        'images': {'large': 'https://c.jpg'},
+      },
+    ]);
+    expect(roles.first.name, 'ルルーシュ');
+    expect(roles.first.subjectName, '鲁路修');
   });
 
   test('parseCalendar maps weekday and subjects', () {
@@ -271,5 +375,22 @@ void main() {
     expect(comments.first.userName, '测试用户');
     expect(comments.first.comment, contains('不错'));
     expect(comments.first.rate, 8);
+  });
+
+  test('parseSubjectCommentsHtml captures profile username', () {
+    const html = '''
+<div id="item_99" class="item">
+  <span class="avatarNeue" style="background-image:url('//lain.bgm.tv/pic/user/l/b.jpg')"></span>
+  <a href="/user/alice" class="l">爱丽丝</a>
+  <span class="starlight stars9"></span>
+  <div class="comment">神作无疑</div>
+</div>
+''';
+    final comments = BangumiSupport.parseSubjectCommentsHtml(html);
+    expect(comments, isNotEmpty);
+    expect(comments.first.userName, '爱丽丝');
+    expect(comments.first.username, 'alice');
+    expect(comments.first.profileUsername, 'alice');
+    expect(comments.first.rate, 9);
   });
 }

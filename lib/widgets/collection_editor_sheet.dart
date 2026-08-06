@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../models/bangumi_models.dart';
 import '../state/session_controller.dart';
@@ -43,10 +44,14 @@ class _CollectionEditorSheetState
     extends ConsumerState<_CollectionEditorSheet> {
   late CollectionType _type;
   late int _rate;
+  late int _volumeStatus;
+  late int _episodeStatus;
   late final TextEditingController _comment;
   late final TextEditingController _tags;
   late bool _private;
   var _saving = false;
+
+  bool get _isBook => widget.subject.type.hasVolumes;
 
   @override
   void initState() {
@@ -54,6 +59,8 @@ class _CollectionEditorSheetState
     final c = widget.collection;
     _type = c?.type ?? CollectionType.wish;
     _rate = c?.rate ?? 0;
+    _volumeStatus = c?.volumeStatus ?? 0;
+    _episodeStatus = c?.episodeStatus ?? 0;
     _comment = TextEditingController(text: c?.comment ?? '');
     _tags = TextEditingController(text: (c?.tags ?? const []).join(' '));
     _private = c?.private ?? false;
@@ -84,6 +91,8 @@ class _CollectionEditorSheetState
           tags: _parsedTags,
           private: _private,
           completeEpisodesWhenDone: true,
+          episodeStatus: _isBook ? _episodeStatus : null,
+          volumeStatus: _isBook ? _volumeStatus : null,
         );
     if (!mounted) return;
     setState(() => _saving = false);
@@ -161,6 +170,34 @@ class _CollectionEditorSheetState
                   ),
               ],
             ),
+            if (_isBook) ...[
+              const SizedBox(height: 14),
+              Text('阅读进度', style: Theme.of(context).textTheme.labelLarge),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  Expanded(
+                    child: _ProgressStepper(
+                      label: '卷',
+                      value: _volumeStatus,
+                      total: subject.volumeCount,
+                      onChanged: (value) =>
+                          setState(() => _volumeStatus = value),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: _ProgressStepper(
+                      label: '话',
+                      value: _episodeStatus,
+                      total: subject.episodeCount,
+                      onChanged: (value) =>
+                          setState(() => _episodeStatus = value),
+                    ),
+                  ),
+                ],
+              ),
+            ],
             const SizedBox(height: 14),
             TextField(
               controller: _comment,
@@ -199,8 +236,84 @@ class _CollectionEditorSheetState
                   : const Icon(Icons.save_rounded),
               label: Text(_saving ? '保存中…' : '保存'),
             ),
+            if (widget.collection != null) ...[
+              const SizedBox(height: 8),
+              TextButton.icon(
+                onPressed: () => launchUrl(
+                  Uri.parse(
+                    'https://bgm.tv/subject/${subject.id}',
+                  ),
+                  mode: LaunchMode.externalApplication,
+                ),
+                icon: const Icon(Icons.open_in_new_rounded, size: 18),
+                label: const Text('在官网移出收藏'),
+              ),
+              Text(
+                'OpenAPI 暂不支持删除条目收藏，只能在官网操作。',
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
+              ),
+            ],
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _ProgressStepper extends StatelessWidget {
+  const _ProgressStepper({
+    required this.label,
+    required this.value,
+    required this.total,
+    required this.onChanged,
+  });
+
+  final String label;
+  final int value;
+  final int total;
+  final ValueChanged<int> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: scheme.outlineVariant),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            total > 0 ? '$label · 共 $total' : label,
+            style: Theme.of(context).textTheme.labelMedium,
+          ),
+          const SizedBox(height: 6),
+          Row(
+            children: [
+              IconButton.filledTonal(
+                onPressed: value > 0 ? () => onChanged(value - 1) : null,
+                icon: const Icon(Icons.remove_rounded),
+                visualDensity: VisualDensity.compact,
+              ),
+              Expanded(
+                child: Text(
+                  '$value',
+                  textAlign: TextAlign.center,
+                  style: Theme.of(context).textTheme.titleLarge,
+                ),
+              ),
+              IconButton.filledTonal(
+                onPressed: () => onChanged(value + 1),
+                icon: const Icon(Icons.add_rounded),
+                visualDensity: VisualDensity.compact,
+              ),
+            ],
+          ),
+        ],
       ),
     );
   }

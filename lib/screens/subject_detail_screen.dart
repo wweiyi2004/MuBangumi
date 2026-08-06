@@ -9,9 +9,14 @@ import '../core/network/bangumi_endpoints.dart';
 import '../core/network/bangumi_support.dart';
 import '../core/network/community_service.dart';
 import '../models/bangumi_models.dart';
+import '../models/community_models.dart';
 import '../state/session_controller.dart';
 import '../widgets/collection_editor_sheet.dart';
 import '../widgets/subject_widgets.dart';
+import 'character_detail_screen.dart';
+import 'community_topic_screen.dart';
+import 'discover_page.dart';
+import 'person_detail_screen.dart';
 import 'user_profile_page.dart';
 
 class SubjectDetailScreen extends ConsumerStatefulWidget {
@@ -33,11 +38,16 @@ class _SubjectDetailScreenState extends ConsumerState<SubjectDetailScreen> {
   List<SubjectPerson> _persons = const [];
   List<RelatedSubject> _related = const [];
   List<SubjectComment> _comments = const [];
+  List<CommunityTopic> _topics = const [];
+  int _commentsPage = 1;
+  bool _commentsHasMore = true;
   bool _loadingFriends = false;
   bool _friendsExpanded = false;
   bool _friendsLoaded = false;
   bool _loadingMeta = false;
   bool _loadingComments = false;
+  bool _loadingMoreComments = false;
+  bool _loadingTopics = false;
   int? _episodeTypeFilter; // null = all, 0 = main
   final Set<int> _updatingEpisodes = {};
   late final SessionController _sessionController;
@@ -103,6 +113,7 @@ class _SubjectDetailScreenState extends ConsumerState<SubjectDetailScreen> {
       });
       unawaited(_loadMeta(widget.subject.id));
       unawaited(_loadComments(widget.subject.id));
+      unawaited(_loadTopics(widget.subject.id));
     } catch (error) {
       if (!mounted) return;
       setState(() {
@@ -134,20 +145,64 @@ class _SubjectDetailScreenState extends ConsumerState<SubjectDetailScreen> {
     }
   }
 
-  Future<void> _loadComments(int subjectId) async {
-    setState(() => _loadingComments = true);
+  Future<void> _loadTopics(int subjectId) async {
+    setState(() => _loadingTopics = true);
     try {
-      final comments = await ref
-          .read(bangumiApiProvider)
-          .getSubjectComments(subjectId);
+      final topics = await CommunityService.shared.loadTopicsForSubject(
+        subjectId,
+      );
       if (!mounted) return;
       setState(() {
-        _comments = comments;
-        _loadingComments = false;
+        _topics = topics;
+        _loadingTopics = false;
       });
     } catch (_) {
       if (!mounted) return;
-      setState(() => _loadingComments = false);
+      setState(() => _loadingTopics = false);
+    }
+  }
+
+  Future<void> _loadComments(int subjectId, {bool append = false}) async {
+    if (append) {
+      if (_loadingMoreComments || !_commentsHasMore) return;
+      setState(() => _loadingMoreComments = true);
+    } else {
+      setState(() {
+        _loadingComments = true;
+        _commentsPage = 1;
+        _commentsHasMore = true;
+      });
+    }
+    final page = append ? _commentsPage + 1 : 1;
+    try {
+      final comments = await ref
+          .read(bangumiApiProvider)
+          .getSubjectComments(subjectId, page: page);
+      if (!mounted) return;
+      setState(() {
+        if (append) {
+          final seen = {for (final c in _comments) c.id};
+          _comments = [
+            ..._comments,
+            for (final c in comments)
+              if (c.id == 0 || seen.add(c.id)) c,
+          ];
+          _commentsPage = page;
+          _loadingMoreComments = false;
+        } else {
+          _comments = comments;
+          _commentsPage = 1;
+          _loadingComments = false;
+        }
+        // HTML pages are typically ~20 items; short page => end.
+        _commentsHasMore = comments.length >= 10;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _loadingComments = false;
+        _loadingMoreComments = false;
+      });
     }
   }
 
@@ -243,6 +298,11 @@ class _SubjectDetailScreenState extends ConsumerState<SubjectDetailScreen> {
                             subject: subject,
                             collection: collection,
                           ),
+                        ),
+                        onTagTap: (tag) => openDiscoverTagSearch(
+                          context,
+                          tag: tag,
+                          subjectType: subject.type,
                         ),
                       ),
                       if (subject.score > 0 || subject.ratingTotal > 0) ...[
@@ -355,9 +415,19 @@ class _SubjectDetailScreenState extends ConsumerState<SubjectDetailScreen> {
                                 subtitle: Text(
                                   [
                                     if (c.relation.isNotEmpty) c.relation,
-                                    if (c.actors.isNotEmpty)
-                                      'CV: ${c.actors.join(' / ')}',
+                                    if (c.actorNames.isNotEmpty)
+                                      'CV: ${c.actorNames.join(' / ')}',
                                   ].join(' · '),
+                                ),
+                                trailing: const Icon(Icons.chevron_right_rounded),
+                                onTap: () => Navigator.of(context).push(
+                                  MaterialPageRoute<void>(
+                                    builder: (_) => CharacterDetailScreen(
+                                      characterId: c.id,
+                                      seedName: c.displayName,
+                                      seedImageUrl: c.imageUrl,
+                                    ),
+                                  ),
                                 ),
                               ),
                           ],
@@ -381,6 +451,16 @@ class _SubjectDetailScreenState extends ConsumerState<SubjectDetailScreen> {
                                     if (p.career.isNotEmpty)
                                       p.career.join(' / '),
                                   ].join(' · '),
+                                ),
+                                trailing: const Icon(Icons.chevron_right_rounded),
+                                onTap: () => Navigator.of(context).push(
+                                  MaterialPageRoute<void>(
+                                    builder: (_) => PersonDetailScreen(
+                                      personId: p.id,
+                                      seedName: p.displayName,
+                                      seedImageUrl: p.imageUrl,
+                                    ),
+                                  ),
                                 ),
                               ),
                           ],
@@ -427,6 +507,46 @@ class _SubjectDetailScreenState extends ConsumerState<SubjectDetailScreen> {
                       ),
                       const SizedBox(height: 18),
                       _MetaSection(
+                        title: '讨论',
+                        loading: _loadingTopics,
+                        empty: _topics.isEmpty,
+                        trailing: TextButton(
+                          onPressed: () => launchUrl(
+                            Uri.parse(
+                              'https://bgm.tv/subject/${subject.id}/board',
+                            ),
+                            mode: LaunchMode.externalApplication,
+                          ),
+                          child: const Text('官网'),
+                        ),
+                        child: Column(
+                          children: [
+                            for (final topic in _topics.take(12))
+                              ListTile(
+                                contentPadding: EdgeInsets.zero,
+                                title: Text(topic.title),
+                                subtitle: Text(
+                                  [
+                                    if (topic.author.isNotEmpty) topic.author,
+                                    if (topic.replyCount > 0)
+                                      '${topic.replyCount} 回复',
+                                  ].join(' · '),
+                                ),
+                                trailing: const Icon(
+                                  Icons.chevron_right_rounded,
+                                ),
+                                onTap: () => Navigator.of(context).push(
+                                  MaterialPageRoute<void>(
+                                    builder: (_) =>
+                                        CommunityTopicScreen(topic: topic),
+                                  ),
+                                ),
+                              ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 18),
+                      _MetaSection(
                         title: '吐槽',
                         loading: _loadingComments,
                         empty: _comments.isEmpty,
@@ -441,7 +561,7 @@ class _SubjectDetailScreenState extends ConsumerState<SubjectDetailScreen> {
                         ),
                         child: Column(
                           children: [
-                            for (final c in _comments.take(30))
+                            for (final c in _comments)
                               ListTile(
                                 contentPadding: EdgeInsets.zero,
                                 title: Text(
@@ -457,6 +577,29 @@ class _SubjectDetailScreenState extends ConsumerState<SubjectDetailScreen> {
                                         ),
                                       )
                                     : null,
+                                onTap: c.profileUsername.isEmpty
+                                    ? null
+                                    : () => openUserProfile(
+                                        context,
+                                        username: c.profileUsername,
+                                        nickname: c.userName,
+                                        avatarUrl: c.avatarUrl,
+                                      ),
+                              ),
+                            if (_commentsHasMore && _comments.isNotEmpty)
+                              Padding(
+                                padding: const EdgeInsets.only(top: 4),
+                                child: TextButton(
+                                  onPressed: _loadingMoreComments
+                                      ? null
+                                      : () => _loadComments(
+                                          subject.id,
+                                          append: true,
+                                        ),
+                                  child: Text(
+                                    _loadingMoreComments ? '加载中…' : '加载更多吐槽',
+                                  ),
+                                ),
                               ),
                           ],
                         ),
@@ -564,6 +707,7 @@ class _SubjectHeader extends StatelessWidget {
     required this.busy,
     required this.onCollectionChanged,
     required this.onManageCollection,
+    this.onTagTap,
   });
 
   final Subject subject;
@@ -571,6 +715,7 @@ class _SubjectHeader extends StatelessWidget {
   final bool busy;
   final ValueChanged<CollectionType> onCollectionChanged;
   final VoidCallback onManageCollection;
+  final ValueChanged<String>? onTagTap;
 
   @override
   Widget build(BuildContext context) => Card(
@@ -649,10 +794,13 @@ class _SubjectHeader extends StatelessWidget {
                   spacing: 6,
                   runSpacing: 6,
                   children: [
-                    for (final tag in subject.tags.take(5))
-                      Chip(
+                    for (final tag in subject.tags.take(8))
+                      ActionChip(
                         label: Text(tag),
                         visualDensity: VisualDensity.compact,
+                        onPressed: onTagTap == null
+                            ? null
+                            : () => onTagTap!(tag),
                       ),
                   ],
                 ),
@@ -680,9 +828,12 @@ class _SubjectHeader extends StatelessWidget {
                         visualDensity: VisualDensity.compact,
                       ),
                     for (final tag in collection!.tags.take(6))
-                      Chip(
+                      ActionChip(
                         label: Text(tag),
                         visualDensity: VisualDensity.compact,
+                        onPressed: onTagTap == null
+                            ? null
+                            : () => onTagTap!(tag),
                       ),
                   ],
                 ),
