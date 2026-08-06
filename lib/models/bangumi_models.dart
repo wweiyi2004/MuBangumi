@@ -101,6 +101,10 @@ class Subject {
     this.onHoldCount = 0,
     this.droppedCount = 0,
     this.tags = const [],
+    this.platform = '',
+    this.officialSite = '',
+    this.nsfw = false,
+    this.metaTags = const [],
   });
 
   final int id;
@@ -125,6 +129,12 @@ class Subject {
   final int onHoldCount;
   final int droppedCount;
   final List<String> tags;
+  /// Broadcast / release platform (e.g. TV, 剧场版, Web).
+  final String platform;
+  /// Official website when present in wiki infobox.
+  final String officialSite;
+  final bool nsfw;
+  final List<String> metaTags;
 
   String get displayName => nameCn.trim().isNotEmpty ? nameCn : name;
 
@@ -176,6 +186,7 @@ class Subject {
     final onHold = _int(collection['on_hold']);
     final dropped = _int(collection['dropped']);
     final totalFromBuckets = wish + collect + doing + onHold + dropped;
+    final metaTagsJson = json['meta_tags'];
     return Subject(
       id: _int(json['id']),
       type: SubjectType.fromValue(typeValue),
@@ -222,6 +233,16 @@ class Subject {
                 .take(8)
                 .toList()
           : const [],
+      platform: _string(json['platform']),
+      officialSite: _officialSiteFromInfobox(json['infobox']),
+      nsfw: json['nsfw'] == true,
+      metaTags: metaTagsJson is List
+          ? [
+              for (final tag in metaTagsJson)
+                if (tag != null && tag.toString().trim().isNotEmpty)
+                  tag.toString().trim(),
+            ].take(8).toList()
+          : const [],
     );
   }
 
@@ -256,6 +277,11 @@ class Subject {
         ? detailed.droppedCount
         : droppedCount,
     tags: detailed.tags.isNotEmpty ? detailed.tags : tags,
+    platform: detailed.platform.isNotEmpty ? detailed.platform : platform,
+    officialSite:
+        detailed.officialSite.isNotEmpty ? detailed.officialSite : officialSite,
+    nsfw: detailed.nsfw || nsfw,
+    metaTags: detailed.metaTags.isNotEmpty ? detailed.metaTags : metaTags,
   );
 }
 
@@ -437,6 +463,30 @@ Map<String, dynamic> _map(dynamic value) {
     return value.map((key, item) => MapEntry(key.toString(), item));
   }
   return <String, dynamic>{};
+}
+
+String _officialSiteFromInfobox(dynamic infobox) {
+  if (infobox is! List) return '';
+  for (final item in infobox) {
+    if (item is! Map) continue;
+    final key = item['key']?.toString() ?? '';
+    if (key != '官方网站' && key != '官网' && key != 'Website' && key != '官方網站') {
+      continue;
+    }
+    final value = item['value'];
+    if (value is String && value.trim().isNotEmpty) return value.trim();
+    if (value is List) {
+      for (final entry in value) {
+        if (entry is Map) {
+          final v = entry['v']?.toString() ?? entry['value']?.toString() ?? '';
+          if (v.trim().isNotEmpty) return v.trim();
+        } else if (entry != null && entry.toString().trim().isNotEmpty) {
+          return entry.toString().trim();
+        }
+      }
+    }
+  }
+  return '';
 }
 
 String _string(dynamic value, {String fallback = ''}) =>

@@ -786,15 +786,31 @@ class _SubjectHeader extends StatelessWidget {
                       icon: Icons.calendar_today_outlined,
                       text: subject.date,
                     ),
+                  if (subject.platform.isNotEmpty)
+                    _Meta(
+                      icon: Icons.tv_outlined,
+                      text: subject.platform,
+                    ),
+                  if (subject.nsfw)
+                    const _Meta(
+                      icon: Icons.warning_amber_rounded,
+                      text: 'NSFW',
+                      color: Color(0xFFE95383),
+                    ),
                 ],
               ),
-              if (subject.tags.isNotEmpty) ...[
+              if (subject.metaTags.isNotEmpty || subject.tags.isNotEmpty) ...[
                 const SizedBox(height: 14),
                 Wrap(
                   spacing: 6,
                   runSpacing: 6,
                   children: [
-                    for (final tag in subject.tags.take(8))
+                    for (final tag in [
+                      ...subject.metaTags,
+                      ...subject.tags.where(
+                        (t) => !subject.metaTags.contains(t),
+                      ),
+                    ].take(10))
                       ActionChip(
                         label: Text(tag),
                         visualDensity: VisualDensity.compact,
@@ -803,6 +819,25 @@ class _SubjectHeader extends StatelessWidget {
                             : () => onTagTap!(tag),
                       ),
                   ],
+                ),
+              ],
+              if (subject.officialSite.isNotEmpty) ...[
+                const SizedBox(height: 10),
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: TextButton.icon(
+                    onPressed: () {
+                      final raw = subject.officialSite.trim();
+                      final uri = Uri.tryParse(
+                        raw.startsWith('http') ? raw : 'https://$raw',
+                      );
+                      if (uri != null) {
+                        launchUrl(uri, mode: LaunchMode.externalApplication);
+                      }
+                    },
+                    icon: const Icon(Icons.public_rounded, size: 18),
+                    label: const Text('官方网站'),
+                  ),
                 ),
               ],
               const SizedBox(height: 18),

@@ -2,10 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../models/bangumi_models.dart';
+import '../state/notify_controller.dart';
 import '../state/session_controller.dart';
 import '../widgets/episode_grid_sheet.dart';
 import '../widgets/subject_widgets.dart';
 import 'calendar_page.dart';
+import 'notify_page.dart';
 import 'subject_detail_screen.dart';
 
 class HomePage extends ConsumerWidget {
@@ -86,6 +88,29 @@ class HomePage extends ConsumerWidget {
                         ],
                       ),
                     ),
+                    Builder(
+                      builder: (context) {
+                        final unread = ref.watch(
+                          notifyBadgeProvider.select((s) => s.unreadCount),
+                        );
+                        return IconButton.filledTonal(
+                          tooltip: unread > 0 ? '电波提醒（$unread 未读）' : '电波提醒',
+                          onPressed: () {
+                            Navigator.of(context).push(
+                              MaterialPageRoute<void>(
+                                builder: (_) => const NotifyPage(),
+                              ),
+                            );
+                          },
+                          icon: Badge(
+                            isLabelVisible: unread > 0,
+                            label: Text(unread > 99 ? '99+' : '$unread'),
+                            child: const Icon(Icons.notifications_outlined),
+                          ),
+                        );
+                      },
+                    ),
+                    const SizedBox(width: 8),
                     IconButton.filledTonal(
                       tooltip: '每日放送',
                       onPressed: () {

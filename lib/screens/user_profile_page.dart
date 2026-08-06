@@ -8,6 +8,7 @@ import '../core/network/community_service.dart';
 import '../models/bangumi_models.dart';
 import '../models/community_models.dart';
 import '../state/session_controller.dart';
+import '../widgets/community_widgets.dart';
 import '../widgets/subject_widgets.dart';
 import 'pm_page.dart';
 import 'subject_detail_screen.dart';
@@ -78,8 +79,10 @@ class _UserProfilePageState extends ConsumerState<UserProfilePage> {
   CollectionType? _statusFilter = CollectionType.doing;
   Map<CollectionType, int> _counts = const {};
   List<UserCollection> _items = const [];
+  List<CommunityTimelineItem> _timeline = const [];
   bool _loadingProfile = true;
   bool _loadingCollections = true;
+  bool _loadingTimeline = true;
   bool _friendBusy = false;
   bool? _isFriend;
   String? _error;
@@ -102,7 +105,30 @@ class _UserProfilePageState extends ConsumerState<UserProfilePage> {
       _loadProfile(),
       _loadCollections(),
       _loadFriendship(),
+      _loadTimeline(),
     ]);
+  }
+
+  Future<void> _loadTimeline() async {
+    setState(() => _loadingTimeline = true);
+    try {
+      final items = await CommunityService.shared.loadUserTimeline(
+        widget.username,
+        limit: 8,
+        refresh: true,
+      );
+      if (!mounted) return;
+      setState(() {
+        _timeline = items;
+        _loadingTimeline = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _timeline = const [];
+        _loadingTimeline = false;
+      });
+    }
   }
 
   Future<void> _loadFriendship() async {
@@ -337,6 +363,57 @@ class _UserProfilePageState extends ConsumerState<UserProfilePage> {
                         ),
                       ),
                     ),
+                    if (_loadingTimeline || _timeline.isNotEmpty) ...[
+                      const SizedBox(height: 14),
+                      Text(
+                        '最近动态',
+                        style: Theme.of(context).textTheme.titleMedium
+                            ?.copyWith(fontWeight: FontWeight.w800),
+                      ),
+                      const SizedBox(height: 8),
+                      if (_loadingTimeline)
+                        const Padding(
+                          padding: EdgeInsets.symmetric(vertical: 12),
+                          child: Center(
+                            child: SizedBox.square(
+                              dimension: 22,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            ),
+                          ),
+                        )
+                      else
+                        for (final item in _timeline.take(6))
+                          CommunityTimelineCard(
+                            item: item,
+                            onOpenSubject: item.progress == null
+                                ? null
+                                : () {
+                                    final p = item.progress!;
+                                    Navigator.of(context).push(
+                                      MaterialPageRoute<void>(
+                                        builder: (_) => SubjectDetailScreen(
+                                          subject: Subject(
+                                            id: p.subjectId,
+                                            name: p.subjectName,
+                                            nameCn: p.subjectNameCn,
+                                            imageUrl: p.imageUrl,
+                                            summary: '',
+                                            episodeCount: 0,
+                                            score: p.score,
+                                            rank: p.rank,
+                                            date: '',
+                                            type: SubjectType.fromValue(
+                                              p.subjectType == 0
+                                                  ? SubjectType.anime.value
+                                                  : p.subjectType,
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                    );
+                                  },
+                          ),
+                    ],
                     const SizedBox(height: 14),
                     Text(
                       '${_subjectType.label}收藏概况',

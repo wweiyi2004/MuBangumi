@@ -24,6 +24,36 @@ void main() {
     expect(item.isWatched, isTrue);
   });
 
+  test('parses subject platform official site and nsfw', () {
+    final subject = Subject.fromJson({
+      'id': 8,
+      'type': 2,
+      'name': 'Code Geass R2',
+      'name_cn': '反叛的鲁路修R2',
+      'platform': 'TV',
+      'nsfw': false,
+      'meta_tags': ['TV', '日本'],
+      'date': '2008-04-06',
+      'eps': 25,
+      'summary': 'summary',
+      'images': {'large': 'https://example.com/c.jpg'},
+      'rating': {'score': 8.2, 'total': 10, 'rank': 100, 'count': {}},
+      'collection': {},
+      'infobox': [
+        {'key': '官方网站', 'value': 'http://www.geass.jp/r2/'},
+        {'key': '话数', 'value': '25'},
+      ],
+      'tags': [
+        {'name': '机战'},
+      ],
+    });
+    expect(subject.platform, 'TV');
+    expect(subject.officialSite, 'http://www.geass.jp/r2/');
+    expect(subject.nsfw, isFalse);
+    expect(subject.metaTags, contains('TV'));
+    expect(subject.tags, contains('机战'));
+  });
+
   test('parses multi-type collections and type-aware labels', () {
     final book = UserCollection.fromJson({
       'subject_id': 123478,

@@ -263,6 +263,22 @@ class CommunityService {
     return _p1Parser.parseTimeline(data);
   }
 
+  /// Public timeline for any username (user profile surface).
+  Future<List<CommunityTimelineItem>> loadUserTimeline(
+    String username, {
+    int limit = 12,
+    bool refresh = false,
+  }) async {
+    final value = username.trim();
+    if (value.isEmpty) return const [];
+    final data = await _getJsonList(
+      '/users/${Uri.encodeComponent(value)}/timeline',
+      query: {'limit': limit.clamp(1, 30)},
+      refresh: refresh,
+    );
+    return _p1Parser.parseTimeline(data);
+  }
+
   Future<List<CommunityTimelineReply>> loadTimelineReplies(
     int timelineId, {
     bool refresh = false,
