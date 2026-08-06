@@ -47,18 +47,24 @@ iOS 工程已生成，但 iOS 编译和签名必须在安装了 Xcode 的 macOS 
 
 ## 登录
 
-首次使用 OAuth 需要进行一次开发者应用配置：
+### 一键登录（推荐发布方式）
 
-1. 登录 [Bangumi 开发者平台](https://bgm.tv/dev/app) 并创建应用。
-2. 将回调地址设置为 `http://127.0.0.1:43927/oauth/callback`。
-3. 在 MuBangumi 的 OAuth 配置中填写 App ID 和 App Secret。
-4. 点击“使用 Bangumi 登录”，在浏览器中完成授权。
+构建时注入内置 OAuth 应用（回调地址必须是 `http://127.0.0.1:43927/oauth/callback`）：
 
-配置只需完成一次。此后 Access Token 到期时，应用会使用 Refresh Token 自动续期。App Secret、Access Token 和 Refresh Token 均由 `flutter_secure_storage` 保存在系统安全凭据存储中。
+```powershell
+flutter run -d windows --dart-define=BGM_CLIENT_ID=你的AppID --dart-define=BGM_CLIENT_SECRET=你的AppSecret
+```
 
-如果不想注册开发者应用，仍可展开登录页的“Access Token 备用登录”，使用 [Bangumi 个人令牌](https://next.bgm.tv/demo/access-token)。不要把任何登录凭据写进源码、提交到 Git，或发送给其他人。
+配置后登录页显示「使用 Bangumi 一键登录」，无需用户再填 Secret。
 
-当前 OAuth 方案适合个人客户端：每位使用者配置自己的 Bangumi 开发者应用。若要发布给普通用户并共用同一个 App ID，应把授权码换 Token 和刷新 Token 放到自己的后端，避免把共用的 `client_secret` 分发进安装包。
+> 注意：`client_secret` 会出现在客户端内，有被提取滥用的风险。公开仓库请用 CI 密钥注入，不要把真实 Secret 写进源码。更稳妥的长期方案是自建后端换 Token。
+
+### 自定义 OAuth / 备用
+
+- 登录页「高级：自定义 OAuth」可填写自己的 App ID / Secret。
+- 也可展开「Access Token 备用登录」，使用 [Bangumi 个人令牌](https://next.bgm.tv/demo/access-token)。
+
+Token 与 Secret 由 `flutter_secure_storage` 保存在系统安全存储中，到期会自动刷新。
 
 ## 构建
 

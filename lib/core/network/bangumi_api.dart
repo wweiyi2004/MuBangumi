@@ -363,11 +363,29 @@ class BangumiApi {
     }
   }
 
-  Future<void> updateCollection(int subjectId, CollectionType type) async {
+  /// Create or update a user collection (status, score, comment, tags, privacy).
+  Future<void> updateCollection(
+    int subjectId,
+    CollectionType type, {
+    int rate = 0,
+    String comment = '',
+    List<String> tags = const [],
+    bool private = false,
+  }) async {
+    final clampedRate = rate.clamp(0, 10);
     await _request(
       () => _dio.post<void>(
         '/users/-/collections/$subjectId',
-        data: {'type': type.value},
+        data: {
+          'type': type.value,
+          'rate': clampedRate,
+          'comment': comment,
+          'tags': [
+            for (final tag in tags)
+              if (tag.trim().isNotEmpty) tag.trim(),
+          ],
+          'private': private,
+        },
       ),
     );
   }

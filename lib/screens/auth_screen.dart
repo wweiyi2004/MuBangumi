@@ -5,6 +5,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../app.dart';
 import '../core/auth/bangumi_oauth.dart';
+import '../core/auth/oauth_builtin.dart';
 import '../state/session_controller.dart';
 import '../widgets/network_route_picker.dart';
 
@@ -36,10 +37,14 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
   }
 
   Future<void> _startOAuth({bool editConfiguration = false}) async {
-    var config = await ref.read(tokenStoreProvider).readOAuthConfig();
+    // Prefer built-in app (one-tap), then saved custom app, then setup dialog.
+    OAuthConfig? config = OAuthBuiltin.config;
+    config ??= await ref.read(tokenStoreProvider).readOAuthConfig();
     if (config == null || editConfiguration) {
       if (!mounted) return;
-      config = await _showOAuthSetup(config);
+      config = await _showOAuthSetup(
+        editConfiguration ? (await ref.read(tokenStoreProvider).readOAuthConfig()) ?? OAuthBuiltin.config : config,
+      );
     }
     if (config == null || !mounted) return;
     await ref.read(sessionProvider.notifier).signInWithOAuth(config);
@@ -56,7 +61,9 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
       context: context,
       builder: (context) => StatefulBuilder(
         builder: (context, setDialogState) => AlertDialog(
-          title: const Text('首次配置 Bangumi OAuth'),
+          title: Text(
+            OAuthBuiltin.isConfigured ? '自定义 OAuth（高级）' : '首次配置 Bangumi OAuth',
+          ),
           content: ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: 520),
             child: SingleChildScrollView(
@@ -64,8 +71,10 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text(
-                    '在 Bangumi 开发者平台创建应用，把下面的地址原样填写为回调地址，然后复制 App ID 和 App Secret。只需设置一次。',
+                  Text(
+                    OAuthBuiltin.isConfigured
+                        ? '应用已内置默认 OAuth。仅在需要使用自己的开发者应用时填写下方字段。'
+                        : '在 Bangumi 开发者平台创建应用，把下面的地址原样填写为回调地址，然后复制 App ID 和 App Secret。也可在构建时用 --dart-define=BGM_CLIENT_ID / BGM_CLIENT_SECRET 内置。',
                   ),
                   const SizedBox(height: 16),
                   Container(
@@ -238,7 +247,11 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
                                     icon: const Icon(
                                       Icons.account_circle_rounded,
                                     ),
-                                    label: const Text('使用 Bangumi 登录'),
+                                    label: Text(
+                                      OAuthBuiltin.isConfigured
+                                          ? '使用 Bangumi 一键登录'
+                                          : '使用 Bangumi 登录',
+                                    ),
                                   ),
                                 ),
                                 Align(
@@ -250,7 +263,11 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
                                       Icons.settings_outlined,
                                       size: 17,
                                     ),
-                                    label: const Text('OAuth 配置'),
+                                    label: Text(
+                                      OAuthBuiltin.isConfigured
+                                          ? '高级：自定义 OAuth'
+                                          : 'OAuth 配置',
+                                    ),
                                   ),
                                 ),
                                 Align(

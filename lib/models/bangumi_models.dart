@@ -292,6 +292,9 @@ class UserCollection {
     required this.updatedAt,
     required this.subject,
     this.volumeStatus = 0,
+    this.comment = '',
+    this.tags = const [],
+    this.private = false,
   });
 
   final int subjectId;
@@ -301,6 +304,9 @@ class UserCollection {
   final int volumeStatus;
   final DateTime? updatedAt;
   final Subject subject;
+  final String comment;
+  final List<String> tags;
+  final bool private;
 
   SubjectType get subjectType => subject.type;
 
@@ -315,6 +321,14 @@ class UserCollection {
     if (!subjectJson.containsKey('type')) {
       subjectJson['type'] = subjectType;
     }
+    final tagsJson = json['tags'];
+    final tags = tagsJson is List
+        ? [
+            for (final item in tagsJson)
+              if (item != null && item.toString().trim().isNotEmpty)
+                item.toString().trim(),
+          ]
+        : const <String>[];
     return UserCollection(
       subjectId: subjectId,
       type: CollectionType.fromValue(_int(json['type'], fallback: 1)),
@@ -323,6 +337,9 @@ class UserCollection {
       volumeStatus: _int(json['vol_status']),
       updatedAt: DateTime.tryParse(_string(json['updated_at'])),
       subject: Subject.fromJson(subjectJson),
+      comment: _string(json['comment']),
+      tags: tags,
+      private: json['private'] == true || json['private'] == 1,
     );
   }
 
@@ -331,6 +348,9 @@ class UserCollection {
     int? rate,
     int? episodeStatus,
     int? volumeStatus,
+    String? comment,
+    List<String>? tags,
+    bool? private,
   }) => UserCollection(
     subjectId: subjectId,
     type: type ?? this.type,
@@ -339,6 +359,9 @@ class UserCollection {
     volumeStatus: volumeStatus ?? this.volumeStatus,
     updatedAt: DateTime.now(),
     subject: subject,
+    comment: comment ?? this.comment,
+    tags: tags ?? this.tags,
+    private: private ?? this.private,
   );
 }
 

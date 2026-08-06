@@ -9,6 +9,7 @@ import '../core/network/bangumi_endpoints.dart';
 import '../core/network/community_service.dart';
 import '../models/bangumi_models.dart';
 import '../state/session_controller.dart';
+import '../widgets/collection_editor_sheet.dart';
 import '../widgets/subject_widgets.dart';
 import 'user_profile_page.dart';
 
@@ -181,6 +182,13 @@ class _SubjectDetailScreenState extends ConsumerState<SubjectDetailScreen> {
                         busy: busy,
                         onCollectionChanged: (type) =>
                             _changeCollection(subject, type),
+                        onManageCollection: () => unawaited(
+                          showCollectionEditorSheet(
+                            context,
+                            subject: subject,
+                            collection: collection,
+                          ),
+                        ),
                       ),
                       if (subject.score > 0 || subject.ratingTotal > 0) ...[
                         const SizedBox(height: 18),
@@ -340,12 +348,14 @@ class _SubjectHeader extends StatelessWidget {
     required this.collection,
     required this.busy,
     required this.onCollectionChanged,
+    required this.onManageCollection,
   });
 
   final Subject subject;
   final UserCollection? collection;
   final bool busy;
   final ValueChanged<CollectionType> onCollectionChanged;
+  final VoidCallback onManageCollection;
 
   @override
   Widget build(BuildContext context) => Card(
@@ -433,40 +443,94 @@ class _SubjectHeader extends StatelessWidget {
                 ),
               ],
               const SizedBox(height: 18),
-              SizedBox(
-                width: compact ? double.infinity : 210,
-                child: MenuAnchor(
-                  builder: (context, controller, child) => FilledButton.icon(
-                    onPressed: busy
-                        ? null
-                        : () => controller.isOpen
-                              ? controller.close()
-                              : controller.open(),
-                    icon: busy
-                        ? const SizedBox.square(
-                            dimension: 18,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          )
-                        : Icon(
-                            collection == null
-                                ? Icons.add_rounded
-                                : Icons.bookmark_rounded,
-                          ),
-                    label: Text(
-                      collection?.type.labelFor(subject.type) ?? '加入收藏',
-                    ),
-                  ),
-                  menuChildren: [
-                    for (final type in CollectionType.values)
-                      MenuItemButton(
-                        leadingIcon: collection?.type == type
-                            ? const Icon(Icons.check_rounded)
-                            : null,
-                        onPressed: () => onCollectionChanged(type),
-                        child: Text(type.labelFor(subject.type)),
+              if (collection != null &&
+                  (collection!.rate > 0 ||
+                      collection!.comment.isNotEmpty ||
+                      collection!.tags.isNotEmpty)) ...[
+                const SizedBox(height: 10),
+                Wrap(
+                  spacing: 10,
+                  runSpacing: 6,
+                  children: [
+                    if (collection!.rate > 0)
+                      Chip(
+                        avatar: const Icon(Icons.star_rounded, size: 18),
+                        label: Text('我的评分 ${collection!.rate}'),
+                        visualDensity: VisualDensity.compact,
+                      ),
+                    if (collection!.private)
+                      const Chip(
+                        avatar: Icon(Icons.lock_outline_rounded, size: 16),
+                        label: Text('仅自己可见'),
+                        visualDensity: VisualDensity.compact,
+                      ),
+                    for (final tag in collection!.tags.take(6))
+                      Chip(
+                        label: Text(tag),
+                        visualDensity: VisualDensity.compact,
                       ),
                   ],
                 ),
+                if (collection!.comment.isNotEmpty) ...[
+                  const SizedBox(height: 6),
+                  Text(
+                    collection!.comment,
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                ],
+              ],
+              const SizedBox(height: 12),
+              Wrap(
+                spacing: 10,
+                runSpacing: 8,
+                children: [
+                  SizedBox(
+                    width: compact ? double.infinity : 210,
+                    child: MenuAnchor(
+                      builder: (context, controller, child) =>
+                          FilledButton.icon(
+                            onPressed: busy
+                                ? null
+                                : () => controller.isOpen
+                                      ? controller.close()
+                                      : controller.open(),
+                            icon: busy
+                                ? const SizedBox.square(
+                                    dimension: 18,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                    ),
+                                  )
+                                : Icon(
+                                    collection == null
+                                        ? Icons.add_rounded
+                                        : Icons.bookmark_rounded,
+                                  ),
+                            label: Text(
+                              collection?.type.labelFor(subject.type) ??
+                                  '加入收藏',
+                            ),
+                          ),
+                      menuChildren: [
+                        for (final type in CollectionType.values)
+                          MenuItemButton(
+                            leadingIcon: collection?.type == type
+                                ? const Icon(Icons.check_rounded)
+                                : null,
+                            onPressed: () => onCollectionChanged(type),
+                            child: Text(type.labelFor(subject.type)),
+                          ),
+                      ],
+                    ),
+                  ),
+                  OutlinedButton.icon(
+                    onPressed: busy ? null : onManageCollection,
+                    icon: const Icon(Icons.edit_note_rounded),
+                    label: const Text('评分与吐槽'),
+                  ),
+                ],
               ),
             ],
           );

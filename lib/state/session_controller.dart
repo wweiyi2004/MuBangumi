@@ -502,11 +502,27 @@ class SessionController extends StateNotifier<SessionState> {
     Subject subject,
     CollectionType type, {
     bool completeEpisodesWhenDone = true,
+    int? rate,
+    String? comment,
+    List<String>? tags,
+    bool? private,
   }) async {
     _setUpdating(subject.id, true);
     try {
-      await _api.updateCollection(subject.id, type);
-      var episodeStatus = state.collectionFor(subject.id)?.episodeStatus ?? 0;
+      final old = state.collectionFor(subject.id);
+      final nextRate = rate ?? old?.rate ?? 0;
+      final nextComment = comment ?? old?.comment ?? '';
+      final nextTags = tags ?? old?.tags ?? const <String>[];
+      final nextPrivate = private ?? old?.private ?? false;
+      await _api.updateCollection(
+        subject.id,
+        type,
+        rate: nextRate,
+        comment: nextComment,
+        tags: nextTags,
+        private: nextPrivate,
+      );
+      var episodeStatus = old?.episodeStatus ?? 0;
       // Garage #461: marking as "done" auto-completes regular episode progress.
       if (completeEpisodesWhenDone &&
           type == CollectionType.done &&
@@ -529,10 +545,16 @@ class SessionController extends StateNotifier<SessionState> {
           // Collection type is already updated; progress fill is best-effort.
         }
       }
-      final old = state.collectionFor(subject.id);
       if (old != null) {
         _replaceCollection(
-          old.copyWith(type: type, episodeStatus: episodeStatus),
+          old.copyWith(
+            type: type,
+            rate: nextRate,
+            comment: nextComment,
+            tags: nextTags,
+            private: nextPrivate,
+            episodeStatus: episodeStatus,
+          ),
         );
       } else {
         state = state.copyWith(
@@ -540,10 +562,13 @@ class SessionController extends StateNotifier<SessionState> {
             UserCollection(
               subjectId: subject.id,
               type: type,
-              rate: 0,
+              rate: nextRate,
               episodeStatus: episodeStatus,
               updatedAt: DateTime.now(),
               subject: subject,
+              comment: nextComment,
+              tags: nextTags,
+              private: nextPrivate,
             ),
             ...state.collections,
           ],
