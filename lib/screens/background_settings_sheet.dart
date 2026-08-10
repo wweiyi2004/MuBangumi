@@ -6,10 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../state/background_controller.dart';
 import '../widgets/subject_widgets.dart';
 
-Future<void> showBackgroundSettingsSheet(
-  BuildContext context,
-  WidgetRef ref,
-) {
+Future<void> showBackgroundSettingsSheet(BuildContext context, WidgetRef ref) {
   return showModalBottomSheet<void>(
     context: context,
     isScrollControlled: true,
@@ -37,16 +34,16 @@ class _BackgroundSettingsSheet extends ConsumerWidget {
           children: [
             Text(
               '背景与毛玻璃',
-              style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                fontWeight: FontWeight.w800,
-              ),
+              style: Theme.of(
+                context,
+              ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800),
             ),
             const SizedBox(height: 6),
             Text(
               '自选壁纸，再叠一层有层次的磨砂玻璃，卡片与导航会半透明浮在上面。',
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                color: scheme.onSurfaceVariant,
-              ),
+              style: Theme.of(
+                context,
+              ).textTheme.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
             ),
             const SizedBox(height: 16),
             ClipRRect(
@@ -60,6 +57,7 @@ class _BackgroundSettingsSheet extends ConsumerWidget {
                       Image.file(
                         File(settings.imagePath!),
                         fit: BoxFit.cover,
+                        cacheWidth: 1200,
                         errorBuilder: (_, _, _) =>
                             ColoredBox(color: scheme.surfaceContainerHighest),
                       )
@@ -108,9 +106,7 @@ class _BackgroundSettingsSheet extends ConsumerWidget {
             SwitchListTile(
               contentPadding: EdgeInsets.zero,
               title: const Text('启用自定义背景'),
-              subtitle: Text(
-                settings.hasImage ? '壁纸 + 分层毛玻璃' : '请先选择一张图片',
-              ),
+              subtitle: Text(settings.hasImage ? '壁纸 + 分层毛玻璃' : '请先选择一张图片'),
               value: settings.isActive,
               onChanged: settings.hasImage
                   ? (value) => ref
@@ -169,9 +165,8 @@ class _BackgroundSettingsSheet extends ConsumerWidget {
               value: settings.blur,
               min: 0,
               max: 40,
-              onChanged: (value) => ref
-                  .read(backgroundSettingsProvider.notifier)
-                  .setBlur(value),
+              onChanged: (value) =>
+                  ref.read(backgroundSettingsProvider.notifier).setBlur(value),
             ),
             _SliderTile(
               icon: Icons.contrast_rounded,
@@ -190,9 +185,8 @@ class _BackgroundSettingsSheet extends ConsumerWidget {
               value: settings.glass,
               min: 0.15,
               max: 0.8,
-              onChanged: (value) => ref
-                  .read(backgroundSettingsProvider.notifier)
-                  .setGlass(value),
+              onChanged: (value) =>
+                  ref.read(backgroundSettingsProvider.notifier).setGlass(value),
             ),
             const SizedBox(height: 8),
           ],

@@ -32,6 +32,7 @@ class SessionState {
   final BangumiUser? user;
   final List<UserCollection> collections;
   final bool isRefreshing;
+
   /// True while remaining subject types are still loading in the background.
   final bool isLoadingCollections;
   final Set<int> updatingSubjects;
@@ -124,10 +125,18 @@ class SessionController extends StateNotifier<SessionState> {
         await _persistTokens(tokens);
         token = tokens.accessToken;
       } catch (error) {
-        await _forceSignOut(
-          message: '登录已过期，请重新授权：${_messageFor(error)}',
-        );
-        return;
+        if (_invalidatesSession(error)) {
+          await _forceSignOut(message: '登录已过期，请重新授权：${_messageFor(error)}');
+          return;
+        }
+        if (token == null || token.trim().isEmpty) {
+          state = SessionState(
+            phase: SessionPhase.signedOut,
+            networkRoute: _networkRoute,
+            message: '暂时无法刷新登录状态：${_messageFor(error)}',
+          );
+          return;
+        }
       }
     }
     if (token == null || token.trim().isEmpty) {
@@ -200,7 +209,7 @@ class SessionController extends StateNotifier<SessionState> {
       unawaited(_loadCollectionsAfterSignIn(user.username));
       return true;
     } catch (error) {
-      if (!persist) {
+      if (!persist && _invalidatesSession(error)) {
         await _forceSignOut(message: _messageFor(error));
       } else {
         _api.setAccessToken(null);
@@ -255,10 +264,7 @@ class SessionController extends StateNotifier<SessionState> {
     });
   }
 
-  Future<void> _fetchAndMergeOtherTypes(
-    String username,
-    int generation,
-  ) async {
+  Future<void> _fetchAndMergeOtherTypes(String username, int generation) async {
     try {
       // Load other types one-by-one so the UI stays responsive and the
       // network stack is not flooded after login.
@@ -274,10 +280,7 @@ class SessionController extends StateNotifier<SessionState> {
             state.user?.username != username) {
           return;
         }
-        final page = await _api.getUserCollections(
-          username,
-          subjectType: type,
-        );
+        final page = await _api.getUserCollections(username, subjectType: type);
         merged = [
           ...merged.where((item) => item.subject.type != type),
           ...page,
@@ -374,9 +377,11 @@ class SessionController extends StateNotifier<SessionState> {
       await _persistTokens(tokens);
       return true;
     } catch (error) {
-      await _forceSignOut(
-        message: '登录已过期，请重新授权：${_messageFor(error)}',
-      );
+      if (_invalidatesSession(error)) {
+        await _forceSignOut(message: '登录已过期，请重新授权：${_messageFor(error)}');
+      } else if (state.phase == SessionPhase.signedIn) {
+        state = state.copyWith(message: '暂时无法刷新登录状态：${_messageFor(error)}');
+      }
       return false;
     }
   }
@@ -548,8 +553,9 @@ class SessionController extends StateNotifier<SessionState> {
               type: 2,
             );
           }
-          resolvedEpisodeStatus =
-              BangumiSupport.mainEpisodeCollections(episodes).length;
+          resolvedEpisodeStatus = BangumiSupport.mainEpisodeCollections(
+            episodes,
+          ).length;
         } catch (_) {
           // Collection type is already updated; progress fill is best-effort.
         }
@@ -634,6 +640,12 @@ class SessionController extends StateNotifier<SessionState> {
       : error is BangumiOAuthException
       ? error.message
       : '发生了意外错误，请稍后重试';
+
+  bool _invalidatesSession(Object error) =>
+      (error is BangumiOAuthException && error.invalidatesSession) ||
+      (error is BangumiApiException &&
+          error.statusCode == 401 &&
+          (_cachedRefreshToken == null || _cachedRefreshToken!.isEmpty));
 }
 
 final sessionProvider = StateNotifierProvider<SessionController, SessionState>((

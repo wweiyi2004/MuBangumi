@@ -31,9 +31,10 @@ class OAuthTokenBundle {
 }
 
 class BangumiOAuthException implements Exception {
-  const BangumiOAuthException(this.message);
+  const BangumiOAuthException(this.message, {this.invalidatesSession = false});
 
   final String message;
+  final bool invalidatesSession;
 
   @override
   String toString() => message;
@@ -48,7 +49,7 @@ class BangumiOAuth {
           receiveTimeout: const Duration(seconds: 20),
           headers: const {
             'Accept': 'application/json',
-            'User-Agent': 'MuBangumi/1.0.0 (Flutter; personal Bangumi client)',
+            'User-Agent': 'MuBangumi/1.1.0 (Flutter; personal Bangumi client)',
           },
         ),
       );
@@ -104,7 +105,10 @@ class BangumiOAuth {
     }
   }
 
-  Future<OAuthTokenBundle> refresh(OAuthConfig config, String refreshToken) async {
+  Future<OAuthTokenBundle> refresh(
+    OAuthConfig config,
+    String refreshToken,
+  ) async {
     final tokens = await _requestToken({
       'grant_type': 'refresh_token',
       'client_id': config.clientId.trim(),
@@ -162,9 +166,15 @@ class BangumiOAuth {
     }
     final errorData = lastError?.response?.data;
     if (errorData is Map) {
+      final errorCode = errorData['error']?.toString() ?? '';
       throw BangumiOAuthException(
         (errorData['error_description'] ?? errorData['error'] ?? 'Bangumi 授权失败')
             .toString(),
+        invalidatesSession: const {
+          'invalid_grant',
+          'invalid_client',
+          'unauthorized_client',
+        }.contains(errorCode),
       );
     }
     throw const BangumiOAuthException('连接 Bangumi 授权服务器失败');

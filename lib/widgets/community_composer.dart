@@ -12,6 +12,7 @@ Future<bool> showCommunityComposer(
   required CommunitySubmit onSubmit,
   bool requireTitle = false,
   String contentLabel = '内容',
+  String? warning,
   int? maxLength,
   CommunityTokenProvider tokenProvider = showTurnstileDialog,
 }) async =>
@@ -23,6 +24,7 @@ Future<bool> showCommunityComposer(
         onSubmit: onSubmit,
         requireTitle: requireTitle,
         contentLabel: contentLabel,
+        warning: warning,
         maxLength: maxLength,
         tokenProvider: tokenProvider,
       ),
@@ -36,6 +38,7 @@ class _CommunityComposerDialog extends StatefulWidget {
     required this.requireTitle,
     required this.contentLabel,
     required this.tokenProvider,
+    this.warning,
     this.maxLength,
   });
 
@@ -44,6 +47,7 @@ class _CommunityComposerDialog extends StatefulWidget {
   final bool requireTitle;
   final String contentLabel;
   final CommunityTokenProvider tokenProvider;
+  final String? warning;
   final int? maxLength;
 
   @override
@@ -129,6 +133,30 @@ class _CommunityComposerDialogState extends State<_CommunityComposerDialog> {
                 ),
                 const SizedBox(height: 12),
               ],
+              if (widget.warning case final warning?) ...[
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: Theme.of(context).colorScheme.errorContainer,
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Icon(Icons.history_rounded, size: 19),
+                      const SizedBox(width: 8),
+                      Expanded(child: Text(warning)),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 10),
+              ],
+              BbCodeToolbar(
+                controller: _contentController,
+                enabled: !_submitting,
+                onChanged: () => setState(() {}),
+              ),
+              const SizedBox(height: 8),
               TextField(
                 controller: _contentController,
                 enabled: !_submitting,
@@ -173,6 +201,103 @@ class _CommunityComposerDialogState extends State<_CommunityComposerDialog> {
           label: Text(_submitting ? '发送中' : '发送'),
         ),
       ],
+    ),
+  );
+}
+
+void applyBbCode(
+  TextEditingController controller, {
+  required String tag,
+  String? closingTag,
+}) {
+  final text = controller.text;
+  final selection = controller.selection;
+  final rawStart = selection.isValid ? selection.start : text.length;
+  final rawEnd = selection.isValid ? selection.end : text.length;
+  final start = rawStart.clamp(0, text.length).toInt();
+  final end = rawEnd.clamp(start, text.length).toInt();
+  final open = '[$tag]';
+  final close = closingTag ?? '[/$tag]';
+  final selected = text.substring(start, end);
+  final replacement = '$open$selected$close';
+  final cursorStart = start + open.length;
+  controller.value = TextEditingValue(
+    text: text.replaceRange(start, end, replacement),
+    selection: selected.isEmpty
+        ? TextSelection.collapsed(offset: cursorStart)
+        : TextSelection(
+            baseOffset: cursorStart,
+            extentOffset: cursorStart + selected.length,
+          ),
+  );
+}
+
+class BbCodeToolbar extends StatelessWidget {
+  const BbCodeToolbar({
+    super.key,
+    required this.controller,
+    this.enabled = true,
+    this.onChanged,
+  });
+
+  final TextEditingController controller;
+  final bool enabled;
+  final VoidCallback? onChanged;
+
+  void _apply(String tag) {
+    applyBbCode(controller, tag: tag);
+    onChanged?.call();
+  }
+
+  @override
+  Widget build(BuildContext context) => IgnorePointer(
+    ignoring: !enabled,
+    child: Opacity(
+      opacity: enabled ? 1 : .5,
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: Row(
+          children: [
+            _BbButton(label: 'B', tooltip: '粗体', onTap: () => _apply('b')),
+            _BbButton(label: 'I', tooltip: '斜体', onTap: () => _apply('i')),
+            _BbButton(label: 'U', tooltip: '下划线', onTap: () => _apply('u')),
+            _BbButton(label: 'S', tooltip: '删除线', onTap: () => _apply('s')),
+            _BbButton(label: '链接', tooltip: '链接', onTap: () => _apply('url')),
+            _BbButton(label: '图片', tooltip: '图片', onTap: () => _apply('img')),
+            _BbButton(label: '引用', tooltip: '引用', onTap: () => _apply('quote')),
+            _BbButton(
+              label: '剧透',
+              tooltip: '剧透遮罩',
+              onTap: () => _apply('mask'),
+            ),
+          ],
+        ),
+      ),
+    ),
+  );
+}
+
+class _BbButton extends StatelessWidget {
+  const _BbButton({
+    required this.label,
+    required this.tooltip,
+    required this.onTap,
+  });
+
+  final String label;
+  final String tooltip;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.only(right: 6),
+    child: Tooltip(
+      message: tooltip,
+      child: ActionChip(
+        visualDensity: VisualDensity.compact,
+        label: Text(label),
+        onPressed: onTap,
+      ),
     ),
   );
 }

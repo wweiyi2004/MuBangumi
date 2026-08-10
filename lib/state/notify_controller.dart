@@ -3,7 +3,10 @@ import 'dart:async';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/network/community_service.dart';
+import '../models/community_models.dart';
 import 'session_controller.dart';
+
+typedef NoticeLoader = Future<CommunityPageResult<BangumiNotice>> Function();
 
 class NotifyBadgeState {
   const NotifyBadgeState({
@@ -29,25 +32,39 @@ class NotifyBadgeState {
 }
 
 class NotifyBadgeController extends StateNotifier<NotifyBadgeState> {
-  NotifyBadgeController(this._ref) : super(const NotifyBadgeState()) {
-    _ref.listen<SessionPhase>(
-      sessionProvider.select((s) => s.phase),
-      (previous, next) {
-        if (next == SessionPhase.signedIn) {
-          unawaited(refresh());
-          _startPolling();
-        } else {
-          _stopPolling();
-          state = const NotifyBadgeState();
-        }
-      },
-      fireImmediately: true,
-    );
-  }
+  NotifyBadgeController({
+    NoticeLoader? noticeLoader,
+    bool Function()? isAuthenticated,
+  }) : _noticeLoader =
+           noticeLoader ??
+           (() => CommunityService.shared.loadNotices(
+             limit: 40,
+             unreadOnly: true,
+             refresh: true,
+           )),
+       _isAuthenticated =
+           isAuthenticated ?? (() => CommunityService.shared.isAuthenticated),
+       super(const NotifyBadgeState());
 
-  final Ref _ref;
+  final NoticeLoader _noticeLoader;
+  final bool Function() _isAuthenticated;
   Timer? _pollTimer;
   Future<void>? _inFlight;
+  SessionPhase _phase = SessionPhase.booting;
+  int _sessionGeneration = 0;
+  int _refreshGeneration = 0;
+
+  void updateSession(SessionPhase phase) {
+    _sessionGeneration++;
+    _phase = phase;
+    if (phase == SessionPhase.signedIn) {
+      unawaited(refresh());
+      _startPolling();
+    } else {
+      _stopPolling();
+      state = const NotifyBadgeState();
+    }
+  }
 
   void _startPolling() {
     _pollTimer?.cancel();
@@ -66,30 +83,40 @@ class NotifyBadgeController extends StateNotifier<NotifyBadgeState> {
     final existing = _inFlight;
     if (!force && existing != null) return existing;
     final future = _refresh();
-    _inFlight = future.whenComplete(() {
-      if (identical(_inFlight, future)) _inFlight = null;
+    late final Future<void> tracked;
+    tracked = future.whenComplete(() {
+      if (identical(_inFlight, tracked)) _inFlight = null;
     });
-    return _inFlight!;
+    _inFlight = tracked;
+    return tracked;
   }
 
   Future<void> _refresh() async {
-    final phase = _ref.read(sessionProvider).phase;
-    if (phase != SessionPhase.signedIn) {
+    final sessionGeneration = _sessionGeneration;
+    final refreshGeneration = ++_refreshGeneration;
+    if (_phase != SessionPhase.signedIn) {
       state = const NotifyBadgeState();
       return;
     }
-    if (!CommunityService.shared.isAuthenticated) return;
+    if (!_isAuthenticated()) return;
     state = state.copyWith(isLoading: true, clearError: true);
     try {
-      final page = await CommunityService.shared.loadNotices(
-        limit: 40,
-        unreadOnly: true,
-        refresh: true,
-      );
+      final page = await _noticeLoader();
+      if (sessionGeneration != _sessionGeneration ||
+          refreshGeneration != _refreshGeneration ||
+          _phase != SessionPhase.signedIn ||
+          !_isAuthenticated()) {
+        return;
+      }
       // API total is authoritative when present.
       final count = page.total > 0 ? page.total : page.data.length;
       state = NotifyBadgeState(unreadCount: count);
     } catch (error) {
+      if (sessionGeneration != _sessionGeneration ||
+          refreshGeneration != _refreshGeneration ||
+          _phase != SessionPhase.signedIn) {
+        return;
+      }
       state = state.copyWith(
         isLoading: false,
         lastError: error.toString().replaceFirst('Exception: ', ''),
@@ -123,5 +150,11 @@ class NotifyBadgeController extends StateNotifier<NotifyBadgeState> {
 
 final notifyBadgeProvider =
     StateNotifierProvider<NotifyBadgeController, NotifyBadgeState>((ref) {
-      return NotifyBadgeController(ref);
+      final controller = NotifyBadgeController();
+      ref.listen<SessionPhase>(
+        sessionProvider.select((state) => state.phase),
+        (_, phase) => controller.updateSession(phase),
+        fireImmediately: true,
+      );
+      return controller;
     });

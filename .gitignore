@@ -48,4 +48,17 @@ app.*.map.json
 /dist/
 
 android/build/
+android/key.properties
+android/*.jks
+android/*.keystore
+
+# Recommend dataset tool: generated data, DB, logs, venv, local secrets and user lists
+tool/recommend_dataset/.venv/
+tool/recommend_dataset/data/
+tool/recommend_dataset/seed_users*.txt
+tool/recommend_dataset/dataset_config.json
+tool/recommend_dataset/dataset_config.strict.json
+tool/recommend_dataset/*.log
+# Baseline model artifacts (feature_matrix.npz, subject_ids.npy, reports)
+tool/recommend_dataset/baseline_artifacts/
 

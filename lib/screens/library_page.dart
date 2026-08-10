@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -26,6 +28,20 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
   _LibrarySort _sort = _LibrarySort.updated;
   int _minimumRating = 0;
   String _query = '';
+  Timer? _searchDebounce;
+
+  @override
+  void dispose() {
+    _searchDebounce?.cancel();
+    super.dispose();
+  }
+
+  void _onQueryChanged(String value) {
+    _searchDebounce?.cancel();
+    _searchDebounce = Timer(const Duration(milliseconds: 180), () {
+      if (mounted) setState(() => _query = value);
+    });
+  }
 
   int get _activeFilters =>
       (_progress == _ProgressFilter.all ? 0 : 1) +
@@ -68,8 +84,7 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
     );
     final typedCount = collections
         .where(
-          (item) =>
-              _subjectType == null || item.subject.type == _subjectType,
+          (item) => _subjectType == null || item.subject.type == _subjectType,
         )
         .length;
     final items = _filterItems(collections);
@@ -89,7 +104,12 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
             physics: const AlwaysScrollableScrollPhysics(),
             slivers: [
               SliverPadding(
-                padding: EdgeInsets.fromLTRB(pagePad, phone ? 16 : 24, pagePad, 0),
+                padding: EdgeInsets.fromLTRB(
+                  pagePad,
+                  phone ? 16 : 24,
+                  pagePad,
+                  0,
+                ),
                 sliver: SliverToBoxAdapter(
                   child: Center(
                     child: ConstrainedBox(
@@ -105,11 +125,11 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
                           Text(
                             phone
                                 ? '找到 ${items.length} 部'
-                                    '${isLoadingCollections ? ' · 同步中' : ''}'
+                                      '${isLoadingCollections ? ' · 同步中' : ''}'
                                 : '找到 ${items.length} 部 · '
-                                    '当前类型 $typedCount 部 · '
-                                    '全部 ${collections.length} 部'
-                                    '${isLoadingCollections ? ' · 同步中' : ''}',
+                                      '当前类型 $typedCount 部 · '
+                                      '全部 ${collections.length} 部'
+                                      '${isLoadingCollections ? ' · 同步中' : ''}',
                             style: TextStyle(
                               color: Theme.of(
                                 context,
@@ -126,8 +146,7 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
                             children: [
                               Expanded(
                                 child: TextField(
-                                  onChanged: (value) =>
-                                      setState(() => _query = value),
+                                  onChanged: _onQueryChanged,
                                   decoration: InputDecoration(
                                     hintText: '在收藏中搜索',
                                     isDense: phone,
@@ -230,9 +249,7 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
                                 if (_progress != _ProgressFilter.all)
                                   Chip(label: Text(_progressLabel(_progress))),
                                 if (_minimumRating > 0)
-                                  Chip(
-                                    label: Text('个人评分 ≥ $_minimumRating'),
-                                  ),
+                                  Chip(label: Text('个人评分 ≥ $_minimumRating')),
                                 if (_sort != _LibrarySort.updated)
                                   Chip(label: Text(_sortLabel(_sort))),
                                 TextButton(

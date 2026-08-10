@@ -8,8 +8,10 @@ import '../core/network/community_service.dart';
 import '../models/bangumi_models.dart';
 import '../models/community_models.dart';
 import '../state/session_controller.dart';
+import '../state/user_preferences_controller.dart';
 import '../widgets/community_widgets.dart';
 import '../widgets/subject_widgets.dart';
+import 'collection_comparison_page.dart';
 import 'pm_page.dart';
 import 'subject_detail_screen.dart';
 
@@ -42,16 +44,14 @@ void openUserProfile(
   );
 }
 
-void openUserProfileFromCommunity(
-  BuildContext context,
-  CommunityUser user,
-) => openUserProfile(
-  context,
-  username: user.username,
-  nickname: user.nickname,
-  avatarUrl: user.avatarUrl,
-  id: user.id,
-);
+void openUserProfileFromCommunity(BuildContext context, CommunityUser user) =>
+    openUserProfile(
+      context,
+      username: user.username,
+      nickname: user.nickname,
+      avatarUrl: user.avatarUrl,
+      id: user.id,
+    );
 
 void openUserProfileFromBangumi(BuildContext context, BangumiUser user) =>
     openUserProfile(
@@ -181,25 +181,17 @@ class _UserProfilePageState extends ConsumerState<UserProfilePage> {
         _isFriend = !currentlyFriend;
         _friendBusy = false;
       });
-      showAppMessage(
-        context,
-        currentlyFriend ? '已解除好友' : '已发送 / 添加好友',
-      );
+      showAppMessage(context, currentlyFriend ? '已解除好友' : '已发送 / 添加好友');
     } catch (error) {
       if (!mounted) return;
       setState(() => _friendBusy = false);
-      showAppMessage(
-        context,
-        error.toString().replaceFirst('Exception: ', ''),
-      );
+      showAppMessage(context, error.toString().replaceFirst('Exception: ', ''));
     }
   }
 
   Future<void> _loadProfile() async {
     try {
-      final user = await ref
-          .read(bangumiApiProvider)
-          .getUser(widget.username);
+      final user = await ref.read(bangumiApiProvider).getUser(widget.username);
       if (!mounted) return;
       setState(() {
         _user = user;
@@ -253,10 +245,101 @@ class _UserProfilePageState extends ConsumerState<UserProfilePage> {
   int get _totalCount =>
       _counts.values.fold<int>(0, (sum, value) => sum + value);
 
+  void _openComparison() {
+    if (ref.read(sessionProvider).user == null) {
+      showAppMessage(context, '请先登录后再进行收藏对比');
+      return;
+    }
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => CollectionComparisonPage(
+          targetUsername: widget.username,
+          targetDisplayName: _user?.displayName ?? widget.username,
+        ),
+      ),
+    );
+  }
+
+  Future<void> _editLocalNote(String currentNote) async {
+    final controller = TextEditingController(text: currentNote);
+    final note = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('给 @${widget.username} 添加本地备注'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          minLines: 2,
+          maxLines: 5,
+          maxLength: 200,
+          decoration: const InputDecoration(
+            hintText: '例如：口味相近、线下活动认识……',
+            helperText: '备注只保存在本机，不会上传到 Bangumi',
+            border: OutlineInputBorder(),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, controller.text),
+            child: const Text('保存'),
+          ),
+        ],
+      ),
+    );
+    controller.dispose();
+    if (note == null || !mounted) return;
+    try {
+      await ref
+          .read(userPreferencesProvider.notifier)
+          .setNote(widget.username, note);
+      if (mounted) showAppMessage(context, '本地备注已保存');
+    } catch (_) {
+      if (mounted) showAppMessage(context, '备注保存失败，请稍后重试');
+    }
+  }
+
+  Future<void> _toggleLocalBlock(bool blocked) async {
+    if (!blocked) {
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: Text('屏蔽 @${widget.username}？'),
+          content: const Text('该用户在时间线和讨论中的内容将默认折叠。你仍可临时展开查看。'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('取消'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('屏蔽'),
+            ),
+          ],
+        ),
+      );
+      if (confirmed != true || !mounted) return;
+    }
+    try {
+      await ref
+          .read(userPreferencesProvider.notifier)
+          .setBlocked(widget.username, !blocked);
+      if (mounted) showAppMessage(context, blocked ? '已取消屏蔽' : '已在本机屏蔽');
+    } catch (_) {
+      if (mounted) showAppMessage(context, '本地设置保存失败，请稍后重试');
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final user = _user;
     final scheme = Theme.of(context).colorScheme;
+    final preference = ref
+        .watch(userPreferencesProvider)
+        .preferenceFor(widget.username);
     return Scaffold(
       appBar: AppBar(
         title: Text(user?.displayName ?? widget.username),
@@ -363,6 +446,64 @@ class _UserProfilePageState extends ConsumerState<UserProfilePage> {
                         ),
                       ),
                     ),
+                    if (!_isSelf) ...[
+                      const SizedBox(height: 10),
+                      Card(
+                        child: Padding(
+                          padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              if (preference.note.isNotEmpty) ...[
+                                ListTile(
+                                  dense: true,
+                                  contentPadding: EdgeInsets.zero,
+                                  leading: const Icon(
+                                    Icons.sticky_note_2_outlined,
+                                  ),
+                                  title: const Text('本地备注'),
+                                  subtitle: Text(preference.note),
+                                ),
+                                const SizedBox(height: 4),
+                              ],
+                              Wrap(
+                                spacing: 8,
+                                runSpacing: 8,
+                                children: [
+                                  FilledButton.tonalIcon(
+                                    onPressed: _openComparison,
+                                    icon: const Icon(
+                                      Icons.compare_arrows_rounded,
+                                    ),
+                                    label: const Text('口味对比'),
+                                  ),
+                                  OutlinedButton.icon(
+                                    onPressed: () =>
+                                        _editLocalNote(preference.note),
+                                    icon: const Icon(Icons.edit_note_rounded),
+                                    label: Text(
+                                      preference.note.isEmpty ? '添加备注' : '修改备注',
+                                    ),
+                                  ),
+                                  OutlinedButton.icon(
+                                    onPressed: () =>
+                                        _toggleLocalBlock(preference.blocked),
+                                    icon: Icon(
+                                      preference.blocked
+                                          ? Icons.visibility_outlined
+                                          : Icons.block_rounded,
+                                    ),
+                                    label: Text(
+                                      preference.blocked ? '取消屏蔽' : '屏蔽内容',
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ],
                     if (_loadingTimeline || _timeline.isNotEmpty) ...[
                       const SizedBox(height: 14),
                       Text(

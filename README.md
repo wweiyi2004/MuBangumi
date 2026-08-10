@@ -4,7 +4,7 @@ MuBangumi 是一个使用 Flutter 编写的第三方 Bangumi 追番客户端，�
 
 > 本项目是非官方客户端，与 Bangumi 番组计划官方无隶属关系。条目、收藏和章节数据来自 [Bangumi API](https://github.com/bangumi/api)。
 
-当前版本：**v1.0.0**
+当前版本：**v1.1.0**
 
 ## 已实现
 
@@ -27,6 +27,9 @@ MuBangumi 是一个使用 Flutter 编写的第三方 Bangumi 追番客户端，�
 - 官方「每日放送」日历（与本地新番表独立）
 - 修改条目收藏状态和单集观看状态（含 SP/OP/ED 筛选；进度以本篇为准）
 - 好友列表；原生加/删好友（P1）；点击好友/时间线/话题头像进入用户主页
+- 用户收藏口味对比：综合收藏重合、共同评分相关性与评分差，并显示样本置信度
+- 收藏统计与年度回顾：类型 / 状态 / 评分 / 标签分布，支持完整 JSON 导出
+- 用户本地备注与内容屏蔽（SQLite，仅保存在本机；时间线和话题内容可临时展开）
 - 原生电波提醒列表（P1，支持标已读）；「我的」Tab 未读角标
 - 站内短信：应用内 WebView 打开官网收件箱 / 写信（P1 无私信 API）
 - 深色 / 浅色 / 跟随系统主题
@@ -36,9 +39,11 @@ MuBangumi 是一个使用 Flutter 编写的第三方 Bangumi 追番客户端，�
 - 新番表导出为 PNG 海报（浅色 / 深色），桌面保存到下载目录并可打开位置
 - 原生浏览超展开、小组最新话题、所有小组、主题正文与嵌套回复
 - 超展开支持按全部、小组、条目、章节和人物分类筛选
-- 社区发帖 / 回复等写操作优先走 next.bgm.tv P1 + Turnstile；加组等仍可走内嵌官网
+- 社区发帖 / 回复等写操作走 next.bgm.tv P1 + 官方 Turnstile 验证页；加组等仍可走内嵌官网
+- 社区编辑器提供 BBCode 工具栏；长内容自动折叠，超过 180 天未更新的话题回复前提示
 - 手机底部导航与 Windows 宽屏侧栏自适应布局
 - 全应用窄屏适配：页边距 / 标题字号 / 列表密度 / 导航栏标签 / 新番表格子防溢出
+- 性能优化：发现结果与长话题懒构建、超长章节分批显示、按屏幕尺寸解码壁纸并减少重复模糊
 
 Bangumi 当前公开 OpenAPI 不提供完整的小组、私信与通知接口。MuBangumi 对社区列表与话题使用 P1 JSON（失败时回退 HTML 解析），并使用短时缓存减少重复请求；如果网站结构发生变化，解析规则可能需要随之更新。
 
@@ -102,6 +107,10 @@ Android App Bundle：
 flutter build appbundle --release
 ```
 
+Android 正式构建需要独立上传密钥，不能使用调试签名。先复制
+`android/key.properties.example` 为 `android/key.properties`，填写密钥路径、别名和密码；
+密钥文件与 `key.properties` 已被 Git 忽略。配置缺失时 Release 构建会直接失败，避免误发调试签名包。
+
 构建产物分别位于 `build/windows/x64/runner/Release/` 和 `build/app/outputs/`。
 
 ## 项目结构
@@ -110,6 +119,7 @@ flutter build appbundle --release
 lib/
 ├─ core/
 │  ├─ auth/          # OAuth 授权、回调与 Token 刷新
+│  ├─ insights/      # 收藏对比、评分相似度与个人统计
 │  ├─ network/       # Bangumi API、分页、错误处理
 │  ├─ storage/       # OAuth 配置与登录凭据安全存储
 │  └─ theme/         # Material 3 主题
