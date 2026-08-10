@@ -27,7 +27,7 @@ class NetabaApi {
           headers: const {
             'Accept': 'application/json',
             'User-Agent':
-                'MuBangumi/1.0.0 (Flutter; personal Bangumi client; +https://netaba.re)',
+                'MuBangumi/1.1.0 (Flutter; personal Bangumi client; +https://netaba.re)',
           },
         ),
       ) {

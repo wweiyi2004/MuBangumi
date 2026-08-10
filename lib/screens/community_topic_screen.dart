@@ -1,24 +1,27 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/network/community_service.dart';
 import '../models/community_models.dart';
+import '../state/user_preferences_controller.dart';
 import '../widgets/community_composer.dart';
 import '../widgets/community_widgets.dart';
 import 'community_page.dart';
 import 'user_profile_page.dart';
 
-class CommunityTopicScreen extends StatefulWidget {
+class CommunityTopicScreen extends ConsumerStatefulWidget {
   const CommunityTopicScreen({super.key, required this.topic});
 
   final CommunityTopic topic;
 
   @override
-  State<CommunityTopicScreen> createState() => _CommunityTopicScreenState();
+  ConsumerState<CommunityTopicScreen> createState() =>
+      _CommunityTopicScreenState();
 }
 
-class _CommunityTopicScreenState extends State<CommunityTopicScreen> {
+class _CommunityTopicScreenState extends ConsumerState<CommunityTopicScreen> {
   final _service = CommunityService.shared;
   CommunityTopicDetail? _detail;
   bool _loading = true;
@@ -83,9 +86,9 @@ class _CommunityTopicScreenState extends State<CommunityTopicScreen> {
     }
     final topicId = _service.resolveTopicId(widget.topic);
     if (topicId == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('无法识别话题编号，请返回列表重新打开该话题')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('无法识别话题编号，请返回列表重新打开该话题')));
       return;
     }
     // Top-level reply uses 0. Nested replies use the target post id.
@@ -96,6 +99,7 @@ class _CommunityTopicScreenState extends State<CommunityTopicScreen> {
     final sent = await showCommunityComposer(
       context,
       heading: post == null ? '回复话题' : '回复 ${post.author}',
+      warning: _oldTopicWarning,
       onSubmit: (_, content, token) => _service.replyToTopic(
         topic: widget.topic,
         content: content,
@@ -108,6 +112,14 @@ class _CommunityTopicScreenState extends State<CommunityTopicScreen> {
       context,
     ).showSnackBar(const SnackBar(content: Text('回复已发送')));
     await _load(refresh: true);
+  }
+
+  String? get _oldTopicWarning {
+    final lastUpdated = widget.topic.updatedAt;
+    if (lastUpdated == null) return null;
+    final inactiveDays = DateTime.now().difference(lastUpdated).inDays;
+    if (inactiveDays < 180) return null;
+    return '这个话题已经 $inactiveDays 天没有更新，请确认回复仍与当前讨论有关。';
   }
 
   void _openWeb() {
@@ -168,6 +180,7 @@ class _CommunityTopicScreenState extends State<CommunityTopicScreen> {
 
   Widget _buildBody() {
     final detail = _detail;
+    final preferences = ref.watch(userPreferencesProvider);
     if (_loading && detail == null) {
       return const Center(child: CircularProgressIndicator());
     }
@@ -178,73 +191,93 @@ class _CommunityTopicScreenState extends State<CommunityTopicScreen> {
     final wide = MediaQuery.sizeOf(context).width >= 900;
     return RefreshIndicator(
       onRefresh: () => _load(refresh: true),
-      child: ListView(
+      child: ListView.builder(
         physics: const AlwaysScrollableScrollPhysics(),
         padding: EdgeInsets.fromLTRB(wide ? 80 : 14, 16, wide ? 80 : 14, 96),
-        children: [
-          ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 920),
-            child: Align(
-              alignment: Alignment.topCenter,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Text(
-                    detail.title,
-                    style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                      fontWeight: FontWeight.w800,
-                    ),
-                  ),
-                  if (detail.sourceTitle.isNotEmpty) ...[
-                    const SizedBox(height: 7),
+        itemCount: detail.posts.length + 2,
+        itemBuilder: (context, index) {
+          if (index == 0) {
+            return Center(
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 920),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
                     Text(
-                      detail.sourceTitle,
-                      style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                        color: Theme.of(context).colorScheme.primary,
-                      ),
+                      detail.title,
+                      style: Theme.of(context).textTheme.headlineSmall
+                          ?.copyWith(fontWeight: FontWeight.w800),
                     ),
-                  ],
-                  const SizedBox(height: 18),
-                  if (detail.posts.isEmpty)
-                    const Padding(
-                      padding: EdgeInsets.all(28),
-                      child: Center(child: Text('还没有可显示的回复')),
-                    )
-                  else
-                    for (final post in detail.posts)
-                      CommunityPostCard(
-                        post: post,
-                        isFriend: _isFriendPost(post),
-                        onReply: _service.isAuthenticated
-                            ? () => _reply(post: post)
-                            : null,
-                        onOpenUser: () {
-                          final username = _usernameFromUserUrl(post.userUrl);
-                          if (username == null) return;
-                          openUserProfile(
-                            context,
-                            username: username,
-                            nickname: post.author,
-                            avatarUrl: post.avatarUrl,
-                          );
-                        },
+                    if (detail.sourceTitle.isNotEmpty) ...[
+                      const SizedBox(height: 7),
+                      Text(
+                        detail.sourceTitle,
+                        style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                          color: Theme.of(context).colorScheme.primary,
+                        ),
                       ),
-                  if (_loading) const LinearProgressIndicator(),
-                  if (_error != null) ...[
-                    const SizedBox(height: 10),
-                    Text(
-                      _error!,
-                      textAlign: TextAlign.center,
-                      style: TextStyle(
-                        color: Theme.of(context).colorScheme.error,
+                    ],
+                    const SizedBox(height: 18),
+                    if (detail.posts.isEmpty)
+                      const Padding(
+                        padding: EdgeInsets.all(28),
+                        child: Center(child: Text('还没有可显示的回复')),
                       ),
-                    ),
                   ],
-                ],
+                ),
+              ),
+            );
+          }
+          if (index == detail.posts.length + 1) {
+            return Center(
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 920),
+                child: Column(
+                  children: [
+                    if (_loading) const LinearProgressIndicator(),
+                    if (_error != null) ...[
+                      const SizedBox(height: 10),
+                      Text(
+                        _error!,
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          color: Theme.of(context).colorScheme.error,
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            );
+          }
+          final post = detail.posts[index - 1];
+          final username = _usernameFromUserUrl(post.userUrl);
+          return Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 920),
+              child: BlockedCommunityContent(
+                key: ValueKey('topic-post-${post.id}'),
+                username: username ?? post.author,
+                blocked: preferences.isBlocked(username ?? ''),
+                child: CommunityPostCard(
+                  post: post,
+                  isFriend: _isFriendPost(post),
+                  onReply: _service.isAuthenticated
+                      ? () => _reply(post: post)
+                      : null,
+                  onOpenUser: username == null
+                      ? null
+                      : () => openUserProfile(
+                          context,
+                          username: username,
+                          nickname: post.author,
+                          avatarUrl: post.avatarUrl,
+                        ),
+                ),
               ),
             ),
-          ),
-        ],
+          );
+        },
       ),
     );
   }

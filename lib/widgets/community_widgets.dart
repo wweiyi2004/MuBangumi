@@ -235,6 +235,7 @@ class CommunityPostCard extends StatelessWidget {
   final CommunityPost post;
   final VoidCallback? onReply;
   final VoidCallback? onOpenUser;
+
   /// Garage #14 / #1075: highlight friends in discussion threads.
   final bool isFriend;
 
@@ -293,8 +294,7 @@ class CommunityPostCard extends StatelessWidget {
                                   ),
                                 ),
                               ),
-                              if (post.isOriginal)
-                                const _Badge(label: '楼主'),
+                              if (post.isOriginal) const _Badge(label: '楼主'),
                               if (isFriend) const _Badge(label: '好友'),
                             ],
                           ),
@@ -308,7 +308,7 @@ class CommunityPostCard extends StatelessWidget {
                     ),
                     if (post.body.isNotEmpty) ...[
                       const SizedBox(height: 9),
-                      SelectableText(post.body),
+                      CollapsibleCommunityText(post.body),
                     ],
                     if (post.images.isNotEmpty) ...[
                       const SizedBox(height: 10),
@@ -417,7 +417,7 @@ class CommunityTimelineCard extends StatelessWidget {
                       ).colorScheme.surfaceContainerHighest,
                       borderRadius: BorderRadius.circular(11),
                     ),
-                    child: SelectableText(item.content),
+                    child: CollapsibleCommunityText(item.content),
                   ),
                 ],
                 if (item.imageUrls.isNotEmpty) ...[
@@ -777,7 +777,7 @@ class _TimelineReplyView extends StatelessWidget {
             ),
             if (reply.content.isNotEmpty) ...[
               const SizedBox(height: 5),
-              SelectableText(reply.content),
+              CollapsibleCommunityText(reply.content),
             ],
             if (reply.imageUrls.isNotEmpty) ...[
               const SizedBox(height: 8),
@@ -797,6 +797,96 @@ class _TimelineReplyView extends StatelessWidget {
       ),
     ],
   );
+}
+
+class CollapsibleCommunityText extends StatefulWidget {
+  const CollapsibleCommunityText(
+    this.text, {
+    super.key,
+    this.collapseAfter = 700,
+  });
+
+  final String text;
+  final int collapseAfter;
+
+  @override
+  State<CollapsibleCommunityText> createState() =>
+      _CollapsibleCommunityTextState();
+}
+
+class _CollapsibleCommunityTextState extends State<CollapsibleCommunityText> {
+  bool _expanded = false;
+
+  bool get _isLong =>
+      widget.text.length > widget.collapseAfter ||
+      '\n'.allMatches(widget.text).length >= 14;
+
+  @override
+  Widget build(BuildContext context) {
+    final collapsed = _isLong && !_expanded;
+    final visible = collapsed && widget.text.length > widget.collapseAfter
+        ? '${widget.text.substring(0, widget.collapseAfter).trimRight()}…'
+        : widget.text;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SelectableText(visible, maxLines: collapsed ? 14 : null),
+        if (_isLong)
+          TextButton.icon(
+            onPressed: () => setState(() => _expanded = !_expanded),
+            icon: Icon(
+              _expanded ? Icons.unfold_less_rounded : Icons.unfold_more_rounded,
+              size: 17,
+            ),
+            label: Text(_expanded ? '收起长内容' : '展开全文'),
+          ),
+      ],
+    );
+  }
+}
+
+class BlockedCommunityContent extends StatefulWidget {
+  const BlockedCommunityContent({
+    super.key,
+    required this.username,
+    required this.blocked,
+    required this.child,
+  });
+
+  final String username;
+  final bool blocked;
+  final Widget child;
+
+  @override
+  State<BlockedCommunityContent> createState() =>
+      _BlockedCommunityContentState();
+}
+
+class _BlockedCommunityContentState extends State<BlockedCommunityContent> {
+  bool _revealed = false;
+
+  @override
+  void didUpdateWidget(covariant BlockedCommunityContent oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!oldWidget.blocked && widget.blocked) _revealed = false;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (!widget.blocked || _revealed) return widget.child;
+    return Card(
+      margin: const EdgeInsets.only(bottom: 10),
+      child: ListTile(
+        leading: const Icon(Icons.visibility_off_outlined),
+        title: Text('已折叠 @${widget.username} 的内容'),
+        subtitle: const Text('这是本机屏蔽规则，不影响 Bangumi 账号设置'),
+        trailing: TextButton(
+          onPressed: () => setState(() => _revealed = true),
+          child: const Text('临时查看'),
+        ),
+      ),
+    );
+  }
 }
 
 String _episodeLabel(CommunityTimelineEpisode episode) {

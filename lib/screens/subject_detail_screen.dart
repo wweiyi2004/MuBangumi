@@ -138,8 +138,9 @@ class _SubjectDetailScreenState extends ConsumerState<SubjectDetailScreen> {
       _historyError = null;
     });
     try {
-      final history =
-          await ref.read(netabaApiProvider).getSubjectHistory(subjectId);
+      final history = await ref
+          .read(netabaApiProvider)
+          .getSubjectHistory(subjectId);
       if (!mounted) return;
       setState(() {
         _scoreHistory = history;
@@ -436,9 +437,8 @@ class _SubjectDetailScreenState extends ConsumerState<SubjectDetailScreen> {
                                     BangumiSupport.episodeTypeLabel(type),
                                   ),
                                   selected: _episodeTypeFilter == type,
-                                  onSelected: (_) => setState(
-                                    () => _episodeTypeFilter = type,
-                                  ),
+                                  onSelected: (_) =>
+                                      setState(() => _episodeTypeFilter = type),
                                 ),
                                 const SizedBox(width: 8),
                               ],
@@ -497,9 +497,7 @@ class _SubjectDetailScreenState extends ConsumerState<SubjectDetailScreen> {
                                 maxLines: 2,
                                 overflow: TextOverflow.ellipsis,
                               ),
-                              trailing: const Icon(
-                                Icons.chevron_right_rounded,
-                              ),
+                              trailing: const Icon(Icons.chevron_right_rounded),
                               onTap: () => Navigator.of(context).push(
                                 MaterialPageRoute<void>(
                                   builder: (_) => CharacterDetailScreen(
@@ -538,15 +536,12 @@ class _SubjectDetailScreenState extends ConsumerState<SubjectDetailScreen> {
                               subtitle: Text(
                                 [
                                   if (p.relation.isNotEmpty) p.relation,
-                                  if (p.career.isNotEmpty)
-                                    p.career.join(' / '),
+                                  if (p.career.isNotEmpty) p.career.join(' / '),
                                 ].join(' · '),
                                 maxLines: 2,
                                 overflow: TextOverflow.ellipsis,
                               ),
-                              trailing: const Icon(
-                                Icons.chevron_right_rounded,
-                              ),
+                              trailing: const Icon(Icons.chevron_right_rounded),
                               onTap: () => Navigator.of(context).push(
                                 MaterialPageRoute<void>(
                                   builder: (_) => PersonDetailScreen(
@@ -576,10 +571,10 @@ class _SubjectDetailScreenState extends ConsumerState<SubjectDetailScreen> {
                                   : CircleAvatar(
                                       backgroundImage:
                                           CachedNetworkImageProvider(
-                                        BangumiEndpoints.imageUrl(
-                                          item.imageUrl,
-                                        ),
-                                      ),
+                                            BangumiEndpoints.imageUrl(
+                                              item.imageUrl,
+                                            ),
+                                          ),
                                     ),
                               label: ConstrainedBox(
                                 constraints: BoxConstraints(
@@ -643,9 +638,7 @@ class _SubjectDetailScreenState extends ConsumerState<SubjectDetailScreen> {
                                     '${topic.replyCount} 回复',
                                 ].join(' · '),
                               ),
-                              trailing: const Icon(
-                                Icons.chevron_right_rounded,
-                              ),
+                              trailing: const Icon(Icons.chevron_right_rounded),
                               onTap: () => Navigator.of(context).push(
                                 MaterialPageRoute<void>(
                                   builder: (_) =>
@@ -771,9 +764,7 @@ class _SubjectDetailScreenState extends ConsumerState<SubjectDetailScreen> {
           .getEpisodeCollections(subjectId, episodeType: null);
       if (!mounted) return;
       setState(() {
-        _episodes = [
-          for (final item in episodeCollections) item.episode,
-        ];
+        _episodes = [for (final item in episodeCollections) item.episode];
         _episodeTypes = {
           for (final item in episodeCollections) item.episode.id: item.type,
         };
@@ -849,13 +840,13 @@ class _SubjectHeader extends StatelessWidget {
           final coverW = veryNarrow
               ? 96.0
               : compact
-                  ? 112.0
-                  : 170.0;
+              ? 112.0
+              : 170.0;
           final coverH = veryNarrow
               ? 136.0
               : compact
-                  ? 158.0
-                  : 240.0;
+              ? 158.0
+              : 240.0;
           final cover = SubjectCover(
             subject: subject,
             width: coverW,
@@ -865,9 +856,9 @@ class _SubjectHeader extends StatelessWidget {
 
           final titleStyle = compact
               ? Theme.of(context).textTheme.titleLarge?.copyWith(
-                    fontWeight: FontWeight.w800,
-                    height: 1.2,
-                  )
+                  fontWeight: FontWeight.w800,
+                  height: 1.2,
+                )
               : Theme.of(context).textTheme.headlineMedium;
 
           final titleBlock = Column(
@@ -938,10 +929,7 @@ class _SubjectHeader extends StatelessWidget {
                       compact: compact,
                     ),
                   if (!compact && subject.platform.isNotEmpty)
-                    _Meta(
-                      icon: Icons.tv_outlined,
-                      text: subject.platform,
-                    ),
+                    _Meta(icon: Icons.tv_outlined, text: subject.platform),
                   if (subject.nsfw)
                     _Meta(
                       icon: Icons.warning_amber_rounded,
@@ -1000,7 +988,8 @@ class _SubjectHeader extends StatelessWidget {
                   ),
                 );
 
-          final myCollection = collection == null ||
+          final myCollection =
+              collection == null ||
                   (collection!.rate <= 0 &&
                       collection!.comment.isEmpty &&
                       collection!.tags.isEmpty)
@@ -1028,7 +1017,9 @@ class _SubjectHeader extends StatelessWidget {
                             materialTapTargetSize:
                                 MaterialTapTargetSize.shrinkWrap,
                           ),
-                        for (final tag in collection!.tags.take(compact ? 4 : 6))
+                        for (final tag in collection!.tags.take(
+                          compact ? 4 : 6,
+                        ))
                           ActionChip(
                             label: Text(tag),
                             visualDensity: VisualDensity.compact,
@@ -1059,8 +1050,8 @@ class _SubjectHeader extends StatelessWidget {
               onPressed: busy
                   ? null
                   : () => controller.isOpen
-                      ? controller.close()
-                      : controller.open(),
+                        ? controller.close()
+                        : controller.open(),
               icon: busy
                   ? const SizedBox.square(
                       dimension: 18,
@@ -1126,10 +1117,7 @@ class _SubjectHeader extends StatelessWidget {
                       Expanded(child: titleBlock),
                     ],
                   ),
-                  if (tags != null) ...[
-                    const SizedBox(height: 12),
-                    tags,
-                  ],
+                  if (tags != null) ...[const SizedBox(height: 12), tags],
                   if (officialSite != null) ...[
                     const SizedBox(height: 4),
                     officialSite,
@@ -1157,10 +1145,7 @@ class _SubjectHeader extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       titleBlock,
-                      if (tags != null) ...[
-                        const SizedBox(height: 14),
-                        tags,
-                      ],
+                      if (tags != null) ...[const SizedBox(height: 14), tags],
                       if (officialSite != null) ...[
                         const SizedBox(height: 4),
                         officialSite,
@@ -1235,16 +1220,16 @@ class _RatingPanel extends StatelessWidget {
                 if (subject.score > 0)
                   Text(
                     subject.score.toStringAsFixed(2),
-                    style: (narrow
-                            ? Theme.of(context).textTheme.headlineSmall
-                            : Theme.of(context).textTheme.headlineMedium)
-                        ?.copyWith(
-                      color: const Color(0xFFF3A646),
-                      fontWeight: FontWeight.w800,
-                    ),
+                    style:
+                        (narrow
+                                ? Theme.of(context).textTheme.headlineSmall
+                                : Theme.of(context).textTheme.headlineMedium)
+                            ?.copyWith(
+                              color: const Color(0xFFF3A646),
+                              fontWeight: FontWeight.w800,
+                            ),
                   ),
-                if (subject.ratingTotal > 0)
-                  Text('${subject.ratingTotal} 人评分'),
+                if (subject.ratingTotal > 0) Text('${subject.ratingTotal} 人评分'),
                 if (subject.ratingStdDev > 0)
                   Text('σ ${subject.ratingStdDev.toStringAsFixed(2)}'),
                 if (subject.rank > 0) Text('排名 #${subject.rank}'),
@@ -1289,9 +1274,7 @@ class _RatingPanel extends StatelessWidget {
                 ),
             ],
             if (subject.collectionTotal > 0 ||
-                subject.wishCount +
-                        subject.collectCount +
-                        subject.doingCount >
+                subject.wishCount + subject.collectCount + subject.doingCount >
                     0) ...[
               const SizedBox(height: 12),
               Wrap(
@@ -1471,15 +1454,12 @@ class _Meta extends StatelessWidget {
         color: color ?? Theme.of(context).colorScheme.onSurfaceVariant,
       ),
       SizedBox(width: compact ? 3 : 4),
-      Text(
-        text,
-        style: TextStyle(fontSize: compact ? 12.5 : null),
-      ),
+      Text(text, style: TextStyle(fontSize: compact ? 12.5 : null)),
     ],
   );
 }
 
-class _EpisodeGrid extends StatelessWidget {
+class _EpisodeGrid extends StatefulWidget {
   const _EpisodeGrid({
     required this.episodes,
     required this.episodeTypes,
@@ -1495,6 +1475,22 @@ class _EpisodeGrid extends StatelessWidget {
   final void Function(Episode episode, bool watched) onTap;
 
   @override
+  State<_EpisodeGrid> createState() => _EpisodeGridState();
+}
+
+class _EpisodeGridState extends State<_EpisodeGrid> {
+  static const _pageSize = 60;
+  int _visibleCount = _pageSize;
+
+  @override
+  void didUpdateWidget(covariant _EpisodeGrid oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.episodes.length != widget.episodes.length) {
+      _visibleCount = _pageSize;
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -1503,55 +1499,88 @@ class _EpisodeGrid extends StatelessWidget {
         final target = width < 420
             ? 5.0
             : width < 600
-                ? 6.0
-                : 8.0;
+            ? 6.0
+            : 8.0;
         final spacing = width < 420 ? 7.0 : 9.0;
-        final cellW = ((width - spacing * (target - 1)) / target)
-            .clamp(48.0, 64.0);
+        final cellW = ((width - spacing * (target - 1)) / target).clamp(
+          48.0,
+          64.0,
+        );
         final cellH = width < 420 ? 42.0 : 44.0;
-        return Wrap(
-          spacing: spacing,
-          runSpacing: spacing,
+        final visibleCount = _visibleCount < widget.episodes.length
+            ? _visibleCount
+            : widget.episodes.length;
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            for (final episode in episodes)
-              Tooltip(
-                message: episode.displayName,
-                child: SizedBox(
-                  width: cellW,
-                  height: cellH,
-                  child: episodeTypes[episode.id] == 2
-                      ? FilledButton(
-                          onPressed: enabled &&
-                                  !updatingEpisodes.contains(episode.id)
-                              ? () => onTap(episode, true)
-                              : null,
-                          style: FilledButton.styleFrom(
-                            padding: EdgeInsets.zero,
-                            visualDensity: VisualDensity.compact,
-                            textStyle: TextStyle(
-                              fontSize: width < 380 ? 13 : 14,
-                              fontWeight: FontWeight.w700,
+            Wrap(
+              spacing: spacing,
+              runSpacing: spacing,
+              children: [
+                for (final episode in widget.episodes.take(visibleCount))
+                  Tooltip(
+                    message: episode.displayName,
+                    child: SizedBox(
+                      width: cellW,
+                      height: cellH,
+                      child: widget.episodeTypes[episode.id] == 2
+                          ? FilledButton(
+                              onPressed:
+                                  widget.enabled &&
+                                      !widget.updatingEpisodes.contains(
+                                        episode.id,
+                                      )
+                                  ? () => widget.onTap(episode, true)
+                                  : null,
+                              style: FilledButton.styleFrom(
+                                padding: EdgeInsets.zero,
+                                visualDensity: VisualDensity.compact,
+                                textStyle: TextStyle(
+                                  fontSize: width < 380 ? 13 : 14,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                              child: Text(_episodeNumber(episode.number)),
+                            )
+                          : OutlinedButton(
+                              onPressed:
+                                  widget.enabled &&
+                                      !widget.updatingEpisodes.contains(
+                                        episode.id,
+                                      )
+                                  ? () => widget.onTap(episode, false)
+                                  : null,
+                              style: OutlinedButton.styleFrom(
+                                padding: EdgeInsets.zero,
+                                visualDensity: VisualDensity.compact,
+                                textStyle: TextStyle(
+                                  fontSize: width < 380 ? 13 : 14,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                              child: Text(_episodeNumber(episode.number)),
                             ),
-                          ),
-                          child: Text(_episodeNumber(episode.number)),
-                        )
-                      : OutlinedButton(
-                          onPressed: enabled &&
-                                  !updatingEpisodes.contains(episode.id)
-                              ? () => onTap(episode, false)
-                              : null,
-                          style: OutlinedButton.styleFrom(
-                            padding: EdgeInsets.zero,
-                            visualDensity: VisualDensity.compact,
-                            textStyle: TextStyle(
-                              fontSize: width < 380 ? 13 : 14,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                          child: Text(_episodeNumber(episode.number)),
-                        ),
+                    ),
+                  ),
+              ],
+            ),
+            if (visibleCount < widget.episodes.length) ...[
+              const SizedBox(height: 10),
+              Center(
+                child: TextButton.icon(
+                  onPressed: () => setState(() {
+                    final next = _visibleCount + _pageSize;
+                    _visibleCount = next < widget.episodes.length
+                        ? next
+                        : widget.episodes.length;
+                  }),
+                  icon: const Icon(Icons.expand_more_rounded),
+                  label: Text(
+                    '继续显示（$visibleCount / ${widget.episodes.length}）',
+                  ),
                 ),
               ),
+            ],
           ],
         );
       },
@@ -1599,7 +1628,9 @@ class _ExpandableTextState extends State<_ExpandableText> {
               widget.text,
               style: widget.style,
               maxLines: _expanded ? null : widget.collapsedLines,
-              overflow: _expanded ? TextOverflow.visible : TextOverflow.ellipsis,
+              overflow: _expanded
+                  ? TextOverflow.visible
+                  : TextOverflow.ellipsis,
             ),
             if (overflow)
               TextButton(
@@ -1655,11 +1686,7 @@ class _ExpandableItemListState extends State<_ExpandableItemList> {
                     ? Icons.expand_less_rounded
                     : Icons.expand_more_rounded,
               ),
-              label: Text(
-                _expanded
-                    ? '收起'
-                    : '展开全部 ${widget.itemCount} 项',
-              ),
+              label: Text(_expanded ? '收起' : '展开全部 ${widget.itemCount} 项'),
             ),
           ),
       ],
@@ -1696,9 +1723,7 @@ class _ExpandableChipWrapState extends State<_ExpandableChipWrap> {
         Wrap(
           spacing: 8,
           runSpacing: 8,
-          children: [
-            for (var i = 0; i < count; i++) widget.chipBuilder(i),
-          ],
+          children: [for (var i = 0; i < count; i++) widget.chipBuilder(i)],
         ),
         if (widget.itemCount > widget.previewCount)
           Align(
@@ -1710,9 +1735,7 @@ class _ExpandableChipWrapState extends State<_ExpandableChipWrap> {
                     ? Icons.expand_less_rounded
                     : Icons.expand_more_rounded,
               ),
-              label: Text(
-                _expanded ? '收起' : '展开全部 ${widget.itemCount} 项',
-              ),
+              label: Text(_expanded ? '收起' : '展开全部 ${widget.itemCount} 项'),
             ),
           ),
       ],
@@ -1750,8 +1773,8 @@ class _MetaSection extends StatelessWidget {
                   child: Text(
                     title,
                     style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                          fontWeight: FontWeight.w800,
-                        ),
+                      fontWeight: FontWeight.w800,
+                    ),
                   ),
                 ),
                 ?trailing,

@@ -17,6 +17,41 @@ import 'subject_detail_screen.dart';
 
 enum DiscoverSearchTarget { subject, character, person }
 
+enum DiscoverQueryMode {
+  browse,
+  subjectSearch,
+  characterPrompt,
+  characterSearch,
+  personPrompt,
+  personSearch,
+}
+
+DiscoverQueryMode resolveDiscoverQueryMode({
+  required DiscoverSearchTarget target,
+  required String keyword,
+  required String tag,
+}) {
+  final hasKeyword = keyword.trim().isNotEmpty;
+  return switch (target) {
+    DiscoverSearchTarget.subject =>
+      hasKeyword || tag.trim().isNotEmpty
+          ? DiscoverQueryMode.subjectSearch
+          : DiscoverQueryMode.browse,
+    DiscoverSearchTarget.character =>
+      hasKeyword
+          ? DiscoverQueryMode.characterSearch
+          : DiscoverQueryMode.characterPrompt,
+    DiscoverSearchTarget.person =>
+      hasKeyword
+          ? DiscoverQueryMode.personSearch
+          : DiscoverQueryMode.personPrompt,
+  };
+}
+
+final discoverCollectionsProvider = Provider<List<UserCollection>>(
+  (ref) => ref.watch(sessionProvider.select((state) => state.collections)),
+);
+
 /// Opens a standalone discover surface pre-filtered by [tag].
 void openDiscoverTagSearch(
   BuildContext context, {
@@ -29,10 +64,7 @@ void openDiscoverTagSearch(
     MaterialPageRoute<void>(
       builder: (_) => Scaffold(
         appBar: AppBar(title: Text('标签 · $value')),
-        body: DiscoverPage(
-          initialTag: value,
-          initialSubjectType: subjectType,
-        ),
+        body: DiscoverPage(initialTag: value, initialSubjectType: subjectType),
       ),
     ),
   );
@@ -77,13 +109,22 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
   List<CharacterDetail> _characters = const [];
   List<PersonDetail> _persons = const [];
 
-  bool get _searching => _searchController.text.trim().isNotEmpty;
-  bool get _searchingSubjects =>
-      _searching && _searchTarget == DiscoverSearchTarget.subject;
+  DiscoverQueryMode get _queryMode => resolveDiscoverQueryMode(
+    target: _searchTarget,
+    keyword: _searchController.text,
+    tag: _tag,
+  );
+
+  bool get _searching => switch (_queryMode) {
+    DiscoverQueryMode.subjectSearch ||
+    DiscoverQueryMode.characterSearch ||
+    DiscoverQueryMode.personSearch => true,
+    _ => false,
+  };
+  bool get _searchingSubjects => _queryMode == DiscoverQueryMode.subjectSearch;
   bool get _searchingCharacters =>
-      _searching && _searchTarget == DiscoverSearchTarget.character;
-  bool get _searchingPersons =>
-      _searching && _searchTarget == DiscoverSearchTarget.person;
+      _queryMode == DiscoverQueryMode.characterSearch;
+  bool get _searchingPersons => _queryMode == DiscoverQueryMode.personSearch;
 
   /// TV-like seasonal browse (year + quarter).
   bool get _supportsSeason =>
@@ -118,14 +159,13 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
   };
 
   int get _activeFilterCount {
+    if (_searchTarget != DiscoverSearchTarget.subject) return 0;
     var count = 0;
     if (_searchingSubjects) {
       if (_searchSort != 'match') count++;
       if (_minimumRating > 0) count++;
       if (_startYear > 0) count++;
       if (_tag.trim().isNotEmpty) count++;
-    } else if (_searching) {
-      // Character/person search has no extra filters yet.
     } else if (_supportsSeason) {
       final now = DateTime.now();
       final currentQuarter = (now.month - 1) ~/ 3;
@@ -146,10 +186,6 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
     _browseQuarter = (now.month - 1) ~/ 3;
     _subjectType = widget.initialSubjectType ?? SubjectType.anime;
     _tag = widget.initialTag.trim();
-    if (_tag.isNotEmpty) {
-      // Tag deep-link: use the tag as keyword so search path applies filters.
-      _searchController.text = _tag;
-    }
     _scrollController.addListener(_onScroll);
     Future.microtask(_runCurrentQuery);
   }
@@ -173,8 +209,32 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
 
   void _onSearchChanged(String value) {
     _debounce?.cancel();
+    _requestId++;
+    final nextMode = resolveDiscoverQueryMode(
+      target: _searchTarget,
+      keyword: value,
+      tag: _tag,
+    );
+    setState(() {
+      _error = null;
+      _offset = 0;
+      _hasMore = false;
+      _loadingMore = false;
+      _loading = switch (nextMode) {
+        DiscoverQueryMode.characterPrompt ||
+        DiscoverQueryMode.personPrompt => false,
+        _ => true,
+      };
+      switch (_searchTarget) {
+        case DiscoverSearchTarget.subject:
+          _subjects = const [];
+        case DiscoverSearchTarget.character:
+          _characters = const [];
+        case DiscoverSearchTarget.person:
+          _persons = const [];
+      }
+    });
     _debounce = Timer(const Duration(milliseconds: 450), _runCurrentQuery);
-    setState(() {});
   }
 
   void _selectSubjectType(SubjectType type) {
@@ -197,11 +257,22 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
 
   void _clearSearchFilters() {
     setState(() {
-      _searchSort = 'match';
-      _minimumRating = 0;
-      _startYear = 0;
-      _tag = '';
+      _resetSearchFilters();
     });
+  }
+
+  void _resetSearchFilters() {
+    _searchSort = 'match';
+    _minimumRating = 0;
+    _startYear = 0;
+    _tag = '';
+  }
+
+  void _clearSearch() {
+    _debounce?.cancel();
+    _searchController.clear();
+    setState(_resetSearchFilters);
+    _runCurrentQuery();
   }
 
   void _clearBrowseFilters() {
@@ -215,22 +286,38 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
 
   void _runCurrentQuery() {
     final keyword = _searchController.text.trim();
-    if (keyword.isNotEmpty) {
-      switch (_searchTarget) {
-        case DiscoverSearchTarget.subject:
-          unawaited(_search(keyword));
-        case DiscoverSearchTarget.character:
-          unawaited(_searchCharacters(keyword));
-        case DiscoverSearchTarget.person:
-          unawaited(_searchPersons(keyword));
-      }
-      return;
+    switch (_queryMode) {
+      case DiscoverQueryMode.subjectSearch:
+        unawaited(_search(keyword));
+      case DiscoverQueryMode.characterSearch:
+        unawaited(_searchCharacters(keyword));
+      case DiscoverQueryMode.personSearch:
+        unawaited(_searchPersons(keyword));
+      case DiscoverQueryMode.browse:
+        setState(() {
+          _characters = const [];
+          _persons = const [];
+        });
+        unawaited(_loadBrowse());
+      case DiscoverQueryMode.characterPrompt:
+        _showSearchPrompt(DiscoverSearchTarget.character);
+      case DiscoverQueryMode.personPrompt:
+        _showSearchPrompt(DiscoverSearchTarget.person);
     }
+  }
+
+  void _showSearchPrompt(DiscoverSearchTarget target) {
+    _requestId++;
     setState(() {
+      _loading = false;
+      _loadingMore = false;
+      _hasMore = false;
+      _offset = 0;
+      _error = null;
+      _subjects = const [];
       _characters = const [];
       _persons = const [];
     });
-    unawaited(_loadBrowse());
   }
 
   Future<void> _searchCharacters(String keyword, {bool append = false}) async {
@@ -418,438 +505,489 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
   Future<void> _loadMore() async {
     if (!_hasMore || _loadingMore || _loading) return;
     final keyword = _searchController.text.trim();
-    if (keyword.isNotEmpty) {
-      switch (_searchTarget) {
-        case DiscoverSearchTarget.subject:
-          await _search(keyword, append: true);
-        case DiscoverSearchTarget.character:
-          await _searchCharacters(keyword, append: true);
-        case DiscoverSearchTarget.person:
-          await _searchPersons(keyword, append: true);
-      }
-    } else {
-      await _loadBrowse(append: true);
+    switch (_queryMode) {
+      case DiscoverQueryMode.subjectSearch:
+        await _search(keyword, append: true);
+      case DiscoverQueryMode.characterSearch:
+        await _searchCharacters(keyword, append: true);
+      case DiscoverQueryMode.personSearch:
+        await _searchPersons(keyword, append: true);
+      case DiscoverQueryMode.browse:
+        await _loadBrowse(append: true);
+      case DiscoverQueryMode.characterPrompt:
+      case DiscoverQueryMode.personPrompt:
+        return;
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    final collections = ref.watch(
-      sessionProvider.select((state) => state.collections),
-    );
+    final collections = ref.watch(discoverCollectionsProvider);
     final collectionMap = {
       for (final item in collections) item.subjectId: item,
     };
-
     final phone = AppLayout.isPhone(context);
-    return SingleChildScrollView(
+    final pagePad = AppLayout.pagePadding(context);
+    return CustomScrollView(
       controller: _scrollController,
-      padding: AppLayout.pageInsets(context, top: 24, bottom: 60),
-      child: Center(
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 1220),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text('发现', style: AppLayout.pageTitleStyle(context)),
-              const SizedBox(height: 6),
-              Text(
-                switch (_searchTarget) {
-                  DiscoverSearchTarget.character => '搜索角色 · 点进角色详情',
-                  DiscoverSearchTarget.person => '搜索人物 · 点进人物详情',
-                  DiscoverSearchTarget.subject =>
-                    phone
-                        ? '浏览 / 搜索 · ${_subjectType.label}'
-                        : '按类型浏览与搜索 · 当前：${_subjectType.label}',
+      physics: const AlwaysScrollableScrollPhysics(),
+      slivers: [
+        SliverPadding(
+          padding: EdgeInsets.fromLTRB(pagePad, phone ? 16 : 24, pagePad, 0),
+          sliver: SliverToBoxAdapter(
+            child: Center(
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 1220),
+                child: _buildDiscoverHeader(context, phone),
+              ),
+            ),
+          ),
+        ),
+        ..._buildResultSlivers(context, collectionMap, pagePad),
+        SliverToBoxAdapter(child: SizedBox(height: phone ? 36 : 60)),
+      ],
+    );
+  }
+
+  Widget _buildDiscoverHeader(BuildContext context, bool phone) => Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      Text('发现', style: AppLayout.pageTitleStyle(context)),
+      const SizedBox(height: 6),
+      Text(
+        switch (_searchTarget) {
+          DiscoverSearchTarget.character => '搜索角色 · 点进角色详情',
+          DiscoverSearchTarget.person => '搜索人物 · 点进人物详情',
+          DiscoverSearchTarget.subject =>
+            phone
+                ? '浏览 / 搜索 · ${_subjectType.label}'
+                : '按类型浏览与搜索 · 当前：${_subjectType.label}',
+        },
+        style: TextStyle(
+          color: Theme.of(context).colorScheme.onSurfaceVariant,
+          fontSize: phone ? 13 : null,
+        ),
+      ),
+      const SizedBox(height: 14),
+      Card(
+        clipBehavior: Clip.antiAlias,
+        child: ListTile(
+          leading: DecoratedBox(
+            decoration: BoxDecoration(
+              color: const Color(0xFFF3A646).withValues(alpha: .16),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: const SizedBox.square(
+              dimension: 42,
+              child: Icon(Icons.ssid_chart_rounded, color: Color(0xFFF3A646)),
+            ),
+          ),
+          title: const Text(
+            '评分趋势',
+            style: TextStyle(fontWeight: FontWeight.w800),
+          ),
+          subtitle: Text(
+            phone ? '涨跌榜 · 口碑提升 · netaba.re' : '涨跌榜 · 口碑提升 · 历史曲线（netaba.re）',
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+          trailing: const Icon(Icons.chevron_right_rounded),
+          onTap: () => Navigator.of(context).push(
+            MaterialPageRoute<void>(builder: (_) => const ScoreTrendsPage()),
+          ),
+        ),
+      ),
+      SizedBox(height: AppLayout.sectionGap(context)),
+      Row(
+        children: [
+          Expanded(
+            child: TextField(
+              controller: _searchController,
+              onChanged: _onSearchChanged,
+              textInputAction: TextInputAction.search,
+              onSubmitted: (_) {
+                _debounce?.cancel();
+                _runCurrentQuery();
+              },
+              decoration: InputDecoration(
+                hintText: _searchHint,
+                prefixIcon: const Icon(Icons.search_rounded),
+                suffixIcon: _searching
+                    ? IconButton(
+                        tooltip: '清空搜索',
+                        onPressed: _clearSearch,
+                        icon: const Icon(Icons.close_rounded),
+                      )
+                    : null,
+              ),
+            ),
+          ),
+          const SizedBox(width: 10),
+          Badge.count(
+            count: _activeFilterCount,
+            isLabelVisible: _activeFilterCount > 0,
+            child: phone
+                ? IconButton.filledTonal(
+                    tooltip: '筛选',
+                    onPressed: _searchTarget == DiscoverSearchTarget.subject
+                        ? _showFilters
+                        : null,
+                    icon: const Icon(Icons.tune_rounded),
+                  )
+                : FilledButton.tonalIcon(
+                    onPressed: _searchTarget == DiscoverSearchTarget.subject
+                        ? _showFilters
+                        : null,
+                    icon: const Icon(Icons.tune_rounded),
+                    label: const Text('筛选'),
+                  ),
+          ),
+        ],
+      ),
+      const SizedBox(height: 12),
+      SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: Row(
+          children: [
+            for (final target in DiscoverSearchTarget.values) ...[
+              ChoiceChip(
+                label: Text(switch (target) {
+                  DiscoverSearchTarget.subject => '条目',
+                  DiscoverSearchTarget.character => '角色',
+                  DiscoverSearchTarget.person => '人物',
+                }),
+                selected: _searchTarget == target,
+                onSelected: (_) {
+                  if (_searchTarget == target) return;
+                  setState(() {
+                    _searchTarget = target;
+                    _error = null;
+                  });
+                  _runCurrentQuery();
                 },
-                style: TextStyle(
-                  color: Theme.of(context).colorScheme.onSurfaceVariant,
-                  fontSize: phone ? 13 : null,
+              ),
+              const SizedBox(width: 8),
+            ],
+          ],
+        ),
+      ),
+      if (_searchTarget == DiscoverSearchTarget.subject) ...[
+        const SizedBox(height: 12),
+        SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: Row(
+            children: [
+              for (final type in SubjectType.values) ...[
+                ChoiceChip(
+                  avatar: Icon(subjectTypeIcon(type), size: 16),
+                  label: Text(type.label),
+                  selected: _subjectType == type,
+                  onSelected: (_) => _selectSubjectType(type),
                 ),
-              ),
-              const SizedBox(height: 14),
-              Card(
-                clipBehavior: Clip.antiAlias,
-                child: InkWell(
-                  onTap: () {
-                    Navigator.of(context).push(
-                      MaterialPageRoute<void>(
-                        builder: (_) => const ScoreTrendsPage(),
-                      ),
-                    );
-                  },
-                  child: Padding(
-                    padding: EdgeInsets.fromLTRB(
-                      phone ? 12 : 16,
-                      phone ? 12 : 14,
-                      10,
-                      phone ? 12 : 14,
-                    ),
-                    child: Row(
-                      children: [
-                        Container(
-                          width: phone ? 38 : 42,
-                          height: phone ? 38 : 42,
-                          decoration: BoxDecoration(
-                            color: const Color(0xFFF3A646).withValues(alpha: 0.16),
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          child: const Icon(
-                            Icons.ssid_chart_rounded,
-                            color: Color(0xFFF3A646),
-                          ),
-                        ),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                '评分趋势',
-                                style: Theme.of(context).textTheme.titleMedium
-                                    ?.copyWith(fontWeight: FontWeight.w800),
-                              ),
-                              const SizedBox(height: 2),
-                              Text(
-                                phone
-                                    ? '涨跌榜 · 口碑提升 · netaba.re'
-                                    : '涨跌榜 · 口碑提升 · 历史曲线（netaba.re）',
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: Theme.of(context).textTheme.bodySmall
-                                    ?.copyWith(
-                                      color: Theme.of(context)
-                                          .colorScheme
-                                          .onSurfaceVariant,
-                                    ),
-                              ),
-                            ],
-                          ),
-                        ),
-                        Icon(
-                          Icons.chevron_right_rounded,
-                          color: Theme.of(context).colorScheme.onSurfaceVariant,
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-              SizedBox(height: AppLayout.sectionGap(context)),
-              Row(
-                children: [
-                  Expanded(
-                    child: TextField(
-                      controller: _searchController,
-                      onChanged: _onSearchChanged,
-                      textInputAction: TextInputAction.search,
-                      onSubmitted: (_) {
-                        _debounce?.cancel();
-                        _runCurrentQuery();
-                      },
-                      decoration: InputDecoration(
-                        hintText: _searchHint,
-                        prefixIcon: const Icon(Icons.search_rounded),
-                        suffixIcon: _searching
-                            ? IconButton(
-                                tooltip: '清空搜索',
-                                onPressed: () {
-                                  _searchController.clear();
-                                  setState(() {});
-                                  _runCurrentQuery();
-                                },
-                                icon: const Icon(Icons.close_rounded),
-                              )
-                            : null,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  Badge.count(
-                    count: _activeFilterCount,
-                    isLabelVisible: _activeFilterCount > 0,
-                    child: phone
-                        ? IconButton.filledTonal(
-                            tooltip: '筛选',
-                            onPressed:
-                                _searchTarget == DiscoverSearchTarget.subject
-                                ? _showFilters
-                                : null,
-                            icon: const Icon(Icons.tune_rounded),
-                          )
-                        : FilledButton.tonalIcon(
-                            onPressed:
-                                _searchTarget == DiscoverSearchTarget.subject
-                                ? _showFilters
-                                : null,
-                            icon: const Icon(Icons.tune_rounded),
-                            label: const Text('筛选'),
-                          ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 12),
-              SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
-                child: Row(
-                  children: [
-                    for (final target in DiscoverSearchTarget.values) ...[
-                      ChoiceChip(
-                        label: Text(switch (target) {
-                          DiscoverSearchTarget.subject => '条目',
-                          DiscoverSearchTarget.character => '角色',
-                          DiscoverSearchTarget.person => '人物',
-                        }),
-                        selected: _searchTarget == target,
-                        onSelected: (_) {
-                          if (_searchTarget == target) return;
-                          setState(() {
-                            _searchTarget = target;
-                            _error = null;
-                          });
-                          _runCurrentQuery();
-                        },
-                      ),
-                      const SizedBox(width: 8),
-                    ],
-                  ],
-                ),
-              ),
-              if (_searchTarget == DiscoverSearchTarget.subject) ...[
-                const SizedBox(height: 12),
-                SingleChildScrollView(
-                  scrollDirection: Axis.horizontal,
-                  child: Row(
-                    children: [
-                      for (final type in SubjectType.values) ...[
-                        ChoiceChip(
-                          avatar: Icon(subjectTypeIcon(type), size: 16),
-                          label: Text(type.label),
-                          selected: _subjectType == type,
-                          onSelected: (_) => _selectSubjectType(type),
-                        ),
-                        const SizedBox(width: 8),
-                      ],
-                    ],
-                  ),
-                ),
-              ],
-              const SizedBox(height: 18),
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                crossAxisAlignment: WrapCrossAlignment.center,
-                children: [
-                  Text(
-                    _searchingCharacters
-                        ? '角色搜索结果'
-                        : _searchingPersons
-                        ? '人物搜索结果'
-                        : _searchingSubjects
-                        ? '${_subjectType.label}搜索结果'
-                        : _supportsSeason
-                        ? '${_subjectType.label}季度榜'
-                        : '${_subjectType.label}年度榜',
-                    style: Theme.of(context).textTheme.headlineMedium,
-                  ),
-                  if (!_searching && _supportsSeason)
-                    Chip(
-                      label: Text(
-                        '$_browseYear · ${_quarterLabel(_browseQuarter)}',
-                      ),
-                    ),
-                  if (!_searching && !_supportsSeason) ...[
-                    Chip(label: Text('$_browseYear 年')),
-                    Chip(label: Text(_browseSortLabel(_browseSort))),
-                  ],
-                  if (_searchingSubjects && _searchSort != 'match')
-                    Chip(label: Text(_searchSortLabel(_searchSort))),
-                  if (_searchingSubjects && _minimumRating > 0)
-                    Chip(label: Text('评分 ≥ $_minimumRating')),
-                  if (_searchingSubjects && _startYear > 0)
-                    Chip(label: Text('$_startYear 年后')),
-                  if (_searchingSubjects && _tag.trim().isNotEmpty)
-                    Chip(label: Text('标签：${_tag.trim()}')),
-                  if (_activeFilterCount > 0)
-                    TextButton(
-                      onPressed: () {
-                        if (_searching) {
-                          _clearSearchFilters();
-                        } else {
-                          _clearBrowseFilters();
-                        }
-                        _runCurrentQuery();
-                      },
-                      child: const Text('清除筛选'),
-                    ),
-                ],
-              ),
-              const SizedBox(height: 16),
-              if (_loading)
-                const Padding(
-                  padding: EdgeInsets.symmetric(vertical: 100),
-                  child: Center(child: CircularProgressIndicator()),
-                )
-              else if (_error != null)
-                SizedBox(
-                  width: double.infinity,
-                  child: EmptyState(
-                    icon: Icons.cloud_off_outlined,
-                    title: '没有连接上 Bangumi',
-                    message: _error!,
-                    action: FilledButton.tonalIcon(
-                      onPressed: _runCurrentQuery,
-                      icon: const Icon(Icons.refresh_rounded),
-                      label: const Text('重试'),
-                    ),
-                  ),
-                )
-              else if (_searchingCharacters && _characters.isEmpty)
-                _EmptyDiscoverState(
-                  searching: true,
-                  subjectType: _subjectType,
-                  activeFilterCount: 0,
-                  keyword: _searchController.text.trim(),
-                  onClearFilters: () {},
-                  onClearSearch: () {
-                    _searchController.clear();
-                    setState(() {});
-                    _runCurrentQuery();
-                  },
-                  onOpenFilters: () {},
-                )
-              else if (_searchingPersons && _persons.isEmpty)
-                _EmptyDiscoverState(
-                  searching: true,
-                  subjectType: _subjectType,
-                  activeFilterCount: 0,
-                  keyword: _searchController.text.trim(),
-                  onClearFilters: () {},
-                  onClearSearch: () {
-                    _searchController.clear();
-                    setState(() {});
-                    _runCurrentQuery();
-                  },
-                  onOpenFilters: () {},
-                )
-              else if (!_searchingCharacters &&
-                  !_searchingPersons &&
-                  _subjects.isEmpty)
-                _EmptyDiscoverState(
-                  searching: _searching,
-                  subjectType: _subjectType,
-                  activeFilterCount: _activeFilterCount,
-                  keyword: _searchController.text.trim(),
-                  onClearFilters: () {
-                    if (_searching) {
-                      _clearSearchFilters();
-                    } else {
-                      _clearBrowseFilters();
-                    }
-                    _runCurrentQuery();
-                  },
-                  onClearSearch: () {
-                    _searchController.clear();
-                    _clearSearchFilters();
-                    setState(() {});
-                    _runCurrentQuery();
-                  },
-                  onOpenFilters: _showFilters,
-                )
-              else ...[
-                if (_searchingCharacters)
-                  for (final character in _characters)
-                    ListTile(
-                      contentPadding: EdgeInsets.zero,
-                      leading: _DiscoverMonoThumb(url: character.imageUrl),
-                      title: Text(character.displayName),
-                      subtitle: character.name != character.displayName
-                          ? Text(character.name)
-                          : null,
-                      trailing: const Icon(Icons.chevron_right_rounded),
-                      onTap: () => Navigator.of(context).push(
-                        MaterialPageRoute<void>(
-                          builder: (_) => CharacterDetailScreen(
-                            characterId: character.id,
-                            seedName: character.displayName,
-                            seedImageUrl: character.imageUrl,
-                          ),
-                        ),
-                      ),
-                    )
-                else if (_searchingPersons)
-                  for (final person in _persons)
-                    ListTile(
-                      contentPadding: EdgeInsets.zero,
-                      leading: _DiscoverMonoThumb(
-                        url: person.imageUrl,
-                        round: true,
-                      ),
-                      title: Text(person.displayName),
-                      subtitle: person.career.isEmpty
-                          ? (person.name != person.displayName
-                                ? Text(person.name)
-                                : null)
-                          : Text(person.career.join(' / ')),
-                      trailing: const Icon(Icons.chevron_right_rounded),
-                      onTap: () => Navigator.of(context).push(
-                        MaterialPageRoute<void>(
-                          builder: (_) => PersonDetailScreen(
-                            personId: person.id,
-                            seedName: person.displayName,
-                            seedImageUrl: person.imageUrl,
-                          ),
-                        ),
-                      ),
-                    )
-                else
-                  SubjectGrid(
-                    itemCount: _subjects.length,
-                    itemBuilder: (context, index) {
-                      final subject = _subjects[index];
-                      final collection = collectionMap[subject.id];
-                      final supportsEpisodes = subject.type.hasEpisodes;
-                      return SubjectTile(
-                        subject: subject,
-                        collection: collection,
-                        onTap: () => Navigator.of(context).push(
-                          MaterialPageRoute(
-                            builder: (_) =>
-                                SubjectDetailScreen(subject: subject),
-                          ),
-                        ),
-                        onEpisodeGrid: collection != null && supportsEpisodes
-                            ? () => showEpisodeGridSheet(
-                                  context,
-                                  ref,
-                                  collection,
-                                )
-                            : null,
-                      );
-                    },
-                  ),
-                if (_hasMore) ...[
-                  const SizedBox(height: 16),
-                  Center(
-                    child: _loadingMore
-                        ? const SizedBox.square(
-                            dimension: 28,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          )
-                        : TextButton.icon(
-                            onPressed: _loadMore,
-                            icon: const Icon(Icons.expand_more_rounded),
-                            label: const Text('加载更多'),
-                          ),
-                  ),
-                ],
+                const SizedBox(width: 8),
               ],
             ],
           ),
         ),
+      ],
+      const SizedBox(height: 18),
+      Wrap(
+        spacing: 8,
+        runSpacing: 8,
+        crossAxisAlignment: WrapCrossAlignment.center,
+        children: [
+          Text(switch (_queryMode) {
+            DiscoverQueryMode.characterPrompt ||
+            DiscoverQueryMode.characterSearch => '角色搜索',
+            DiscoverQueryMode.personPrompt ||
+            DiscoverQueryMode.personSearch => '人物搜索',
+            DiscoverQueryMode.subjectSearch => '${_subjectType.label}搜索结果',
+            DiscoverQueryMode.browse =>
+              _supportsSeason
+                  ? '${_subjectType.label}季度榜'
+                  : '${_subjectType.label}年度榜',
+          }, style: Theme.of(context).textTheme.headlineMedium),
+          if (!_searching && _supportsSeason)
+            Chip(
+              label: Text('$_browseYear · ${_quarterLabel(_browseQuarter)}'),
+            ),
+          if (!_searching && !_supportsSeason) ...[
+            Chip(label: Text('$_browseYear 年')),
+            Chip(label: Text(_browseSortLabel(_browseSort))),
+          ],
+          if (_searchingSubjects && _searchSort != 'match')
+            Chip(label: Text(_searchSortLabel(_searchSort))),
+          if (_searchingSubjects && _minimumRating > 0)
+            Chip(label: Text('评分 ≥ $_minimumRating')),
+          if (_searchingSubjects && _startYear > 0)
+            Chip(label: Text('$_startYear 年后')),
+          if (_searchingSubjects && _tag.trim().isNotEmpty)
+            Chip(label: Text('标签：${_tag.trim()}')),
+          if (_activeFilterCount > 0)
+            TextButton(
+              onPressed: () {
+                if (_searching) {
+                  _clearSearchFilters();
+                } else {
+                  _clearBrowseFilters();
+                }
+                _runCurrentQuery();
+              },
+              child: const Text('清除筛选'),
+            ),
+        ],
+      ),
+      const SizedBox(height: 16),
+    ],
+  );
+
+  List<Widget> _buildResultSlivers(
+    BuildContext context,
+    Map<int, UserCollection> collectionMap,
+    double pagePad,
+  ) {
+    Widget box(Widget child) => SliverPadding(
+      padding: EdgeInsets.symmetric(horizontal: pagePad),
+      sliver: SliverToBoxAdapter(
+        child: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 1220),
+            child: child,
+          ),
+        ),
       ),
     );
+
+    if (_loading) {
+      return [
+        box(
+          const Padding(
+            padding: EdgeInsets.symmetric(vertical: 100),
+            child: Center(child: CircularProgressIndicator()),
+          ),
+        ),
+      ];
+    }
+    if (_error != null) {
+      return [
+        box(
+          EmptyState(
+            icon: Icons.cloud_off_outlined,
+            title: '没有连接上 Bangumi',
+            message: _error!,
+            action: FilledButton.tonalIcon(
+              onPressed: _runCurrentQuery,
+              icon: const Icon(Icons.refresh_rounded),
+              label: const Text('重试'),
+            ),
+          ),
+        ),
+      ];
+    }
+    if (_queryMode == DiscoverQueryMode.characterPrompt) {
+      return [box(const _SearchPrompt(target: DiscoverSearchTarget.character))];
+    }
+    if (_queryMode == DiscoverQueryMode.personPrompt) {
+      return [box(const _SearchPrompt(target: DiscoverSearchTarget.person))];
+    }
+    if (_searchingCharacters && _characters.isEmpty) {
+      return [
+        box(
+          _EmptyDiscoverState(
+            searching: true,
+            resultLabel: '角色',
+            activeFilterCount: 0,
+            keyword: _searchController.text.trim(),
+            onClearFilters: () {},
+            onClearSearch: _clearSearch,
+            onOpenFilters: () {},
+          ),
+        ),
+      ];
+    }
+    if (_searchingPersons && _persons.isEmpty) {
+      return [
+        box(
+          _EmptyDiscoverState(
+            searching: true,
+            resultLabel: '人物',
+            activeFilterCount: 0,
+            keyword: _searchController.text.trim(),
+            onClearFilters: () {},
+            onClearSearch: _clearSearch,
+            onOpenFilters: () {},
+          ),
+        ),
+      ];
+    }
+    if (!_searchingCharacters && !_searchingPersons && _subjects.isEmpty) {
+      return [
+        box(
+          _EmptyDiscoverState(
+            searching: _searching,
+            resultLabel: _subjectType.label,
+            activeFilterCount: _activeFilterCount,
+            keyword: _searchController.text.trim(),
+            onClearFilters: () {
+              if (_searching) {
+                _clearSearchFilters();
+              } else {
+                _clearBrowseFilters();
+              }
+              _runCurrentQuery();
+            },
+            onClearSearch: _clearSearch,
+            onOpenFilters: _showFilters,
+          ),
+        ),
+      ];
+    }
+
+    if (_searchingCharacters || _searchingPersons) {
+      final itemCount = _searchingCharacters
+          ? _characters.length
+          : _persons.length;
+      return [
+        _centeredLazySliver(
+          pagePad: pagePad,
+          itemCount: itemCount,
+          childBuilder: (context, index) {
+            if (_searchingCharacters) {
+              final character = _characters[index];
+              return ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: _DiscoverMonoThumb(url: character.imageUrl),
+                title: Text(character.displayName),
+                subtitle: character.name != character.displayName
+                    ? Text(character.name)
+                    : null,
+                trailing: const Icon(Icons.chevron_right_rounded),
+                onTap: () => Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => CharacterDetailScreen(
+                      characterId: character.id,
+                      seedName: character.displayName,
+                      seedImageUrl: character.imageUrl,
+                    ),
+                  ),
+                ),
+              );
+            }
+            final person = _persons[index];
+            return ListTile(
+              contentPadding: EdgeInsets.zero,
+              leading: _DiscoverMonoThumb(url: person.imageUrl, round: true),
+              title: Text(person.displayName),
+              subtitle: person.career.isEmpty
+                  ? (person.name != person.displayName
+                        ? Text(person.name)
+                        : null)
+                  : Text(person.career.join(' / ')),
+              trailing: const Icon(Icons.chevron_right_rounded),
+              onTap: () => Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (_) => PersonDetailScreen(
+                    personId: person.id,
+                    seedName: person.displayName,
+                    seedImageUrl: person.imageUrl,
+                  ),
+                ),
+              ),
+            );
+          },
+        ),
+        if (_hasMore) box(_buildLoadMore()),
+      ];
+    }
+
+    return [
+      SliverPadding(
+        padding: EdgeInsets.symmetric(horizontal: pagePad),
+        sliver: SliverLayoutBuilder(
+          builder: (context, constraints) {
+            final width = constraints.crossAxisExtent;
+            final contentWidth = width > 1220 ? 1220.0 : width;
+            final side = (width - contentWidth) / 2;
+            final columns = contentWidth >= 1050
+                ? 3
+                : contentWidth >= 640
+                ? 2
+                : 1;
+            return SliverPadding(
+              padding: EdgeInsets.symmetric(horizontal: side),
+              sliver: SliverGrid(
+                gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                  crossAxisCount: columns,
+                  mainAxisExtent: contentWidth < 400 ? 116 : 128,
+                  mainAxisSpacing: contentWidth < 400 ? 10 : 14,
+                  crossAxisSpacing: contentWidth < 400 ? 10 : 14,
+                ),
+                delegate: SliverChildBuilderDelegate((context, index) {
+                  final subject = _subjects[index];
+                  final collection = collectionMap[subject.id];
+                  final supportsEpisodes = subject.type.hasEpisodes;
+                  return SubjectTile(
+                    subject: subject,
+                    collection: collection,
+                    onTap: () => Navigator.of(context).push(
+                      MaterialPageRoute<void>(
+                        builder: (_) => SubjectDetailScreen(subject: subject),
+                      ),
+                    ),
+                    onEpisodeGrid: collection != null && supportsEpisodes
+                        ? () => showEpisodeGridSheet(context, ref, collection)
+                        : null,
+                  );
+                }, childCount: _subjects.length),
+              ),
+            );
+          },
+        ),
+      ),
+      if (_hasMore) box(_buildLoadMore()),
+    ];
   }
+
+  Widget _centeredLazySliver({
+    required double pagePad,
+    required IndexedWidgetBuilder childBuilder,
+    required int itemCount,
+  }) => SliverPadding(
+    padding: EdgeInsets.symmetric(horizontal: pagePad),
+    sliver: SliverLayoutBuilder(
+      builder: (context, constraints) {
+        final width = constraints.crossAxisExtent;
+        final contentWidth = width > 1220 ? 1220.0 : width;
+        return SliverPadding(
+          padding: EdgeInsets.symmetric(horizontal: (width - contentWidth) / 2),
+          sliver: SliverList(
+            delegate: SliverChildBuilderDelegate(
+              childBuilder,
+              childCount: itemCount,
+              addAutomaticKeepAlives: false,
+              addRepaintBoundaries: true,
+            ),
+          ),
+        );
+      },
+    ),
+  );
+
+  Widget _buildLoadMore() => Padding(
+    padding: const EdgeInsets.only(top: 16),
+    child: Center(
+      child: _loadingMore
+          ? const SizedBox.square(
+              dimension: 28,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            )
+          : TextButton.icon(
+              onPressed: _loadMore,
+              icon: const Icon(Icons.expand_more_rounded),
+              label: const Text('加载更多'),
+            ),
+    ),
+  );
 
   Future<void> _showFilters() async {
     var browseYear = _browseYear;
@@ -1114,7 +1252,7 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
 class _EmptyDiscoverState extends StatelessWidget {
   const _EmptyDiscoverState({
     required this.searching,
-    required this.subjectType,
+    required this.resultLabel,
     required this.activeFilterCount,
     required this.keyword,
     required this.onClearFilters,
@@ -1123,7 +1261,7 @@ class _EmptyDiscoverState extends StatelessWidget {
   });
 
   final bool searching;
-  final SubjectType subjectType;
+  final String resultLabel;
   final int activeFilterCount;
   final String keyword;
   final VoidCallback onClearFilters;
@@ -1132,11 +1270,13 @@ class _EmptyDiscoverState extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final title = searching ? '没有找到相关${subjectType.label}' : '这里暂时没有内容';
+    final title = searching ? '没有找到相关$resultLabel' : '这里暂时没有内容';
     final message = searching
         ? activeFilterCount > 0
-              ? '关键词「$keyword」在当前筛选下没有结果。可清除筛选，或换更短关键词。'
-              : '关键词「$keyword」没有匹配的${subjectType.label}。试试换类型，或缩短关键词。'
+              ? keyword.isEmpty
+                    ? '当前标签与筛选条件没有结果。可清除筛选后重试。'
+                    : '关键词「$keyword」在当前筛选下没有结果。可清除筛选，或换更短关键词。'
+              : '关键词「$keyword」没有匹配的$resultLabel。试试换类型，或缩短关键词。'
         : '当前浏览条件下没有条目，试试换年份/季度，或直接搜索作品名。';
 
     return SizedBox(
@@ -1176,6 +1316,28 @@ class _EmptyDiscoverState extends StatelessWidget {
               ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _SearchPrompt extends StatelessWidget {
+  const _SearchPrompt({required this.target});
+
+  final DiscoverSearchTarget target;
+
+  @override
+  Widget build(BuildContext context) {
+    final label = target == DiscoverSearchTarget.character ? '角色' : '人物';
+    final example = target == DiscoverSearchTarget.character ? '鲁路修' : '福山润';
+    return SizedBox(
+      width: double.infinity,
+      child: EmptyState(
+        icon: target == DiscoverSearchTarget.character
+            ? Icons.face_retouching_natural_rounded
+            : Icons.person_search_rounded,
+        title: '输入$label名开始搜索',
+        message: '例如：$example。这里不会混入条目季度榜。',
       ),
     );
   }

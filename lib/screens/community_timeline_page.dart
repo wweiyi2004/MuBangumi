@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../core/network/community_service.dart';
 import '../models/bangumi_models.dart';
 import '../models/community_models.dart';
+import '../state/user_preferences_controller.dart';
 import '../widgets/community_composer.dart';
 import '../widgets/community_widgets.dart';
 import 'subject_detail_screen.dart';
@@ -272,6 +273,7 @@ class _CommunityTimelinePageState extends ConsumerState<CommunityTimelinePage> {
   );
 
   Widget _buildBody() {
+    final preferences = ref.watch(userPreferencesProvider);
     if (_loading && _items.isEmpty) {
       return const Center(child: CircularProgressIndicator());
     }
@@ -314,25 +316,32 @@ class _CommunityTimelinePageState extends ConsumerState<CommunityTimelinePage> {
           final item = _items[index];
           final progress = item.progress;
           final canReply = _service.isAuthenticated && item.isStatus;
-          return CommunityTimelineCard(
-            item: item,
-            onReply: canReply ? () => _reply(item) : null,
-            onOpenSubject: progress == null
-                ? null
-                : () => _openSubject(progress),
-            onOpenUser: (user) =>
-                openUserProfileFromCommunity(context, user),
-            replies: _replies[item.id],
-            repliesExpanded: _expandedReplies.contains(item.id),
-            repliesLoading: _loadingReplies.contains(item.id),
-            repliesError: _replyErrors[item.id],
-            onToggleReplies: item.isStatus ? () => _toggleReplies(item) : null,
-            onReloadReplies: item.isStatus
-                ? () => _loadReplies(item, refresh: true)
-                : null,
-            onReplyTo: canReply
-                ? (reply, parent) => _reply(item, reply: reply, parent: parent)
-                : null,
+          return BlockedCommunityContent(
+            key: ValueKey('timeline-${item.id}'),
+            username: item.user.username,
+            blocked: preferences.isBlocked(item.user.username),
+            child: CommunityTimelineCard(
+              item: item,
+              onReply: canReply ? () => _reply(item) : null,
+              onOpenSubject: progress == null
+                  ? null
+                  : () => _openSubject(progress),
+              onOpenUser: (user) => openUserProfileFromCommunity(context, user),
+              replies: _replies[item.id],
+              repliesExpanded: _expandedReplies.contains(item.id),
+              repliesLoading: _loadingReplies.contains(item.id),
+              repliesError: _replyErrors[item.id],
+              onToggleReplies: item.isStatus
+                  ? () => _toggleReplies(item)
+                  : null,
+              onReloadReplies: item.isStatus
+                  ? () => _loadReplies(item, refresh: true)
+                  : null,
+              onReplyTo: canReply
+                  ? (reply, parent) =>
+                        _reply(item, reply: reply, parent: parent)
+                  : null,
+            ),
           );
         },
       ),

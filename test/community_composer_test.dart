@@ -46,4 +46,26 @@ void main() {
     expect(find.text('请完成验证'), findsNothing);
     expect(find.text('回复话题'), findsNothing);
   });
+
+  test('BBCode wraps selected text and keeps selection', () {
+    final controller = TextEditingController(text: 'hello world')
+      ..selection = const TextSelection(baseOffset: 6, extentOffset: 11);
+    addTearDown(controller.dispose);
+
+    applyBbCode(controller, tag: 'b');
+
+    expect(controller.text, 'hello [b]world[/b]');
+    expect(controller.selection.textInside(controller.text), 'world');
+  });
+
+  test('BBCode without selection leaves cursor inside tags', () {
+    final controller = TextEditingController(text: 'hello')
+      ..selection = const TextSelection.collapsed(offset: 5);
+    addTearDown(controller.dispose);
+
+    applyBbCode(controller, tag: 'url');
+
+    expect(controller.text, 'hello[url][/url]');
+    expect(controller.selection.baseOffset, 10);
+  });
 }

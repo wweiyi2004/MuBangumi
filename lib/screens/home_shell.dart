@@ -22,8 +22,11 @@ class HomeShell extends ConsumerStatefulWidget {
 
 class _HomeShellState extends ConsumerState<HomeShell> {
   int _index = 0;
+  bool _libraryOpened = false;
+  bool _discoverOpened = false;
   bool _communityOpened = false;
   bool _scheduleOpened = false;
+  bool _profileOpened = false;
 
   static const _destinations = [
     (icon: Icons.home_outlined, selected: Icons.home_rounded, label: '首页'),
@@ -53,8 +56,11 @@ class _HomeShellState extends ConsumerState<HomeShell> {
   void _selectPage(int index) {
     setState(() {
       _index = index;
+      if (index == 1) _libraryOpened = true;
+      if (index == 2) _discoverOpened = true;
       if (index == 3) _scheduleOpened = true;
       if (index == 4) _communityOpened = true;
+      if (index == 5) _profileOpened = true;
     });
     // Refresh badge when opening 我的.
     if (index == 5) {
@@ -64,16 +70,14 @@ class _HomeShellState extends ConsumerState<HomeShell> {
 
   @override
   Widget build(BuildContext context) {
-    final unread = ref.watch(
-      notifyBadgeProvider.select((s) => s.unreadCount),
-    );
+    final unread = ref.watch(notifyBadgeProvider.select((s) => s.unreadCount));
     final pages = [
       HomePage(onDiscover: () => _selectPage(2)),
-      const LibraryPage(),
-      const DiscoverPage(),
+      _libraryOpened ? const LibraryPage() : const SizedBox.shrink(),
+      _discoverOpened ? const DiscoverPage() : const SizedBox.shrink(),
       _scheduleOpened ? const SchedulePage() : const SizedBox.shrink(),
       _communityOpened ? const CommunityPage() : const SizedBox.shrink(),
-      const ProfilePage(),
+      _profileOpened ? const ProfilePage() : const SizedBox.shrink(),
     ];
     final desktop = AppLayout.isDesktop(context);
     final navHeight = AppLayout.navHeight(context);
@@ -150,9 +154,7 @@ class _DesktopNavigation extends StatelessWidget {
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     return Material(
-      color: glass
-          ? scheme.surface.withValues(alpha: 0.55)
-          : scheme.surface,
+      color: glass ? scheme.surface.withValues(alpha: 0.55) : scheme.surface,
       child: Container(
         width: 230,
         decoration: BoxDecoration(
@@ -176,7 +178,10 @@ class _DesktopNavigation extends StatelessWidget {
             ),
             for (var i = 0; i < _HomeShellState._destinations.length; i++)
               Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 3),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 14,
+                  vertical: 3,
+                ),
                 child: ListTile(
                   selected: index == i,
                   selectedTileColor: scheme.primaryContainer.withValues(

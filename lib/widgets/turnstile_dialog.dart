@@ -1,11 +1,29 @@
 import 'dart:async';
-import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:webview_flutter/webview_flutter.dart' as mobile;
 import 'package:webview_flutter_windows/webview_flutter_windows.dart'
     as windows;
+
+const turnstileCallbackUri = 'bangumi://mubangumi/turnstile';
+
+final turnstileVerificationUri = Uri.https('next.bgm.tv', '/p1/turnstile', {
+  'theme': 'auto',
+  'redirect_uri': turnstileCallbackUri,
+});
+
+String? parseTurnstileCallbackToken(String url) {
+  final uri = Uri.tryParse(url);
+  if (uri == null ||
+      uri.scheme != 'bangumi' ||
+      uri.host != 'mubangumi' ||
+      uri.path != '/turnstile') {
+    return null;
+  }
+  final token = uri.queryParameters['token']?.trim() ?? '';
+  return token.isEmpty ? null : token;
+}
 
 Future<String?> showTurnstileDialog(BuildContext context) => showDialog<String>(
   context: context,
@@ -27,10 +45,10 @@ class _TurnstileDialogState extends State<_TurnstileDialog> {
 
   @override
   Widget build(BuildContext context) => AlertDialog(
-    title: const Text('请完成验证'),
+    title: const Text('请完成人机验证'),
     content: SizedBox(
-      width: 360,
-      height: Platform.isWindows ? 180 : 120,
+      width: 400,
+      height: Platform.isWindows ? 260 : 220,
       child: Column(
         children: [
           Expanded(
@@ -44,7 +62,8 @@ class _TurnstileDialogState extends State<_TurnstileDialog> {
           ),
           const SizedBox(height: 6),
           Text(
-            '若验证框空白，请点下方重试',
+            '验证完成后会自动继续发送；若页面空白，请重试',
+            textAlign: TextAlign.center,
             style: Theme.of(context).textTheme.labelSmall?.copyWith(
               color: Theme.of(context).colorScheme.onSurfaceVariant,
             ),
@@ -77,7 +96,6 @@ class _TurnstileViewState extends State<TurnstileView> {
   final List<StreamSubscription<dynamic>> _subscriptions = [];
 
   bool _ready = false;
-  bool _injected = false;
   bool _accepted = false;
   String? _error;
   Timer? _timeout;
@@ -92,7 +110,7 @@ class _TurnstileViewState extends State<TurnstileView> {
     } else {
       _error = '当前平台暂不支持 Turnstile 验证';
     }
-    _timeout = Timer(const Duration(seconds: 45), () {
+    _timeout = Timer(const Duration(seconds: 60), () {
       if (!mounted || _accepted) return;
       _setError('验证加载超时，请点「重试验证」');
     });
@@ -104,111 +122,59 @@ class _TurnstileViewState extends State<TurnstileView> {
     try {
       await controller.initialize();
       if (!mounted) return;
-      _subscriptions.add(
-        controller.webMessage.listen(
-          _handleWindowsMessage,
-          onError: (_) => _setError('验证结果读取失败'),
-        ),
-      );
-      _subscriptions.add(
-        controller.loadingState.listen((state) {
-          if (state == windows.LoadingState.navigationCompleted) {
-            unawaited(_injectWindows());
-          }
+      _subscriptions.addAll([
+        controller.url.listen(_handleWindowsUrl),
+        controller.onLoadError.listen((error) {
+          if (_accepted) return;
+          _setError('验证页面加载失败（$error）');
         }),
-      );
+      ]);
       _ready = true;
       setState(() {});
-      await controller.loadUrl('https://next.bgm.tv/turnstile');
+      await controller.loadUrl(turnstileVerificationUri.toString());
     } catch (error) {
       _setError('无法启动验证组件：$error');
     }
+  }
+
+  void _handleWindowsUrl(String url) {
+    final token = parseTurnstileCallbackToken(url);
+    if (token == null) return;
+    final controller = _windowsController;
+    if (controller != null) unawaited(controller.stop());
+    _acceptToken(token);
   }
 
   void _initializeMobile() {
     final controller = mobile.WebViewController()
       ..setJavaScriptMode(mobile.JavaScriptMode.unrestricted)
       ..setBackgroundColor(Colors.transparent)
-      ..addJavaScriptChannel(
-        'Turnstile',
-        onMessageReceived: (message) =>
-            _handleTurnstileMessage(message.message),
-      )
       ..setNavigationDelegate(
         mobile.NavigationDelegate(
-          onPageFinished: (_) => unawaited(_injectMobile()),
+          onNavigationRequest: (request) {
+            final token = parseTurnstileCallbackToken(request.url);
+            if (token == null) return mobile.NavigationDecision.navigate;
+            _acceptToken(token);
+            return mobile.NavigationDecision.prevent;
+          },
           onWebResourceError: (error) {
-            if (error.isForMainFrame == true) {
-              _setError('验证页面加载失败：${error.description}');
-            }
+            if (error.isForMainFrame != true || _accepted) return;
+            _setError('验证页面加载失败：${error.description}');
           },
         ),
       );
     _mobileController = controller;
     _ready = true;
-    unawaited(
-      controller.loadRequest(Uri.parse('https://next.bgm.tv/turnstile')),
-    );
-  }
-
-  Future<void> _injectWindows() async {
-    if (_injected) return;
-    _injected = true;
-    try {
-      await _windowsController?.executeScript(_turnstileScript);
-    } catch (error) {
-      _injected = false;
-      _setError('验证组件初始化失败：$error');
-    }
-  }
-
-  Future<void> _injectMobile() async {
-    if (_injected) return;
-    _injected = true;
-    try {
-      await _mobileController?.runJavaScript(_turnstileScript);
-    } catch (error) {
-      _injected = false;
-      _setError('验证组件初始化失败：$error');
-    }
-  }
-
-  void _handleWindowsMessage(dynamic message) {
-    _handleTurnstileMessage(message);
-  }
-
-  void _handleTurnstileMessage(dynamic message) {
-    dynamic decoded = message;
-    if (message is String) {
-      final text = message.trim();
-      if (text.isEmpty) return;
-      try {
-        decoded = jsonDecode(text);
-      } on FormatException {
-        decoded = text;
-      }
-    }
-    if (decoded is Map) {
-      final type = decoded['type']?.toString() ?? '';
-      if (type == 'turnstile-token') {
-        _acceptToken(decoded['token']?.toString() ?? '');
-      } else if (type == 'turnstile-error') {
-        _setError(decoded['message']?.toString() ?? '验证失败，请重试');
-      }
-      return;
-    }
-    // Backward compatibility for a directly posted JSON string token.
-    if (decoded is String) _acceptToken(decoded);
+    unawaited(controller.loadRequest(turnstileVerificationUri));
   }
 
   void _acceptToken(String token) {
     if (!mounted || _accepted) return;
     final value = token.trim();
-    if (value.isEmpty || value == 'null' || value == '{}') return;
-    // Turnstile response tokens are opaque, long strings (max 2048
-    // characters). Ignore unrelated WebView messages instead of accidentally
-    // submitting them as a captcha response.
-    if (value.length < 100 || value.length > 2048) return;
+    if (value.isEmpty || value.length > 2048) {
+      _setError('验证结果无效，请点「重试验证」');
+      return;
+    }
     _accepted = true;
     _timeout?.cancel();
     widget.onToken(value);
@@ -242,70 +208,3 @@ class _TurnstileViewState extends State<TurnstileView> {
     return mobile.WebViewWidget(controller: _mobileController!);
   }
 }
-
-const _turnstileScript = r'''
-(() => {
-  if (window.__mubangumiTurnstileInstalled) return;
-  window.__mubangumiTurnstileInstalled = true;
-
-  document.documentElement.style.colorScheme = 'light dark';
-  document.body.innerHTML = '<div id="mubangumi-turnstile"></div>';
-  document.body.style.margin = '0';
-  document.body.style.padding = '8px';
-  document.body.style.overflow = 'hidden';
-
-  const post = (payload) => {
-    const message = JSON.stringify(payload);
-    try {
-      if (window.chrome && window.chrome.webview) {
-        window.chrome.webview.postMessage(message);
-      }
-    } catch (_) {}
-    try {
-      if (window.Turnstile && window.Turnstile.postMessage) {
-        window.Turnstile.postMessage(message);
-      }
-    } catch (_) {}
-  };
-
-  const deliver = (token) => {
-    if (!token) return;
-    post({type: 'turnstile-token', token: String(token)});
-  };
-
-  const render = () => {
-    try {
-      window.turnstile.render('#mubangumi-turnstile', {
-        sitekey: '0x4AAAAAAABkMYinukE8nzYS',
-        theme: 'auto',
-        callback: deliver,
-        'error-callback': (code) => post({
-          type: 'turnstile-error',
-          message: `验证组件错误（${code || 'unknown'}），请重试`,
-        }),
-        'expired-callback': () => post({
-          type: 'turnstile-error',
-          message: '验证已过期，请重试',
-        }),
-      });
-    } catch (error) {
-      console && console.error && console.error(error);
-    }
-  };
-
-  if (window.turnstile) {
-    render();
-    return;
-  }
-  const script = document.createElement('script');
-  script.src = 'https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit';
-  script.async = true;
-  script.defer = true;
-  script.onload = render;
-  script.onerror = () => post({
-    type: 'turnstile-error',
-    message: '验证脚本加载失败，请检查网络后重试',
-  });
-  document.head.appendChild(script);
-})();
-''';

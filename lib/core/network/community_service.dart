@@ -15,7 +15,7 @@ class CommunityService {
           receiveTimeout: const Duration(seconds: 20),
           responseType: ResponseType.plain,
           headers: const {
-            'User-Agent': 'MuBangumi/1.0.0 (Flutter; personal Bangumi client)',
+            'User-Agent': 'MuBangumi/1.1.0 (Flutter; personal Bangumi client)',
             'Accept': 'text/html,application/xhtml+xml',
           },
         ),
@@ -27,7 +27,7 @@ class CommunityService {
           receiveTimeout: const Duration(seconds: 20),
           responseType: ResponseType.json,
           headers: const {
-            'User-Agent': 'MuBangumi/1.0.0 (Flutter; personal Bangumi client)',
+            'User-Agent': 'MuBangumi/1.1.0 (Flutter; personal Bangumi client)',
             'Accept': 'application/json',
           },
         ),
@@ -299,13 +299,10 @@ class CommunityService {
     required String turnstileToken,
   }) async {
     _requireAuthentication();
+    final token = _requireTurnstileToken(turnstileToken);
     await _postJson(
       '/groups/${Uri.encodeComponent(slug)}/topics',
-      data: {
-        'title': title,
-        'content': content,
-        'turnstileToken': turnstileToken,
-      },
+      data: {'title': title, 'content': content, 'turnstileToken': token},
     );
   }
 
@@ -329,15 +326,13 @@ class CommunityService {
     if (trimmed.isEmpty) {
       throw const FormatException('回复内容不能为空');
     }
-    if (turnstileToken.trim().isEmpty) {
-      throw const FormatException('人机验证未完成，请重新点击发送');
-    }
+    final token = _requireTurnstileToken(turnstileToken);
     // API: replyTo=0 means top-level reply; otherwise nest under that reply id.
     await _postJson(
       '/$area/-/topics/$id/replies',
       data: {
         'content': trimmed,
-        'turnstileToken': turnstileToken.trim(),
+        'turnstileToken': token,
         'replyTo': replyTo ?? 0,
       },
     );
@@ -351,9 +346,10 @@ class CommunityService {
     required String turnstileToken,
   }) async {
     _requireAuthentication();
+    final token = _requireTurnstileToken(turnstileToken);
     await _postJson(
       '/timeline',
-      data: {'content': content, 'turnstileToken': turnstileToken},
+      data: {'content': content, 'turnstileToken': token},
     );
   }
 
@@ -364,13 +360,10 @@ class CommunityService {
     int? replyTo,
   }) async {
     _requireAuthentication();
+    final token = _requireTurnstileToken(turnstileToken);
     await _postJson(
       '/timeline/$timelineId/replies',
-      data: {
-        'content': content,
-        'turnstileToken': turnstileToken,
-        'replyTo': ?replyTo,
-      },
+      data: {'content': content, 'turnstileToken': token, 'replyTo': ?replyTo},
     );
   }
 
@@ -920,6 +913,14 @@ class CommunityService {
 
   void _requireAuthentication() {
     if (!isAuthenticated) throw Exception('请先登录 Bangumi');
+  }
+
+  String _requireTurnstileToken(String token) {
+    final value = token.trim();
+    if (value.isEmpty) {
+      throw const FormatException('人机验证未完成，请重新点击发送');
+    }
+    return value;
   }
 
   String _requireCurrentUsername() {

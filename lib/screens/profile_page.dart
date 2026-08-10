@@ -14,6 +14,7 @@ import '../widgets/subject_widgets.dart';
 import '../state/notify_controller.dart';
 import 'background_settings_sheet.dart';
 import 'calendar_page.dart';
+import 'collection_stats_page.dart';
 import 'friends_page.dart';
 import 'notify_page.dart';
 import 'pm_page.dart';
@@ -110,11 +111,7 @@ class ProfilePage extends ConsumerWidget {
                       if (constraints.maxWidth < 280) {
                         return Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            avatar,
-                            const SizedBox(height: 14),
-                            info,
-                          ],
+                          children: [avatar, const SizedBox(height: 14), info],
                         );
                       }
                       return Row(
@@ -197,8 +194,9 @@ class ProfilePage extends ConsumerWidget {
                     const Divider(height: 1, indent: 56),
                     Builder(
                       builder: (context) {
-                        final unread =
-                            ref.watch(notifyBadgeProvider).unreadCount;
+                        final unread = ref
+                            .watch(notifyBadgeProvider)
+                            .unreadCount;
                         return ListTile(
                           leading: Badge(
                             isLabelVisible: unread > 0,
@@ -219,9 +217,7 @@ class ProfilePage extends ConsumerWidget {
                               ),
                             );
                             if (context.mounted) {
-                              ref
-                                  .read(notifyBadgeProvider.notifier)
-                                  .refresh();
+                              ref.read(notifyBadgeProvider.notifier).refresh();
                             }
                           },
                         );
@@ -242,16 +238,46 @@ class ProfilePage extends ConsumerWidget {
               Text('发现', style: Theme.of(context).textTheme.titleLarge),
               const SizedBox(height: 12),
               Card(
-                child: ListTile(
-                  leading: const Icon(Icons.live_tv_outlined),
-                  title: const Text('每日放送'),
-                  subtitle: const Text('官方放送日历（非本地新番表）'),
-                  trailing: const Icon(Icons.chevron_right_rounded),
-                  onTap: () => Navigator.of(context).push(
-                    MaterialPageRoute<void>(
-                      builder: (_) => const CalendarPage(),
+                child: Column(
+                  children: [
+                    ListTile(
+                      leading: const Icon(Icons.insights_outlined),
+                      title: const Text('收藏统计与年度回顾'),
+                      subtitle: Text(
+                        session.isLoadingCollections
+                            ? '正在同步全部类型收藏，请稍候'
+                            : '评分分布、年度记录与 JSON 数据导出',
+                      ),
+                      trailing: session.isLoadingCollections
+                          ? const SizedBox.square(
+                              dimension: 18,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Icon(Icons.chevron_right_rounded),
+                      onTap: session.isLoadingCollections
+                          ? null
+                          : () => Navigator.of(context).push(
+                              MaterialPageRoute<void>(
+                                builder: (_) => CollectionStatsPage(
+                                  username: user.username,
+                                  collections: session.collections,
+                                ),
+                              ),
+                            ),
                     ),
-                  ),
+                    const Divider(height: 1, indent: 56),
+                    ListTile(
+                      leading: const Icon(Icons.live_tv_outlined),
+                      title: const Text('每日放送'),
+                      subtitle: const Text('官方放送日历（非本地新番表）'),
+                      trailing: const Icon(Icons.chevron_right_rounded),
+                      onTap: () => Navigator.of(context).push(
+                        MaterialPageRoute<void>(
+                          builder: (_) => const CalendarPage(),
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
               ),
               const SizedBox(height: 30),
@@ -283,8 +309,8 @@ class ProfilePage extends ConsumerWidget {
                         !background.hasImage
                             ? '自选壁纸 · 分层磨砂效果'
                             : background.isActive
-                                ? '已启用 · 可调模糊/压暗/玻璃浓度'
-                                : '已选图 · 未启用',
+                            ? '已启用 · 可调模糊/压暗/玻璃浓度'
+                            : '已选图 · 未启用',
                       ),
                       trailing: const Icon(Icons.chevron_right_rounded),
                       onTap: () => showBackgroundSettingsSheet(context, ref),
@@ -339,7 +365,7 @@ class ProfilePage extends ConsumerWidget {
               const SizedBox(height: 26),
               Center(
                 child: Text(
-                  'MuBangumi 1.0.0 · 数据来自 Bangumi.tv',
+                  'MuBangumi 1.1.0 · 数据来自 Bangumi.tv',
                   style: Theme.of(context).textTheme.bodySmall?.copyWith(
                     color: Theme.of(context).colorScheme.onSurfaceVariant,
                   ),
