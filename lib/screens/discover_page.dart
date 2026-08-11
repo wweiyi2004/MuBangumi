@@ -874,15 +874,24 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
               );
             }
             final person = _persons[index];
+            final kind = switch (person.type) {
+              2 => '公司',
+              3 => '团体',
+              _ => '',
+            };
+            final personMeta = [if (kind.isNotEmpty) kind, ...person.career];
             return ListTile(
               contentPadding: EdgeInsets.zero,
-              leading: _DiscoverMonoThumb(url: person.imageUrl, round: true),
+              leading: _DiscoverMonoThumb(
+                url: person.imageUrl,
+                round: person.type != 2,
+              ),
               title: Text(person.displayName),
-              subtitle: person.career.isEmpty
+              subtitle: personMeta.isEmpty
                   ? (person.name != person.displayName
                         ? Text(person.name)
                         : null)
-                  : Text(person.career.join(' / ')),
+                  : Text(personMeta.join(' / ')),
               trailing: const Icon(Icons.chevron_right_rounded),
               onTap: () => Navigator.of(context).push(
                 MaterialPageRoute<void>(
@@ -908,25 +917,26 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
             final width = constraints.crossAxisExtent;
             final contentWidth = width > 1220 ? 1220.0 : width;
             final side = (width - contentWidth) / 2;
-            final columns = contentWidth >= 1050
-                ? 3
-                : contentWidth >= 640
-                ? 2
-                : 1;
+            const spacing = 12.0;
+            final columns = subjectPosterColumnCount(contentWidth);
             return SliverPadding(
               padding: EdgeInsets.symmetric(horizontal: side),
               sliver: SliverGrid(
                 gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
                   crossAxisCount: columns,
-                  mainAxisExtent: contentWidth < 400 ? 116 : 128,
-                  mainAxisSpacing: contentWidth < 400 ? 10 : 14,
-                  crossAxisSpacing: contentWidth < 400 ? 10 : 14,
+                  mainAxisExtent: subjectPosterItemHeight(
+                    contentWidth,
+                    columns,
+                    spacing: spacing,
+                  ),
+                  mainAxisSpacing: spacing,
+                  crossAxisSpacing: spacing,
                 ),
                 delegate: SliverChildBuilderDelegate((context, index) {
                   final subject = _subjects[index];
                   final collection = collectionMap[subject.id];
                   final supportsEpisodes = subject.type.hasEpisodes;
-                  return SubjectTile(
+                  return SubjectPosterCard(
                     subject: subject,
                     collection: collection,
                     onTap: () => Navigator.of(context).push(

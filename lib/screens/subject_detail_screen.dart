@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../core/insights/subject_meta_insights.dart';
 import '../core/layout/app_layout.dart';
 import '../core/network/bangumi_endpoints.dart';
 import '../core/network/bangumi_support.dart';
@@ -298,9 +299,7 @@ class _SubjectDetailScreenState extends ConsumerState<SubjectDetailScreen> {
     final pagePadding = AppLayout.pageInsets(context, top: 12, bottom: 40);
     final sectionGap = AppLayout.sectionGap(context);
     final blockGap = AppLayout.blockGap(context);
-    final listPreview = narrow ? 6 : 24;
     final topicPreview = narrow ? 5 : 12;
-    final relatedPreview = narrow ? 10 : 20;
 
     return Scaffold(
       appBar: AppBar(
@@ -471,44 +470,18 @@ class _SubjectDetailScreenState extends ConsumerState<SubjectDetailScreen> {
                         title: '角色',
                         loading: _loadingMeta,
                         empty: _characters.isEmpty,
-                        child: _ExpandableItemList(
-                          itemCount: _characters.length,
-                          previewCount: listPreview,
-                          itemBuilder: (index) {
-                            final c = _characters[index];
-                            return ListTile(
-                              dense: narrow,
-                              visualDensity: narrow
-                                  ? VisualDensity.compact
-                                  : VisualDensity.standard,
-                              contentPadding: EdgeInsets.zero,
-                              leading: _MetaAvatar(url: c.imageUrl),
-                              title: Text(
-                                c.displayName,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
+                        trailing: _MetaCount('${_characters.length} 个角色'),
+                        child: _CharacterRail(
+                          characters: _characters,
+                          onOpen: (character) => Navigator.of(context).push(
+                            MaterialPageRoute<void>(
+                              builder: (_) => CharacterDetailScreen(
+                                characterId: character.id,
+                                seedName: character.displayName,
+                                seedImageUrl: character.imageUrl,
                               ),
-                              subtitle: Text(
-                                [
-                                  if (c.relation.isNotEmpty) c.relation,
-                                  if (c.actorNames.isNotEmpty)
-                                    'CV: ${c.actorNames.join(' / ')}',
-                                ].join(' · '),
-                                maxLines: 2,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                              trailing: const Icon(Icons.chevron_right_rounded),
-                              onTap: () => Navigator.of(context).push(
-                                MaterialPageRoute<void>(
-                                  builder: (_) => CharacterDetailScreen(
-                                    characterId: c.id,
-                                    seedName: c.displayName,
-                                    seedImageUrl: c.imageUrl,
-                                  ),
-                                ),
-                              ),
-                            );
-                          },
+                            ),
+                          ),
                         ),
                       ),
                       SizedBox(height: sectionGap),
@@ -516,43 +489,18 @@ class _SubjectDetailScreenState extends ConsumerState<SubjectDetailScreen> {
                         title: '制作人员',
                         loading: _loadingMeta,
                         empty: _persons.isEmpty,
-                        child: _ExpandableItemList(
-                          itemCount: _persons.length,
-                          previewCount: listPreview,
-                          itemBuilder: (index) {
-                            final p = _persons[index];
-                            return ListTile(
-                              dense: narrow,
-                              visualDensity: narrow
-                                  ? VisualDensity.compact
-                                  : VisualDensity.standard,
-                              contentPadding: EdgeInsets.zero,
-                              leading: _MetaAvatar(url: p.imageUrl),
-                              title: Text(
-                                p.displayName,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
+                        trailing: _MetaCount('${_persons.length} 条职员记录'),
+                        child: _StaffRoleGroups(
+                          people: _persons,
+                          onOpen: (person) => Navigator.of(context).push(
+                            MaterialPageRoute<void>(
+                              builder: (_) => PersonDetailScreen(
+                                personId: person.id,
+                                seedName: person.displayName,
+                                seedImageUrl: person.imageUrl,
                               ),
-                              subtitle: Text(
-                                [
-                                  if (p.relation.isNotEmpty) p.relation,
-                                  if (p.career.isNotEmpty) p.career.join(' / '),
-                                ].join(' · '),
-                                maxLines: 2,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                              trailing: const Icon(Icons.chevron_right_rounded),
-                              onTap: () => Navigator.of(context).push(
-                                MaterialPageRoute<void>(
-                                  builder: (_) => PersonDetailScreen(
-                                    personId: p.id,
-                                    seedName: p.displayName,
-                                    seedImageUrl: p.imageUrl,
-                                  ),
-                                ),
-                              ),
-                            );
-                          },
+                            ),
+                          ),
                         ),
                       ),
                       SizedBox(height: sectionGap),
@@ -560,45 +508,16 @@ class _SubjectDetailScreenState extends ConsumerState<SubjectDetailScreen> {
                         title: '关联条目',
                         loading: _loadingMeta,
                         empty: _related.isEmpty,
-                        child: _ExpandableChipWrap(
-                          itemCount: _related.length,
-                          previewCount: relatedPreview,
-                          chipBuilder: (index) {
-                            final item = _related[index];
-                            return ActionChip(
-                              avatar: item.imageUrl.isEmpty
-                                  ? null
-                                  : CircleAvatar(
-                                      backgroundImage:
-                                          CachedNetworkImageProvider(
-                                            BangumiEndpoints.imageUrl(
-                                              item.imageUrl,
-                                            ),
-                                          ),
-                                    ),
-                              label: ConstrainedBox(
-                                constraints: BoxConstraints(
-                                  maxWidth: narrow ? 180 : 260,
-                                ),
-                                child: Text(
-                                  item.relation.isEmpty
-                                      ? item.displayName
-                                      : '${item.relation} · ${item.displayName}',
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                ),
+                        trailing: _MetaCount('${_related.length} 个条目'),
+                        child: _RelatedSubjectRail(
+                          subjects: _related,
+                          onOpen: (item) => Navigator.of(context).push(
+                            MaterialPageRoute<void>(
+                              builder: (_) => SubjectDetailScreen(
+                                subject: item.toSubject(),
                               ),
-                              onPressed: () {
-                                Navigator.of(context).push(
-                                  MaterialPageRoute<void>(
-                                    builder: (_) => SubjectDetailScreen(
-                                      subject: item.toSubject(),
-                                    ),
-                                  ),
-                                );
-                              },
-                            );
-                          },
+                            ),
+                          ),
                         ),
                       ),
                       SizedBox(height: sectionGap),
@@ -1694,40 +1613,264 @@ class _ExpandableItemListState extends State<_ExpandableItemList> {
   }
 }
 
-class _ExpandableChipWrap extends StatefulWidget {
-  const _ExpandableChipWrap({
+class _MetaCount extends StatelessWidget {
+  const _MetaCount(this.label);
+
+  final String label;
+
+  @override
+  Widget build(BuildContext context) => Text(
+    label,
+    style: Theme.of(context).textTheme.labelLarge?.copyWith(
+      color: Theme.of(context).colorScheme.onSurfaceVariant,
+    ),
+  );
+}
+
+class _HorizontalCardRail extends StatefulWidget {
+  const _HorizontalCardRail({
     required this.itemCount,
-    required this.previewCount,
-    required this.chipBuilder,
+    required this.itemWidth,
+    required this.height,
+    required this.itemBuilder,
   });
 
   final int itemCount;
-  final int previewCount;
-  final Widget Function(int index) chipBuilder;
+  final double itemWidth;
+  final double height;
+  final Widget Function(BuildContext context, int index) itemBuilder;
 
   @override
-  State<_ExpandableChipWrap> createState() => _ExpandableChipWrapState();
+  State<_HorizontalCardRail> createState() => _HorizontalCardRailState();
 }
 
-class _ExpandableChipWrapState extends State<_ExpandableChipWrap> {
-  bool _expanded = false;
+class _HorizontalCardRailState extends State<_HorizontalCardRail> {
+  final ScrollController _controller = ScrollController();
+  bool _canGoBack = false;
+  bool _canGoForward = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller.addListener(_syncButtons);
+  }
+
+  @override
+  void didUpdateWidget(covariant _HorizontalCardRail oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.itemCount != widget.itemCount) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _syncButtons());
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller
+      ..removeListener(_syncButtons)
+      ..dispose();
+    super.dispose();
+  }
+
+  void _syncButtons() {
+    if (!mounted || !_controller.hasClients) return;
+    final position = _controller.position;
+    final canGoBack = position.pixels > position.minScrollExtent + 2;
+    final canGoForward = position.pixels < position.maxScrollExtent - 2;
+    if (canGoBack == _canGoBack && canGoForward == _canGoForward) return;
+    setState(() {
+      _canGoBack = canGoBack;
+      _canGoForward = canGoForward;
+    });
+  }
+
+  void _move(double direction) {
+    if (!_controller.hasClients) return;
+    final position = _controller.position;
+    final target = (position.pixels + position.viewportDimension * direction)
+        .clamp(position.minScrollExtent, position.maxScrollExtent);
+    _controller.animateTo(
+      target,
+      duration: const Duration(milliseconds: 260),
+      curve: Curves.easeOutCubic,
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
-    if (widget.itemCount == 0) return const SizedBox.shrink();
-    final showAll = _expanded || widget.itemCount <= widget.previewCount;
-    final count = showAll ? widget.itemCount : widget.previewCount;
+    WidgetsBinding.instance.addPostFrameCallback((_) => _syncButtons());
+    final showArrows = MediaQuery.sizeOf(context).width >= 600;
+    return SizedBox(
+      height: widget.height,
+      child: Stack(
+        alignment: Alignment.center,
+        children: [
+          ListView.separated(
+            controller: _controller,
+            scrollDirection: Axis.horizontal,
+            itemCount: widget.itemCount,
+            separatorBuilder: (_, _) => const SizedBox(width: 10),
+            itemBuilder: (context, index) => SizedBox(
+              width: widget.itemWidth,
+              child: widget.itemBuilder(context, index),
+            ),
+          ),
+          if (showArrows && _canGoBack)
+            Positioned(
+              left: 4,
+              child: IconButton.filledTonal(
+                tooltip: '向前浏览',
+                onPressed: () => _move(-.8),
+                icon: const Icon(Icons.chevron_left_rounded),
+              ),
+            ),
+          if (showArrows && _canGoForward)
+            Positioned(
+              right: 4,
+              child: IconButton.filledTonal(
+                tooltip: '继续浏览',
+                onPressed: () => _move(.8),
+                icon: const Icon(Icons.chevron_right_rounded),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _CharacterRail extends StatelessWidget {
+  const _CharacterRail({required this.characters, required this.onOpen});
+
+  final List<SubjectCharacter> characters;
+  final ValueChanged<SubjectCharacter> onOpen;
+
+  @override
+  Widget build(BuildContext context) => _HorizontalCardRail(
+    itemCount: characters.length,
+    itemWidth: 216,
+    height: 112,
+    itemBuilder: (context, index) {
+      final character = characters[index];
+      return _CharacterCard(
+        character: character,
+        onTap: () => onOpen(character),
+      );
+    },
+  );
+}
+
+class _CharacterCard extends StatelessWidget {
+  const _CharacterCard({required this.character, required this.onTap});
+
+  final SubjectCharacter character;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Material(
+      color: scheme.surfaceContainerLow,
+      borderRadius: BorderRadius.circular(14),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.all(10),
+          child: Row(
+            children: [
+              _MetaImage(
+                url: character.imageUrl,
+                width: 62,
+                height: 92,
+                icon: Icons.face_outlined,
+              ),
+              const SizedBox(width: 11),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      character.displayName,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    if (character.relation.isNotEmpty) ...[
+                      const SizedBox(height: 4),
+                      Text(
+                        character.relation,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context).textTheme.labelMedium
+                            ?.copyWith(
+                              color: scheme.primary,
+                              fontWeight: FontWeight.w700,
+                            ),
+                      ),
+                    ],
+                    const Spacer(),
+                    Text(
+                      character.actorNames.isEmpty
+                          ? '声优未收录'
+                          : 'CV · ${character.actorNames.join(' / ')}',
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                        color: scheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _StaffRoleGroups extends StatefulWidget {
+  const _StaffRoleGroups({required this.people, required this.onOpen});
+
+  final List<SubjectPerson> people;
+  final ValueChanged<SubjectPerson> onOpen;
+
+  @override
+  State<_StaffRoleGroups> createState() => _StaffRoleGroupsState();
+}
+
+class _StaffRoleGroupsState extends State<_StaffRoleGroups> {
+  bool _expanded = false;
+
+  @override
+  void didUpdateWidget(covariant _StaffRoleGroups oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.people.length != widget.people.length) _expanded = false;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final groups = groupSubjectStaffByRole(widget.people);
+    final previewCount = MediaQuery.sizeOf(context).width < 600 ? 4 : 6;
+    final visibleCount = _expanded
+        ? groups.length
+        : groups.length < previewCount
+        ? groups.length
+        : previewCount;
+    final visibleGroups = groups.take(visibleCount).toList();
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Wrap(
-          spacing: 8,
-          runSpacing: 8,
-          children: [for (var i = 0; i < count; i++) widget.chipBuilder(i)],
-        ),
-        if (widget.itemCount > widget.previewCount)
-          Align(
-            alignment: Alignment.center,
+        for (final group in visibleGroups) ...[
+          _StaffRoleRow(group: group, onOpen: widget.onOpen),
+          if (group != visibleGroups.last) const SizedBox(height: 16),
+        ],
+        if (groups.length > previewCount) ...[
+          const SizedBox(height: 8),
+          Center(
             child: TextButton.icon(
               onPressed: () => setState(() => _expanded = !_expanded),
               icon: Icon(
@@ -1735,10 +1878,191 @@ class _ExpandableChipWrapState extends State<_ExpandableChipWrap> {
                     ? Icons.expand_less_rounded
                     : Icons.expand_more_rounded,
               ),
-              label: Text(_expanded ? '收起' : '展开全部 ${widget.itemCount} 项'),
+              label: Text(_expanded ? '收起职位' : '展开全部 ${groups.length} 类职位'),
             ),
           ),
+        ],
       ],
+    );
+  }
+}
+
+class _StaffRoleRow extends StatelessWidget {
+  const _StaffRoleRow({required this.group, required this.onOpen});
+
+  final SubjectStaffRoleGroup group;
+  final ValueChanged<SubjectPerson> onOpen;
+
+  @override
+  Widget build(BuildContext context) => Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      Row(
+        children: [
+          Expanded(
+            child: Text(
+              group.role,
+              style: Theme.of(
+                context,
+              ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w800),
+            ),
+          ),
+          _MetaCount('${group.people.length} 位'),
+        ],
+      ),
+      const SizedBox(height: 8),
+      _HorizontalCardRail(
+        itemCount: group.people.length,
+        itemWidth: 210,
+        height: 82,
+        itemBuilder: (context, index) {
+          final person = group.people[index];
+          return _StaffPersonCard(person: person, onTap: () => onOpen(person));
+        },
+      ),
+    ],
+  );
+}
+
+class _StaffPersonCard extends StatelessWidget {
+  const _StaffPersonCard({required this.person, required this.onTap});
+
+  final SubjectPerson person;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final identity = person.type == 2
+        ? '公司'
+        : person.type == 3
+        ? '团体'
+        : person.career.join(' / ');
+    return Material(
+      color: scheme.surfaceContainerLow,
+      borderRadius: BorderRadius.circular(14),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.all(10),
+          child: Row(
+            children: [
+              _MetaImage(
+                url: person.imageUrl,
+                width: 48,
+                height: 48,
+                round: person.type != 2,
+                icon: person.type == 2
+                    ? Icons.business_outlined
+                    : Icons.person_outline_rounded,
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      person.displayName,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      [
+                        if (identity.isNotEmpty) identity,
+                        if (person.eps.isNotEmpty) '集数 ${person.eps}',
+                        if (identity.isEmpty && person.eps.isEmpty) '人物资料',
+                      ].join(' · '),
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                        color: scheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Icon(
+                Icons.chevron_right_rounded,
+                size: 18,
+                color: scheme.onSurfaceVariant,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _RelatedSubjectRail extends StatelessWidget {
+  const _RelatedSubjectRail({required this.subjects, required this.onOpen});
+
+  final List<RelatedSubject> subjects;
+  final ValueChanged<RelatedSubject> onOpen;
+
+  @override
+  Widget build(BuildContext context) => _HorizontalCardRail(
+    itemCount: subjects.length,
+    itemWidth: 154,
+    height: subjectPosterItemHeight(154, 1),
+    itemBuilder: (context, index) {
+      final item = subjects[index];
+      return SubjectPosterCard(
+        subject: item.toSubject(),
+        statusLabel: item.relation.isEmpty ? '关联作品' : item.relation,
+        metaLabel: item.type.label,
+        onTap: () => onOpen(item),
+      );
+    },
+  );
+}
+
+class _MetaImage extends StatelessWidget {
+  const _MetaImage({
+    required this.url,
+    required this.width,
+    required this.height,
+    required this.icon,
+    this.round = false,
+  });
+
+  final String url;
+  final double width;
+  final double height;
+  final IconData icon;
+  final bool round;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final borderRadius = BorderRadius.circular(round ? width / 2 : 12);
+    return ClipRRect(
+      borderRadius: borderRadius,
+      child: SizedBox(
+        width: width,
+        height: height,
+        child: url.isEmpty
+            ? ColoredBox(
+                color: scheme.surfaceContainerHighest,
+                child: Icon(icon, color: scheme.onSurfaceVariant),
+              )
+            : CachedNetworkImage(
+                imageUrl: BangumiEndpoints.imageUrl(url),
+                fit: BoxFit.cover,
+                memCacheWidth: (width * 2).round(),
+                memCacheHeight: (height * 2).round(),
+                errorWidget: (_, _, _) => ColoredBox(
+                  color: scheme.surfaceContainerHighest,
+                  child: Icon(icon, color: scheme.onSurfaceVariant),
+                ),
+              ),
+      ),
     );
   }
 }
@@ -1802,27 +2126,6 @@ class _MetaSection extends StatelessWidget {
               child,
           ],
         ),
-      ),
-    );
-  }
-}
-
-class _MetaAvatar extends StatelessWidget {
-  const _MetaAvatar({required this.url});
-
-  final String url;
-
-  @override
-  Widget build(BuildContext context) {
-    if (url.isEmpty) {
-      return CircleAvatar(
-        backgroundColor: Theme.of(context).colorScheme.surfaceContainerHighest,
-        child: const Icon(Icons.person_outline_rounded, size: 18),
-      );
-    }
-    return CircleAvatar(
-      backgroundImage: CachedNetworkImageProvider(
-        BangumiEndpoints.imageUrl(url),
       ),
     );
   }

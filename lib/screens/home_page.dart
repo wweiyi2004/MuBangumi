@@ -13,9 +13,14 @@ import 'notify_page.dart';
 import 'subject_detail_screen.dart';
 
 class HomePage extends ConsumerWidget {
-  const HomePage({super.key, required this.onDiscover});
+  const HomePage({
+    super.key,
+    required this.onDiscover,
+    required this.onSchedule,
+  });
 
   final VoidCallback onDiscover;
+  final VoidCallback onSchedule;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -39,7 +44,7 @@ class HomePage extends ConsumerWidget {
         .where((item) => item.type == CollectionType.doing)
         .toList();
     // Cap rendered tiles so huge "doing" lists do not freeze the home page.
-    const previewLimit = 12;
+    const previewLimit = 18;
     final watching = watchingAll.length > previewLimit
         ? watchingAll.take(previewLimit).toList()
         : watchingAll;
@@ -142,20 +147,6 @@ class HomePage extends ConsumerWidget {
                               visualDensity: phone
                                   ? VisualDensity.compact
                                   : VisualDensity.standard,
-                              tooltip: '每日放送',
-                              onPressed: () {
-                                Navigator.of(context).push(
-                                  MaterialPageRoute<void>(
-                                    builder: (_) => const CalendarPage(),
-                                  ),
-                                );
-                              },
-                              icon: const Icon(Icons.live_tv_outlined),
-                            ),
-                            IconButton.filledTonal(
-                              visualDensity: phone
-                                  ? VisualDensity.compact
-                                  : VisualDensity.standard,
                               tooltip: '同步收藏',
                               onPressed: isRefreshing
                                   ? null
@@ -185,14 +176,19 @@ class HomePage extends ConsumerWidget {
                   onDiscover: onDiscover,
                 ),
                 SizedBox(height: AppLayout.sectionGap(context)),
-                _FanRecommendEntry(
-                  onTap: () {
-                    Navigator.of(context).push(
-                      MaterialPageRoute<void>(
-                        builder: (_) => const FanRecommendPage(),
-                      ),
-                    );
-                  },
+                _HomeQuickActions(
+                  onSchedule: onSchedule,
+                  onCalendar: () => Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => const CalendarPage(),
+                    ),
+                  ),
+                  onRecommend: () => Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => const FanRecommendPage(),
+                    ),
+                  ),
+                  onDiscover: onDiscover,
                 ),
                 if (isLoadingCollections) ...[
                   const SizedBox(height: 12),
@@ -237,7 +233,7 @@ class HomePage extends ConsumerWidget {
                   children: [
                     Expanded(
                       child: Text(
-                        '进行中',
+                        '继续追',
                         style: AppLayout.sectionTitleStyle(context),
                       ),
                     ),
@@ -265,13 +261,13 @@ class HomePage extends ConsumerWidget {
                     ),
                   )
                 else
-                  SubjectGrid(
+                  SubjectPosterGrid(
                     itemCount: watching.length,
                     itemBuilder: (context, index) {
                       final collection = watching[index];
                       final supportsEpisodes =
                           collection.subject.type.hasEpisodes;
-                      return SubjectTile(
+                      return SubjectPosterCard(
                         subject: collection.subject,
                         collection: collection,
                         busy: updating.contains(collection.subjectId),
@@ -319,84 +315,144 @@ class HomePage extends ConsumerWidget {
   }
 }
 
-class _FanRecommendEntry extends StatelessWidget {
-  const _FanRecommendEntry({required this.onTap});
+class _HomeQuickActions extends StatelessWidget {
+  const _HomeQuickActions({
+    required this.onSchedule,
+    required this.onCalendar,
+    required this.onRecommend,
+    required this.onDiscover,
+  });
 
-  final VoidCallback onTap;
+  final VoidCallback onSchedule;
+  final VoidCallback onCalendar;
+  final VoidCallback onRecommend;
+  final VoidCallback onDiscover;
 
   @override
   Widget build(BuildContext context) {
-    final phone = AppLayout.isPhone(context);
-    return Card(
-      clipBehavior: Clip.antiAlias,
-      child: InkWell(
-        onTap: onTap,
-        child: Ink(
-          decoration: const BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.centerLeft,
-              end: Alignment.centerRight,
-              colors: [Color(0x22E95383), Color(0x228B6CEF)],
-            ),
-          ),
-          child: Padding(
-            padding: EdgeInsets.fromLTRB(
-              phone ? 12 : 16,
-              phone ? 12 : 14,
-              12,
-              phone ? 12 : 14,
-            ),
+    final actions = [
+      (
+        icon: Icons.calendar_view_week_rounded,
+        title: '新番表',
+        subtitle: '我的一周',
+        color: const Color(0xFF7C6CE7),
+        onTap: onSchedule,
+      ),
+      (
+        icon: Icons.live_tv_rounded,
+        title: '每日放送',
+        subtitle: '官方日历',
+        color: const Color(0xFFE95383),
+        onTap: onCalendar,
+      ),
+      (
+        icon: Icons.auto_awesome_rounded,
+        title: '番会荐',
+        subtitle: '按口味推荐',
+        color: const Color(0xFFE38A3F),
+        onTap: onRecommend,
+      ),
+      (
+        icon: Icons.travel_explore_rounded,
+        title: '找新番',
+        subtitle: '榜单与搜索',
+        color: const Color(0xFF2CA69A),
+        onTap: onDiscover,
+      ),
+    ];
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        if (constraints.maxWidth < 620) {
+          return SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            clipBehavior: Clip.none,
             child: Row(
               children: [
-                Container(
-                  width: phone ? 42 : 48,
-                  height: phone ? 42 : 48,
-                  decoration: BoxDecoration(
-                    gradient: const LinearGradient(
-                      colors: [Color(0xFFE95383), Color(0xFF8B6CEF)],
-                    ),
-                    borderRadius: BorderRadius.circular(14),
+                for (var i = 0; i < actions.length; i++) ...[
+                  SizedBox(
+                    width: 142,
+                    child: _QuickActionCard(action: actions[i]),
                   ),
-                  child: const Icon(
-                    Icons.theater_comedy_rounded,
-                    color: Colors.white,
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        '番会荐',
-                        style: Theme.of(context).textTheme.titleMedium
-                            ?.copyWith(fontWeight: FontWeight.w800),
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        phone
-                            ? '按喜好 / 一句话需求，筛出想看的番'
-                            : '根据个人喜好或你的要求，智能筛出想看的番剧',
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color: Theme.of(context).colorScheme.onSurfaceVariant,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                Icon(
-                  Icons.chevron_right_rounded,
-                  color: Theme.of(context).colorScheme.onSurfaceVariant,
-                ),
+                  if (i != actions.length - 1) const SizedBox(width: 10),
+                ],
               ],
             ),
-          ),
-        ),
-      ),
+          );
+        }
+        return Row(
+          children: [
+            for (var i = 0; i < actions.length; i++) ...[
+              Expanded(child: _QuickActionCard(action: actions[i])),
+              if (i != actions.length - 1) const SizedBox(width: 12),
+            ],
+          ],
+        );
+      },
     );
   }
+}
+
+class _QuickActionCard extends StatelessWidget {
+  const _QuickActionCard({required this.action});
+
+  final ({
+    IconData icon,
+    String title,
+    String subtitle,
+    Color color,
+    VoidCallback onTap,
+  })
+  action;
+
+  @override
+  Widget build(BuildContext context) => Card(
+    clipBehavior: Clip.antiAlias,
+    child: InkWell(
+      onTap: action.onTap,
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Row(
+          children: [
+            DecoratedBox(
+              decoration: BoxDecoration(
+                color: action.color.withValues(alpha: .14),
+                borderRadius: BorderRadius.circular(13),
+              ),
+              child: SizedBox.square(
+                dimension: 42,
+                child: Icon(action.icon, color: action.color, size: 22),
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    action.title,
+                    maxLines: 1,
+                    style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    action.subtitle,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    ),
+  );
 }
 
 class _OverviewBanner extends StatelessWidget {
@@ -451,11 +507,7 @@ class _OverviewBanner extends StatelessWidget {
                   label: '已完成',
                   compact: veryNarrow,
                 ),
-                _StatPill(
-                  value: '$total',
-                  label: '总收藏',
-                  compact: veryNarrow,
-                ),
+                _StatPill(value: '$total', label: '总收藏', compact: veryNarrow),
               ],
             );
             final intro = Column(
@@ -535,10 +587,7 @@ class _StatPill extends StatelessWidget {
         ),
         Text(
           label,
-          style: TextStyle(
-            color: Colors.white60,
-            fontSize: compact ? 11 : 12,
-          ),
+          style: TextStyle(color: Colors.white60, fontSize: compact ? 11 : 12),
         ),
       ],
     ),
