@@ -1,5 +1,24 @@
 # Changelog
 
+## 1.3.0 - 2026-08-11
+
+### 新功能
+
+- 站内短信改为原生收件箱 / 会话 / 发送（网站 Cookie + HTML），失败可回退网页版。
+- 「我的」支持同步网站登录：安全存储 Cookie，供私信等网页能力使用；退出 OAuth 时一并清除。
+- 接入 Shorebird 热更新：启动与手动检查、下载 patch、Markdown 更新说明与重启生效。
+- 收藏与发现页本地快照 + stale-while-revalidate，冷启动优先展示缓存。
+
+### 改进
+
+- OAuth 授权对话框与 Windows 启动相位修复，登录态更稳定。
+- 社区相关页面配合本地缓存与会话状态调整。
+- README 补充 Shorebird release / patch 发布说明。
+
+### 发布
+
+- 首个 Shorebird 基线 release（Windows + Android），后续 Dart 改动可走 patch 热更新。
+
 ## 1.2.0 - 2026-08-11
 
 ### 新功能
