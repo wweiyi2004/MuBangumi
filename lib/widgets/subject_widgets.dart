@@ -21,8 +21,12 @@ class SubjectCover extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final dpr = MediaQuery.devicePixelRatioOf(context);
-    final cacheWidth = width == null ? null : (width! * dpr).round();
-    final cacheHeight = height == null ? null : (height! * dpr).round();
+    final cacheWidth = width == null || !width!.isFinite
+        ? null
+        : (width! * dpr).round();
+    final cacheHeight = height == null || !height!.isFinite
+        ? null
+        : (height! * dpr).round();
     return ClipRRect(
       borderRadius: BorderRadius.circular(borderRadius),
       child: ColoredBox(
@@ -49,7 +53,9 @@ class SubjectCover extends StatelessWidget {
                   width: width,
                   height: height,
                   child: ColoredBox(
-                    color: Theme.of(context).colorScheme.surfaceContainerHighest,
+                    color: Theme.of(
+                      context,
+                    ).colorScheme.surfaceContainerHighest,
                   ),
                 ),
                 errorWidget: (_, _, _) => SizedBox(
@@ -101,6 +107,300 @@ class SubjectTypeBadge extends StatelessWidget {
       ),
     );
   }
+}
+
+int subjectPosterColumnCount(double width) {
+  if (width >= 1120) return 6;
+  if (width >= 900) return 5;
+  if (width >= 660) return 4;
+  if (width >= 430) return 3;
+  return 2;
+}
+
+double subjectPosterItemHeight(
+  double width,
+  int columns, {
+  double spacing = 12,
+}) {
+  final itemWidth = (width - spacing * (columns - 1)) / columns;
+  return itemWidth / .72 + 78;
+}
+
+/// Image-first media card used by the home and discovery feeds.
+///
+/// The actions intentionally stay on the card so the denser layout does not
+/// trade away MuBangumi's quick episode workflow.
+class SubjectPosterCard extends StatelessWidget {
+  const SubjectPosterCard({
+    super.key,
+    required this.subject,
+    required this.onTap,
+    this.collection,
+    this.onNextEpisode,
+    this.onEpisodeGrid,
+    this.busy = false,
+    this.statusLabel,
+    this.metaLabel,
+  });
+
+  final Subject subject;
+  final UserCollection? collection;
+  final VoidCallback onTap;
+  final VoidCallback? onNextEpisode;
+  final VoidCallback? onEpisodeGrid;
+  final bool busy;
+  final String? statusLabel;
+  final String? metaLabel;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final progress = _progressValue(subject, collection);
+    final defaultStatus = collection == null
+        ? subject.rank > 0
+              ? '#${subject.rank}'
+              : subject.type.label
+        : _progressText(subject, collection);
+    final status = statusLabel ?? defaultStatus;
+
+    return Card(
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: onTap,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            AspectRatio(
+              aspectRatio: .72,
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  SubjectCover(subject: subject, borderRadius: 0),
+                  const DecoratedBox(
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.topCenter,
+                        end: Alignment.bottomCenter,
+                        stops: [0, .55, 1],
+                        colors: [
+                          Color(0x4D000000),
+                          Colors.transparent,
+                          Color(0xB8000000),
+                        ],
+                      ),
+                    ),
+                  ),
+                  Positioned(
+                    left: 9,
+                    top: 9,
+                    child: _PosterBadge(
+                      icon: subjectTypeIcon(subject.type),
+                      label: subject.type.label,
+                    ),
+                  ),
+                  if (subject.score > 0)
+                    Positioned(
+                      right: 9,
+                      top: 9,
+                      child: _PosterBadge(
+                        icon: Icons.star_rounded,
+                        label: subject.score.toStringAsFixed(1),
+                        iconColor: const Color(0xFFFFD166),
+                      ),
+                    ),
+                  Positioned(
+                    left: 10,
+                    right: onNextEpisode == null ? 10 : 52,
+                    bottom: 11,
+                    child: Text(
+                      status,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w700,
+                        shadows: const [
+                          Shadow(color: Colors.black54, blurRadius: 6),
+                        ],
+                      ),
+                    ),
+                  ),
+                  if (onNextEpisode != null)
+                    Positioned(
+                      right: 8,
+                      bottom: 7,
+                      child: IconButton.filled(
+                        tooltip: '看完下一集',
+                        style: IconButton.styleFrom(
+                          backgroundColor: scheme.primary,
+                          foregroundColor: scheme.onPrimary,
+                          minimumSize: const Size.square(38),
+                          maximumSize: const Size.square(38),
+                          padding: EdgeInsets.zero,
+                        ),
+                        onPressed: busy ? null : onNextEpisode,
+                        icon: busy
+                            ? const SizedBox.square(
+                                dimension: 15,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: Colors.white,
+                                ),
+                              )
+                            : const Icon(Icons.add_rounded, size: 21),
+                      ),
+                    ),
+                  if (progress != null)
+                    Positioned(
+                      left: 0,
+                      right: 0,
+                      bottom: 0,
+                      child: LinearProgressIndicator(
+                        value: progress,
+                        minHeight: 4,
+                        color: scheme.primary,
+                        backgroundColor: Colors.white24,
+                      ),
+                    ),
+                ],
+              ),
+            ),
+            SizedBox(
+              height: 78,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(11, 9, 6, 8),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(
+                      child: Text(
+                        subject.displayName,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                          fontWeight: FontWeight.w800,
+                          height: 1.25,
+                        ),
+                      ),
+                    ),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            metaLabel ??
+                                (collection == null
+                                    ? _posterMeta(subject)
+                                    : collection!.type.labelFor(subject.type)),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: Theme.of(context).textTheme.labelSmall
+                                ?.copyWith(color: scheme.onSurfaceVariant),
+                          ),
+                        ),
+                        if (onEpisodeGrid != null)
+                          IconButton(
+                            tooltip: '点格子',
+                            visualDensity: VisualDensity.compact,
+                            constraints: const BoxConstraints.tightFor(
+                              width: 34,
+                              height: 30,
+                            ),
+                            padding: EdgeInsets.zero,
+                            onPressed: busy ? null : onEpisodeGrid,
+                            icon: const Icon(Icons.grid_view_rounded, size: 17),
+                          ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _PosterBadge extends StatelessWidget {
+  const _PosterBadge({
+    required this.icon,
+    required this.label,
+    this.iconColor = Colors.white,
+  });
+
+  final IconData icon;
+  final String label;
+  final Color iconColor;
+
+  @override
+  Widget build(BuildContext context) => DecoratedBox(
+    decoration: BoxDecoration(
+      color: const Color(0x990D0D14),
+      borderRadius: BorderRadius.circular(999),
+      border: Border.all(color: Colors.white24),
+    ),
+    child: Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 4),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 12, color: iconColor),
+          const SizedBox(width: 3),
+          Text(
+            label,
+            style: Theme.of(context).textTheme.labelSmall?.copyWith(
+              color: Colors.white,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+        ],
+      ),
+    ),
+  );
+}
+
+String _posterMeta(Subject subject) {
+  if (subject.ratingTotal > 0) return '${subject.ratingTotal} 人评分';
+  if (subject.date.isNotEmpty) return subject.date;
+  return subject.type.label;
+}
+
+class SubjectPosterGrid extends StatelessWidget {
+  const SubjectPosterGrid({
+    super.key,
+    required this.itemCount,
+    required this.itemBuilder,
+  });
+
+  final int itemCount;
+  final IndexedWidgetBuilder itemBuilder;
+
+  @override
+  Widget build(BuildContext context) => LayoutBuilder(
+    builder: (context, constraints) {
+      const spacing = 12.0;
+      final columns = subjectPosterColumnCount(constraints.maxWidth);
+      return GridView.builder(
+        shrinkWrap: true,
+        physics: const NeverScrollableScrollPhysics(),
+        addAutomaticKeepAlives: false,
+        addRepaintBoundaries: true,
+        gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+          crossAxisCount: columns,
+          mainAxisExtent: subjectPosterItemHeight(
+            constraints.maxWidth,
+            columns,
+            spacing: spacing,
+          ),
+          mainAxisSpacing: spacing,
+          crossAxisSpacing: spacing,
+        ),
+        itemCount: itemCount,
+        itemBuilder: itemBuilder,
+      );
+    },
+  );
 }
 
 class SubjectTile extends StatelessWidget {
@@ -317,10 +617,7 @@ class SubjectTile extends StatelessWidget {
                                     strokeWidth: 2,
                                   ),
                                 )
-                              : Icon(
-                                  Icons.add_rounded,
-                                  size: narrow ? 16 : 18,
-                                ),
+                              : Icon(Icons.add_rounded, size: narrow ? 16 : 18),
                         ),
                       ],
                     ],
@@ -420,11 +717,7 @@ class EmptyState extends StatelessWidget {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(
-            icon,
-            size: 46,
-            color: Theme.of(context).colorScheme.outline,
-          ),
+          Icon(icon, size: 46, color: Theme.of(context).colorScheme.outline),
           const SizedBox(height: 14),
           Text(title, style: Theme.of(context).textTheme.titleLarge),
           const SizedBox(height: 8),

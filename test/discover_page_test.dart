@@ -152,7 +152,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    final builtTiles = find.byType(SubjectTile).evaluate().length;
+    final builtTiles = find.byType(SubjectPosterCard).evaluate().length;
     expect(builtTiles, greaterThan(0));
     expect(builtTiles, lessThan(subjects.length));
     expect(find.text('条目 120'), findsNothing);

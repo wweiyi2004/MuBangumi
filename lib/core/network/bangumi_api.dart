@@ -65,6 +65,7 @@ class BangumiApi {
   }
 
   final Dio _dio;
+  final Map<int, Future<Subject>> _subjectDetailCache = {};
 
   /// Called before authenticated requests to refresh near-expiry tokens.
   Future<void> Function()? ensureFreshToken;
@@ -74,6 +75,7 @@ class BangumiApi {
 
   void setNetworkRoute(BangumiNetworkRoute route) {
     _dio.options.baseUrl = route.apiBaseUrl;
+    _subjectDetailCache.clear();
   }
 
   void setAccessToken(String? token) {
@@ -276,15 +278,13 @@ class BangumiApi {
     ];
   }
 
-  Future<List<Subject>> browseSeason({
-    required int year,
-    required int month,
-  }) => browseSubjects(
-    type: SubjectType.anime,
-    year: year,
-    month: month,
-    sort: 'rank',
-  );
+  Future<List<Subject>> browseSeason({required int year, required int month}) =>
+      browseSubjects(
+        type: SubjectType.anime,
+        year: year,
+        month: month,
+        sort: 'rank',
+      );
 
   /// Browse ranked subjects by type. Month is mainly useful for TV seasons.
   Future<List<Subject>> browseSubjects({
@@ -310,11 +310,21 @@ class BangumiApi {
     return _subjectsFromPage(response.data);
   }
 
-  Future<Subject> getSubject(int subjectId) async {
-    final response = await _request(
-      () => _dio.get<Map<String, dynamic>>('/subjects/$subjectId'),
-    );
-    return Subject.fromJson(response.data ?? const {});
+  Future<Subject> getSubject(int subjectId) => _subjectDetailCache.putIfAbsent(
+    subjectId,
+    () => _fetchSubject(subjectId),
+  );
+
+  Future<Subject> _fetchSubject(int subjectId) async {
+    try {
+      final response = await _request(
+        () => _dio.get<Map<String, dynamic>>('/subjects/$subjectId'),
+      );
+      return Subject.fromJson(response.data ?? const {});
+    } catch (_) {
+      _subjectDetailCache.remove(subjectId);
+      rethrow;
+    }
   }
 
   Future<List<SubjectCharacter>> getSubjectCharacters(int subjectId) async {
@@ -396,9 +406,7 @@ class BangumiApi {
   Future<List<CalendarDay>> getCalendar() async {
     final route = BangumiEndpoints.route;
     final response = await _request(
-      () => _dio.get<List<dynamic>>(
-        '${route.apiRootUrl}/calendar',
-      ),
+      () => _dio.get<List<dynamic>>('${route.apiRootUrl}/calendar'),
       checkToken: false,
     );
     return BangumiSupport.parseCalendar(response.data);
@@ -415,8 +423,7 @@ class BangumiApi {
           connectTimeout: const Duration(seconds: 15),
           receiveTimeout: const Duration(seconds: 20),
           headers: const {
-            'User-Agent':
-                'MuBangumi/1.1.0 (Flutter; personal Bangumi client)',
+            'User-Agent': 'MuBangumi/1.1.0 (Flutter; personal Bangumi client)',
             'Accept': 'text/html,application/xhtml+xml',
           },
           responseType: ResponseType.plain,
@@ -493,9 +500,8 @@ class BangumiApi {
       final page = (json['data'] as List? ?? const [])
           .whereType<Map>()
           .map(
-            (item) => UserEpisodeCollection.fromJson(
-              Map<String, dynamic>.from(item),
-            ),
+            (item) =>
+                UserEpisodeCollection.fromJson(Map<String, dynamic>.from(item)),
           )
           .toList();
       total = (json['total'] as num?)?.toInt() ?? page.length;
@@ -561,10 +567,7 @@ class BangumiApi {
       volumeStatus: volumeStatus,
     );
     await _request(
-      () => _dio.post<void>(
-        '/users/-/collections/$subjectId',
-        data: data,
-      ),
+      () => _dio.post<void>('/users/-/collections/$subjectId', data: data),
     );
   }
 

@@ -25,7 +25,6 @@ class _HomeShellState extends ConsumerState<HomeShell> {
   bool _libraryOpened = false;
   bool _discoverOpened = false;
   bool _communityOpened = false;
-  bool _scheduleOpened = false;
   bool _profileOpened = false;
 
   static const _destinations = [
@@ -40,11 +39,6 @@ class _HomeShellState extends ConsumerState<HomeShell> {
       selected: Icons.explore_rounded,
       label: '发现',
     ),
-    (
-      icon: Icons.calendar_month_outlined,
-      selected: Icons.calendar_month_rounded,
-      label: '新番表',
-    ),
     (icon: Icons.forum_outlined, selected: Icons.forum_rounded, label: '社区'),
     (
       icon: Icons.person_outline_rounded,
@@ -58,24 +52,28 @@ class _HomeShellState extends ConsumerState<HomeShell> {
       _index = index;
       if (index == 1) _libraryOpened = true;
       if (index == 2) _discoverOpened = true;
-      if (index == 3) _scheduleOpened = true;
-      if (index == 4) _communityOpened = true;
-      if (index == 5) _profileOpened = true;
+      if (index == 3) _communityOpened = true;
+      if (index == 4) _profileOpened = true;
     });
     // Refresh badge when opening 我的.
-    if (index == 5) {
+    if (index == 4) {
       ref.read(notifyBadgeProvider.notifier).refresh();
     }
+  }
+
+  void _openSchedule() {
+    Navigator.of(
+      context,
+    ).push(MaterialPageRoute<void>(builder: (_) => const SchedulePage()));
   }
 
   @override
   Widget build(BuildContext context) {
     final unread = ref.watch(notifyBadgeProvider.select((s) => s.unreadCount));
     final pages = [
-      HomePage(onDiscover: () => _selectPage(2)),
+      HomePage(onDiscover: () => _selectPage(2), onSchedule: _openSchedule),
       _libraryOpened ? const LibraryPage() : const SizedBox.shrink(),
       _discoverOpened ? const DiscoverPage() : const SizedBox.shrink(),
-      _scheduleOpened ? const SchedulePage() : const SizedBox.shrink(),
       _communityOpened ? const CommunityPage() : const SizedBox.shrink(),
       _profileOpened ? const ProfilePage() : const SizedBox.shrink(),
     ];
@@ -85,7 +83,7 @@ class _HomeShellState extends ConsumerState<HomeShell> {
       backgroundSettingsProvider.select((s) => s.isActive),
     );
     return HomeWidgetSyncHost(
-      onOpenSchedule: () => _selectPage(3),
+      onOpenSchedule: _openSchedule,
       child: Scaffold(
         backgroundColor: glassBg ? Colors.transparent : null,
         body: SafeArea(
@@ -97,6 +95,7 @@ class _HomeShellState extends ConsumerState<HomeShell> {
                   onChanged: _selectPage,
                   unreadCount: unread,
                   glass: glassBg,
+                  onOpenSchedule: _openSchedule,
                 ),
               Expanded(
                 child: IndexedStack(index: _index, children: pages),
@@ -116,11 +115,11 @@ class _HomeShellState extends ConsumerState<HomeShell> {
                     NavigationDestination(
                       icon: _badgedIcon(
                         Icon(_destinations[i].icon),
-                        count: i == 5 ? unread : 0,
+                        count: i == 4 ? unread : 0,
                       ),
                       selectedIcon: _badgedIcon(
                         Icon(_destinations[i].selected),
-                        count: i == 5 ? unread : 0,
+                        count: i == 4 ? unread : 0,
                       ),
                       label: _destinations[i].label,
                     ),
@@ -142,12 +141,14 @@ class _DesktopNavigation extends StatelessWidget {
     required this.index,
     required this.onChanged,
     required this.unreadCount,
+    required this.onOpenSchedule,
     this.glass = false,
   });
 
   final int index;
   final ValueChanged<int> onChanged;
   final int unreadCount;
+  final VoidCallback onOpenSchedule;
   final bool glass;
 
   @override
@@ -176,44 +177,78 @@ class _DesktopNavigation extends StatelessWidget {
                 ],
               ),
             ),
-            for (var i = 0; i < _HomeShellState._destinations.length; i++)
-              Padding(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 14,
-                  vertical: 3,
-                ),
-                child: ListTile(
-                  selected: index == i,
-                  selectedTileColor: scheme.primaryContainer.withValues(
-                    alpha: .65,
-                  ),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(15),
-                  ),
-                  leading: i == 5 && unreadCount > 0
-                      ? Badge(
-                          label: Text(
-                            unreadCount > 99 ? '99+' : '$unreadCount',
-                          ),
-                          child: Icon(
-                            index == i
-                                ? _HomeShellState._destinations[i].selected
-                                : _HomeShellState._destinations[i].icon,
-                          ),
-                        )
-                      : Icon(
-                          index == i
-                              ? _HomeShellState._destinations[i].selected
-                              : _HomeShellState._destinations[i].icon,
+            Expanded(
+              child: ListView(
+                padding: EdgeInsets.zero,
+                children: [
+                  for (var i = 0; i < _HomeShellState._destinations.length; i++)
+                    Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 14,
+                        vertical: 3,
+                      ),
+                      child: ListTile(
+                        selected: index == i,
+                        selectedTileColor: scheme.primaryContainer.withValues(
+                          alpha: .65,
                         ),
-                  title: Text(
-                    _HomeShellState._destinations[i].label,
-                    style: const TextStyle(fontWeight: FontWeight.w600),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(15),
+                        ),
+                        leading: i == 4 && unreadCount > 0
+                            ? Badge(
+                                label: Text(
+                                  unreadCount > 99 ? '99+' : '$unreadCount',
+                                ),
+                                child: Icon(
+                                  index == i
+                                      ? _HomeShellState
+                                            ._destinations[i]
+                                            .selected
+                                      : _HomeShellState._destinations[i].icon,
+                                ),
+                              )
+                            : Icon(
+                                index == i
+                                    ? _HomeShellState._destinations[i].selected
+                                    : _HomeShellState._destinations[i].icon,
+                              ),
+                        title: Text(
+                          _HomeShellState._destinations[i].label,
+                          style: const TextStyle(fontWeight: FontWeight.w600),
+                        ),
+                        onTap: () => onChanged(i),
+                      ),
+                    ),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 18, 20, 8),
+                    child: Text(
+                      '工具',
+                      style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                        color: scheme.onSurfaceVariant,
+                        fontWeight: FontWeight.w700,
+                        letterSpacing: .8,
+                      ),
+                    ),
                   ),
-                  onTap: () => onChanged(i),
-                ),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 14),
+                    child: ListTile(
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(15),
+                      ),
+                      leading: const Icon(Icons.calendar_month_outlined),
+                      title: const Text(
+                        '新番表',
+                        style: TextStyle(fontWeight: FontWeight.w600),
+                      ),
+                      trailing: const Icon(Icons.open_in_new_rounded, size: 17),
+                      onTap: onOpenSchedule,
+                    ),
+                  ),
+                ],
               ),
-            const Spacer(),
+            ),
             Padding(
               padding: const EdgeInsets.all(24),
               child: Text(

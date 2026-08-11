@@ -85,6 +85,17 @@ class SchedulePage extends ConsumerWidget {
                         children: [
                           Row(
                             children: [
+                              if (Navigator.canPop(context)) ...[
+                                IconButton(
+                                  visualDensity: isWide
+                                      ? VisualDensity.standard
+                                      : VisualDensity.compact,
+                                  tooltip: '返回',
+                                  onPressed: () => Navigator.maybePop(context),
+                                  icon: const Icon(Icons.arrow_back_rounded),
+                                ),
+                                SizedBox(width: isWide ? 6 : 2),
+                              ],
                               Expanded(
                                 child: Text(
                                   '新番表',
@@ -154,8 +165,8 @@ class SchedulePage extends ConsumerWidget {
                                                 height: 22,
                                                 child:
                                                     CircularProgressIndicator(
-                                                  strokeWidth: 2,
-                                                ),
+                                                      strokeWidth: 2,
+                                                    ),
                                               )
                                             : const Icon(Icons.sync_rounded),
                                       ),
@@ -1011,9 +1022,7 @@ class _CourseTable extends StatelessWidget {
         // Cover-on-top layout must kick in before the horizontal row overflows.
         final dense = dayWidth < 108;
         final medium = dayWidth < 128;
-        final cellStyle = dayWidth < 78
-            ? _CellStyle.dense
-            : _CellStyle.grid;
+        final cellStyle = dayWidth < 78 ? _CellStyle.dense : _CellStyle.grid;
         final rowHeight = dense
             ? (dayWidth < 56 ? 82.0 : 90.0)
             : medium

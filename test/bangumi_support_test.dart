@@ -4,14 +4,14 @@ import 'package:mubangumi/models/bangumi_models.dart';
 
 void main() {
   test('pageQuery continues beyond first page', () {
-    expect(
-      BangumiSupport.pageQuery(limit: 24, offset: 0),
-      {'limit': 24, 'offset': 0},
-    );
-    expect(
-      BangumiSupport.pageQuery(limit: 24, offset: 24),
-      {'limit': 24, 'offset': 24},
-    );
+    expect(BangumiSupport.pageQuery(limit: 24, offset: 0), {
+      'limit': 24,
+      'offset': 0,
+    });
+    expect(BangumiSupport.pageQuery(limit: 24, offset: 24), {
+      'limit': 24,
+      'offset': 24,
+    });
     expect(
       BangumiSupport.pageQuery(limit: 24, offset: 48)['offset'],
       greaterThan(24),
@@ -188,14 +188,12 @@ void main() {
       ),
     ];
     expect(BangumiSupport.filterEpisodesByType(episodes, null), hasLength(3));
-    expect(
-      BangumiSupport.filterEpisodesByType(episodes, 0).map((e) => e.id),
-      [1],
-    );
-    expect(
-      BangumiSupport.filterEpisodesByType(episodes, 2).map((e) => e.id),
-      [2],
-    );
+    expect(BangumiSupport.filterEpisodesByType(episodes, 0).map((e) => e.id), [
+      1,
+    ]);
+    expect(BangumiSupport.filterEpisodesByType(episodes, 2).map((e) => e.id), [
+      2,
+    ]);
     expect(BangumiSupport.episodeTypeLabel(0), '本篇');
     expect(BangumiSupport.episodeTypeLabel(2), 'OP');
   });
@@ -209,7 +207,11 @@ void main() {
         'relation': '主角',
         'images': {'large': 'https://example.com/c.jpg'},
         'actors': [
-          {'id': 99, 'name': '声优A', 'images': {'large': 'https://a.jpg'}},
+          {
+            'id': 99,
+            'name': '声优A',
+            'images': {'large': 'https://a.jpg'},
+          },
         ],
       },
     ]);
@@ -225,10 +227,14 @@ void main() {
         'name_cn': '监督',
         'relation': '导演',
         'career': ['director'],
+        'type': 2,
+        'eps': '1-3',
         'images': {'medium': 'https://example.com/p.jpg'},
       },
     ]);
     expect(persons.first.relation, '导演');
+    expect(persons.first.type, 2);
+    expect(persons.first.eps, '1-3');
 
     final related = BangumiSupport.parseRelatedSubjects([
       {
@@ -287,11 +293,13 @@ void main() {
         'image': 'https://example.com/s.jpg',
         'type': 2,
         'staff': '主角',
+        'eps': '1-25',
       },
     ]);
     expect(subjects, hasLength(1));
     expect(subjects.first.displayName, '反叛的鲁路修R2');
     expect(subjects.first.toSubject().id, 8);
+    expect(subjects.first.eps, '1-25');
 
     final cast = BangumiSupport.parseCharacterPersons([
       {
@@ -341,9 +349,7 @@ void main() {
             'name': 'Show',
             'name_cn': '节目',
             'air_date': '2026-07-06',
-            'images': {
-              'large': 'https://lain.bgm.tv/pic/cover/l/xx.jpg',
-            },
+            'images': {'large': 'https://lain.bgm.tv/pic/cover/l/xx.jpg'},
             'rating': {'score': 7.5},
             'collection': {'doing': 12},
           },

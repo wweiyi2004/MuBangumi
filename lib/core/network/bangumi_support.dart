@@ -5,8 +5,10 @@ class BangumiSupport {
   BangumiSupport._();
 
   /// Query for paginated search/browse continuation.
-  static Map<String, int> pageQuery({required int limit, required int offset}) =>
-      {'limit': limit, 'offset': offset};
+  static Map<String, int> pageQuery({
+    required int limit,
+    required int offset,
+  }) => {'limit': limit, 'offset': offset};
 
   /// Payload for POST /v0/users/-/collections/{id}.
   ///
@@ -31,8 +33,10 @@ class BangumiSupport {
           if (tag.trim().isNotEmpty) tag.trim(),
       ],
       'private': private,
-      if (episodeStatus != null) 'ep_status': episodeStatus < 0 ? 0 : episodeStatus,
-      if (volumeStatus != null) 'vol_status': volumeStatus < 0 ? 0 : volumeStatus,
+      if (episodeStatus != null)
+        'ep_status': episodeStatus < 0 ? 0 : episodeStatus,
+      if (volumeStatus != null)
+        'vol_status': volumeStatus < 0 ? 0 : volumeStatus,
     };
   }
 
@@ -123,7 +127,8 @@ class BangumiSupport {
           name: subject['name']?.toString() ?? '',
           nameCn: subject['name_cn']?.toString() ?? '',
           imageUrl: imageUrl,
-          relation: map['relation']?.toString() ??
+          relation:
+              map['relation']?.toString() ??
               map['relation_cn']?.toString() ??
               '',
           type: SubjectType.fromValue(
@@ -234,6 +239,8 @@ class BangumiSupport {
           imageUrl: imageUrlFrom(map['images']),
           relation: map['relation']?.toString() ?? '',
           career: careerFrom(map['career']),
+          type: (map['type'] as num?)?.toInt() ?? 0,
+          eps: map['eps']?.toString() ?? '',
         ),
       );
     }
@@ -277,7 +284,8 @@ class BangumiSupport {
         json['images'],
         fallback: json['img']?.toString() ?? '',
       ),
-      summary: json['summary']?.toString() ??
+      summary:
+          json['summary']?.toString() ??
           json['short_summary']?.toString() ??
           '',
       gender: json['gender']?.toString() ?? '',
@@ -304,6 +312,7 @@ class BangumiSupport {
           nameCn: map['name_cn']?.toString() ?? '',
           imageUrl: map['image']?.toString() ?? imageUrlFrom(map['images']),
           staff: map['staff']?.toString() ?? '',
+          eps: map['eps']?.toString() ?? '',
           type: SubjectType.fromValue(
             (map['type'] as num?)?.toInt() ?? SubjectType.anime.value,
           ),
@@ -329,8 +338,8 @@ class BangumiSupport {
           name: map['name']?.toString() ?? '',
           imageUrl: imageUrlFrom(map['images']),
           staff: map['staff']?.toString() ?? '',
-          subjectName: (map['subject_name_cn']?.toString().trim().isNotEmpty ??
-                  false)
+          subjectName:
+              (map['subject_name_cn']?.toString().trim().isNotEmpty ?? false)
               ? map['subject_name_cn'].toString()
               : (map['subject_name']?.toString() ?? ''),
         ),
@@ -354,8 +363,8 @@ class BangumiSupport {
           name: map['name']?.toString() ?? '',
           imageUrl: imageUrlFrom(map['images']),
           staff: map['staff']?.toString() ?? '',
-          subjectName: (map['subject_name_cn']?.toString().trim().isNotEmpty ??
-                  false)
+          subjectName:
+              (map['subject_name_cn']?.toString().trim().isNotEmpty ?? false)
               ? map['subject_name_cn'].toString()
               : (map['subject_name']?.toString() ?? ''),
         ),
@@ -376,9 +385,8 @@ class BangumiSupport {
       var weekdayCn = '';
       if (weekdayMap is Map) {
         weekdayId = (weekdayMap['id'] as num?)?.toInt() ?? 0;
-        weekdayCn = weekdayMap['cn']?.toString() ??
-            weekdayMap['en']?.toString() ??
-            '';
+        weekdayCn =
+            weekdayMap['cn']?.toString() ?? weekdayMap['en']?.toString() ?? '';
       }
       final subjects = <Subject>[];
       final items = map['items'];
@@ -539,6 +547,8 @@ class SubjectPerson {
     required this.imageUrl,
     required this.relation,
     required this.career,
+    this.type = 0,
+    this.eps = '',
   });
 
   final int id;
@@ -547,6 +557,10 @@ class SubjectPerson {
   final String imageUrl;
   final String relation;
   final List<String> career;
+
+  /// Bangumi person type: 1 individual, 2 company, 3 group.
+  final int type;
+  final String eps;
 
   String get displayName => nameCn.trim().isNotEmpty ? nameCn : name;
 }
@@ -613,6 +627,7 @@ class MonoLinkedSubject {
     required this.imageUrl,
     required this.staff,
     required this.type,
+    this.eps = '',
   });
 
   final int id;
@@ -620,6 +635,7 @@ class MonoLinkedSubject {
   final String nameCn;
   final String imageUrl;
   final String staff;
+  final String eps;
   final SubjectType type;
 
   String get displayName => nameCn.trim().isNotEmpty ? nameCn : name;
@@ -693,8 +709,10 @@ class SubjectComment {
   });
 
   final int id;
+
   /// Display nickname when available.
   final String userName;
+
   /// Profile path username (`/user/{username}`); falls back to [userName].
   final String username;
   final String avatarUrl;

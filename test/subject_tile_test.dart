@@ -46,4 +46,59 @@ void main() {
     expect(find.text('8.6'), findsOneWidget);
     expect(find.text('看到 3 / 12'), findsOneWidget);
   });
+
+  testWidgets('poster grid keeps quick progress actions on a phone width', (
+    tester,
+  ) async {
+    const subject = Subject(
+      id: 2,
+      name: 'Poster Anime',
+      nameCn: '海报动画',
+      imageUrl: '',
+      summary: '',
+      episodeCount: 12,
+      score: 8.2,
+      rank: 200,
+      date: '2026-07-01',
+    );
+    const collection = UserCollection(
+      subjectId: 2,
+      type: CollectionType.doing,
+      rate: 0,
+      episodeStatus: 4,
+      updatedAt: null,
+      subject: subject,
+    );
+    var nextCount = 0;
+
+    await tester.binding.setSurfaceSize(const Size(360, 800));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: SingleChildScrollView(
+            child: SizedBox(
+              width: 332,
+              child: SubjectPosterGrid(
+                itemCount: 2,
+                itemBuilder: (_, _) => SubjectPosterCard(
+                  subject: subject,
+                  collection: collection,
+                  onTap: () {},
+                  onNextEpisode: () => nextCount++,
+                  onEpisodeGrid: () {},
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    expect(find.byType(SubjectPosterCard), findsNWidgets(2));
+    expect(find.text('看到 4 / 12'), findsNWidgets(2));
+    expect(tester.takeException(), isNull);
+    await tester.tap(find.byIcon(Icons.add_rounded).first);
+    expect(nextCount, 1);
+  });
 }
