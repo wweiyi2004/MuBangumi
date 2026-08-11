@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../core/layout/app_layout.dart';
 import '../core/network/bangumi_endpoints.dart';
 import '../core/network/bangumi_support.dart';
+import '../core/storage/snapshot_cache.dart';
 import '../models/bangumi_models.dart';
 import '../state/session_controller.dart';
 import '../widgets/episode_grid_sheet.dart';
@@ -90,6 +91,8 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
   Timer? _debounce;
   List<Subject> _subjects = const [];
   bool _loading = true;
+  /// Background refresh while keeping previous list visible (stale-while-revalidate).
+  bool _refreshing = false;
   bool _loadingMore = false;
   bool _hasMore = true;
   String? _error;
@@ -187,7 +190,45 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
     _subjectType = widget.initialSubjectType ?? SubjectType.anime;
     _tag = widget.initialTag.trim();
     _scrollController.addListener(_onScroll);
-    Future.microtask(_runCurrentQuery);
+    // Race local snapshot vs network: cache paints early when available,
+    // network always refreshes without waiting on disk I/O.
+    Future.microtask(() {
+      unawaited(_hydrateBrowseCacheIfNeeded());
+      _runCurrentQuery();
+    });
+  }
+
+  String get _browseCacheKey => SnapshotCache.discoverBrowseKey(
+    type: _subjectType,
+    year: _browseYear,
+    quarter: _browseQuarter,
+    sort: _browseSort,
+    supportsSeason: _supportsSeason,
+  );
+
+  Future<void> _hydrateBrowseCacheIfNeeded() async {
+    if (_queryMode != DiscoverQueryMode.browse) return;
+    try {
+      final cached = await SnapshotCache.shared.readDiscoverBrowse(
+        _browseCacheKey,
+      );
+      if (!mounted || cached == null || cached.isEmpty) return;
+      // Don't overwrite a fresher network response that already finished.
+      if (!_loading && !_refreshing && _subjects.isNotEmpty) return;
+      if (_requestId > 1 && _subjects.isNotEmpty && !_loading) return;
+      setState(() {
+        if (_subjects.isEmpty) {
+          _subjects = cached;
+          _offset = cached.length;
+          _hasMore = cached.length >= _pageSize;
+        }
+        _loading = false;
+        _refreshing = true;
+        _error = null;
+      });
+    } catch (_) {
+      // Disk cache is best-effort.
+    }
   }
 
   @override
@@ -220,19 +261,22 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
       _offset = 0;
       _hasMore = false;
       _loadingMore = false;
+      // Keep previous results visible; only full-spinner when nothing to show.
+      final empty = switch (_searchTarget) {
+        DiscoverSearchTarget.subject => _subjects.isEmpty,
+        DiscoverSearchTarget.character => _characters.isEmpty,
+        DiscoverSearchTarget.person => _persons.isEmpty,
+      };
       _loading = switch (nextMode) {
         DiscoverQueryMode.characterPrompt ||
         DiscoverQueryMode.personPrompt => false,
-        _ => true,
+        _ => empty,
       };
-      switch (_searchTarget) {
-        case DiscoverSearchTarget.subject:
-          _subjects = const [];
-        case DiscoverSearchTarget.character:
-          _characters = const [];
-        case DiscoverSearchTarget.person:
-          _persons = const [];
-      }
+      _refreshing = switch (nextMode) {
+        DiscoverQueryMode.characterPrompt ||
+        DiscoverQueryMode.personPrompt => false,
+        _ => !empty,
+      };
     });
     _debounce = Timer(const Duration(milliseconds: 450), _runCurrentQuery);
   }
@@ -310,6 +354,7 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
     _requestId++;
     setState(() {
       _loading = false;
+      _refreshing = false;
       _loadingMore = false;
       _hasMore = false;
       _offset = 0;
@@ -327,12 +372,14 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
       if (append) {
         _loadingMore = true;
       } else {
-        _loading = true;
+        final empty = _characters.isEmpty;
+        _loading = empty;
+        _refreshing = !empty;
         _error = null;
-        _offset = 0;
-        _hasMore = true;
-        _subjects = const [];
-        _persons = const [];
+        if (empty) {
+          _offset = 0;
+          _hasMore = true;
+        }
       }
     });
     try {
@@ -345,14 +392,17 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
         _offset = offset + items.length;
         _hasMore = items.length >= _pageSize;
         _loading = false;
+        _refreshing = false;
         _loadingMore = false;
+        _error = null;
       });
     } catch (error) {
       if (!mounted || requestId != _requestId) return;
       setState(() {
         _loading = false;
+        _refreshing = false;
         _loadingMore = false;
-        if (!append) {
+        if (!append && _characters.isEmpty) {
           _error = error.toString().replaceFirst('Exception: ', '');
         }
       });
@@ -366,12 +416,14 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
       if (append) {
         _loadingMore = true;
       } else {
-        _loading = true;
+        final empty = _persons.isEmpty;
+        _loading = empty;
+        _refreshing = !empty;
         _error = null;
-        _offset = 0;
-        _hasMore = true;
-        _subjects = const [];
-        _characters = const [];
+        if (empty) {
+          _offset = 0;
+          _hasMore = true;
+        }
       }
     });
     try {
@@ -384,14 +436,17 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
         _offset = offset + items.length;
         _hasMore = items.length >= _pageSize;
         _loading = false;
+        _refreshing = false;
         _loadingMore = false;
+        _error = null;
       });
     } catch (error) {
       if (!mounted || requestId != _requestId) return;
       setState(() {
         _loading = false;
+        _refreshing = false;
         _loadingMore = false;
-        if (!append) {
+        if (!append && _persons.isEmpty) {
           _error = error.toString().replaceFirst('Exception: ', '');
         }
       });
@@ -405,10 +460,14 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
       if (append) {
         _loadingMore = true;
       } else {
-        _loading = true;
+        final empty = _subjects.isEmpty;
+        _loading = empty;
+        _refreshing = !empty;
         _error = null;
-        _offset = 0;
-        _hasMore = true;
+        if (empty) {
+          _offset = 0;
+          _hasMore = true;
+        }
       }
     });
     try {
@@ -435,14 +494,23 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
         _offset = offset + subjects.length;
         _hasMore = subjects.length >= _pageSize;
         _loading = false;
+        _refreshing = false;
         _loadingMore = false;
+        _error = null;
       });
+      if (!append && subjects.isNotEmpty) {
+        unawaited(
+          SnapshotCache.shared.writeDiscoverBrowse(_browseCacheKey, subjects),
+        );
+      }
     } catch (error) {
       if (!mounted || requestId != _requestId) return;
       setState(() {
         _loading = false;
+        _refreshing = false;
         _loadingMore = false;
-        if (!append) {
+        // Keep stale list; only surface error when there is nothing to show.
+        if (!append && _subjects.isEmpty) {
           _error = error.toString().replaceFirst('Exception: ', '');
         }
       });
@@ -456,10 +524,14 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
       if (append) {
         _loadingMore = true;
       } else {
-        _loading = true;
+        final empty = _subjects.isEmpty;
+        _loading = empty;
+        _refreshing = !empty;
         _error = null;
-        _offset = 0;
-        _hasMore = true;
+        if (empty) {
+          _offset = 0;
+          _hasMore = true;
+        }
         _characters = const [];
         _persons = const [];
       }
@@ -488,14 +560,17 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
         _offset = offset + subjects.length;
         _hasMore = subjects.length >= _pageSize;
         _loading = false;
+        _refreshing = false;
         _loadingMore = false;
+        _error = null;
       });
     } catch (error) {
       if (!mounted || requestId != _requestId) return;
       setState(() {
         _loading = false;
+        _refreshing = false;
         _loadingMore = false;
-        if (!append) {
+        if (!append && _subjects.isEmpty) {
           _error = error.toString().replaceFirst('Exception: ', '');
         }
       });
@@ -768,7 +843,10 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
         ),
       ];
     }
-    if (_error != null) {
+    if (_error != null &&
+        _subjects.isEmpty &&
+        _characters.isEmpty &&
+        _persons.isEmpty) {
       return [
         box(
           EmptyState(
@@ -784,6 +862,17 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
         ),
       ];
     }
+    // Subtle top indicator while refreshing over stale content.
+    final refreshingBar = _refreshing
+        ? [
+            box(
+              const Padding(
+                padding: EdgeInsets.only(bottom: 10),
+                child: LinearProgressIndicator(minHeight: 2),
+              ),
+            ),
+          ]
+        : const <Widget>[];
     if (_queryMode == DiscoverQueryMode.characterPrompt) {
       return [box(const _SearchPrompt(target: DiscoverSearchTarget.character))];
     }
@@ -848,6 +937,7 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
           ? _characters.length
           : _persons.length;
       return [
+        ...refreshingBar,
         _centeredLazySliver(
           pagePad: pagePad,
           itemCount: itemCount,
@@ -910,6 +1000,7 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
     }
 
     return [
+      ...refreshingBar,
       SliverPadding(
         padding: EdgeInsets.symmetric(horizontal: pagePad),
         sliver: SliverLayoutBuilder(

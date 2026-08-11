@@ -40,6 +40,14 @@ List<Override> _overrides([BangumiApi? api]) => [
   discoverCollectionsProvider.overrideWithValue(const <UserCollection>[]),
 ];
 
+/// Progress indicators animate forever; avoid pumpAndSettle for Discover loads.
+Future<void> _pumpDiscoverReady(WidgetTester tester) async {
+  await tester.pump();
+  for (var i = 0; i < 12; i++) {
+    await tester.pump(const Duration(milliseconds: 20));
+  }
+}
+
 void main() {
   test('resolves each discover query mode without mixing browse results', () {
     expect(
@@ -119,7 +127,7 @@ void main() {
     expect(find.text('动画搜索结果'), findsOneWidget);
 
     await tester.tap(find.byTooltip('清空搜索'));
-    await tester.pumpAndSettle();
+    await _pumpDiscoverReady(tester);
     expect(find.text('标签：科幻'), findsNothing);
     expect(find.text('动画季度榜'), findsOneWidget);
   });
@@ -150,7 +158,7 @@ void main() {
         child: const MaterialApp(home: Scaffold(body: DiscoverPage())),
       ),
     );
-    await tester.pumpAndSettle();
+    await _pumpDiscoverReady(tester);
 
     final builtTiles = find.byType(SubjectPosterCard).evaluate().length;
     expect(builtTiles, greaterThan(0));

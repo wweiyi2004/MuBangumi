@@ -6,6 +6,11 @@ import 'dart:math';
 import 'package:dio/dio.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+typedef OAuthAuthorizationLauncher =
+    Future<bool> Function(Uri authorizationUri, Future<Uri> callback);
+
+const oauthAppReturnUri = 'mubangumi://oauth/complete';
+
 class OAuthConfig {
   const OAuthConfig({required this.clientId, required this.clientSecret});
 
@@ -31,10 +36,15 @@ class OAuthTokenBundle {
 }
 
 class BangumiOAuthException implements Exception {
-  const BangumiOAuthException(this.message, {this.invalidatesSession = false});
+  const BangumiOAuthException(
+    this.message, {
+    this.invalidatesSession = false,
+    this.isCancelled = false,
+  });
 
   final String message;
   final bool invalidatesSession;
+  final bool isCancelled;
 
   @override
   String toString() => message;
@@ -49,14 +59,33 @@ class BangumiOAuth {
           receiveTimeout: const Duration(seconds: 20),
           headers: const {
             'Accept': 'application/json',
-            'User-Agent': 'MuBangumi/1.1.0 (Flutter; personal Bangumi client)',
+            'User-Agent': 'MuBangumi/1.2.0 (Flutter; personal Bangumi client)',
           },
         ),
       );
 
   final Dio _dio;
+  Completer<Uri>? _authorizationCancel;
+  HttpServer? _activeAuthServer;
 
-  Future<OAuthTokenBundle> authorize(OAuthConfig config) async {
+  /// Abort an in-flight [authorize] wait (e.g. user closed the browser tab).
+  Future<void> cancelAuthorization() async {
+    final cancel = _authorizationCancel;
+    if (cancel != null && !cancel.isCompleted) {
+      cancel.completeError(
+        const BangumiOAuthException('已取消 Bangumi 授权', isCancelled: true),
+      );
+    }
+    final server = _activeAuthServer;
+    if (server != null) {
+      await server.close(force: true);
+    }
+  }
+
+  Future<OAuthTokenBundle> authorize(
+    OAuthConfig config, {
+    OAuthAuthorizationLauncher? launchAuthorization,
+  }) async {
     if (!config.isValid) throw const BangumiOAuthException('OAuth 配置不完整');
 
     HttpServer server;
@@ -74,35 +103,77 @@ class BangumiOAuth {
       'state': state,
     });
 
+    final cancel = Completer<Uri>();
+    _authorizationCancel = cancel;
+    _activeAuthServer = server;
     try {
-      final opened = await launchUrl(
-        authorizeUri,
-        mode: LaunchMode.externalApplication,
-      );
-      if (!opened) throw const BangumiOAuthException('无法打开 Bangumi 登录页面');
-
-      final callback = await _waitForCallback(server).timeout(
+      final callback = Future.any([
+        _waitForCallback(server),
+        cancel.future,
+      ]).timeout(
         const Duration(minutes: 3),
         onTimeout: () => throw const BangumiOAuthException('授权等待超时，请重新登录'),
       );
-      final returnedState = callback.queryParameters['state'];
-      if (returnedState != state) {
-        throw const BangumiOAuthException('授权状态校验失败，请重新登录');
-      }
-      final error = callback.queryParameters['error'];
-      if (error != null) {
-        throw BangumiOAuthException(
-          callback.queryParameters['error_description'] ?? 'Bangumi 拒绝了授权请求',
+      final opened = launchAuthorization == null
+          ? await launchUrl(
+              authorizeUri,
+              mode: LaunchMode.inAppBrowserView,
+              browserConfiguration: const BrowserConfiguration(showTitle: true),
+            )
+          : await launchAuthorization(authorizeUri, callback);
+      if (!opened) {
+        // Prefer a completed success callback over cancel if the race lands
+        // after the provider already redirected with a code.
+        final raced = await _takeCompletedCallback(callback);
+        if (raced != null) {
+          final code = parseOAuthAuthorizationCallback(
+            raced,
+            expectedState: state,
+          );
+          return _exchangeCode(config, code, state);
+        }
+        unawaited(
+          callback.then<void>((_) {}, onError: (Object _, StackTrace _) {}),
         );
+        throw const BangumiOAuthException('已取消 Bangumi 授权', isCancelled: true);
       }
-      final code = callback.queryParameters['code'];
-      if (code == null || code.isEmpty) {
-        throw const BangumiOAuthException('授权回调中没有 code');
-      }
+
+      final code = parseOAuthAuthorizationCallback(
+        await callback,
+        expectedState: state,
+      );
       return _exchangeCode(config, code, state);
     } finally {
+      if (identical(_authorizationCancel, cancel)) {
+        _authorizationCancel = null;
+      }
+      if (identical(_activeAuthServer, server)) {
+        _activeAuthServer = null;
+      }
       await server.close(force: true);
     }
+  }
+
+  /// If [callback] already completed successfully, return its value; else null.
+  Future<Uri?> _takeCompletedCallback(Future<Uri> callback) async {
+    Uri? value;
+    Object? error;
+    var settled = false;
+    // ignore: unawaited_futures
+    callback.then<void>(
+      (uri) {
+        value = uri;
+        settled = true;
+      },
+      onError: (Object err, StackTrace _) {
+        error = err;
+        settled = true;
+      },
+    );
+    // Yield once so already-completed futures attach their handlers.
+    await Future<void>.delayed(Duration.zero);
+    if (!settled || error != null) return null;
+    return value;
   }
 
   Future<OAuthTokenBundle> refresh(
@@ -191,7 +262,11 @@ class BangumiOAuth {
       request.response
         ..statusCode = HttpStatus.ok
         ..headers.contentType = ContentType.html
-        ..write(hasCode ? _successHtml : _failureHtml);
+        ..write(
+          hasCode
+              ? (Platform.isAndroid ? _androidSuccessHtml : _successHtml)
+              : (Platform.isAndroid ? _androidFailureHtml : _failureHtml),
+        );
       await request.response.close();
       return request.uri;
     }
@@ -207,7 +282,37 @@ class BangumiOAuth {
   static const _successHtml = '''
 <!DOCTYPE html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>MuBangumi 授权完成</title><style>body{margin:0;font-family:system-ui;background:#f7f7fa;color:#1d2433;display:grid;place-items:center;min-height:100vh}.card{background:white;padding:48px;border-radius:24px;text-align:center;box-shadow:0 12px 40px #1d243312}.mark{width:64px;height:64px;border-radius:20px;background:#e95383;color:white;display:grid;place-items:center;font-size:36px;margin:auto}h1{margin:24px 0 8px;font-size:24px}p{color:#6d707f;margin:0}</style></head><body><div class="card"><div class="mark">✓</div><h1>授权成功</h1><p>可以关闭浏览器，回到 MuBangumi 了。</p></div></body></html>
 ''';
+  static const _androidSuccessHtml =
+      '''
+<!DOCTYPE html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><meta http-equiv="refresh" content="0;url=$oauthAppReturnUri"><title>MuBangumi 授权完成</title><style>body{margin:0;font-family:system-ui;background:#f7f7fa;color:#1d2433;display:grid;place-items:center;min-height:100vh}.card{background:white;padding:48px;border-radius:24px;text-align:center;box-shadow:0 12px 40px #1d243312}.mark{width:64px;height:64px;border-radius:20px;background:#e95383;color:white;display:grid;place-items:center;font-size:36px;margin:auto}h1{margin:24px 0 8px;font-size:24px}p{color:#6d707f;margin:0 0 22px}a{display:inline-block;padding:12px 20px;border-radius:999px;background:#e95383;color:white;text-decoration:none;font-weight:600}</style></head><body><div class="card"><div class="mark">✓</div><h1>授权成功</h1><p>正在返回 MuBangumi…</p><a href="$oauthAppReturnUri">返回 MuBangumi</a></div><script>setTimeout(function(){location.replace('$oauthAppReturnUri')},120)</script></body></html>
+''';
   static const _failureHtml = '''
 <!DOCTYPE html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>MuBangumi 授权失败</title></head><body style="font-family:system-ui;text-align:center;padding:60px"><h1>授权未完成</h1><p>请返回 MuBangumi 再试一次。</p></body></html>
 ''';
+  static const _androidFailureHtml =
+      '''
+<!DOCTYPE html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><meta http-equiv="refresh" content="0;url=$oauthAppReturnUri"><title>MuBangumi 授权失败</title><style>body{margin:0;font-family:system-ui;background:#f7f7fa;color:#1d2433;display:grid;place-items:center;min-height:100vh}.card{background:white;padding:48px;border-radius:24px;text-align:center;box-shadow:0 12px 40px #1d243312}.mark{width:64px;height:64px;border-radius:20px;background:#8a93a8;color:white;display:grid;place-items:center;font-size:36px;margin:auto}h1{margin:24px 0 8px;font-size:24px}p{color:#6d707f;margin:0 0 22px}a{display:inline-block;padding:12px 20px;border-radius:999px;background:#e95383;color:white;text-decoration:none;font-weight:600}</style></head><body><div class="card"><div class="mark">!</div><h1>授权未完成</h1><p>正在返回 MuBangumi…</p><a href="$oauthAppReturnUri">返回 MuBangumi</a></div><script>setTimeout(function(){location.replace('$oauthAppReturnUri')},120)</script></body></html>
+''';
+}
+
+String parseOAuthAuthorizationCallback(
+  Uri callback, {
+  required String expectedState,
+}) {
+  final returnedState = callback.queryParameters['state'];
+  if (returnedState != expectedState) {
+    throw const BangumiOAuthException('授权状态校验失败，请重新登录');
+  }
+  final error = callback.queryParameters['error'];
+  if (error != null) {
+    throw BangumiOAuthException(
+      callback.queryParameters['error_description'] ?? 'Bangumi 拒绝了授权请求',
+      isCancelled: error == 'access_denied',
+    );
+  }
+  final code = callback.queryParameters['code'];
+  if (code == null || code.isEmpty) {
+    throw const BangumiOAuthException('授权回调中没有 code');
+  }
+  return code;
 }

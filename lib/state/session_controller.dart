@@ -7,8 +7,12 @@ import '../core/network/bangumi_api.dart';
 import '../core/network/bangumi_endpoints.dart';
 import '../core/network/bangumi_support.dart';
 import '../core/network/community_service.dart';
+import '../core/auth/website_cookie_bridge.dart';
+import '../core/auth/website_session.dart';
+import '../core/storage/snapshot_cache.dart';
 import '../core/storage/token_store.dart';
 import '../models/bangumi_models.dart';
+import 'website_session_controller.dart';
 
 final bangumiApiProvider = Provider<BangumiApi>((ref) => BangumiApi());
 final bangumiOAuthProvider = Provider<BangumiOAuth>((ref) => BangumiOAuth());
@@ -70,8 +74,16 @@ class SessionState {
 }
 
 class SessionController extends StateNotifier<SessionState> {
-  SessionController(this._api, this._oauth, this._tokenStore)
-    : super(const SessionState()) {
+  SessionController(
+    this._api,
+    this._oauth,
+    this._tokenStore, {
+    SnapshotCache? snapshotCache,
+    WebsiteSessionStore? websiteSessionStore,
+    this.onWebsiteSessionCleared,
+  }) : _snapshotCache = snapshotCache ?? SnapshotCache.shared,
+       _websiteSessionStore = websiteSessionStore ?? WebsiteSessionStore(),
+       super(const SessionState()) {
     _api.ensureFreshToken = _ensureFreshToken;
     _api.onUnauthorizedRefresh = tryRefreshAccessToken;
     CommunityService.shared.onUnauthorizedRefresh = tryRefreshAccessToken;
@@ -81,6 +93,11 @@ class SessionController extends StateNotifier<SessionState> {
   final BangumiApi _api;
   final BangumiOAuth _oauth;
   final TokenStore _tokenStore;
+  final SnapshotCache _snapshotCache;
+  final WebsiteSessionStore _websiteSessionStore;
+
+  /// Optional UI hook so Riverpod website-session state stays in sync.
+  final void Function()? onWebsiteSessionCleared;
   BangumiNetworkRoute _networkRoute = BangumiNetworkRoute.official;
   Future<bool>? _refreshInFlight;
   Future<void>? _collectionsInFlight;
@@ -158,27 +175,37 @@ class SessionController extends StateNotifier<SessionState> {
     return _authenticate(token, persist: true);
   }
 
-  Future<bool> signInWithOAuth(OAuthConfig config) async {
-    state = state.copyWith(
-      phase: SessionPhase.booting,
-      isRefreshing: true,
-      clearMessage: true,
-    );
+  Future<bool> signInWithOAuth(
+    OAuthConfig config, {
+    OAuthAuthorizationLauncher? launchAuthorization,
+  }) async {
+    // Stay signedOut while authorizing so AuthScreen (and the Windows WebView
+    // dialog that needs its navigator) remains mounted. Booting starts only
+    // after tokens exist, inside _authenticate.
+    state = state.copyWith(isRefreshing: true, clearMessage: true);
     try {
       await _tokenStore.writeOAuthConfig(config);
       _cachedOAuthConfig = config;
-      final tokens = await _oauth.authorize(config);
+      final tokens = await _oauth.authorize(
+        config,
+        launchAuthorization: launchAuthorization,
+      );
       await _persistTokens(tokens);
       return _authenticate(tokens.accessToken, persist: false);
     } catch (error) {
       state = SessionState(
         phase: SessionPhase.signedOut,
         networkRoute: _networkRoute,
-        message: _messageFor(error),
+        message: error is BangumiOAuthException && error.isCancelled
+            ? null
+            : _messageFor(error),
       );
       return false;
     }
   }
+
+  /// Abort an in-flight OAuth authorize (local callback wait / browser flow).
+  Future<void> cancelOAuthAuthorization() => _oauth.cancelAuthorization();
 
   Future<bool> _authenticate(String token, {required bool persist}) async {
     state = state.copyWith(
@@ -198,13 +225,17 @@ class SessionController extends StateNotifier<SessionState> {
         _cachedRefreshToken = null;
         _cachedExpiresAt = null;
       }
+      // Shaft-style local-first: show last snapshot immediately, refresh later.
+      final cached = await _snapshotCache.readCollections(user.username);
+      final hasCache = cached != null && cached.isNotEmpty;
       state = SessionState(
         phase: SessionPhase.signedIn,
         user: user,
-        collections: const [],
+        collections: cached ?? const [],
         networkRoute: _networkRoute,
         isLoadingCollections: true,
-        isRefreshing: true,
+        // Only block-feeling refresh when we have nothing to show.
+        isRefreshing: !hasCache,
       );
       unawaited(_loadCollectionsAfterSignIn(user.username));
       return true;
@@ -237,18 +268,29 @@ class SessionController extends StateNotifier<SessionState> {
           state.user?.username != username) {
         return;
       }
+      // Replace only anime bucket; keep other types from snapshot until refreshed.
+      final merged = _replaceType(
+        state.collections,
+        SubjectType.anime,
+        anime,
+      );
+      _sortCollections(merged);
       state = state.copyWith(
-        collections: anime,
+        collections: merged,
         isRefreshing: false,
         isLoadingCollections: true,
       );
+      unawaited(_snapshotCache.writeCollections(username, merged));
       await _loadRemainingCollections(username);
     } catch (error) {
       if (generation != _collectionsGeneration) return;
+      final keepStale = state.collections.isNotEmpty;
       state = state.copyWith(
         isRefreshing: false,
         isLoadingCollections: false,
-        message: '收藏同步失败：${_messageFor(error)}',
+        message: keepStale
+            ? '收藏同步失败，已显示本地缓存：${_messageFor(error)}'
+            : '收藏同步失败：${_messageFor(error)}',
       );
     }
   }
@@ -271,9 +313,7 @@ class SessionController extends StateNotifier<SessionState> {
       final otherTypes = SubjectType.values
           .where((type) => type != SubjectType.anime)
           .toList();
-      var merged = state.collections
-          .where((item) => item.subject.type == SubjectType.anime)
-          .toList();
+      var merged = List<UserCollection>.from(state.collections);
       for (final type in otherTypes) {
         if (generation != _collectionsGeneration ||
             state.phase != SessionPhase.signedIn ||
@@ -281,10 +321,7 @@ class SessionController extends StateNotifier<SessionState> {
           return;
         }
         final page = await _api.getUserCollections(username, subjectType: type);
-        merged = [
-          ...merged.where((item) => item.subject.type != type),
-          ...page,
-        ];
+        merged = _replaceType(merged, type, page);
         _sortCollections(merged);
         // Incremental UI update keeps library usable while sync continues.
         state = state.copyWith(
@@ -292,6 +329,7 @@ class SessionController extends StateNotifier<SessionState> {
           isLoadingCollections: true,
           isRefreshing: false,
         );
+        unawaited(_snapshotCache.writeCollections(username, merged));
         await Future<void>.delayed(const Duration(milliseconds: 16));
       }
       if (generation != _collectionsGeneration) return;
@@ -300,15 +338,27 @@ class SessionController extends StateNotifier<SessionState> {
         isLoadingCollections: false,
         isRefreshing: false,
       );
+      unawaited(_snapshotCache.writeCollections(username, merged));
     } catch (error) {
       if (generation != _collectionsGeneration) return;
       state = state.copyWith(
         isLoadingCollections: false,
         isRefreshing: false,
-        message: '部分收藏同步失败：${_messageFor(error)}',
+        message: state.collections.isNotEmpty
+            ? '部分收藏同步失败，已保留本地数据：${_messageFor(error)}'
+            : '部分收藏同步失败：${_messageFor(error)}',
       );
     }
   }
+
+  List<UserCollection> _replaceType(
+    List<UserCollection> current,
+    SubjectType type,
+    List<UserCollection> page,
+  ) => [
+    ...current.where((item) => item.subject.type != type),
+    ...page,
+  ];
 
   Future<List<UserCollection>> _loadAllCollections(String username) async {
     final pages = await Future.wait([
@@ -402,21 +452,23 @@ class SessionController extends StateNotifier<SessionState> {
         user.username,
         subjectType: SubjectType.anime,
       );
-      final others = state.collections
-          .where((item) => item.subject.type != SubjectType.anime)
-          .toList();
+      final merged = _replaceType(state.collections, SubjectType.anime, anime);
+      _sortCollections(merged);
       state = state.copyWith(
-        collections: [...anime, ...others],
+        collections: merged,
         isRefreshing: false,
         isLoadingCollections: true,
         clearMessage: true,
       );
+      unawaited(_snapshotCache.writeCollections(user.username, merged));
       await _loadRemainingCollections(user.username);
     } catch (error) {
       state = state.copyWith(
         isRefreshing: false,
         isLoadingCollections: false,
-        message: _messageFor(error),
+        message: state.collections.isNotEmpty
+            ? '刷新失败，已保留本地数据：${_messageFor(error)}'
+            : _messageFor(error),
       );
     }
   }
@@ -607,6 +659,17 @@ class SessionController extends StateNotifier<SessionState> {
     _cachedExpiresAt = null;
     _cachedOAuthConfig = null;
     await _tokenStore.clear();
+    // Website cookie session is independent of OAuth, but clearing on sign-out
+    // avoids leaving another account's web session on the device.
+    try {
+      await _websiteSessionStore.clear();
+      await WebsiteCookieBridge.clearBgmCookies();
+    } catch (_) {
+      // Secure storage / platform jars may be unavailable in pure unit tests.
+    }
+    try {
+      onWebsiteSessionCleared?.call();
+    } catch (_) {}
     _api.setAccessToken(null);
     CommunityService.shared.setAccessToken(null);
     CommunityService.shared.setCurrentUsername(null);
@@ -655,5 +718,9 @@ final sessionProvider = StateNotifierProvider<SessionController, SessionState>((
     ref.watch(bangumiApiProvider),
     ref.watch(bangumiOAuthProvider),
     ref.watch(tokenStoreProvider),
+    onWebsiteSessionCleared: () {
+      // Keep in-memory website session UI state aligned with storage wipe.
+      ref.read(websiteSessionProvider.notifier).markCleared();
+    },
   );
 });

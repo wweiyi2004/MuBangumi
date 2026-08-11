@@ -1,3 +1,6 @@
+import 'dart:async';
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter/services.dart';
@@ -8,6 +11,7 @@ import '../core/auth/bangumi_oauth.dart';
 import '../core/auth/oauth_builtin.dart';
 import '../state/session_controller.dart';
 import '../widgets/network_route_picker.dart';
+import '../widgets/oauth_authorization_dialog.dart';
 
 class AuthScreen extends ConsumerStatefulWidget {
   const AuthScreen({super.key});
@@ -19,6 +23,13 @@ class AuthScreen extends ConsumerStatefulWidget {
 class _AuthScreenState extends ConsumerState<AuthScreen> {
   final _tokenController = TextEditingController();
   bool _hidden = true;
+  bool? _hasSavedOAuthConfig;
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(_refreshOAuthConfigurationState());
+  }
 
   @override
   void dispose() {
@@ -37,17 +48,74 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
   }
 
   Future<void> _startOAuth({bool editConfiguration = false}) async {
+    final session = ref.read(sessionProvider);
+    if (session.isRefreshing && session.phase == SessionPhase.signedOut) {
+      return;
+    }
+    ref.read(sessionProvider.notifier).clearMessage();
     // Prefer built-in app (one-tap), then saved custom app, then setup dialog.
     OAuthConfig? config = OAuthBuiltin.config;
-    config ??= await ref.read(tokenStoreProvider).readOAuthConfig();
+    final savedConfig = await ref.read(tokenStoreProvider).readOAuthConfig();
+    config ??= savedConfig;
     if (config == null || editConfiguration) {
       if (!mounted) return;
       config = await _showOAuthSetup(
-        editConfiguration ? (await ref.read(tokenStoreProvider).readOAuthConfig()) ?? OAuthBuiltin.config : config,
+        editConfiguration ? savedConfig ?? OAuthBuiltin.config : config,
       );
     }
     if (config == null || !mounted) return;
-    await ref.read(sessionProvider.notifier).signInWithOAuth(config);
+    final signedIn = await ref
+        .read(sessionProvider.notifier)
+        .signInWithOAuth(
+          config,
+          launchAuthorization: _launchOAuthAuthorization,
+        );
+    if (!signedIn && mounted) await _refreshOAuthConfigurationState();
+  }
+
+  Future<void> _cancelOAuth() async {
+    await ref.read(sessionProvider.notifier).cancelOAuthAuthorization();
+  }
+
+  String get _oauthHelperText {
+    if (!OAuthBuiltin.isConfigured && _hasSavedOAuthConfig == false) {
+      return '首次需要创建 Bangumi 开发者应用，配置后即可在软件内授权';
+    }
+    if (Platform.isWindows) {
+      return '将在 MuBangumi 内打开官方授权页，成功后自动关闭';
+    }
+    if (Platform.isAndroid) {
+      return '将在应用内安全标签页打开官方授权页，成功后自动返回';
+    }
+    // iOS / desktop fallbacks: in-app browser does not auto-deep-link back.
+    return '将在应用内安全标签页打开官方授权页，完成后请关闭标签页返回';
+  }
+
+  Future<void> _refreshOAuthConfigurationState() async {
+    final config = await ref.read(tokenStoreProvider).readOAuthConfig();
+    if (!mounted) return;
+    setState(() => _hasSavedOAuthConfig = config?.isValid == true);
+  }
+
+  Future<bool> _launchOAuthAuthorization(
+    Uri authorizationUri,
+    Future<Uri> callback,
+  ) async {
+    if (Platform.isWindows) {
+      if (!mounted) return false;
+      return showOAuthAuthorizationDialog(
+        context,
+        authorizationUri: authorizationUri,
+        callback: callback,
+      );
+    }
+    final opened = await launchUrl(
+      authorizationUri,
+      mode: LaunchMode.inAppBrowserView,
+      browserConfiguration: const BrowserConfiguration(showTitle: true),
+    );
+    if (opened) return true;
+    return launchUrl(authorizationUri, mode: LaunchMode.externalApplication);
   }
 
   Future<OAuthConfig?> _showOAuthSetup(OAuthConfig? current) async {
@@ -74,7 +142,7 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
                   Text(
                     OAuthBuiltin.isConfigured
                         ? '应用已内置默认 OAuth。仅在需要使用自己的开发者应用时填写下方字段。'
-                        : '在 Bangumi 开发者平台创建应用，把下面的地址原样填写为回调地址，然后复制 App ID 和 App Secret。也可在构建时用 --dart-define=BGM_CLIENT_ID / BGM_CLIENT_SECRET 内置。',
+                        : 'Bangumi 官方目前要求每个第三方客户端提供 App ID 和 App Secret。请先在开发者平台创建应用，再把下面的地址原样填写为回调地址。这项配置只需完成一次。',
                   ),
                   const SizedBox(height: 16),
                   Container(
@@ -157,7 +225,7 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
                   ],
                   const SizedBox(height: 10),
                   Text(
-                    'App Secret 会和登录凭据一起保存在当前设备的系统安全存储中。',
+                    'App Secret 仅保存在当前设备的系统安全存储中，不会发送给 MuBangumi 以外的服务。',
                     style: Theme.of(context).textTheme.bodySmall,
                   ),
                 ],
@@ -217,13 +285,13 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
                             horizontal: wide
                                 ? 56
                                 : phone
-                                    ? 18
-                                    : 24,
+                                ? 18
+                                : 24,
                             vertical: wide
                                 ? 58
                                 : phone
-                                    ? 28
-                                    : 38,
+                                ? 28
+                                : 38,
                           ),
                           child: ConstrainedBox(
                             constraints: const BoxConstraints(maxWidth: 420),
@@ -253,22 +321,75 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
                                 SizedBox(
                                   width: double.infinity,
                                   child: FilledButton.icon(
-                                    onPressed: _startOAuth,
-                                    icon: const Icon(
-                                      Icons.account_circle_rounded,
-                                    ),
+                                    onPressed:
+                                        session.isRefreshing &&
+                                            session.phase ==
+                                                SessionPhase.signedOut
+                                        ? null
+                                        : _startOAuth,
+                                    icon: session.isRefreshing &&
+                                            session.phase ==
+                                                SessionPhase.signedOut
+                                        ? const SizedBox.square(
+                                            dimension: 18,
+                                            child: CircularProgressIndicator(
+                                              strokeWidth: 2,
+                                            ),
+                                          )
+                                        : const Icon(
+                                            Icons.account_circle_rounded,
+                                          ),
                                     label: Text(
-                                      OAuthBuiltin.isConfigured
+                                      session.isRefreshing &&
+                                              session.phase ==
+                                                  SessionPhase.signedOut
+                                          ? '正在等待 Bangumi 授权…'
+                                          : OAuthBuiltin.isConfigured
                                           ? '使用 Bangumi 一键登录'
-                                          : '使用 Bangumi 登录',
+                                          : _hasSavedOAuthConfig == true
+                                          ? '使用已保存配置登录'
+                                          : _hasSavedOAuthConfig == false
+                                          ? '配置 Bangumi 登录'
+                                          : '正在检查登录配置…',
                                     ),
+                                  ),
+                                ),
+                                if (session.isRefreshing &&
+                                    session.phase == SessionPhase.signedOut) ...[
+                                  const SizedBox(height: 8),
+                                  SizedBox(
+                                    width: double.infinity,
+                                    child: OutlinedButton.icon(
+                                      onPressed: _cancelOAuth,
+                                      icon: const Icon(Icons.close_rounded),
+                                      label: const Text('取消授权'),
+                                    ),
+                                  ),
+                                ],
+                                const SizedBox(height: 8),
+                                Center(
+                                  child: Text(
+                                    _oauthHelperText,
+                                    textAlign: TextAlign.center,
+                                    style: Theme.of(context).textTheme.bodySmall
+                                        ?.copyWith(
+                                          color: Theme.of(
+                                            context,
+                                          ).colorScheme.onSurfaceVariant,
+                                        ),
                                   ),
                                 ),
                                 Align(
                                   alignment: Alignment.center,
                                   child: TextButton.icon(
-                                    onPressed: () =>
-                                        _startOAuth(editConfiguration: true),
+                                    onPressed:
+                                        session.isRefreshing &&
+                                            session.phase ==
+                                                SessionPhase.signedOut
+                                        ? null
+                                        : () => _startOAuth(
+                                            editConfiguration: true,
+                                          ),
                                     icon: const Icon(
                                       Icons.settings_outlined,
                                       size: 17,
@@ -276,7 +397,9 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
                                     label: Text(
                                       OAuthBuiltin.isConfigured
                                           ? '高级：自定义 OAuth'
-                                          : 'OAuth 配置',
+                                          : _hasSavedOAuthConfig == true
+                                          ? '更换 OAuth 配置'
+                                          : '查看 OAuth 配置',
                                     ),
                                   ),
                                 ),

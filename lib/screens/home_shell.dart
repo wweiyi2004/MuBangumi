@@ -6,6 +6,7 @@ import '../core/layout/app_layout.dart';
 import '../core/widget/home_widget_sync_host.dart';
 import '../state/background_controller.dart';
 import '../state/notify_controller.dart';
+import '../widgets/update_check_host.dart';
 import 'community_hub_page.dart';
 import 'discover_page.dart';
 import 'home_page.dart';
@@ -82,49 +83,51 @@ class _HomeShellState extends ConsumerState<HomeShell> {
     final glassBg = ref.watch(
       backgroundSettingsProvider.select((s) => s.isActive),
     );
-    return HomeWidgetSyncHost(
-      onOpenSchedule: _openSchedule,
-      child: Scaffold(
-        backgroundColor: glassBg ? Colors.transparent : null,
-        body: SafeArea(
-          child: Row(
-            children: [
-              if (desktop)
-                _DesktopNavigation(
-                  index: _index,
-                  onChanged: _selectPage,
-                  unreadCount: unread,
-                  glass: glassBg,
-                  onOpenSchedule: _openSchedule,
+    return UpdateCheckHost(
+      child: HomeWidgetSyncHost(
+        onOpenSchedule: _openSchedule,
+        child: Scaffold(
+          backgroundColor: glassBg ? Colors.transparent : null,
+          body: SafeArea(
+            child: Row(
+              children: [
+                if (desktop)
+                  _DesktopNavigation(
+                    index: _index,
+                    onChanged: _selectPage,
+                    unreadCount: unread,
+                    glass: glassBg,
+                    onOpenSchedule: _openSchedule,
+                  ),
+                Expanded(
+                  child: IndexedStack(index: _index, children: pages),
                 ),
-              Expanded(
-                child: IndexedStack(index: _index, children: pages),
-              ),
-            ],
+              ],
+            ),
           ),
+          bottomNavigationBar: desktop
+              ? null
+              : NavigationBar(
+                  height: navHeight,
+                  selectedIndex: _index,
+                  labelBehavior: AppLayout.navLabelBehavior(context),
+                  onDestinationSelected: _selectPage,
+                  destinations: [
+                    for (var i = 0; i < _destinations.length; i++)
+                      NavigationDestination(
+                        icon: _badgedIcon(
+                          Icon(_destinations[i].icon),
+                          count: i == 4 ? unread : 0,
+                        ),
+                        selectedIcon: _badgedIcon(
+                          Icon(_destinations[i].selected),
+                          count: i == 4 ? unread : 0,
+                        ),
+                        label: _destinations[i].label,
+                      ),
+                  ],
+                ),
         ),
-        bottomNavigationBar: desktop
-            ? null
-            : NavigationBar(
-                height: navHeight,
-                selectedIndex: _index,
-                labelBehavior: AppLayout.navLabelBehavior(context),
-                onDestinationSelected: _selectPage,
-                destinations: [
-                  for (var i = 0; i < _destinations.length; i++)
-                    NavigationDestination(
-                      icon: _badgedIcon(
-                        Icon(_destinations[i].icon),
-                        count: i == 4 ? unread : 0,
-                      ),
-                      selectedIcon: _badgedIcon(
-                        Icon(_destinations[i].selected),
-                        count: i == 4 ? unread : 0,
-                      ),
-                      label: _destinations[i].label,
-                    ),
-                ],
-              ),
       ),
     );
   }

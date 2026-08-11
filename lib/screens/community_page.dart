@@ -7,6 +7,9 @@ import 'package:webview_flutter/webview_flutter.dart' as mobile;
 import 'package:webview_flutter_windows/webview_flutter_windows.dart'
     as windows;
 
+import '../core/auth/website_cookie_bridge.dart';
+import '../core/auth/website_session.dart';
+
 enum _CommunitySection {
   rakuen('超展开', Icons.forum_outlined, 'https://bgm.tv/rakuen'),
   groups('小组', Icons.groups_outlined, 'https://bgm.tv/group'),
@@ -30,7 +33,11 @@ class CommunityWebScreen extends StatefulWidget {
     this.title = 'Bangumi 社区',
     this.showSectionSwitcher = true,
     this.loginHint =
-        '社区使用 Bangumi 官方网页。发帖或回复时，需要在这里单独登录一次。',
+        '社区使用 Bangumi 官方网页。可在「我的 → 同步网站登录」保存会话，减少重复登录。',
+    this.seedCookies = const [],
+    this.enableCookieCapture = false,
+    this.onCookiesCaptured,
+    this.captureActionLabel,
   });
 
   final String initialUrl;
@@ -38,6 +45,14 @@ class CommunityWebScreen extends StatefulWidget {
   /// When false, hides 超展开/小组 segment chips (e.g. PM / membership flows).
   final bool showSectionSwitcher;
   final String loginHint;
+
+  /// Cookies injected before the first navigation (website session snapshot).
+  final List<WebsiteCookie> seedCookies;
+
+  /// Show a button to capture the current WebView cookies.
+  final bool enableCookieCapture;
+  final ValueChanged<List<WebsiteCookie>>? onCookiesCaptured;
+  final String? captureActionLabel;
 
   @override
   State<CommunityWebScreen> createState() => _CommunityWebScreenState();
@@ -72,6 +87,23 @@ class _CommunityWebScreenState extends State<CommunityWebScreen> {
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(const SnackBar(content: Text('无法打开系统浏览器')));
+    }
+  }
+
+  Future<void> _captureCookies() async {
+    final cookies = await _browserKey.currentState?.captureCookies() ?? const [];
+    if (!mounted) return;
+    if (cookies.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('未读取到 Cookie，请确认已在页面中登录')),
+      );
+      return;
+    }
+    widget.onCookiesCaptured?.call(cookies);
+    if (widget.onCookiesCaptured == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('已捕获 ${cookies.length} 条 Cookie')),
+      );
     }
   }
 
@@ -137,6 +169,12 @@ class _CommunityWebScreenState extends State<CommunityWebScreen> {
                       icon: Icons.open_in_new_rounded,
                       onPressed: _openExternally,
                     ),
+                    if (widget.enableCookieCapture)
+                      _BrowserButton(
+                        tooltip: widget.captureActionLabel ?? '保存网站会话',
+                        icon: Icons.save_rounded,
+                        onPressed: _captureCookies,
+                      ),
                   ],
                 ),
               ),
@@ -212,6 +250,7 @@ class _CommunityWebScreenState extends State<CommunityWebScreen> {
                           child: _CommunityBrowser(
                             key: _browserKey,
                             initialUrl: widget.initialUrl,
+                            seedCookies: widget.seedCookies,
                             onStateChanged: (value) {
                               if (mounted) setState(() => _browser = value);
                             },
@@ -278,10 +317,12 @@ class _CommunityBrowser extends StatefulWidget {
     super.key,
     required this.initialUrl,
     required this.onStateChanged,
+    this.seedCookies = const [],
   });
 
   final String initialUrl;
   final ValueChanged<_BrowserSnapshot> onStateChanged;
+  final List<WebsiteCookie> seedCookies;
 
   @override
   State<_CommunityBrowser> createState() => _CommunityBrowserState();
@@ -307,7 +348,7 @@ class _CommunityBrowserState extends State<_CommunityBrowser> {
     if (Platform.isWindows) {
       unawaited(_initializeWindows());
     } else if (Platform.isAndroid || Platform.isIOS || Platform.isMacOS) {
-      _initializeMobile();
+      unawaited(_initializeMobile());
     } else {
       _error = '当前平台暂不支持内嵌社区页面，请使用右上角的外部浏览器按钮。';
       _loading = false;
@@ -343,6 +384,7 @@ class _CommunityBrowserState extends State<_CommunityBrowser> {
         windows.WebviewPopupWindowPolicy.sameWindow,
       );
       await controller.setDefaultContextMenusEnabled(true);
+      await WebsiteCookieBridge.injectWindows(controller, widget.seedCookies);
       _ready = true;
       if (mounted) setState(() {});
       await controller.loadUrl(_targetUrl);
@@ -356,7 +398,9 @@ class _CommunityBrowserState extends State<_CommunityBrowser> {
     }
   }
 
-  void _initializeMobile() {
+  Future<void> _initializeMobile() async {
+    await WebsiteCookieBridge.injectMobile(widget.seedCookies);
+    if (!mounted) return;
     final controller = mobile.WebViewController()
       ..setJavaScriptMode(mobile.JavaScriptMode.unrestricted)
       ..setBackgroundColor(Colors.white)
@@ -387,8 +431,14 @@ class _CommunityBrowserState extends State<_CommunityBrowser> {
       );
     _mobileController = controller;
     _ready = true;
+    if (mounted) setState(() {});
     unawaited(controller.loadRequest(Uri.parse(_targetUrl)));
   }
+
+  Future<List<WebsiteCookie>> captureCookies() => WebsiteCookieBridge.capture(
+    windowsController: _windowsController,
+    mobileController: _mobileController,
+  );
 
   Future<void> _updateMobileHistory() async {
     final controller = _mobileController;

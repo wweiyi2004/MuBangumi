@@ -8,8 +8,8 @@ import '../models/community_models.dart';
 import '../state/user_preferences_controller.dart';
 import '../widgets/community_composer.dart';
 import '../widgets/community_widgets.dart';
-import 'community_page.dart';
 import 'user_profile_page.dart';
+import 'website_login_screen.dart';
 
 class CommunityTopicScreen extends ConsumerStatefulWidget {
   const CommunityTopicScreen({super.key, required this.topic});
@@ -122,14 +122,12 @@ class _CommunityTopicScreenState extends ConsumerState<CommunityTopicScreen> {
     return '这个话题已经 $inactiveDays 天没有更新，请确认回复仍与当前讨论有关。';
   }
 
-  void _openWeb() {
-    Navigator.of(context).push(
-      MaterialPageRoute<void>(
-        builder: (_) => CommunityWebScreen(
-          initialUrl: widget.topic.webUrl,
-          title: widget.topic.title,
-        ),
-      ),
+  Future<void> _openWeb() async {
+    await openSeededCommunityWeb(
+      context,
+      initialUrl: widget.topic.webUrl,
+      title: widget.topic.title,
+      showSectionSwitcher: false,
     );
   }
 

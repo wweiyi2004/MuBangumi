@@ -49,7 +49,11 @@ dependencies:
   home_widget: ^0.9.3
   path_provider: ^2.1.6
   file_picker: 10.3.10
-
+  shorebird_code_push: ^2.0.7
+  package_info_plus: ^9.0.1
+  flutter_markdown_plus: ^1.0.12
+  webview_flutter_android: ^4.13.0
+  webview_flutter_platform_interface: ^2.15.1
 dev_dependencies:
   flutter_test:
     sdk: flutter
@@ -71,6 +75,8 @@ flutter:
   # The following line ensures that the Material Icons font is
   # included with your application, so that you can use the icons in
   # the material Icons class.
+  assets:
+    - shorebird.yaml
   uses-material-design: true
 
 flutter_launcher_icons:

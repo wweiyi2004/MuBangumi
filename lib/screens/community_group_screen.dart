@@ -9,6 +9,7 @@ import '../widgets/community_widgets.dart';
 import 'community_page.dart';
 import 'community_topic_screen.dart';
 import 'user_profile_page.dart';
+import 'website_login_screen.dart';
 
 class CommunityGroupScreen extends StatefulWidget {
   const CommunityGroupScreen({super.key, required this.group});
@@ -77,13 +78,18 @@ class _CommunityGroupScreenState extends State<CommunityGroupScreen> {
   Future<void> _openMembershipOnWeb() async {
     // P1 暂无加入/退出小组写接口；应用内 WebView 完成网站会话操作后可返回刷新。
     if (!mounted) return;
+    final cookies = await loadWebsiteSeedCookies();
+    if (!mounted) return;
     await Navigator.of(context).push(
       MaterialPageRoute<void>(
         builder: (_) => CommunityWebScreen(
           initialUrl: widget.group.url,
           title: _detail?.isJoined == true ? '退出小组' : '加入小组',
           showSectionSwitcher: false,
-          loginHint: '加入/退出小组使用官方网页。OAuth 与网站登录独立，首次请在此登录一次。',
+          seedCookies: cookies,
+          loginHint: cookies.isEmpty
+              ? '加入/退出小组使用官网会话。请先到「我的 → 同步网站登录」，或在此页登录。'
+              : '已注入同步的网站会话。若仍提示登录，请重新同步网站登录。',
         ),
       ),
     );
@@ -118,14 +124,12 @@ class _CommunityGroupScreenState extends State<CommunityGroupScreen> {
     );
   }
 
-  void _openWeb() {
-    Navigator.of(context).push(
-      MaterialPageRoute<void>(
-        builder: (_) => CommunityWebScreen(
-          initialUrl: widget.group.url,
-          title: widget.group.name,
-        ),
-      ),
+  Future<void> _openWeb() async {
+    await openSeededCommunityWeb(
+      context,
+      initialUrl: widget.group.url,
+      title: widget.group.name,
+      showSectionSwitcher: false,
     );
   }
 

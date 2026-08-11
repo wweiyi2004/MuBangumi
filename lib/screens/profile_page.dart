@@ -5,12 +5,16 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../core/layout/app_layout.dart';
 import '../core/network/bangumi_endpoints.dart';
+import '../core/update/app_update_service.dart';
 import '../models/bangumi_models.dart';
 import '../state/background_controller.dart';
 import '../state/session_controller.dart';
 import '../state/theme_controller.dart';
+import '../state/update_controller.dart';
+import '../state/website_session_controller.dart';
 import '../widgets/network_route_picker.dart';
 import '../widgets/subject_widgets.dart';
+import '../widgets/update_ready_dialog.dart';
 import '../state/notify_controller.dart';
 import 'background_settings_sheet.dart';
 import 'calendar_page.dart';
@@ -18,6 +22,7 @@ import 'collection_stats_page.dart';
 import 'friends_page.dart';
 import 'notify_page.dart';
 import 'pm_page.dart';
+import 'website_login_screen.dart';
 
 class ProfilePage extends ConsumerWidget {
   const ProfilePage({super.key});
@@ -334,6 +339,10 @@ class ProfilePage extends ConsumerWidget {
                           : () => showNetworkRoutePicker(context, ref),
                     ),
                     const Divider(height: 1, indent: 56),
+                    _UpdateSettingsTile(),
+                    const Divider(height: 1, indent: 56),
+                    _WebsiteSessionTile(),
+                    const Divider(height: 1, indent: 56),
                     ListTile(
                       leading: const Icon(Icons.open_in_new_rounded),
                       title: const Text('打开 Bangumi 个人主页'),
@@ -365,7 +374,7 @@ class ProfilePage extends ConsumerWidget {
               const SizedBox(height: 26),
               Center(
                 child: Text(
-                  'MuBangumi 1.1.0 · 数据来自 Bangumi.tv',
+                  _footerVersionLabel(ref),
                   style: Theme.of(context).textTheme.bodySmall?.copyWith(
                     color: Theme.of(context).colorScheme.onSurfaceVariant,
                   ),
@@ -376,6 +385,14 @@ class ProfilePage extends ConsumerWidget {
         ),
       ),
     );
+  }
+
+  String _footerVersionLabel(WidgetRef ref) {
+    final snapshot = ref.watch(updateControllerProvider).snapshot;
+    if (snapshot == null) {
+      return 'MuBangumi · 数据来自 Bangumi.tv';
+    }
+    return 'MuBangumi ${snapshot.versionLabel} · 数据来自 Bangumi.tv';
   }
 
   String _themeLabel(ThemeMode mode) => switch (mode) {
@@ -423,7 +440,9 @@ class ProfilePage extends ConsumerWidget {
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('退出登录？'),
-        content: const Text('本机保存的 Access Token 会被删除。'),
+        content: const Text(
+          '本机保存的 Access Token 与网站登录会话都会被删除。',
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
@@ -436,7 +455,141 @@ class ProfilePage extends ConsumerWidget {
         ],
       ),
     );
-    if (confirmed == true) await ref.read(sessionProvider.notifier).signOut();
+    if (confirmed == true) {
+      await ref.read(sessionProvider.notifier).signOut();
+      await ref.read(websiteSessionProvider.notifier).reload();
+    }
+  }
+}
+
+class _WebsiteSessionTile extends ConsumerWidget {
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final website = ref.watch(websiteSessionProvider);
+    return ListTile(
+      leading: Icon(
+        website.isSynced
+            ? Icons.verified_user_outlined
+            : Icons.language_rounded,
+      ),
+      title: const Text('同步网站登录'),
+      subtitle: Text(website.statusLabel),
+      trailing: const Icon(Icons.chevron_right_rounded),
+      onTap: () async {
+        final action = await showModalBottomSheet<String>(
+          context: context,
+          showDragHandle: true,
+          builder: (context) => SafeArea(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                ListTile(
+                  leading: const Icon(Icons.login_rounded),
+                  title: Text(website.isSynced ? '重新同步网站登录' : '去官网登录并保存'),
+                  subtitle: const Text('用于加组、站内短信等网页能力'),
+                  onTap: () => Navigator.pop(context, 'sync'),
+                ),
+                if (website.isSynced)
+                  ListTile(
+                    leading: Icon(
+                      Icons.delete_outline_rounded,
+                      color: Theme.of(context).colorScheme.error,
+                    ),
+                    title: Text(
+                      '清除网站会话',
+                      style: TextStyle(
+                        color: Theme.of(context).colorScheme.error,
+                      ),
+                    ),
+                    onTap: () => Navigator.pop(context, 'clear'),
+                  ),
+                const SizedBox(height: 8),
+              ],
+            ),
+          ),
+        );
+        if (!context.mounted || action == null) return;
+        if (action == 'clear') {
+          await ref.read(websiteSessionProvider.notifier).clear();
+          if (!context.mounted) return;
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(const SnackBar(content: Text('已清除网站登录会话')));
+          return;
+        }
+        final synced = await openWebsiteLoginScreen(context);
+        if (!context.mounted) return;
+        await ref.read(websiteSessionProvider.notifier).reload();
+        if (synced == true && context.mounted) {
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(const SnackBar(content: Text('网站登录已可用')));
+        }
+      },
+    );
+  }
+}
+
+class _UpdateSettingsTile extends ConsumerWidget {
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final update = ref.watch(updateControllerProvider);
+    final snapshot = update.snapshot;
+    final subtitle = update.busy
+        ? '正在检查 / 下载热更新…'
+        : snapshot == null
+        ? 'Shorebird 热更新 · 检查并下载补丁'
+        : switch (snapshot.phase) {
+            AppUpdatePhase.upToDate => '已是最新 · ${snapshot.versionLabel}',
+            AppUpdatePhase.outdated => '发现可用热更新',
+            AppUpdatePhase.restartRequired => '已就绪，重启后生效',
+            AppUpdatePhase.unavailable =>
+              snapshot.message ?? '当前构建未启用热更新',
+            AppUpdatePhase.error => snapshot.message ?? '检查失败',
+          };
+
+    return ListTile(
+      leading: const Icon(Icons.system_update_alt_rounded),
+      title: const Text('检查热更新'),
+      subtitle: Text(subtitle),
+      trailing: update.busy
+          ? const SizedBox.square(
+              dimension: 18,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            )
+          : const Icon(Icons.chevron_right_rounded),
+      onTap: update.busy
+          ? null
+          : () => _checkUpdate(context, ref),
+    );
+  }
+
+  Future<void> _checkUpdate(BuildContext context, WidgetRef ref) async {
+    final messenger = ScaffoldMessenger.of(context);
+    final controller = ref.read(updateControllerProvider.notifier);
+    final snapshot = await controller.checkNow(downloadIfOutdated: true);
+    if (!context.mounted) return;
+
+    if (snapshot.isRestartReady) {
+      final restart = await showUpdateReadyDialog(
+        context,
+        snapshot: snapshot,
+      );
+      if (restart == true && context.mounted) {
+        controller.restartApp();
+      }
+      return;
+    }
+
+    final text = switch (snapshot.phase) {
+      AppUpdatePhase.upToDate => '已是最新热更新（${snapshot.versionLabel}）',
+      AppUpdatePhase.outdated => '发现可用热更新，请稍后再试或重启后重试',
+      AppUpdatePhase.unavailable =>
+        snapshot.message ?? '当前构建未启用 Shorebird 热更新',
+      AppUpdatePhase.error => snapshot.message ?? '检查热更新失败',
+      AppUpdatePhase.restartRequired => '热更新已就绪，请重启应用',
+    };
+    messenger.showSnackBar(SnackBar(content: Text(text)));
   }
 }
 

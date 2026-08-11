@@ -33,7 +33,10 @@ MuBangumi 是一个使用 Flutter 编写的第三方 Bangumi 追番客户端，�
 - 收藏统计与年度回顾：类型 / 状态 / 评分 / 标签分布，支持完整 JSON 导出
 - 用户本地备注与内容屏蔽（SQLite，仅保存在本机；时间线和话题内容可临时展开）
 - 原生电波提醒列表（P1，支持标已读）；「我的」Tab 未读角标
-- 站内短信：应用内 WebView 打开官网收件箱 / 写信（P1 无私信 API）
+- 站内短信：原生收件箱 / 会话 / 发送（网站 Cookie；失败可回退网页）
+- Shorebird 热更新检查与重启提示（需 shorebird release 包）
+- 收藏本地快照与发现页 stale-while-revalidate
+- 同步网站登录（Cookie 安全存储，供私信等网页能力）
 - 深色 / 浅色 / 跟随系统主题
 - 自定义背景图 + 分层毛玻璃（壁纸 / 压暗 / 磨砂强度 / 玻璃不透明度）
 - 借鉴超合金组件：评分详情与争议度、好友看？、看过自动补进度、楼主/好友高亮
@@ -50,7 +53,7 @@ MuBangumi 是一个使用 Flutter 编写的第三方 Bangumi 追番客户端，�
 
 Bangumi 当前公开 OpenAPI 不提供完整的小组、私信与通知接口。MuBangumi 对社区列表与话题使用 P1 JSON（失败时回退 HTML 解析），并使用短时缓存减少重复请求；如果网站结构发生变化，解析规则可能需要随之更新。
 
-API 的 OAuth 登录可直接调用 next.bgm.tv P1 完成电波提醒与加/删好友。站内短信、小组加入/退出等网站专属能力使用内嵌 WebView（需网站登录态，与 OAuth 独立）。Windows 端需要 Microsoft Edge WebView2 Runtime（Windows 11 和较新的 Windows 10 通常已预装）。
+API 的 OAuth 登录可直接调用 next.bgm.tv P1 完成电波提醒与加/删好友。站内短信已改为**原生界面**（收件箱 / 会话 / 发送），通过「我的 → 同步网站登录」保存的官网 Cookie 访问 `bgm.tv/pm` HTML 接口；失败时可回退网页版。小组加入/退出等仍可用内嵌 WebView。退出 OAuth 时会一并清除网站会话。Windows 端需要 Microsoft Edge WebView2 Runtime（Windows 11 和较新的 Windows 10 通常已预装）。
 
 ## 开始运行
 
@@ -90,23 +93,55 @@ flutter run -d windows --dart-define=BGM_CLIENT_ID=你的AppID --dart-define=BGM
 
 Token 与 Secret 由 `flutter_secure_storage` 保存在系统安全存储中，到期会自动刷新。
 
+## 热更新（Shorebird）
+
+应用使用 [Shorebird](https://shorebird.dev) 做 **Dart 代码热更新**（Android / Windows 等）。
+
+- 登录后进入主界面会延迟检查；有可用 patch 时下载，并弹窗展示 **Markdown 更新说明**（含 GitHub Release body），可「立即重启 / 稍后」。
+- 「我的」→「检查热更新」可手动检查。
+- 必须用 Shorebird 打的包用户才能收到 patch；普通 `flutter run` / `flutter build` **不会**启用 updater。
+- 改原生代码、资源或 Flutter 引擎版本时，需要重新 `shorebird release`，不能只 patch。
+
+```powershell
+# 安装 CLI 后登录：shorebird login
+# 初始化（本仓库已有 shorebird.yaml）
+
+# 发整包基线（分发给用户的安装包）
+shorebird release windows
+shorebird release android
+
+# 只改了 Dart → 推送热更新
+shorebird patch windows
+shorebird patch android
+```
+
+`shorebird.yaml` 中 `auto_update: false`，由应用内控制检查与下载，以便展示重启弹窗。
+
 ## 构建
 
 Windows：
 
 ```powershell
+# 推荐用 Shorebird，便于后续 patch
+shorebird release windows
+
+# 或普通 Flutter 构建（无热更新）
 flutter build windows --release
 ```
 
 Android APK：
 
 ```powershell
+shorebird release android
+# 或
 flutter build apk --release
 ```
 
 Android App Bundle：
 
 ```powershell
+shorebird release android
+# 或
 flutter build appbundle --release
 ```
 

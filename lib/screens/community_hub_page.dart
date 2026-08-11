@@ -6,9 +6,9 @@ import '../core/network/community_service.dart';
 import '../models/community_models.dart';
 import '../widgets/community_widgets.dart';
 import 'community_group_screen.dart';
-import 'community_page.dart';
 import 'community_timeline_page.dart';
 import 'community_topic_screen.dart';
+import 'website_login_screen.dart';
 
 enum _CommunityArea {
   rakuen('超展开', Icons.forum_outlined, 'https://bgm.tv/rakuen'),
@@ -40,14 +40,11 @@ class _CommunityPageState extends State<CommunityPage> {
     });
   }
 
-  void _openWeb() {
-    Navigator.of(context).push(
-      MaterialPageRoute<void>(
-        builder: (_) => CommunityWebScreen(
-          initialUrl: _area.webUrl,
-          title: '${_area.label} · Bangumi',
-        ),
-      ),
+  Future<void> _openWeb() async {
+    await openSeededCommunityWeb(
+      context,
+      initialUrl: _area.webUrl,
+      title: '${_area.label} · Bangumi',
     );
   }
 

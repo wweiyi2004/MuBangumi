@@ -284,6 +284,39 @@ class Subject {
     nsfw: detailed.nsfw || nsfw,
     metaTags: detailed.metaTags.isNotEmpty ? detailed.metaTags : metaTags,
   );
+
+  /// Compact JSON for local list snapshots (Shaft-style first-screen cache).
+  Map<String, dynamic> toJson() => {
+    'id': id,
+    'type': type.value,
+    'name': name,
+    'name_cn': nameCn,
+    'images': {'large': imageUrl},
+    'summary': summary,
+    'eps': episodeCount,
+    'volumes': volumeCount,
+    'rating': {
+      'score': score,
+      'rank': rank,
+      'total': ratingTotal,
+      'count': {
+        for (final entry in ratingCount.entries) '${entry.key}': entry.value,
+      },
+    },
+    'date': date,
+    'collection': {
+      'total': collectionTotal,
+      'wish': wishCount,
+      'collect': collectCount,
+      'doing': doingCount,
+      'on_hold': onHoldCount,
+      'dropped': droppedCount,
+    },
+    'tags': [for (final tag in tags) {'name': tag}],
+    'platform': platform,
+    'nsfw': nsfw,
+    'meta_tags': metaTags,
+  };
 }
 
 /// Lightweight friend collection status for a subject (garage "好友看？").
@@ -390,6 +423,20 @@ class UserCollection {
     tags: tags ?? this.tags,
     private: private ?? this.private,
   );
+
+  Map<String, dynamic> toJson() => {
+    'subject_id': subjectId,
+    'subject_type': subject.type.value,
+    'type': type.value,
+    'rate': rate,
+    'ep_status': episodeStatus,
+    'vol_status': volumeStatus,
+    'updated_at': updatedAt?.toIso8601String(),
+    'comment': comment,
+    'tags': tags,
+    'private': private,
+    'subject': subject.toJson(),
+  };
 }
 
 class Episode {
