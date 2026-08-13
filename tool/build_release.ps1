@@ -32,8 +32,8 @@ $clientSecret = [string]$oauthConfig.BGM_CLIENT_SECRET
 $hasPlaceholder =
     $clientId.Contains('填写') -or
     $clientSecret.Contains('填写') -or
-    $clientId.Contains('your', [System.StringComparison]::OrdinalIgnoreCase) -or
-    $clientSecret.Contains('your', [System.StringComparison]::OrdinalIgnoreCase)
+    $clientId.ToLowerInvariant().Contains('your') -or
+    $clientSecret.ToLowerInvariant().Contains('your')
 
 if ([string]::IsNullOrWhiteSpace($clientId) -or
     [string]::IsNullOrWhiteSpace($clientSecret) -or
