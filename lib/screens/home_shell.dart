@@ -29,7 +29,11 @@ class _HomeShellState extends ConsumerState<HomeShell> {
   bool _profileOpened = false;
 
   static const _destinations = [
-    (icon: Icons.home_outlined, selected: Icons.home_rounded, label: '首页'),
+    (
+      icon: Icons.play_circle_outline_rounded,
+      selected: Icons.play_circle_rounded,
+      label: '追番',
+    ),
     (
       icon: Icons.video_library_outlined,
       selected: Icons.video_library_rounded,
@@ -160,7 +164,7 @@ class _DesktopNavigation extends StatelessWidget {
     return Material(
       color: glass ? scheme.surface.withValues(alpha: 0.55) : scheme.surface,
       child: Container(
-        width: 230,
+        width: 190,
         decoration: BoxDecoration(
           border: Border(right: BorderSide(color: scheme.outlineVariant)),
         ),
@@ -168,14 +172,14 @@ class _DesktopNavigation extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             const Padding(
-              padding: EdgeInsets.fromLTRB(26, 28, 20, 30),
+              padding: EdgeInsets.fromLTRB(22, 24, 16, 26),
               child: Row(
                 children: [
-                  BrandMark(size: 42),
-                  SizedBox(width: 13),
+                  BrandMark(size: 36),
+                  SizedBox(width: 11),
                   Text(
                     'MuBangumi',
-                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
+                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
                   ),
                 ],
               ),
@@ -192,11 +196,12 @@ class _DesktopNavigation extends StatelessWidget {
                       ),
                       child: ListTile(
                         selected: index == i,
+                        selectedColor: scheme.primary,
                         selectedTileColor: scheme.primaryContainer.withValues(
-                          alpha: .65,
+                          alpha: .28,
                         ),
                         shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(15),
+                          borderRadius: BorderRadius.circular(10),
                         ),
                         leading: i == 4 && unreadCount > 0
                             ? Badge(
@@ -218,32 +223,22 @@ class _DesktopNavigation extends StatelessWidget {
                               ),
                         title: Text(
                           _HomeShellState._destinations[i].label,
-                          style: const TextStyle(fontWeight: FontWeight.w600),
+                          style: const TextStyle(fontWeight: FontWeight.w500),
                         ),
                         onTap: () => onChanged(i),
                       ),
                     ),
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(20, 18, 20, 8),
-                    child: Text(
-                      '工具',
-                      style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                        color: scheme.onSurfaceVariant,
-                        fontWeight: FontWeight.w700,
-                        letterSpacing: .8,
-                      ),
-                    ),
-                  ),
+                  const SizedBox(height: 14),
                   Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 14),
                     child: ListTile(
                       shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(15),
+                        borderRadius: BorderRadius.circular(10),
                       ),
                       leading: const Icon(Icons.calendar_month_outlined),
                       title: const Text(
                         '新番表',
-                        style: TextStyle(fontWeight: FontWeight.w600),
+                        style: TextStyle(fontWeight: FontWeight.w500),
                       ),
                       trailing: const Icon(Icons.open_in_new_rounded, size: 17),
                       onTap: onOpenSchedule,
@@ -253,7 +248,7 @@ class _DesktopNavigation extends StatelessWidget {
               ),
             ),
             Padding(
-              padding: const EdgeInsets.all(24),
+              padding: const EdgeInsets.fromLTRB(22, 16, 16, 20),
               child: Text(
                 'Powered by Bangumi API',
                 style: Theme.of(context).textTheme.labelSmall?.copyWith(

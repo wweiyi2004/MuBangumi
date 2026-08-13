@@ -1,0 +1,22 @@
+[
+  {
+    "id": 1001,
+    "name": "示例角色A",
+    "relation": "主角",
+    "summary": "",
+    "images": {},
+    "type": 1,
+    "actors": [
+      {"id": 5001, "name": "土岐隼一", "career": "声优", "images": {}},
+      {"id": 5002, "name": "田中苑希", "career": "声优", "images": {}}
+    ]
+  },
+  {
+    "id": 1002,
+    "name": "示例角色B",
+    "relation": "配角",
+    "actors": [
+      {"id": 5001, "name": "土岐隼一", "career": "声优", "images": {}}
+    ]
+  }
+]

@@ -11,12 +11,14 @@ class SubjectCover extends StatelessWidget {
     this.width,
     this.height,
     this.borderRadius = 16,
+    this.size = BangumiImageSize.large,
   });
 
   final Subject subject;
   final double? width;
   final double? height;
   final double borderRadius;
+  final BangumiImageSize size;
 
   @override
   Widget build(BuildContext context) {
@@ -40,7 +42,10 @@ class SubjectCover extends StatelessWidget {
                 ),
               )
             : CachedNetworkImage(
-                imageUrl: BangumiEndpoints.imageUrl(subject.imageUrl),
+                imageUrl: BangumiEndpoints.imageUrl(
+                  subject.imageUrl,
+                  size: size,
+                ),
                 width: width,
                 height: height,
                 fit: BoxFit.cover,
@@ -123,7 +128,7 @@ double subjectPosterItemHeight(
   double spacing = 12,
 }) {
   final itemWidth = (width - spacing * (columns - 1)) / columns;
-  return itemWidth / .72 + 78;
+  return itemWidth / .72 + 70;
 }
 
 /// Image-first media card used by the home and discovery feeds.
@@ -163,112 +168,109 @@ class SubjectPosterCard extends StatelessWidget {
         : _progressText(subject, collection);
     final status = statusLabel ?? defaultStatus;
 
-    return Card(
-      clipBehavior: Clip.antiAlias,
+    return Material(
+      color: Colors.transparent,
       child: InkWell(
+        borderRadius: BorderRadius.circular(12),
         onTap: onTap,
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            AspectRatio(
-              aspectRatio: .72,
-              child: Stack(
-                fit: StackFit.expand,
-                children: [
-                  SubjectCover(subject: subject, borderRadius: 0),
-                  const DecoratedBox(
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        begin: Alignment.topCenter,
-                        end: Alignment.bottomCenter,
-                        stops: [0, .55, 1],
-                        colors: [
-                          Color(0x4D000000),
-                          Colors.transparent,
-                          Color(0xB8000000),
-                        ],
-                      ),
-                    ),
-                  ),
-                  Positioned(
-                    left: 9,
-                    top: 9,
-                    child: _PosterBadge(
-                      icon: subjectTypeIcon(subject.type),
-                      label: subject.type.label,
-                    ),
-                  ),
-                  if (subject.score > 0)
-                    Positioned(
-                      right: 9,
-                      top: 9,
-                      child: _PosterBadge(
-                        icon: Icons.star_rounded,
-                        label: subject.score.toStringAsFixed(1),
-                        iconColor: const Color(0xFFFFD166),
-                      ),
-                    ),
-                  Positioned(
-                    left: 10,
-                    right: onNextEpisode == null ? 10 : 52,
-                    bottom: 11,
-                    child: Text(
-                      status,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                        color: Colors.white,
-                        fontWeight: FontWeight.w700,
-                        shadows: const [
-                          Shadow(color: Colors.black54, blurRadius: 6),
-                        ],
-                      ),
-                    ),
-                  ),
-                  if (onNextEpisode != null)
-                    Positioned(
-                      right: 8,
-                      bottom: 7,
-                      child: IconButton.filled(
-                        tooltip: '看完下一集',
-                        style: IconButton.styleFrom(
-                          backgroundColor: scheme.primary,
-                          foregroundColor: scheme.onPrimary,
-                          minimumSize: const Size.square(38),
-                          maximumSize: const Size.square(38),
-                          padding: EdgeInsets.zero,
+            ClipRRect(
+              borderRadius: BorderRadius.circular(12),
+              child: AspectRatio(
+                aspectRatio: .72,
+                child: Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    SubjectCover(subject: subject, borderRadius: 0),
+                    const DecoratedBox(
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          begin: Alignment.topCenter,
+                          end: Alignment.bottomCenter,
+                          stops: [0, .55, 1],
+                          colors: [
+                            Color(0x24000000),
+                            Colors.transparent,
+                            Color(0xB8000000),
+                          ],
                         ),
-                        onPressed: busy ? null : onNextEpisode,
-                        icon: busy
-                            ? const SizedBox.square(
-                                dimension: 15,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                  color: Colors.white,
-                                ),
-                              )
-                            : const Icon(Icons.add_rounded, size: 21),
                       ),
                     ),
-                  if (progress != null)
+                    if (subject.score > 0)
+                      Positioned(
+                        right: 8,
+                        top: 8,
+                        child: _PosterBadge(
+                          icon: Icons.star_rounded,
+                          label: subject.score.toStringAsFixed(1),
+                          iconColor: const Color(0xFFFFD166),
+                        ),
+                      ),
                     Positioned(
-                      left: 0,
-                      right: 0,
-                      bottom: 0,
-                      child: LinearProgressIndicator(
-                        value: progress,
-                        minHeight: 4,
-                        color: scheme.primary,
-                        backgroundColor: Colors.white24,
+                      left: 10,
+                      right: onNextEpisode == null ? 10 : 52,
+                      bottom: 11,
+                      child: Text(
+                        status,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context).textTheme.labelMedium
+                            ?.copyWith(
+                              color: Colors.white,
+                              fontWeight: FontWeight.w600,
+                              shadows: const [
+                                Shadow(color: Colors.black54, blurRadius: 6),
+                              ],
+                            ),
                       ),
                     ),
-                ],
+                    if (onNextEpisode != null)
+                      Positioned(
+                        right: 8,
+                        bottom: 7,
+                        child: IconButton.filled(
+                          tooltip: '看完下一集',
+                          style: IconButton.styleFrom(
+                            backgroundColor: scheme.primary,
+                            foregroundColor: scheme.onPrimary,
+                            minimumSize: const Size.square(38),
+                            maximumSize: const Size.square(38),
+                            padding: EdgeInsets.zero,
+                          ),
+                          onPressed: busy ? null : onNextEpisode,
+                          icon: busy
+                              ? const SizedBox.square(
+                                  dimension: 15,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                    color: Colors.white,
+                                  ),
+                                )
+                              : const Icon(Icons.add_rounded, size: 21),
+                        ),
+                      ),
+                    if (progress != null)
+                      Positioned(
+                        left: 0,
+                        right: 0,
+                        bottom: 0,
+                        child: LinearProgressIndicator(
+                          value: progress,
+                          minHeight: 3,
+                          color: scheme.primary,
+                          backgroundColor: Colors.white24,
+                        ),
+                      ),
+                  ],
+                ),
               ),
             ),
             SizedBox(
-              height: 78,
+              height: 70,
               child: Padding(
-                padding: const EdgeInsets.fromLTRB(11, 9, 6, 8),
+                padding: const EdgeInsets.fromLTRB(2, 9, 0, 6),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
@@ -278,7 +280,7 @@ class SubjectPosterCard extends StatelessWidget {
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
                         style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                          fontWeight: FontWeight.w800,
+                          fontWeight: FontWeight.w600,
                           height: 1.25,
                         ),
                       ),
@@ -338,7 +340,6 @@ class _PosterBadge extends StatelessWidget {
     decoration: BoxDecoration(
       color: const Color(0x990D0D14),
       borderRadius: BorderRadius.circular(999),
-      border: Border.all(color: Colors.white24),
     ),
     child: Padding(
       padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 4),
@@ -434,9 +435,10 @@ class SubjectTile extends StatelessWidget {
     // (unbounded list height + Spacer otherwise throws).
     final coverHeight = narrow ? 92.0 : 104.0;
     final coverWidth = narrow ? 66.0 : 74.0;
-    return Card(
-      clipBehavior: Clip.antiAlias,
+    return Material(
+      color: Colors.transparent,
       child: InkWell(
+        borderRadius: BorderRadius.circular(12),
         onTap: onTap,
         child: Padding(
           padding: EdgeInsets.all(narrow ? 8 : 10),
@@ -448,6 +450,7 @@ class SubjectTile extends StatelessWidget {
                 width: coverWidth,
                 height: coverHeight,
                 borderRadius: 12,
+                size: BangumiImageSize.common,
               ),
               SizedBox(width: narrow ? 8 : 12),
               Expanded(

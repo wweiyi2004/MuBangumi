@@ -43,8 +43,9 @@ List<Override> _overrides([BangumiApi? api]) => [
 /// Progress indicators animate forever; avoid pumpAndSettle for Discover loads.
 Future<void> _pumpDiscoverReady(WidgetTester tester) async {
   await tester.pump();
-  for (var i = 0; i < 12; i++) {
-    await tester.pump(const Duration(milliseconds: 20));
+  for (var i = 0; i < 40; i++) {
+    await tester.pump(const Duration(milliseconds: 50));
+    if (find.byType(SubjectPosterCard).evaluate().isNotEmpty) return;
   }
 }
 

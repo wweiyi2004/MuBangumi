@@ -139,11 +139,19 @@ class PmService {
       if (_parser.looksLikeLoginPage(body) || response.statusCode == 401) {
         throw const PmAuthException();
       }
+      final submissionError = _parser.parseSubmissionError(body);
+      if (submissionError != null) {
+        throw PmException('发送失败：$submissionError');
+      }
       if (response.statusCode != null &&
           response.statusCode! >= 400 &&
           response.statusCode != 302) {
         throw PmException('发送失败（HTTP ${response.statusCode}）');
       }
+      // A successful send may stay on /pm/create.chii without a redirect, and
+      // the compose page always contains the submission form, so the response
+      // URL and form presence are not reliable failure signals. Success is
+      // decided by the notice parsing and status code above.
     } on DioException catch (error) {
       throw PmException('发送失败：${error.message ?? error}');
     }

@@ -47,6 +47,9 @@ app.*.map.json
 # Release packaging output
 /dist/
 
+# Local OAuth build credentials (copy from config/oauth.local.json.example)
+/config/oauth.local.json
+
 android/build/
 android/key.properties
 android/*.jks

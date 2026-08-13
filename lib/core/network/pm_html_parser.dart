@@ -11,6 +11,13 @@ class PmHtmlParser {
   static final _conversationId = RegExp(r'/conversation/(\d+)');
   static final _threadId = RegExp(r'thread=(\d+)');
 
+  /// Notice markers that identify an error even when the text also contains
+  /// the word "成功" (e.g. "发送未成功，请稍后重试").
+  static final _failureNotice = RegExp(
+    r'失败|未成功|不成功|错误|无效|过期|重试|无法|不能|请勿|禁止|拒绝|\berror\b|\bfailed\b|\bfail\b',
+    caseSensitive: false,
+  );
+
   bool looksLikeLoginPage(String source) {
     final lower = source.toLowerCase();
     // Require strong login-form signals; bare "guest" appears on many logged-in pages.
@@ -18,6 +25,40 @@ class PmHtmlParser {
         lower.contains('id="loginform"') ||
         (lower.contains('/login') && lower.contains('password')) ||
         lower.contains('请先登录');
+  }
+
+  /// Returns a user-facing website error from a PM form response, if present.
+  String? parseSubmissionError(String source) {
+    final document = html_parser.parse(source);
+    const selectors = [
+      '#colunmNotice .text',
+      '#columnNotice .text',
+      '.errorMessage',
+      '.alert-error',
+      '.alert-danger',
+      '.message.error',
+    ];
+    for (final selector in selectors) {
+      final text = document
+          .querySelector(selector)
+          ?.text
+          .replaceAll(RegExp(r'\s+'), ' ')
+          .trim();
+      if (text == null || text.isEmpty) continue;
+      // Failure markers take priority: texts like "发送未成功，请稍后重试"
+      // contain "成功" but must still be reported as errors.
+      if (_failureNotice.hasMatch(text)) return text;
+      // Any remaining notice (e.g. "短信已发送") is informational, not an
+      // error; success notices do not necessarily contain "成功".
+      return null;
+    }
+    return null;
+  }
+
+  bool hasSubmissionForm(String source) {
+    final document = html_parser.parse(source);
+    return document.querySelector('input[name="formhash"]') != null &&
+        document.querySelector('textarea[name="msg_body"]') != null;
   }
 
   List<PmConversation> parseConversationList(String source) {

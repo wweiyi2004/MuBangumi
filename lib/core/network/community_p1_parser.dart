@@ -84,10 +84,20 @@ class CommunityP1Parser {
       .whereType<CommunityUser>()
       .toList();
 
-  List<CommunityTimelineItem> parseTimeline(List<dynamic> data) => data
+  List<CommunityTimelineItem> parseTimeline(
+    List<dynamic> data, {
+    String? fallbackUsername,
+    String? fallbackNickname,
+  }) => data
       .map(_map)
       .whereType<Map<String, dynamic>>()
-      .map(_parseTimelineItem)
+      .map(
+        (json) => _parseTimelineItem(
+          json,
+          fallbackUsername: fallbackUsername,
+          fallbackNickname: fallbackNickname,
+        ),
+      )
       .whereType<CommunityTimelineItem>()
       .toList();
 
@@ -298,9 +308,33 @@ class CommunityP1Parser {
     );
   }
 
-  CommunityTimelineItem? _parseTimelineItem(Map<String, dynamic> json) {
+  CommunityUser? _fallbackUser(
+    Map<String, dynamic> json,
+    String? fallbackUsername,
+    String? fallbackNickname,
+  ) {
+    final username = fallbackUsername?.trim() ?? '';
+    if (username.isEmpty) return null;
+    final uid = _integer(json['uid']);
+    if (uid <= 0) return null;
+    return CommunityUser(
+      id: uid,
+      username: username,
+      nickname: fallbackNickname?.trim() ?? '',
+    );
+  }
+
+  CommunityTimelineItem? _parseTimelineItem(
+    Map<String, dynamic> json, {
+    String? fallbackUsername,
+    String? fallbackNickname,
+  }) {
     final id = _integer(json['id']);
-    final user = _parseUser(_map(json['user']));
+    final user =
+        _parseUser(_map(json['user'])) ??
+        // The own-timeline endpoint (/p1/users/{username}/timeline) omits the
+        // redundant user object and only reports `uid`.
+        _fallbackUser(json, fallbackUsername, fallbackNickname);
     final createdAt = _dateTime(json['createdAt']);
     if (id <= 0 || user == null || createdAt == null) return null;
     final cat = _integer(json['cat']);

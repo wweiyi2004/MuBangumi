@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
@@ -18,6 +19,14 @@ class WebsiteCookieBridge {
 
   /// Best-effort wipe of Bangumi-related cookies from platform WebView jars.
   static Future<void> clearBgmCookies() async {
+    if (Platform.isWindows) {
+      // WebView2 needs its own controller and startup can take seconds on a
+      // cold machine. Run the cleanup detached so sign-out never waits on it;
+      // failures are logged with a distinctive prefix so HttpOnly cookies
+      // that could not be removed stay diagnosable.
+      runDetachedBestEffort(_clearWindowsCookies);
+      return;
+    }
     try {
       if (Platform.isAndroid) {
         await _androidCookieManager().clearCookies();
@@ -25,12 +34,53 @@ class WebsiteCookieBridge {
       }
       if (Platform.isIOS || Platform.isMacOS) {
         await mobile.WebViewCookieManager().clearCookies();
-        return;
       }
-      // Windows WebView2 clear requires a live controller; seed injection will
-      // still overwrite known cookies on next open. No-op here.
     } catch (error, stack) {
-      debugPrint('WebsiteCookieBridge.clearBgmCookies failed: $error\n$stack');
+      _reportCleanupFailure(error, stack);
+    }
+  }
+
+  /// Runs [task] detached from the caller so slow platform cleanups never
+  /// block sign-out. Failures are routed to [onFailure] (defaulting to a
+  /// prefixed log line) instead of the zone's unhandled-error handler.
+  @visibleForTesting
+  static void runDetachedBestEffort(
+    Future<void> Function() task, {
+    void Function(Object error, StackTrace stack)? onFailure,
+  }) {
+    unawaited(() async {
+      try {
+        await task();
+      } catch (error, stack) {
+        (onFailure ?? _reportCleanupFailure)(error, stack);
+      }
+    }());
+  }
+
+  /// Greppable prefix so stale-cookie leftovers after sign-out are traceable.
+  static const _cleanupFailurePrefix = '[BGM-COOKIE-CLEANUP]';
+
+  static void _reportCleanupFailure(Object error, StackTrace stack) {
+    debugPrint(
+      '$_cleanupFailurePrefix WebsiteCookieBridge.clearBgmCookies failed; '
+      'stale bgm.tv website session may survive sign-out: $error\n$stack',
+    );
+  }
+
+  static Future<void> _clearWindowsCookies() async {
+    final controller = windows.WebviewController();
+    try {
+      await controller.initialize();
+      final cookies = await controller.getCookies(bgmOrigin);
+      for (final name in cookies.map((cookie) => cookie.name).toSet()) {
+        await controller.deleteCookies(name, uri: bgmOrigin);
+      }
+    } finally {
+      try {
+        await controller.dispose();
+      } catch (_) {
+        // Disposal failure must not mask the cleanup result.
+      }
     }
   }
 

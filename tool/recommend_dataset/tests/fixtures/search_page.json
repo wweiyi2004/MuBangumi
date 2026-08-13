@@ -1,0 +1,25 @@
+{
+  "total": 270,
+  "limit": 25,
+  "offset": 0,
+  "data": [
+    {
+      "id": 456080,
+      "name": "転校先の清楚可憐な美少女が、昔男子と思って一緒に遊んだ幼馴染だった件",
+      "name_cn": "转学后班上的清纯可爱美少女，竟是小时候玩在一起的哥们儿",
+      "date": "2026-07-06",
+      "type": 2,
+      "rating": {"score": 5.1, "total": 428, "rank": 9596, "count": {"1": 10}},
+      "collection": {"wish": 647, "collect": 69, "doing": 1817, "on_hold": 47, "dropped": 146}
+    },
+    {
+      "id": 777777,
+      "name": "无评分新番",
+      "name_cn": "无评分新番",
+      "date": "2026-07-01",
+      "type": 2,
+      "rating": null,
+      "collection": null
+    }
+  ]
+}

@@ -40,6 +40,17 @@ enum BangumiNetworkRoute {
   }
 }
 
+enum BangumiImageSize {
+  grid('g'),
+  medium('m'),
+  common('c'),
+  large('l');
+
+  const BangumiImageSize(this.pathCode);
+
+  final String pathCode;
+}
+
 class BangumiEndpoints {
   BangumiEndpoints._();
 
@@ -49,7 +60,11 @@ class BangumiEndpoints {
 
   static void setRoute(BangumiNetworkRoute route) => _route = route;
 
-  static String imageUrl(String rawUrl) {
+  static final _sizePath = RegExp(
+    r'^/(pic/(?:cover|user|crt))/[lmcgs](/.*)$',
+  );
+
+  static String imageUrl(String rawUrl, {BangumiImageSize? size}) {
     final value = rawUrl.trim();
     if (value.isEmpty) return '';
     final normalized = value.startsWith('//') ? 'https:$value' : value;
@@ -61,6 +76,13 @@ class BangumiEndpoints {
         ? proxyHost
         : officialHost;
     if (uri.host != officialHost && uri.host != proxyHost) return normalized;
-    return uri.replace(scheme: 'https', host: targetHost).toString();
+    var path = uri.path;
+    if (size != null) {
+      final match = _sizePath.firstMatch(path);
+      if (match != null) {
+        path = '${match.group(1)}/${size.pathCode}${match.group(2)}';
+      }
+    }
+    return uri.replace(scheme: 'https', host: targetHost, path: path).toString();
   }
 }

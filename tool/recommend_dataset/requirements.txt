@@ -1,0 +1,11 @@
+# MuBangumi recommendation dataset, content baseline and ALS baseline
+# Note: the default pip mirror (tsinghua) may lack Python 3.14 wheels for
+# scikit-learn; install with `-i https://pypi.org/simple` if that happens.
+requests>=2.31
+pandas>=2.0
+pydantic>=2.5
+scikit-learn>=1.4
+scipy>=1.11
+implicit>=0.7.3
+threadpoolctl>=3.1
+pytest>=7.4

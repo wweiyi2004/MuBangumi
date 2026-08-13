@@ -4,7 +4,7 @@ MuBangumi 是一个使用 Flutter 编写的第三方 Bangumi 追番客户端，�
 
 > 本项目是非官方客户端，与 Bangumi 番组计划官方无隶属关系。条目、收藏和章节数据来自 [Bangumi API](https://github.com/bangumi/api)。
 
-当前版本：**v1.3.0**
+当前版本：**v1.4.0**
 
 ## 已实现
 
@@ -28,7 +28,8 @@ MuBangumi 是一个使用 Flutter 编写的第三方 Bangumi 追番客户端，�
 - 搜索条目 / 角色 / 人物；动画支持季度浏览与无限滚动
 - 官方「每日放送」日历（与本地新番表独立）
 - 修改条目收藏状态和单集观看状态（含 SP/OP/ED 筛选；进度以本篇为准）
-- 好友列表；原生加/删好友（P1）；点击好友/时间线/话题头像进入用户主页
+- 好友列表；原生加/删好友（P1）；本客户端二维码出示 / 扫描加好友
+- 点击好友/时间线/话题头像进入用户主页
 - 用户收藏口味对比：综合收藏重合、共同评分相关性与评分差，并显示样本置信度
 - 收藏统计与年度回顾：类型 / 状态 / 评分 / 标签分布，支持完整 JSON 导出
 - 用户本地备注与内容屏蔽（SQLite，仅保存在本机；时间线和话题内容可临时展开）
@@ -76,20 +77,24 @@ iOS 工程已生成，但 iOS 编译和签名必须在安装了 Xcode 的 macOS 
 
 ### 一键登录（推荐发布方式）
 
-构建时注入内置 OAuth 应用（回调地址必须是 `http://127.0.0.1:43927/oauth/callback`）：
+构建时注入内置 OAuth 应用（回调地址必须是 `http://127.0.0.1:43927/oauth/callback`）。
+先复制本地配置模板并填写真实凭据：
 
 ```powershell
-flutter run -d windows --dart-define=BGM_CLIENT_ID=你的AppID --dart-define=BGM_CLIENT_SECRET=你的AppSecret
+Copy-Item config/oauth.local.json.example config/oauth.local.json
+# 编辑 config/oauth.local.json 后运行：
+flutter run -d windows --dart-define-from-file=config/oauth.local.json
 ```
 
-配置后登录页显示「使用 Bangumi 一键登录」，无需用户再填 Secret。
+`config/oauth.local.json` 已被 Git 忽略。配置后登录页显示「使用 Bangumi 一键登录」，
+无需用户再填写 Secret；发布构建也不会把 Secret 写进命令历史。
 
 > 注意：`client_secret` 会出现在客户端内，有被提取滥用的风险。公开仓库请用 CI 密钥注入，不要把真实 Secret 写进源码。更稳妥的长期方案是自建后端换 Token。
 
 ### 自定义 OAuth / 备用
 
-- 登录页「高级：自定义 OAuth」可填写自己的 App ID / Secret。
-- 也可展开「Access Token 备用登录」，使用 [Bangumi 个人令牌](https://next.bgm.tv/demo/access-token)。
+- 登录页「其他登录方式与设置」可填写自己的 App ID / Secret。
+- 同一面板也提供 Access Token 备用登录，可使用 [Bangumi 个人令牌](https://next.bgm.tv/demo/access-token)。
 
 Token 与 Secret 由 `flutter_secure_storage` 保存在系统安全存储中，到期会自动刷新。
 
@@ -107,12 +112,12 @@ Token 与 Secret 由 `flutter_secure_storage` 保存在系统安全存储中，�
 # 初始化（本仓库已有 shorebird.yaml）
 
 # 发整包基线（分发给用户的安装包）
-shorebird release windows
-shorebird release android
+.\tool\build_release.ps1 -Target windows -Shorebird
+.\tool\build_release.ps1 -Target appbundle -Shorebird
 
 # 只改了 Dart → 推送热更新
-shorebird patch windows
-shorebird patch android
+shorebird patch windows '--' --dart-define-from-file=config/oauth.local.json
+shorebird patch android '--' --dart-define-from-file=config/oauth.local.json
 ```
 
 `shorebird.yaml` 中 `auto_update: false`，由应用内控制检查与下载，以便展示重启弹窗。
@@ -123,26 +128,26 @@ Windows：
 
 ```powershell
 # 推荐用 Shorebird，便于后续 patch
-shorebird release windows
+.\tool\build_release.ps1 -Target windows -Shorebird
 
 # 或普通 Flutter 构建（无热更新）
-flutter build windows --release
+.\tool\build_release.ps1 -Target windows
 ```
 
 Android APK：
 
 ```powershell
-shorebird release android
+.\tool\build_release.ps1 -Target apk -Shorebird
 # 或
-flutter build apk --release
+.\tool\build_release.ps1 -Target apk
 ```
 
 Android App Bundle：
 
 ```powershell
-shorebird release android
+.\tool\build_release.ps1 -Target appbundle -Shorebird
 # 或
-flutter build appbundle --release
+.\tool\build_release.ps1 -Target appbundle
 ```
 
 Android 正式构建需要独立上传密钥，不能使用调试签名。先复制

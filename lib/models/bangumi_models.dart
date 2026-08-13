@@ -77,6 +77,14 @@ class BangumiUser {
       sign: _string(json['sign']),
     );
   }
+
+  Map<String, dynamic> toJson() => {
+    'id': id,
+    'username': username,
+    'nickname': nickname,
+    'avatar': {'large': avatarUrl},
+    'sign': sign,
+  };
 }
 
 class Subject {

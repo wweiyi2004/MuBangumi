@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -90,7 +91,8 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
   final _scrollController = ScrollController();
   Timer? _debounce;
   List<Subject> _subjects = const [];
-  bool _loading = true;
+  bool _loading = false;
+
   /// Background refresh while keeping previous list visible (stale-while-revalidate).
   bool _refreshing = false;
   bool _loadingMore = false;
@@ -190,11 +192,8 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
     _subjectType = widget.initialSubjectType ?? SubjectType.anime;
     _tag = widget.initialTag.trim();
     _scrollController.addListener(_onScroll);
-    // Race local snapshot vs network: cache paints early when available,
-    // network always refreshes without waiting on disk I/O.
     Future.microtask(() {
-      unawaited(_hydrateBrowseCacheIfNeeded());
-      _runCurrentQuery();
+      unawaited(_startCurrentQuery());
     });
   }
 
@@ -208,20 +207,18 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
 
   Future<void> _hydrateBrowseCacheIfNeeded() async {
     if (_queryMode != DiscoverQueryMode.browse) return;
+    final key = _browseCacheKey;
     try {
-      final cached = await SnapshotCache.shared.readDiscoverBrowse(
-        _browseCacheKey,
-      );
+      final cached = await SnapshotCache.shared.readDiscoverBrowse(key);
       if (!mounted || cached == null || cached.isEmpty) return;
+      if (_browseCacheKey != key) return;
       // Don't overwrite a fresher network response that already finished.
       if (!_loading && !_refreshing && _subjects.isNotEmpty) return;
       if (_requestId > 1 && _subjects.isNotEmpty && !_loading) return;
       setState(() {
-        if (_subjects.isEmpty) {
-          _subjects = cached;
-          _offset = cached.length;
-          _hasMore = cached.length >= _pageSize;
-        }
+        _subjects = cached;
+        _offset = cached.length;
+        _hasMore = cached.length >= _pageSize;
         _loading = false;
         _refreshing = true;
         _error = null;
@@ -278,7 +275,14 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
         _ => !empty,
       };
     });
-    _debounce = Timer(const Duration(milliseconds: 450), _runCurrentQuery);
+    _debounce = Timer(const Duration(milliseconds: 450), _startCurrentQuery);
+  }
+
+  Future<void> _startCurrentQuery() async {
+    if (_queryMode == DiscoverQueryMode.browse) {
+      unawaited(_hydrateBrowseCacheIfNeeded());
+    }
+    _runCurrentQuery();
   }
 
   void _selectSubjectType(SubjectType type) {
@@ -295,8 +299,10 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
       _browseYear = now.year;
       _browseQuarter = (now.month - 1) ~/ 3;
       _error = null;
+      _subjects = const [];
+      _loading = false;
     });
-    _runCurrentQuery();
+    unawaited(_startCurrentQuery());
   }
 
   void _clearSearchFilters() {
@@ -316,7 +322,7 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
     _debounce?.cancel();
     _searchController.clear();
     setState(_resetSearchFilters);
-    _runCurrentQuery();
+    unawaited(_startCurrentQuery());
   }
 
   void _clearBrowseFilters() {
@@ -644,22 +650,17 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
         ),
       ),
       const SizedBox(height: 14),
-      Card(
-        clipBehavior: Clip.antiAlias,
+      Material(
+        color: Colors.transparent,
         child: ListTile(
-          leading: DecoratedBox(
-            decoration: BoxDecoration(
-              color: const Color(0xFFF3A646).withValues(alpha: .16),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: const SizedBox.square(
-              dimension: 42,
-              child: Icon(Icons.ssid_chart_rounded, color: Color(0xFFF3A646)),
-            ),
+          contentPadding: EdgeInsets.zero,
+          leading: const Icon(
+            Icons.ssid_chart_rounded,
+            color: Color(0xFFF3A646),
           ),
           title: const Text(
             '评分趋势',
-            style: TextStyle(fontWeight: FontWeight.w800),
+            style: TextStyle(fontWeight: FontWeight.w600),
           ),
           subtitle: Text(
             phone ? '涨跌榜 · 口碑提升 · netaba.re' : '涨跌榜 · 口碑提升 · 历史曲线（netaba.re）',
@@ -702,14 +703,14 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
             count: _activeFilterCount,
             isLabelVisible: _activeFilterCount > 0,
             child: phone
-                ? IconButton.filledTonal(
+                ? IconButton(
                     tooltip: '筛选',
                     onPressed: _searchTarget == DiscoverSearchTarget.subject
                         ? _showFilters
                         : null,
                     icon: const Icon(Icons.tune_rounded),
                   )
-                : FilledButton.tonalIcon(
+                : OutlinedButton.icon(
                     onPressed: _searchTarget == DiscoverSearchTarget.subject
                         ? _showFilters
                         : null,
@@ -781,7 +782,7 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
               _supportsSeason
                   ? '${_subjectType.label}季度榜'
                   : '${_subjectType.label}年度榜',
-          }, style: Theme.of(context).textTheme.headlineMedium),
+          }, style: Theme.of(context).textTheme.titleLarge),
           if (!_searching && _supportsSeason)
             Chip(
               label: Text('$_browseYear · ${_quarterLabel(_browseQuarter)}'),
@@ -1327,7 +1328,13 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
       ),
     );
     tagController.dispose();
-    if (applied == true && mounted) _runCurrentQuery();
+    if (applied == true && mounted) {
+      setState(() {
+        _subjects = const [];
+        _loading = false;
+      });
+      unawaited(_startCurrentQuery());
+    }
   }
 
   String _quarterLabel(int quarter) => switch (quarter) {
@@ -1461,10 +1468,17 @@ class _DiscoverMonoThumb extends StatelessWidget {
               size: 20,
             ),
           )
-        : Image.network(
-            BangumiEndpoints.imageUrl(url),
+        : CachedNetworkImage(
+            imageUrl: BangumiEndpoints.imageUrl(
+              url,
+              size: BangumiImageSize.grid,
+            ),
             fit: BoxFit.cover,
-            errorBuilder: (_, _, _) => ColoredBox(
+            fadeInDuration: Duration.zero,
+            fadeOutDuration: Duration.zero,
+            memCacheWidth: 88,
+            memCacheHeight: 120,
+            errorWidget: (_, _, _) => ColoredBox(
               color: scheme.surfaceContainerHighest,
               child: const Icon(Icons.broken_image_outlined, size: 18),
             ),

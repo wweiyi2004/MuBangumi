@@ -160,7 +160,32 @@ class SessionController extends StateNotifier<SessionState> {
       await _forceSignOut();
       return;
     }
-    await _authenticate(token, persist: false);
+    final restored = await _restoreSignedInSnapshot(token);
+    await _authenticate(token, persist: false, alreadyRestored: restored);
+  }
+
+  /// Paint last user + collections before `/me`. Returns true when HomeShell
+  /// can open immediately; `/me` still runs in [_authenticate].
+  Future<bool> _restoreSignedInSnapshot(String token) async {
+    final lastUser = await _snapshotCache.readLastUser();
+    if (lastUser == null) return false;
+    final cached = await _snapshotCache.readCollections(lastUser.username);
+    if (cached == null || cached.isEmpty) return false;
+    _api.setAccessToken(token);
+    CommunityService.shared.setAccessToken(token);
+    CommunityService.shared.setCurrentUsername(
+      lastUser.username,
+      nickname: lastUser.nickname,
+    );
+    state = SessionState(
+      phase: SessionPhase.signedIn,
+      user: lastUser,
+      collections: cached,
+      networkRoute: _networkRoute,
+      isLoadingCollections: true,
+      isRefreshing: false,
+    );
+    return true;
   }
 
   Future<bool> signIn(String rawToken) async {
@@ -207,26 +232,38 @@ class SessionController extends StateNotifier<SessionState> {
   /// Abort an in-flight OAuth authorize (local callback wait / browser flow).
   Future<void> cancelOAuthAuthorization() => _oauth.cancelAuthorization();
 
-  Future<bool> _authenticate(String token, {required bool persist}) async {
-    state = state.copyWith(
-      phase: SessionPhase.booting,
-      isRefreshing: true,
-      isLoadingCollections: true,
-      clearMessage: true,
-    );
+  Future<bool> _authenticate(
+    String token, {
+    required bool persist,
+    bool alreadyRestored = false,
+  }) async {
+    if (!alreadyRestored) {
+      state = state.copyWith(
+        phase: SessionPhase.booting,
+        isRefreshing: true,
+        isLoadingCollections: true,
+        clearMessage: true,
+      );
+    }
     _api.setAccessToken(token);
     CommunityService.shared.setAccessToken(token);
     try {
-      // Enter the shell after /me only — collections load in the background.
       final user = await _api.getMe();
-      CommunityService.shared.setCurrentUsername(user.username);
+      CommunityService.shared.setCurrentUsername(
+        user.username,
+        nickname: user.nickname,
+      );
       if (persist) {
         await _tokenStore.write(token);
         _cachedRefreshToken = null;
         _cachedExpiresAt = null;
       }
-      // Shaft-style local-first: show last snapshot immediately, refresh later.
-      final cached = await _snapshotCache.readCollections(user.username);
+      await _snapshotCache.writeLastUser(user);
+      final switchedAccount =
+          alreadyRestored && state.user?.username != user.username;
+      final cached = switchedAccount || !alreadyRestored
+          ? await _snapshotCache.readCollections(user.username)
+          : state.collections;
       final hasCache = cached != null && cached.isNotEmpty;
       state = SessionState(
         phase: SessionPhase.signedIn,
@@ -234,12 +271,18 @@ class SessionController extends StateNotifier<SessionState> {
         collections: cached ?? const [],
         networkRoute: _networkRoute,
         isLoadingCollections: true,
-        // Only block-feeling refresh when we have nothing to show.
         isRefreshing: !hasCache,
       );
       unawaited(_loadCollectionsAfterSignIn(user.username));
       return true;
     } catch (error) {
+      if (alreadyRestored && !_invalidatesSession(error)) {
+        state = state.copyWith(
+          isRefreshing: false,
+          message: '收藏同步失败，已显示本地缓存：${_messageFor(error)}',
+        );
+        return true;
+      }
       if (!persist && _invalidatesSession(error)) {
         await _forceSignOut(message: _messageFor(error));
       } else {
@@ -321,6 +364,14 @@ class SessionController extends StateNotifier<SessionState> {
           return;
         }
         final page = await _api.getUserCollections(username, subjectType: type);
+        // The loop-head guard can be invalidated while this request is in
+        // flight (e.g. sign-out). Re-check before merging so a late response
+        // never repopulates a session that was reset meanwhile.
+        if (generation != _collectionsGeneration ||
+            state.phase != SessionPhase.signedIn ||
+            state.user?.username != username) {
+          return;
+        }
         merged = _replaceType(merged, type, page);
         _sortCollections(merged);
         // Incremental UI update keeps library usable while sync continues.
@@ -439,6 +490,8 @@ class SessionController extends StateNotifier<SessionState> {
   Future<void> refresh({bool showIndicator = true}) async {
     final user = state.user;
     if (user == null) return;
+    final username = user.username;
+    final generation = ++_collectionsGeneration;
     if (showIndicator) {
       state = state.copyWith(
         isRefreshing: true,
@@ -449,9 +502,14 @@ class SessionController extends StateNotifier<SessionState> {
     try {
       // Keep the shell responsive: refresh anime first, others in background.
       final anime = await _api.getUserCollections(
-        user.username,
+        username,
         subjectType: SubjectType.anime,
       );
+      if (generation != _collectionsGeneration ||
+          state.phase != SessionPhase.signedIn ||
+          state.user?.username != username) {
+        return;
+      }
       final merged = _replaceType(state.collections, SubjectType.anime, anime);
       _sortCollections(merged);
       state = state.copyWith(
@@ -460,9 +518,14 @@ class SessionController extends StateNotifier<SessionState> {
         isLoadingCollections: true,
         clearMessage: true,
       );
-      unawaited(_snapshotCache.writeCollections(user.username, merged));
-      await _loadRemainingCollections(user.username);
+      unawaited(_snapshotCache.writeCollections(username, merged));
+      await _loadRemainingCollections(username);
     } catch (error) {
+      if (generation != _collectionsGeneration ||
+          state.phase != SessionPhase.signedIn ||
+          state.user?.username != username) {
+        return;
+      }
       state = state.copyWith(
         isRefreshing: false,
         isLoadingCollections: false,
@@ -478,32 +541,59 @@ class SessionController extends StateNotifier<SessionState> {
     _networkRoute = route;
     _api.setNetworkRoute(route);
     BangumiEndpoints.setRoute(route);
-    await _tokenStore.writeNetworkRoute(route);
+    _collectionsGeneration++;
+    // Persist best-effort: the in-memory route stays active for this session
+    // even when secure storage fails. Swallowing the error keeps the
+    // busy-flag handover below running — an exception here would strand an
+    // in-flight refresh whose generation guard exits without resetting the
+    // spinners.
+    String? persistError;
+    try {
+      await _tokenStore.writeNetworkRoute(route);
+    } catch (error) {
+      persistError = '线路设置未能保存到本机，重启后可能恢复原线路：${_messageFor(error)}';
+    }
     final user = state.user;
     state = state.copyWith(
       networkRoute: route,
-      isRefreshing: user != null,
-      isLoadingCollections: user != null,
+      // Keep busy flags untouched while signed out: an OAuth authorization
+      // may still be waiting in an in-app browser and a route switch must
+      // not hide its spinner/cancel UI. Signed-in reloads set their own.
+      isRefreshing: user == null ? null : true,
+      isLoadingCollections: user == null ? null : true,
       clearMessage: true,
     );
-    if (user == null) return null;
+    if (user == null) return persistError;
+    final username = user.username;
+    final generation = ++_collectionsGeneration;
     try {
-      final collections = await _loadAllCollections(user.username);
+      final collections = await _loadAllCollections(username);
+      if (generation != _collectionsGeneration ||
+          state.phase != SessionPhase.signedIn ||
+          state.user?.username != username) {
+        return null;
+      }
       state = state.copyWith(
         collections: collections,
         isRefreshing: false,
         isLoadingCollections: false,
         clearMessage: true,
       );
-      return null;
+      return persistError;
     } catch (error) {
+      if (generation != _collectionsGeneration ||
+          state.phase != SessionPhase.signedIn ||
+          state.user?.username != username) {
+        return null;
+      }
       final message = _messageFor(error);
       state = state.copyWith(
         isRefreshing: false,
         isLoadingCollections: false,
         message: message,
       );
-      return message;
+      final syncFailure = '线路已切换，但同步失败：$message';
+      return persistError == null ? syncFailure : '$syncFailure；$persistError';
     }
   }
 
@@ -673,6 +763,7 @@ class SessionController extends StateNotifier<SessionState> {
     _api.setAccessToken(null);
     CommunityService.shared.setAccessToken(null);
     CommunityService.shared.setCurrentUsername(null);
+    await _snapshotCache.clearLastUser();
     await CommunityService.shared.clearAccountCache();
     state = SessionState(
       phase: SessionPhase.signedOut,

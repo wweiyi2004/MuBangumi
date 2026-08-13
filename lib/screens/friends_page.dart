@@ -9,6 +9,7 @@ import '../core/network/community_service.dart';
 import '../models/bangumi_models.dart';
 import '../state/session_controller.dart';
 import '../widgets/community_widgets.dart';
+import '../widgets/friend_qr_actions.dart';
 import '../widgets/subject_widgets.dart';
 import 'user_profile_page.dart';
 
@@ -38,6 +39,13 @@ class _FriendsPageState extends ConsumerState<FriendsPage> {
     final override = widget.username?.trim();
     if (override != null && override.isNotEmpty) return override;
     return ref.read(sessionProvider).user?.username ?? '';
+  }
+
+  bool get _isOwnList {
+    final override = widget.username?.trim();
+    if (override == null || override.isEmpty) return true;
+    final me = ref.read(sessionProvider).user?.username;
+    return me != null && me.toLowerCase() == override.toLowerCase();
   }
 
   @override
@@ -150,8 +158,31 @@ class _FriendsPageState extends ConsumerState<FriendsPage> {
   @override
   Widget build(BuildContext context) {
     final items = _filtered;
+    final me = ref.watch(sessionProvider).user;
     return Scaffold(
-      appBar: AppBar(title: const Text('好友')),
+      appBar: AppBar(
+        title: const Text('好友'),
+        actions: [
+          if (_isOwnList && me != null) ...[
+            IconButton(
+              tooltip: '我的二维码',
+              onPressed: () => showMyFriendQr(context, me),
+              icon: const Icon(Icons.qr_code_2_rounded),
+            ),
+            IconButton(
+              tooltip: '扫一扫',
+              onPressed: () async {
+                final added = await scanAndAddFriend(
+                  context,
+                  myUsername: me.username,
+                );
+                if (added && mounted) await _load(refresh: true);
+              },
+              icon: const Icon(Icons.qr_code_scanner_rounded),
+            ),
+          ],
+        ],
+      ),
       body: RefreshIndicator(
         onRefresh: () => _load(refresh: true),
         child: _loading && _friends.isEmpty

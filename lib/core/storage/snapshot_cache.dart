@@ -20,6 +20,8 @@ class SnapshotCache {
   /// Collections can be older; still better than an empty library on cold start.
   static const collectionsMaxAge = Duration(days: 30);
 
+  static const lastUserKey = 'session_last_user';
+
   static String collectionsKey(String username) =>
       'collections_snapshot:${username.trim().toLowerCase()}';
 
@@ -32,6 +34,30 @@ class SnapshotCache {
   }) {
     final seasonPart = supportsSeason ? 'q$quarter' : 'y';
     return 'discover_browse:${type.value}:$year:$seasonPart:$sort';
+  }
+
+  Future<BangumiUser?> readLastUser() async {
+    final json = await _cache.readJson(lastUserKey);
+    final user = json?['user'];
+    if (user is! Map) return null;
+    try {
+      final parsed = BangumiUser.fromJson(Map<String, dynamic>.from(user));
+      if (parsed.username.trim().isEmpty) return null;
+      return parsed;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<void> writeLastUser(BangumiUser user) async {
+    if (user.username.trim().isEmpty) return;
+    await _cache.writeJson(lastUserKey, {
+      'user': user.toJson(),
+    }, accountScoped: true);
+  }
+
+  Future<void> clearLastUser() async {
+    await _cache.remove(lastUserKey);
   }
 
   Future<List<UserCollection>?> readCollections(String username) async {

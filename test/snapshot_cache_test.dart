@@ -44,6 +44,23 @@ void main() {
     expect(restored.subject.displayName, '测试');
   });
 
+  test('BangumiUser snapshot round-trips through JSON', () {
+    const user = BangumiUser(
+      id: 7,
+      username: 'wweiyi',
+      nickname: '维依',
+      avatarUrl: 'https://lain.bgm.tv/pic/user/l/000/00/00/1.jpg',
+      sign: 'hello',
+    );
+
+    final restored = BangumiUser.fromJson(user.toJson());
+    expect(restored.id, 7);
+    expect(restored.username, 'wweiyi');
+    expect(restored.nickname, '维依');
+    expect(restored.avatarUrl, contains('lain.bgm.tv'));
+    expect(restored.sign, 'hello');
+  });
+
   test('discover browse cache keys are stable per filter', () {
     final a = SnapshotCache.discoverBrowseKey(
       type: SubjectType.anime,

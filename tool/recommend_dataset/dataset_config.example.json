@@ -1,0 +1,76 @@
+{
+  "_readme": "Copy to dataset_config.json and adjust. All relative paths resolve against this file's directory. Existing configs can be migrated by adding the evaluation, content_model and als_model sections and setting splits.train_end_date to the strict temporal cutoff (2025-12-31).",
+  "api": {
+    "base_url": "https://api.bgm.tv",
+    "user_agent": "MuBangumiRecommendDataset/0.1.0 (recommendation dataset collection; personal use; low-rate public API access)",
+    "timeout_seconds": 30,
+    "max_concurrency": 2,
+    "qps": 1.0,
+    "max_retries": 5,
+    "retry_base_seconds": 1.0,
+    "retry_max_seconds": 30.0,
+    "retry_jitter_seconds": 1.0
+  },
+  "subjects": {
+    "seed_subject_ids": [],
+    "use_calendar": true,
+    "year_quarters": [[2026, 1], [2026, 2]],
+    "fetch_related": true,
+    "fetch_characters": true,
+    "fetch_persons": false,
+    "max_offset_per_query": 2000,
+    "dry_run_max_subjects": 0
+  },
+  "interactions": {
+    "collection_types": ["wish", "doing", "collect", "on_hold", "dropped"],
+    "page_size": 100,
+    "max_pages_per_run": 0,
+    "dry_run_max_users": 0,
+    "complete_only": false,
+    "min_positive_interactions": 0,
+    "core_min_item_support": 3,
+    "max_train_interactions_per_user": 0
+  },
+  "splits": {
+    "train_end_date": "2025-12-31"
+  },
+  "evaluation": {
+    "strict_temporal": true,
+    "allow_dynamic_popularity_features": false,
+    "top_k": [5, 10, 20],
+    "negative_profile_weight": 0.2,
+    "random_seed": 42
+  },
+  "content_model": {
+    "summary_analyzer": "char",
+    "summary_ngram_min": 2,
+    "summary_ngram_max": 4,
+    "summary_min_df": 2,
+    "feature_weights": {
+      "tags": 1.0,
+      "staff": 0.8,
+      "summary": 0.5,
+      "voice_actors": 0.3,
+      "context": 0.2
+    }
+  },
+  "als_model": {
+    "factors": 64,
+    "regularization": 0.05,
+    "alpha": 2.0,
+    "iterations": 20,
+    "negative_scales": [0.0, 0.25],
+    "recency_half_life_days": 0
+  },
+  "privacy": {
+    "salt_path": ""
+  },
+  "output": {
+    "data_dir": "data",
+    "checkpoint_db": "",
+    "failed_requests": "",
+    "export_dir": "",
+    "baseline_dir": "",
+    "als_dir": ""
+  }
+}

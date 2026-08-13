@@ -1,0 +1,42 @@
+{
+  "id": 456080,
+  "name": "転校先の清楚可憐な美少女が、昔男子と思って一緒に遊んだ幼馴染だった件",
+  "name_cn": "转学后班上的清纯可爱美少女，竟是小时候玩在一起的哥们儿",
+  "type": 2,
+  "date": "2026-07-06",
+  "platform": "TV",
+  "summary": "（示例条目，字段结构取自 Bangumi 公开 API 实测响应）",
+  "total_episodes": 12,
+  "nsfw": false,
+  "locked": false,
+  "images": {
+    "large": "http://lain.bgm.tv/pic/cover/l/ce/e2/456080_C4q4C.jpg",
+    "common": "http://lain.bgm.tv/pic/cover/c/ce/e2/456080_C4q4C.jpg",
+    "medium": "http://lain.bgm.tv/pic/cover/m/ce/e2/456080_C4q4C.jpg"
+  },
+  "infobox": [
+    {"key": "中文名", "value": "转学后班上的清纯可爱美少女，竟是小时候玩在一起的哥们儿"},
+    {"key": "别名", "value": [{"v": "Tenkou-saki no Seiso Karen na Bishoujo ga..."}, {"v": "Oh Boy, Was I Wrong About Her"}]},
+    {"key": "话数", "value": "12"},
+    {"key": "放送开始", "value": "2026年7月6日"},
+    {"key": "放送星期", "value": "星期一"},
+    {"key": "原作", "value": "示例文库轻小说"},
+    {"key": "导演", "value": "示例监督"},
+    {"key": "系列构成", "value": "示例构成"},
+    {"key": "音乐", "value": "示例音乐家"},
+    {"key": "动画制作", "value": "示例动画公司"}
+  ],
+  "tags": [
+    {"name": "2026年7月", "count": 232, "total_count": 18940},
+    {"name": "恋爱", "count": 210, "total_count": 559721},
+    {"name": "校园", "count": 189, "total_count": 449758}
+  ],
+  "meta_tags": ["校园", "TV", "TV", "恋爱", "日本", "日本", "小说改", "小说改"],
+  "rating": {
+    "rank": 9596,
+    "total": 428,
+    "count": {"1": 10, "2": 10, "3": 24, "4": 73, "5": 169, "6": 95, "7": 27, "8": 8, "9": 2, "10": 10},
+    "score": 5.1
+  },
+  "collection": {"on_hold": 47, "dropped": 146, "wish": 647, "collect": 69, "doing": 1817}
+}

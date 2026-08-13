@@ -1,0 +1,45 @@
+{
+  "api": {
+    "base_url": "https://api.bgm.tv",
+    "user_agent": "MuBangumiRecommendDataset/0.2.0 (personal recommendation research; low-rate public API access)",
+    "max_concurrency": 1,
+    "qps": 1.0
+  },
+  "interactions": {
+    "collection_types": ["wish", "doing", "collect", "on_hold", "dropped"],
+    "page_size": 100,
+    "max_pages_per_run": 2,
+    "complete_only": false,
+    "min_positive_interactions": 20,
+    "core_min_item_support": 3,
+    "max_train_interactions_per_user": 200
+  },
+  "splits": {
+    "train_end_date": "2025-12-31"
+  },
+  "evaluation": {
+    "strict_temporal": true,
+    "allow_dynamic_popularity_features": false,
+    "top_k": [5, 10, 20],
+    "negative_profile_weight": 0.2,
+    "random_seed": 42
+  },
+  "als_model": {
+    "factors": 64,
+    "regularization": 0.05,
+    "alpha": 2.0,
+    "iterations": 20,
+    "negative_scales": [0.0, 0.25]
+  },
+  "privacy": {
+    "salt_path": "data/salt.txt"
+  },
+  "output": {
+    "data_dir": "data/expand_v1",
+    "checkpoint_db": "data/expand_v1/checkpoints.sqlite",
+    "failed_requests": "data/expand_v1/failed_requests.jsonl",
+    "export_dir": "data/expand_v1/export_all",
+    "baseline_dir": "data/expand_v1/baseline_all",
+    "als_dir": "data/expand_v1/als_all"
+  }
+}

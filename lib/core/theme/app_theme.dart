@@ -3,8 +3,8 @@ import 'package:flutter/material.dart';
 class AppTheme {
   static const seed = Color(0xFFE95383);
   static const ink = Color(0xFF1D2433);
-  static const canvas = Color(0xFFFAFAFC);
-  static const night = Color(0xFF09090E);
+  static const canvas = Color(0xFFFBFAF9);
+  static const night = Color(0xFF101014);
 
   static const _fontFallback = [
     'Microsoft YaHei UI',
@@ -13,11 +13,11 @@ class AppTheme {
   ];
 
   static const _textTheme = TextTheme(
-    displaySmall: TextStyle(fontWeight: FontWeight.w800, letterSpacing: -1.2),
-    headlineLarge: TextStyle(fontWeight: FontWeight.w800, letterSpacing: -0.8),
-    headlineMedium: TextStyle(fontWeight: FontWeight.w800, letterSpacing: -0.5),
-    titleLarge: TextStyle(fontWeight: FontWeight.w800, letterSpacing: -0.2),
-    titleMedium: TextStyle(fontWeight: FontWeight.w700),
+    displaySmall: TextStyle(fontWeight: FontWeight.w700, letterSpacing: -1.2),
+    headlineLarge: TextStyle(fontWeight: FontWeight.w700, letterSpacing: -0.8),
+    headlineMedium: TextStyle(fontWeight: FontWeight.w700, letterSpacing: -0.5),
+    titleLarge: TextStyle(fontWeight: FontWeight.w700, letterSpacing: -0.2),
+    titleMedium: TextStyle(fontWeight: FontWeight.w600),
     bodyLarge: TextStyle(height: 1.55),
     bodyMedium: TextStyle(height: 1.5),
   );
@@ -53,13 +53,10 @@ class AppTheme {
         surfaceTintColor: Colors.transparent,
       ),
       cardTheme: CardThemeData(
-        color: scheme.surfaceContainerLow,
+        color: scheme.surface,
         elevation: 0,
         margin: EdgeInsets.zero,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(18),
-          side: BorderSide(color: scheme.outlineVariant.withValues(alpha: .7)),
-        ),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
       ),
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
@@ -70,7 +67,7 @@ class AppTheme {
         ),
         enabledBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(16),
-          borderSide: BorderSide(color: scheme.outlineVariant),
+          borderSide: BorderSide.none,
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(16),
@@ -78,19 +75,20 @@ class AppTheme {
         ),
       ),
       chipTheme: ChipThemeData(
-        backgroundColor: scheme.surfaceContainerLow,
-        selectedColor: scheme.primaryContainer,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(999)),
-        side: BorderSide(color: scheme.outlineVariant),
+        backgroundColor: Colors.transparent,
+        selectedColor: scheme.primaryContainer.withValues(alpha: .55),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(9)),
+        side: BorderSide.none,
       ),
       navigationBarTheme: NavigationBarThemeData(
         backgroundColor: scheme.surface.withValues(alpha: .96),
-        indicatorColor: scheme.primaryContainer,
+        indicatorColor: Colors.transparent,
         elevation: 0,
+        labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
       ),
       navigationRailTheme: NavigationRailThemeData(
         backgroundColor: scheme.surface,
-        indicatorColor: scheme.primaryContainer,
+        indicatorColor: Colors.transparent,
       ),
       dividerTheme: DividerThemeData(color: scheme.outlineVariant, space: 1),
       pageTransitionsTheme: _pageTransitions,
@@ -127,16 +125,13 @@ class AppTheme {
       ),
       cardTheme: CardThemeData(
         elevation: 0,
-        color: Colors.white,
+        color: scheme.surface,
         margin: EdgeInsets.zero,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(18),
-          side: const BorderSide(color: Color(0x0F1D2433)),
-        ),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
       ),
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
-        fillColor: Colors.white,
+        fillColor: scheme.surfaceContainer,
         contentPadding: const EdgeInsets.symmetric(
           horizontal: 18,
           vertical: 15,
@@ -147,7 +142,7 @@ class AppTheme {
         ),
         enabledBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(16),
-          borderSide: const BorderSide(color: Color(0xFFE8E8EF)),
+          borderSide: BorderSide.none,
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(16),
@@ -164,27 +159,28 @@ class AppTheme {
         ),
       ),
       chipTheme: ChipThemeData(
-        backgroundColor: Colors.white,
-        selectedColor: seed,
+        backgroundColor: Colors.transparent,
+        selectedColor: const Color(0xFFFFE8EF),
         disabledColor: const Color(0xFFE9E9EF),
-        checkmarkColor: Colors.white,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(999)),
-        side: const BorderSide(color: Color(0xFFE4E4EB)),
+        checkmarkColor: seed,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(9)),
+        side: BorderSide.none,
         labelStyle: const TextStyle(color: ink, fontWeight: FontWeight.w600),
         secondaryLabelStyle: const TextStyle(
-          color: Colors.white,
+          color: seed,
           fontWeight: FontWeight.w700,
         ),
       ),
       navigationBarTheme: const NavigationBarThemeData(
-        height: 70,
+        height: 64,
         backgroundColor: Color(0xFAFFFFFF),
-        indicatorColor: Color(0xFFFFE1EB),
+        indicatorColor: Colors.transparent,
         elevation: 0,
+        labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
       ),
       navigationRailTheme: const NavigationRailThemeData(
         backgroundColor: Colors.white,
-        indicatorColor: Color(0xFFFFE1EB),
+        indicatorColor: Colors.transparent,
       ),
       dividerTheme: const DividerThemeData(color: Color(0x141D2433), space: 1),
       snackBarTheme: SnackBarThemeData(

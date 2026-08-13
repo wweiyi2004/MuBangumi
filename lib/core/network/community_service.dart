@@ -1,4 +1,5 @@
 import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart';
 
 import '../../core/storage/community_cache.dart';
 import '../../models/bangumi_models.dart';
@@ -7,33 +8,43 @@ import 'community_html_parser.dart';
 import 'community_p1_parser.dart';
 
 class CommunityService {
-  CommunityService._()
-    : _htmlDio = Dio(
-        BaseOptions(
-          baseUrl: 'https://bgm.tv',
-          connectTimeout: const Duration(seconds: 12),
-          receiveTimeout: const Duration(seconds: 20),
-          responseType: ResponseType.plain,
-          headers: const {
-            'User-Agent': 'MuBangumi/1.1.0 (Flutter; personal Bangumi client)',
-            'Accept': 'text/html,application/xhtml+xml',
-          },
-        ),
-      ),
-      _p1Dio = Dio(
-        BaseOptions(
-          baseUrl: 'https://next.bgm.tv',
-          connectTimeout: const Duration(seconds: 12),
-          receiveTimeout: const Duration(seconds: 20),
-          responseType: ResponseType.json,
-          headers: const {
-            'User-Agent': 'MuBangumi/1.1.0 (Flutter; personal Bangumi client)',
-            'Accept': 'application/json',
-          },
-        ),
-      );
+  CommunityService._({Dio? htmlDio, Dio? p1Dio})
+    : _htmlDio =
+          htmlDio ??
+          Dio(
+            BaseOptions(
+              baseUrl: 'https://bgm.tv',
+              connectTimeout: const Duration(seconds: 12),
+              receiveTimeout: const Duration(seconds: 20),
+              responseType: ResponseType.plain,
+              headers: const {
+                'User-Agent':
+                    'MuBangumi/1.1.0 (Flutter; personal Bangumi client)',
+                'Accept': 'text/html,application/xhtml+xml',
+              },
+            ),
+          ),
+      _p1Dio =
+          p1Dio ??
+          Dio(
+            BaseOptions(
+              baseUrl: 'https://next.bgm.tv',
+              connectTimeout: const Duration(seconds: 12),
+              receiveTimeout: const Duration(seconds: 20),
+              responseType: ResponseType.json,
+              headers: const {
+                'User-Agent':
+                    'MuBangumi/1.1.0 (Flutter; personal Bangumi client)',
+                'Accept': 'application/json',
+              },
+            ),
+          );
 
   static final shared = CommunityService._();
+
+  @visibleForTesting
+  CommunityService.test({Dio? htmlDio, Dio? p1Dio})
+    : this._(htmlDio: htmlDio, p1Dio: p1Dio);
 
   final Dio _htmlDio;
   final Dio _p1Dio;
@@ -44,6 +55,7 @@ class CommunityService {
   final Map<String, _CachedJson> _jsonCache = {};
   final Map<String, _CachedFriends> _friendsCache = {};
   String? _currentUsername;
+  String _currentNickname = '';
 
   /// Called once on HTTP 401; return true if a new token was applied.
   Future<bool> Function()? onUnauthorizedRefresh;
@@ -63,9 +75,10 @@ class CommunityService {
     _friendsCache.clear();
   }
 
-  void setCurrentUsername(String? username) {
+  void setCurrentUsername(String? username, {String nickname = ''}) {
     final value = username?.trim() ?? '';
     _currentUsername = value.isEmpty ? null : value;
+    _currentNickname = value.isEmpty ? '' : nickname.trim();
   }
 
   Future<void> clearAccountCache() async {
@@ -236,7 +249,25 @@ class CommunityService {
     final json = await _persistentCache.readJson('timeline:${mode.name}');
     final data = json?['data'];
     if (data is! List) return null;
-    return _p1Parser.parseTimeline(data);
+    return decodeCachedTimeline(mode, data);
+  }
+
+  /// Cached own-timeline rows omit `user`; rebuild identity the same way
+  /// [loadTimeline] does for a live `/users/{username}/timeline` response.
+  @visibleForTesting
+  List<CommunityTimelineItem> decodeCachedTimeline(
+    CommunityTimelineMode mode,
+    List<dynamic> data,
+  ) {
+    return _p1Parser.parseTimeline(
+      data,
+      fallbackUsername: mode == CommunityTimelineMode.me
+          ? _currentUsername
+          : null,
+      fallbackNickname: mode == CommunityTimelineMode.me
+          ? _currentNickname
+          : null,
+    );
   }
 
   Future<List<CommunityTimelineItem>> loadTimeline(
@@ -262,7 +293,7 @@ class CommunityService {
         'data': data,
       }, accountScoped: mode != CommunityTimelineMode.all);
     }
-    return _p1Parser.parseTimeline(data);
+    return decodeCachedTimeline(mode, data);
   }
 
   /// Public timeline for any username (user profile surface).
@@ -278,7 +309,8 @@ class CommunityService {
       query: {'limit': limit.clamp(1, 30)},
       refresh: refresh,
     );
-    return _p1Parser.parseTimeline(data);
+    // Same shape as the own-timeline endpoint: no `user` object per item.
+    return _p1Parser.parseTimeline(data, fallbackUsername: value);
   }
 
   Future<List<CommunityTimelineReply>> loadTimelineReplies(

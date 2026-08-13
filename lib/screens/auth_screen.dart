@@ -22,7 +22,6 @@ class AuthScreen extends ConsumerStatefulWidget {
 
 class _AuthScreenState extends ConsumerState<AuthScreen> {
   final _tokenController = TextEditingController();
-  bool _hidden = true;
   bool? _hasSavedOAuthConfig;
 
   @override
@@ -260,6 +259,179 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
     return result;
   }
 
+  Future<void> _showLoginOptions() async {
+    var hideToken = true;
+    var isSubmittingToken = false;
+    String? tokenError;
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      showDragHandle: true,
+      builder: (sheetContext) => StatefulBuilder(
+        builder: (context, setSheetState) {
+          Future<void> submitToken() async {
+            if (isSubmittingToken) return;
+            setSheetState(() {
+              isSubmittingToken = true;
+              tokenError = null;
+            });
+            final signedIn = await ref
+                .read(sessionProvider.notifier)
+                .signIn(_tokenController.text);
+            if (!sheetContext.mounted) return;
+            if (signedIn) {
+              Navigator.pop(sheetContext);
+              return;
+            }
+            setSheetState(() {
+              isSubmittingToken = false;
+              tokenError = ref.read(sessionProvider).message;
+            });
+          }
+
+          void openAfterClosing(Future<void> Function() action) {
+            Navigator.pop(sheetContext);
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              if (mounted) unawaited(action());
+            });
+          }
+
+          final colors = Theme.of(context).colorScheme;
+          return Padding(
+            padding: EdgeInsets.fromLTRB(
+              24,
+              0,
+              24,
+              24 + MediaQuery.viewInsetsOf(context).bottom,
+            ),
+            child: Center(
+              heightFactor: 1,
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 520),
+                child: SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        '其他登录方式与设置',
+                        style: Theme.of(context).textTheme.titleLarge,
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        '一般情况下无需调整；遇到网络问题或使用个人开发者配置时再进入。',
+                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                          color: colors.onSurfaceVariant,
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      _LoginOptionTile(
+                        icon: Icons.settings_outlined,
+                        title: OAuthBuiltin.isConfigured
+                            ? '自定义 OAuth'
+                            : _hasSavedOAuthConfig == true
+                            ? '更换 OAuth 配置'
+                            : '配置 Bangumi OAuth',
+                        subtitle: '使用自己的 App ID 与 App Secret',
+                        onTap: () => openAfterClosing(
+                          () => _startOAuth(editConfiguration: true),
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      _LoginOptionTile(
+                        icon: Icons.alt_route_rounded,
+                        title: '网络线路',
+                        subtitle: ref.read(sessionProvider).networkRoute.label,
+                        onTap: () => openAfterClosing(
+                          () => showNetworkRoutePicker(this.context, ref),
+                        ),
+                      ),
+                      const SizedBox(height: 22),
+                      Text(
+                        'Access Token 备用登录',
+                        style: Theme.of(context).textTheme.titleMedium,
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        '仅建议熟悉 Bangumi 开发者功能的用户使用。',
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: colors.onSurfaceVariant,
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      TextField(
+                        key: const Key('access-token-field'),
+                        controller: _tokenController,
+                        obscureText: hideToken,
+                        autocorrect: false,
+                        enableSuggestions: false,
+                        textInputAction: TextInputAction.done,
+                        onSubmitted: (_) => submitToken(),
+                        decoration: InputDecoration(
+                          labelText: 'Access Token',
+                          prefixIcon: const Icon(Icons.key_rounded),
+                          suffixIcon: IconButton(
+                            tooltip: hideToken ? '显示令牌' : '隐藏令牌',
+                            onPressed: () =>
+                                setSheetState(() => hideToken = !hideToken),
+                            icon: Icon(
+                              hideToken
+                                  ? Icons.visibility_outlined
+                                  : Icons.visibility_off_outlined,
+                            ),
+                          ),
+                        ),
+                      ),
+                      if (tokenError != null) ...[
+                        const SizedBox(height: 8),
+                        Text(
+                          tokenError!,
+                          style: TextStyle(color: colors.error),
+                        ),
+                      ],
+                      const SizedBox(height: 12),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: FilledButton.tonalIcon(
+                              key: const Key('access-token-login-button'),
+                              onPressed: isSubmittingToken ? null : submitToken,
+                              icon: isSubmittingToken
+                                  ? const SizedBox.square(
+                                      dimension: 18,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                      ),
+                                    )
+                                  : const Icon(Icons.login_rounded),
+                              label: Text(
+                                isSubmittingToken ? '正在登录…' : '使用令牌登录',
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          TextButton.icon(
+                            onPressed: _openTokenPage,
+                            icon: const Icon(
+                              Icons.open_in_new_rounded,
+                              size: 17,
+                            ),
+                            label: const Text('获取令牌'),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final session = ref.watch(sessionProvider);
@@ -299,17 +471,39 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
                               mainAxisSize: MainAxisSize.min,
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                const BrandMark(),
-                                const SizedBox(height: 28),
+                                const Row(
+                                  children: [
+                                    BrandMark(size: 46),
+                                    SizedBox(width: 14),
+                                    Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          'MuBangumi',
+                                          style: TextStyle(
+                                            fontSize: 19,
+                                            fontWeight: FontWeight.w800,
+                                          ),
+                                        ),
+                                        Text(
+                                          '你的追番资料库',
+                                          style: TextStyle(fontSize: 12),
+                                        ),
+                                      ],
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 34),
                                 Text(
-                                  '欢迎回来',
+                                  '登录 Bangumi',
                                   style: Theme.of(
                                     context,
                                   ).textTheme.headlineLarge,
                                 ),
                                 const SizedBox(height: 10),
                                 Text(
-                                  '连接你的 Bangumi 账号，同步收藏与追番进度。',
+                                  '授权后即可同步收藏、进度和个人资料。',
                                   style: Theme.of(context).textTheme.bodyLarge
                                       ?.copyWith(
                                         color: Theme.of(
@@ -317,17 +511,19 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
                                         ).colorScheme.onSurfaceVariant,
                                       ),
                                 ),
-                                const SizedBox(height: 32),
+                                const SizedBox(height: 30),
                                 SizedBox(
                                   width: double.infinity,
                                   child: FilledButton.icon(
+                                    key: const Key('primary-login-button'),
                                     onPressed:
                                         session.isRefreshing &&
                                             session.phase ==
                                                 SessionPhase.signedOut
                                         ? null
                                         : _startOAuth,
-                                    icon: session.isRefreshing &&
+                                    icon:
+                                        session.isRefreshing &&
                                             session.phase ==
                                                 SessionPhase.signedOut
                                         ? const SizedBox.square(
@@ -355,7 +551,8 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
                                   ),
                                 ),
                                 if (session.isRefreshing &&
-                                    session.phase == SessionPhase.signedOut) ...[
+                                    session.phase ==
+                                        SessionPhase.signedOut) ...[
                                   const SizedBox(height: 8),
                                   SizedBox(
                                     width: double.infinity,
@@ -366,161 +563,67 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
                                     ),
                                   ),
                                 ],
-                                const SizedBox(height: 8),
-                                Center(
-                                  child: Text(
-                                    _oauthHelperText,
-                                    textAlign: TextAlign.center,
-                                    style: Theme.of(context).textTheme.bodySmall
-                                        ?.copyWith(
-                                          color: Theme.of(
-                                            context,
-                                          ).colorScheme.onSurfaceVariant,
-                                        ),
-                                  ),
-                                ),
-                                Align(
-                                  alignment: Alignment.center,
-                                  child: TextButton.icon(
-                                    onPressed:
-                                        session.isRefreshing &&
-                                            session.phase ==
-                                                SessionPhase.signedOut
-                                        ? null
-                                        : () => _startOAuth(
-                                            editConfiguration: true,
-                                          ),
-                                    icon: const Icon(
-                                      Icons.settings_outlined,
-                                      size: 17,
-                                    ),
-                                    label: Text(
-                                      OAuthBuiltin.isConfigured
-                                          ? '高级：自定义 OAuth'
-                                          : _hasSavedOAuthConfig == true
-                                          ? '更换 OAuth 配置'
-                                          : '查看 OAuth 配置',
-                                    ),
-                                  ),
-                                ),
-                                Align(
-                                  alignment: Alignment.center,
-                                  child: TextButton.icon(
-                                    onPressed: () =>
-                                        showNetworkRoutePicker(context, ref),
-                                    icon: const Icon(
-                                      Icons.alt_route_rounded,
-                                      size: 17,
-                                    ),
-                                    label: Text(
-                                      '网络线路：${session.networkRoute.label}',
-                                    ),
-                                  ),
-                                ),
-                                if (session.message != null) ...[
-                                  const SizedBox(height: 12),
-                                  Row(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      Icon(
-                                        Icons.error_outline_rounded,
-                                        size: 19,
-                                        color: Theme.of(
-                                          context,
-                                        ).colorScheme.error,
-                                      ),
-                                      const SizedBox(width: 8),
-                                      Expanded(
-                                        child: Text(
-                                          session.message!,
-                                          style: TextStyle(
-                                            color: Theme.of(
-                                              context,
-                                            ).colorScheme.error,
-                                          ),
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ],
-                                const SizedBox(height: 14),
-                                Row(
-                                  children: [
-                                    const Expanded(child: Divider()),
-                                    Padding(
-                                      padding: const EdgeInsets.symmetric(
-                                        horizontal: 12,
-                                      ),
-                                      child: Text(
-                                        '或使用个人令牌',
-                                        style: Theme.of(
-                                          context,
-                                        ).textTheme.labelMedium,
-                                      ),
-                                    ),
-                                    const Expanded(child: Divider()),
-                                  ],
-                                ),
-                                const SizedBox(height: 14),
-                                ExpansionTile(
-                                  tilePadding: EdgeInsets.zero,
-                                  childrenPadding: EdgeInsets.zero,
-                                  title: const Text('Access Token 备用登录'),
-                                  leading: const Icon(Icons.key_rounded),
-                                  children: [
-                                    TextField(
-                                      controller: _tokenController,
-                                      obscureText: _hidden,
-                                      autocorrect: false,
-                                      enableSuggestions: false,
-                                      decoration: InputDecoration(
-                                        labelText: 'Access Token',
-                                        suffixIcon: IconButton(
-                                          tooltip: _hidden ? '显示令牌' : '隐藏令牌',
-                                          onPressed: () => setState(
-                                            () => _hidden = !_hidden,
-                                          ),
-                                          icon: Icon(
-                                            _hidden
-                                                ? Icons.visibility_outlined
-                                                : Icons.visibility_off_outlined,
-                                          ),
-                                        ),
-                                      ),
-                                    ),
-                                    const SizedBox(height: 10),
-                                    Row(
-                                      children: [
-                                        Expanded(
-                                          child: FilledButton.tonal(
-                                            onPressed: () => ref
-                                                .read(sessionProvider.notifier)
-                                                .signIn(_tokenController.text),
-                                            child: const Text('使用令牌登录'),
-                                          ),
-                                        ),
-                                        IconButton(
-                                          tooltip: '获取个人令牌',
-                                          onPressed: _openTokenPage,
-                                          icon: const Icon(
-                                            Icons.open_in_new_rounded,
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ],
-                                ),
-                                const SizedBox(height: 18),
+                                const SizedBox(height: 10),
                                 Text(
-                                  '登录凭据只保存在当前设备的系统安全存储中，不会上传到其他服务器。',
+                                  _oauthHelperText,
                                   style: Theme.of(context).textTheme.bodySmall
                                       ?.copyWith(
                                         color: Theme.of(
                                           context,
                                         ).colorScheme.onSurfaceVariant,
-                                        height: 1.5,
                                       ),
+                                ),
+                                if (session.message != null) ...[
+                                  const SizedBox(height: 16),
+                                  _AuthErrorBanner(
+                                    message: session.message!,
+                                    onDismiss: () => ref
+                                        .read(sessionProvider.notifier)
+                                        .clearMessage(),
+                                  ),
+                                ],
+                                const SizedBox(height: 22),
+                                SizedBox(
+                                  width: double.infinity,
+                                  child: OutlinedButton.icon(
+                                    key: const Key('login-options-button'),
+                                    // Keep fallback entrances (token login,
+                                    // network route) reachable even while an
+                                    // OAuth authorization is pending — the
+                                    // in-app browser can wait for minutes and
+                                    // users abandoning it still need a way in.
+                                    onPressed: _showLoginOptions,
+                                    icon: const Icon(Icons.tune_rounded),
+                                    label: const Text('其他登录方式与设置'),
+                                  ),
+                                ),
+                                const SizedBox(height: 18),
+                                Row(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Icon(
+                                      Icons.shield_outlined,
+                                      size: 17,
+                                      color: Theme.of(
+                                        context,
+                                      ).colorScheme.onSurfaceVariant,
+                                    ),
+                                    const SizedBox(width: 8),
+                                    Expanded(
+                                      child: Text(
+                                        '通过 Bangumi 官方页面授权；登录凭据仅保存在当前设备。',
+                                        style: Theme.of(context)
+                                            .textTheme
+                                            .bodySmall
+                                            ?.copyWith(
+                                              color: Theme.of(
+                                                context,
+                                              ).colorScheme.onSurfaceVariant,
+                                              height: 1.45,
+                                            ),
+                                      ),
+                                    ),
+                                  ],
                                 ),
                               ],
                             ),
@@ -539,12 +642,91 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
   }
 }
 
+class _LoginOptionTile extends StatelessWidget {
+  const _LoginOptionTile({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    return Material(
+      color: colors.surfaceContainerLow,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(14),
+        side: BorderSide(color: colors.outlineVariant),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: ListTile(
+        onTap: onTap,
+        leading: Icon(icon),
+        title: Text(title),
+        subtitle: Text(subtitle),
+        trailing: const Icon(Icons.chevron_right_rounded),
+      ),
+    );
+  }
+}
+
+class _AuthErrorBanner extends StatelessWidget {
+  const _AuthErrorBanner({required this.message, required this.onDismiss});
+
+  final String message;
+  final VoidCallback onDismiss;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    return Container(
+      padding: const EdgeInsets.fromLTRB(14, 10, 6, 10),
+      decoration: BoxDecoration(
+        color: colors.errorContainer.withValues(alpha: .65),
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          Icon(
+            Icons.error_outline_rounded,
+            size: 20,
+            color: colors.onErrorContainer,
+          ),
+          const SizedBox(width: 9),
+          Expanded(
+            child: Text(
+              message,
+              style: TextStyle(color: colors.onErrorContainer),
+            ),
+          ),
+          IconButton(
+            tooltip: '关闭提示',
+            onPressed: onDismiss,
+            icon: Icon(
+              Icons.close_rounded,
+              size: 18,
+              color: colors.onErrorContainer,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _AuthArtwork extends StatelessWidget {
   const _AuthArtwork();
 
   @override
   Widget build(BuildContext context) => Container(
-    constraints: const BoxConstraints(minHeight: 640),
+    constraints: const BoxConstraints(minHeight: 570),
     padding: const EdgeInsets.all(48),
     decoration: const BoxDecoration(
       gradient: LinearGradient(

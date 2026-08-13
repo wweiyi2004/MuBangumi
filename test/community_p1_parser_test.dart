@@ -320,6 +320,62 @@ void main() {
     expect(detail.posts[3].body, '（该回复已被删除或不可见）');
   });
 
+  test('keeps user-less timeline items when a fallback user is provided', () {
+    // /p1/users/{username}/timeline omits the redundant `user` object;
+    // only `uid` identifies the owner. The fallback rebuilds the identity.
+    final items = parser.parseTimeline([
+      {
+        'id': 71228734,
+        'uid': 763686,
+        'cat': 4,
+        'type': 2,
+        'createdAt': 1786588552,
+        'memo': {
+          'progress': {
+            'single': {
+              'episode': {
+                'id': 1656013,
+                'subjectID': 590353,
+                'sort': 6,
+                'type': 0,
+                'name': '私と一緒に',
+                'nameCN': '和我一起',
+                'airdate': '2026-05-12',
+              },
+              'subject': {
+                'id': 590353,
+                'name': 'マリッジトキシン',
+                'nameCN': '婚姻剧毒',
+                'type': 2,
+              },
+            },
+          },
+        },
+      },
+    ], fallbackUsername: 'wweiyi', fallbackNickname: '维依');
+
+    expect(items, hasLength(1));
+    expect(items.single.user.id, 763686);
+    expect(items.single.user.username, 'wweiyi');
+    expect(items.single.user.displayName, '维依');
+    expect(items.single.description, '看过 婚姻剧毒 EP.6');
+  });
+
+  test('still drops user-less timeline items without a fallback', () {
+    final items = parser.parseTimeline([
+      {
+        'id': 1,
+        'uid': 763686,
+        'cat': 4,
+        'type': 2,
+        'createdAt': 1786588552,
+        'memo': <String, dynamic>{},
+      },
+    ]);
+
+    expect(items, isEmpty);
+  });
+
   test('parses notify list page', () {
     final notices = parser.parseNotices({
       'total': 2,

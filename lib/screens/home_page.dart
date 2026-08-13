@@ -51,10 +51,6 @@ class HomePage extends ConsumerWidget {
     final completed = collections
         .where((item) => item.type == CollectionType.done)
         .length;
-    final typeCounts = {
-      for (final type in SubjectType.values)
-        type: collections.where((item) => item.subject.type == type).length,
-    };
     final hour = DateTime.now().hour;
     final greeting = hour < 11
         ? '早上好'
@@ -63,35 +59,99 @@ class HomePage extends ConsumerWidget {
         : '晚上好';
 
     final phone = AppLayout.isPhone(context);
-    return RefreshIndicator(
-      onRefresh: () => ref.read(sessionProvider.notifier).refresh(),
-      child: SingleChildScrollView(
-        physics: const AlwaysScrollableScrollPhysics(),
-        padding: AppLayout.pageInsets(context, top: 24, bottom: 60),
-        child: Center(
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 1220),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            phone
-                                ? '$greeting\n$nickname'
-                                : '$greeting，$nickname',
-                            maxLines: phone ? 2 : 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: AppLayout.pageTitleStyle(context),
+    final desktop = AppLayout.isDesktop(context);
+    // On desktop the greeting/notify/sync header stays pinned at the top of
+    // the page — the buttons anchored to the window's top-right — instead of
+    // scrolling away with the content.
+    final header = _buildHeader(
+      context,
+      ref,
+      greeting: greeting,
+      nickname: nickname,
+      isRefreshing: isRefreshing,
+      phone: phone,
+    );
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        if (desktop)
+          Padding(
+            padding: AppLayout.pageInsets(context, top: 24, bottom: 0),
+            child: header,
+          ),
+        Expanded(
+          child: RefreshIndicator(
+            onRefresh: () => ref.read(sessionProvider.notifier).refresh(),
+            child: SingleChildScrollView(
+              physics: const AlwaysScrollableScrollPhysics(),
+              padding: AppLayout.pageInsets(
+                context,
+                top: desktop ? 0 : 24,
+                bottom: 60,
+              ),
+              child: Center(
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 1220),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      if (!desktop) header,
+                      SizedBox(height: AppLayout.blockGap(context)),
+                      _HomeStats(
+                        watching: watchingAll.length,
+                        completed: completed,
+                        total: collections.length,
+                      ),
+                      SizedBox(height: AppLayout.sectionGap(context)),
+                      _HomeQuickActions(
+                        onSchedule: onSchedule,
+                        onCalendar: () => Navigator.of(context).push(
+                          MaterialPageRoute<void>(
+                            builder: (_) => const CalendarPage(),
                           ),
-                          const SizedBox(height: 5),
+                        ),
+                        onRecommend: () => Navigator.of(context).push(
+                          MaterialPageRoute<void>(
+                            builder: (_) => const FanRecommendPage(),
+                          ),
+                        ),
+                        onDiscover: onDiscover,
+                      ),
+                      if (isLoadingCollections) ...[
+                        const SizedBox(height: 12),
+                        Row(
+                          children: [
+                            const SizedBox.square(
+                              dimension: 14,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                '正在同步其他类型收藏…',
+                                style: TextStyle(
+                                  color: Theme.of(
+                                    context,
+                                  ).colorScheme.onSurfaceVariant,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                      SizedBox(height: AppLayout.blockGap(context)),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              '继续追',
+                              style: AppLayout.sectionTitleStyle(context),
+                            ),
+                          ),
                           Text(
-                            _todayLabel(),
+                            watchingAll.length > previewLimit
+                                ? '显示 $previewLimit / ${watchingAll.length} 部'
+                                : '${watchingAll.length} 部',
                             style: TextStyle(
                               color: Theme.of(
                                 context,
@@ -101,192 +161,54 @@ class HomePage extends ConsumerWidget {
                           ),
                         ],
                       ),
-                    ),
-                    const SizedBox(width: 4),
-                    Flexible(
-                      child: FittedBox(
-                        fit: BoxFit.scaleDown,
-                        alignment: Alignment.centerRight,
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Builder(
-                              builder: (context) {
-                                final unread = ref.watch(
-                                  notifyBadgeProvider.select(
-                                    (s) => s.unreadCount,
-                                  ),
-                                );
-                                return IconButton.filledTonal(
-                                  visualDensity: phone
-                                      ? VisualDensity.compact
-                                      : VisualDensity.standard,
-                                  tooltip: unread > 0
-                                      ? '电波提醒（$unread 未读）'
-                                      : '电波提醒',
-                                  onPressed: () {
-                                    Navigator.of(context).push(
-                                      MaterialPageRoute<void>(
-                                        builder: (_) => const NotifyPage(),
-                                      ),
-                                    );
-                                  },
-                                  icon: Badge(
-                                    isLabelVisible: unread > 0,
-                                    label: Text(
-                                      unread > 99 ? '99+' : '$unread',
-                                    ),
-                                    child: const Icon(
-                                      Icons.notifications_outlined,
-                                    ),
-                                  ),
-                                );
-                              },
-                            ),
-                            IconButton.filledTonal(
-                              visualDensity: phone
-                                  ? VisualDensity.compact
-                                  : VisualDensity.standard,
-                              tooltip: '同步收藏',
-                              onPressed: isRefreshing
-                                  ? null
-                                  : () => ref
-                                        .read(sessionProvider.notifier)
-                                        .refresh(),
-                              icon: isRefreshing
-                                  ? const SizedBox.square(
-                                      dimension: 18,
-                                      child: CircularProgressIndicator(
-                                        strokeWidth: 2,
-                                      ),
+                      const SizedBox(height: 14),
+                      if (watching.isEmpty)
+                        isLoadingCollections
+                            ? const _HomeCollectionSkeleton()
+                            : EmptyState(
+                                icon: Icons.playlist_add_rounded,
+                                title: '还没有进行中的收藏',
+                                message: '去发现页搜索喜欢的作品，把它加入“在看 / 在读 / 在玩”。',
+                                action: FilledButton.icon(
+                                  onPressed: onDiscover,
+                                  icon: const Icon(Icons.explore_rounded),
+                                  label: const Text('去发现'),
+                                ),
+                              )
+                      else
+                        SubjectPosterGrid(
+                          itemCount: watching.length,
+                          itemBuilder: (context, index) {
+                            final collection = watching[index];
+                            final supportsEpisodes =
+                                collection.subject.type.hasEpisodes;
+                            return SubjectPosterCard(
+                              subject: collection.subject,
+                              collection: collection,
+                              busy: updating.contains(collection.subjectId),
+                              onTap: () =>
+                                  _openDetail(context, collection.subject),
+                              onEpisodeGrid: supportsEpisodes
+                                  ? () => showEpisodeGridSheet(
+                                      context,
+                                      ref,
+                                      collection,
                                     )
-                                  : const Icon(Icons.sync_rounded),
-                            ),
-                          ],
+                                  : null,
+                              onNextEpisode: supportsEpisodes
+                                  ? () => _markNext(context, ref, collection)
+                                  : null,
+                            );
+                          },
                         ),
-                      ),
-                    ),
-                  ],
-                ),
-                SizedBox(height: AppLayout.blockGap(context)),
-                _OverviewBanner(
-                  watching: watchingAll.length,
-                  completed: completed,
-                  total: collections.length,
-                  onDiscover: onDiscover,
-                ),
-                SizedBox(height: AppLayout.sectionGap(context)),
-                _HomeQuickActions(
-                  onSchedule: onSchedule,
-                  onCalendar: () => Navigator.of(context).push(
-                    MaterialPageRoute<void>(
-                      builder: (_) => const CalendarPage(),
-                    ),
-                  ),
-                  onRecommend: () => Navigator.of(context).push(
-                    MaterialPageRoute<void>(
-                      builder: (_) => const FanRecommendPage(),
-                    ),
-                  ),
-                  onDiscover: onDiscover,
-                ),
-                if (isLoadingCollections) ...[
-                  const SizedBox(height: 12),
-                  Row(
-                    children: [
-                      const SizedBox.square(
-                        dimension: 14,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Text(
-                          '正在同步其他类型收藏…',
-                          style: TextStyle(
-                            color: Theme.of(
-                              context,
-                            ).colorScheme.onSurfaceVariant,
-                          ),
-                        ),
-                      ),
                     ],
                   ),
-                ],
-                SizedBox(height: AppLayout.sectionGap(context)),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: [
-                    for (final type in SubjectType.values)
-                      if ((typeCounts[type] ?? 0) > 0)
-                        Chip(
-                          avatar: Icon(subjectTypeIcon(type), size: 16),
-                          label: Text('${type.label} ${typeCounts[type]}'),
-                          visualDensity: VisualDensity.compact,
-                          materialTapTargetSize:
-                              MaterialTapTargetSize.shrinkWrap,
-                        ),
-                  ],
                 ),
-                SizedBox(height: AppLayout.blockGap(context)),
-                Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        '继续追',
-                        style: AppLayout.sectionTitleStyle(context),
-                      ),
-                    ),
-                    Text(
-                      watchingAll.length > previewLimit
-                          ? '显示 $previewLimit / ${watchingAll.length} 部'
-                          : '${watchingAll.length} 部',
-                      style: TextStyle(
-                        color: Theme.of(context).colorScheme.onSurfaceVariant,
-                        fontSize: phone ? 13 : null,
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 14),
-                if (watching.isEmpty)
-                  EmptyState(
-                    icon: Icons.playlist_add_rounded,
-                    title: '还没有进行中的收藏',
-                    message: '去发现页搜索喜欢的作品，把它加入“在看 / 在读 / 在玩”。',
-                    action: FilledButton.icon(
-                      onPressed: onDiscover,
-                      icon: const Icon(Icons.explore_rounded),
-                      label: const Text('去发现'),
-                    ),
-                  )
-                else
-                  SubjectPosterGrid(
-                    itemCount: watching.length,
-                    itemBuilder: (context, index) {
-                      final collection = watching[index];
-                      final supportsEpisodes =
-                          collection.subject.type.hasEpisodes;
-                      return SubjectPosterCard(
-                        subject: collection.subject,
-                        collection: collection,
-                        busy: updating.contains(collection.subjectId),
-                        onTap: () => _openDetail(context, collection.subject),
-                        onEpisodeGrid: supportsEpisodes
-                            ? () =>
-                                  showEpisodeGridSheet(context, ref, collection)
-                            : null,
-                        onNextEpisode: supportsEpisodes
-                            ? () => _markNext(context, ref, collection)
-                            : null,
-                      );
-                    },
-                  ),
-              ],
+              ),
             ),
           ),
         ),
-      ),
+      ],
     );
   }
 
@@ -308,10 +230,126 @@ class HomePage extends ConsumerWidget {
     );
   }
 
+  Widget _buildHeader(
+    BuildContext context,
+    WidgetRef ref, {
+    required String greeting,
+    required String nickname,
+    required bool isRefreshing,
+    required bool phone,
+  }) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                phone ? '$greeting\n$nickname' : '$greeting，$nickname',
+                maxLines: phone ? 2 : 1,
+                overflow: TextOverflow.ellipsis,
+                style: AppLayout.pageTitleStyle(context),
+              ),
+              const SizedBox(height: 5),
+              Text(
+                _todayLabel(),
+                style: TextStyle(
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  fontSize: phone ? 13 : null,
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(width: 4),
+        Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Builder(
+              builder: (context) {
+                final unread = ref.watch(
+                  notifyBadgeProvider.select((s) => s.unreadCount),
+                );
+                return IconButton(
+                  visualDensity: phone
+                      ? VisualDensity.compact
+                      : VisualDensity.standard,
+                  tooltip: unread > 0 ? '电波提醒（$unread 未读）' : '电波提醒',
+                  onPressed: () {
+                    Navigator.of(context).push(
+                      MaterialPageRoute<void>(
+                        builder: (_) => const NotifyPage(),
+                      ),
+                    );
+                  },
+                  icon: Badge(
+                    isLabelVisible: unread > 0,
+                    label: Text(unread > 99 ? '99+' : '$unread'),
+                    child: const Icon(Icons.notifications_outlined),
+                  ),
+                );
+              },
+            ),
+            IconButton(
+              visualDensity: phone
+                  ? VisualDensity.compact
+                  : VisualDensity.standard,
+              tooltip: '同步收藏',
+              onPressed: isRefreshing
+                  ? null
+                  : () => ref.read(sessionProvider.notifier).refresh(),
+              icon: isRefreshing
+                  ? const SizedBox.square(
+                      dimension: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.sync_rounded),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
   String _todayLabel() {
     const weekdays = ['星期一', '星期二', '星期三', '星期四', '星期五', '星期六', '星期日'];
     final now = DateTime.now();
     return '${now.month} 月 ${now.day} 日 · ${weekdays[now.weekday - 1]}';
+  }
+}
+
+class _HomeCollectionSkeleton extends StatelessWidget {
+  const _HomeCollectionSkeleton();
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return KeyedSubtree(
+      key: const ValueKey('home-collection-skeleton'),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final columns = subjectPosterColumnCount(constraints.maxWidth);
+          return GridView.builder(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            itemCount: columns * 2,
+            gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: columns,
+              mainAxisSpacing: 12,
+              crossAxisSpacing: 12,
+              childAspectRatio: 0.58,
+            ),
+            itemBuilder: (_, _) => DecoratedBox(
+              decoration: BoxDecoration(
+                color: scheme.surfaceContainerHighest,
+                borderRadius: BorderRadius.circular(12),
+              ),
+            ),
+          );
+        },
+      ),
+    );
   }
 }
 
@@ -405,22 +443,23 @@ class _QuickActionCard extends StatelessWidget {
   action;
 
   @override
-  Widget build(BuildContext context) => Card(
-    clipBehavior: Clip.antiAlias,
+  Widget build(BuildContext context) => Material(
+    color: Colors.transparent,
     child: InkWell(
+      borderRadius: BorderRadius.circular(10),
       onTap: action.onTap,
       child: Padding(
-        padding: const EdgeInsets.all(12),
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
         child: Row(
           children: [
             DecoratedBox(
               decoration: BoxDecoration(
                 color: action.color.withValues(alpha: .14),
-                borderRadius: BorderRadius.circular(13),
+                borderRadius: BorderRadius.circular(10),
               ),
               child: SizedBox.square(
-                dimension: 42,
-                child: Icon(action.icon, color: action.color, size: 22),
+                dimension: 38,
+                child: Icon(action.icon, color: action.color, size: 20),
               ),
             ),
             const SizedBox(width: 10),
@@ -433,7 +472,7 @@ class _QuickActionCard extends StatelessWidget {
                     action.title,
                     maxLines: 1,
                     style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                      fontWeight: FontWeight.w800,
+                      fontWeight: FontWeight.w600,
                     ),
                   ),
                   const SizedBox(height: 2),
@@ -455,141 +494,60 @@ class _QuickActionCard extends StatelessWidget {
   );
 }
 
-class _OverviewBanner extends StatelessWidget {
-  const _OverviewBanner({
+class _HomeStats extends StatelessWidget {
+  const _HomeStats({
     required this.watching,
     required this.completed,
     required this.total,
-    required this.onDiscover,
   });
 
   final int watching;
   final int completed;
   final int total;
-  final VoidCallback onDiscover;
-
-  @override
-  Widget build(BuildContext context) => LayoutBuilder(
-    builder: (context, constraints) {
-      final compact = constraints.maxWidth < 600;
-      final veryNarrow = constraints.maxWidth < 360;
-      return Container(
-        width: double.infinity,
-        padding: EdgeInsets.all(compact ? 16 : 24),
-        decoration: BoxDecoration(
-          gradient: const LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: [Color(0xFF272E47), Color(0xFF3A4262)],
-          ),
-          borderRadius: BorderRadius.circular(compact ? 20 : 26),
-          boxShadow: const [
-            BoxShadow(
-              color: Color(0x1F27304A),
-              blurRadius: 24,
-              offset: Offset(0, 12),
-            ),
-          ],
-        ),
-        child: Builder(
-          builder: (context) {
-            final stats = Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: [
-                _StatPill(
-                  value: '$watching',
-                  label: '进行中',
-                  compact: veryNarrow,
-                ),
-                _StatPill(
-                  value: '$completed',
-                  label: '已完成',
-                  compact: veryNarrow,
-                ),
-                _StatPill(value: '$total', label: '总收藏', compact: veryNarrow),
-              ],
-            );
-            final intro = Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Icon(
-                  Icons.auto_awesome_rounded,
-                  color: Color(0xFFFF89AD),
-                ),
-                SizedBox(height: compact ? 10 : 14),
-                Text(
-                  '今天也有好故事在等你',
-                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                    color: Colors.white,
-                    fontSize: compact ? 18 : null,
-                  ),
-                ),
-                const SizedBox(height: 6),
-                const Text(
-                  '轻点 “+” 就能同步下一集进度',
-                  style: TextStyle(color: Colors.white70),
-                ),
-              ],
-            );
-            if (compact) {
-              return Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [intro, const SizedBox(height: 16), stats],
-              );
-            }
-            return Row(
-              children: [
-                Expanded(child: intro),
-                stats,
-                const SizedBox(width: 8),
-              ],
-            );
-          },
-        ),
-      );
-    },
-  );
-}
-
-class _StatPill extends StatelessWidget {
-  const _StatPill({
-    required this.value,
-    required this.label,
-    this.compact = false,
-  });
-
-  final String value;
-  final String label;
-  final bool compact;
-
   @override
   Widget build(BuildContext context) => Container(
-    width: compact ? 72 : 82,
-    padding: EdgeInsets.symmetric(
-      horizontal: compact ? 8 : 12,
-      vertical: compact ? 10 : 12,
-    ),
+    padding: const EdgeInsets.symmetric(vertical: 16),
     decoration: BoxDecoration(
-      color: Colors.white.withValues(alpha: .1),
-      borderRadius: BorderRadius.circular(16),
-      border: Border.all(color: Colors.white12),
-    ),
-    child: Column(
-      children: [
-        Text(
-          value,
-          style: TextStyle(
-            color: Colors.white,
-            fontSize: compact ? 18 : 21,
-            fontWeight: FontWeight.w800,
-          ),
+      border: Border.symmetric(
+        horizontal: BorderSide(
+          color: Theme.of(context).colorScheme.outlineVariant,
         ),
-        Text(
-          label,
-          style: TextStyle(color: Colors.white60, fontSize: compact ? 11 : 12),
+      ),
+    ),
+    child: Row(
+      children: [
+        Expanded(
+          child: _StatItem(value: '$watching', label: '进行中'),
+        ),
+        const SizedBox(height: 30, child: VerticalDivider()),
+        Expanded(
+          child: _StatItem(value: '$completed', label: '已完成'),
+        ),
+        const SizedBox(height: 30, child: VerticalDivider()),
+        Expanded(
+          child: _StatItem(value: '$total', label: '总收藏'),
         ),
       ],
     ),
+  );
+}
+
+class _StatItem extends StatelessWidget {
+  const _StatItem({required this.value, required this.label});
+
+  final String value;
+  final String label;
+  @override
+  Widget build(BuildContext context) => Column(
+    children: [
+      Text(value, style: Theme.of(context).textTheme.titleLarge),
+      const SizedBox(height: 2),
+      Text(
+        label,
+        style: Theme.of(context).textTheme.labelMedium?.copyWith(
+          color: Theme.of(context).colorScheme.onSurfaceVariant,
+        ),
+      ),
+    ],
   );
 }

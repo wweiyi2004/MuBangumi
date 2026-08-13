@@ -78,4 +78,48 @@ void main() {
       isFalse,
     );
   });
+
+  test('extracts PM submission errors without rejecting success notices', () {
+    expect(
+      parser.parseSubmissionError(
+        '<div id="colunmNotice"><div class="text">表单已过期，请重试</div></div>',
+      ),
+      '表单已过期，请重试',
+    );
+    expect(
+      parser.parseSubmissionError(
+        '<div id="colunmNotice"><div class="text">短信发送成功</div></div>',
+      ),
+      isNull,
+    );
+  });
+
+  test('reports failure notices even when they contain 成功', () {
+    expect(
+      parser.parseSubmissionError(
+        '<div id="colunmNotice"><div class="text">发送未成功，请稍后重试</div></div>',
+      ),
+      '发送未成功，请稍后重试',
+    );
+  });
+
+  test('treats a success notice without a success keyword as success', () {
+    expect(
+      parser.parseSubmissionError(
+        '<div id="colunmNotice"><div class="text">短信已发送</div></div>',
+      ),
+      isNull,
+    );
+  });
+
+  test('detects a returned compose form', () {
+    const html = '''
+<form>
+  <input name="formhash" value="token">
+  <textarea name="msg_body"></textarea>
+</form>
+''';
+    expect(parser.hasSubmissionForm(html), isTrue);
+    expect(parser.hasSubmissionForm('<div>发送成功</div>'), isFalse);
+  });
 }

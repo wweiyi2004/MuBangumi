@@ -1,0 +1,6 @@
+[
+  {"id": 338894, "relation": "书籍", "name": "原作轻小说", "type": 1},
+  {"id": 646388, "relation": "片头曲", "name": "夏に重ねて", "type": 3},
+  {"id": 990001, "relation": "续作", "name": "后续动画", "type": 2},
+  {"id": 990002, "relation": "前传", "name": "前传动画", "type": 2}
+]

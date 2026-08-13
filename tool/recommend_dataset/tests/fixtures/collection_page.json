@@ -1,0 +1,37 @@
+{
+  "total": 3,
+  "limit": 100,
+  "offset": 0,
+  "data": [
+    {
+      "subject_id": 456080,
+      "subject_type": 2,
+      "rate": 7,
+      "type": 1,
+      "updated_at": "2025-11-25T01:25:16+08:00",
+      "comment": "这条短评不应被采集",
+      "tags": ["用户私密标签"],
+      "private": false,
+      "ep_status": 5,
+      "vol_status": 0
+    },
+    {
+      "subject_id": 777777,
+      "subject_type": 2,
+      "rate": 0,
+      "type": 3,
+      "updated_at": "2026-01-02T10:00:00+08:00",
+      "comment": "也不应被采集",
+      "tags": [],
+      "private": true
+    },
+    {
+      "subject_id": 888888,
+      "subject_type": 2,
+      "rate": 2,
+      "type": 5,
+      "updated_at": null,
+      "comment": null
+    }
+  ]
+}

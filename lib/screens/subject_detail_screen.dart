@@ -11,6 +11,7 @@ import '../core/layout/app_layout.dart';
 import '../core/network/bangumi_endpoints.dart';
 import '../core/network/bangumi_support.dart';
 import '../core/network/community_service.dart';
+import '../core/network/moegirl_service.dart';
 import '../core/network/netaba_api.dart';
 import '../models/bangumi_models.dart';
 import '../models/community_models.dart';
@@ -22,6 +23,7 @@ import '../widgets/subject_widgets.dart';
 import 'character_detail_screen.dart';
 import 'community_topic_screen.dart';
 import 'discover_page.dart';
+import 'moegirl_detail_screen.dart';
 import 'person_detail_screen.dart';
 import 'user_profile_page.dart';
 
@@ -55,8 +57,12 @@ class _SubjectDetailScreenState extends ConsumerState<SubjectDetailScreen> {
   bool _loadingMoreComments = false;
   bool _loadingTopics = false;
   bool _loadingHistory = false;
+  bool _loadingMoegirl = false;
+  bool _moegirlAttempted = false;
   NetabaSubjectHistory? _scoreHistory;
+  MoegirlEntry? _moegirlEntry;
   String? _historyError;
+  String? _moegirlError;
   int? _episodeTypeFilter; // null = all, 0 = main
   final Set<int> _updatingEpisodes = {};
   late final SessionController _sessionController;
@@ -286,6 +292,42 @@ class _SubjectDetailScreenState extends ConsumerState<SubjectDetailScreen> {
     }
   }
 
+  Future<void> _loadMoegirl(Subject subject) async {
+    if (_loadingMoegirl) return;
+    final forceRefresh = _moegirlAttempted;
+    setState(() {
+      _loadingMoegirl = true;
+      _moegirlAttempted = true;
+      _moegirlError = null;
+    });
+    try {
+      final entry = await MoegirlService.shared.findForSubject(
+        subject,
+        forceRefresh: forceRefresh,
+      );
+      if (!mounted) return;
+      setState(() {
+        _moegirlEntry = entry;
+        _loadingMoegirl = false;
+      });
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _loadingMoegirl = false;
+        _moegirlError = error is MoegirlException
+            ? error.message
+            : '获取萌娘百科资料失败，请稍后重试';
+      });
+    }
+  }
+
+  void _openMoegirlSearch(Subject subject) {
+    final uri = Uri.https('zh.moegirl.org.cn', '/Special:Search', {
+      'search': subject.displayName,
+    });
+    unawaited(launchUrl(uri, mode: LaunchMode.externalApplication));
+  }
+
   @override
   Widget build(BuildContext context) {
     final session = ref.watch(sessionProvider);
@@ -303,11 +345,6 @@ class _SubjectDetailScreenState extends ConsumerState<SubjectDetailScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: Text(
-          subject.displayName,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-        ),
         actions: [
           IconButton(
             tooltip: '在 Bangumi 打开',
@@ -396,6 +433,24 @@ class _SubjectDetailScreenState extends ConsumerState<SubjectDetailScreen> {
                           collapsedLines: narrow ? 5 : 10,
                         ),
                       ],
+                      SizedBox(height: blockGap),
+                      _MoegirlPanel(
+                        entry: _moegirlEntry,
+                        loading: _loadingMoegirl,
+                        attempted: _moegirlAttempted,
+                        error: _moegirlError,
+                        onLoad: () => _loadMoegirl(subject),
+                        onSearch: () => _openMoegirlSearch(subject),
+                        onOpen: _moegirlEntry == null
+                            ? null
+                            : () => Navigator.of(context).push(
+                                MaterialPageRoute<void>(
+                                  builder: (_) => MoegirlDetailScreen(
+                                    entry: _moegirlEntry!,
+                                  ),
+                                ),
+                              ),
+                      ),
                       if (subject.type.hasEpisodes) ...[
                         SizedBox(height: blockGap),
                         Row(
@@ -750,339 +805,477 @@ class _SubjectHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Card(
-      child: LayoutBuilder(
-        builder: (context, constraints) {
-          final compact = constraints.maxWidth < 620;
-          final veryNarrow = constraints.maxWidth < 380;
-          final padding = compact ? 14.0 : 20.0;
-          final coverW = veryNarrow
-              ? 96.0
-              : compact
-              ? 112.0
-              : 170.0;
-          final coverH = veryNarrow
-              ? 136.0
-              : compact
-              ? 158.0
-              : 240.0;
-          final cover = SubjectCover(
-            subject: subject,
-            width: coverW,
-            height: coverH,
-            borderRadius: compact ? 14 : 18,
-          );
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final compact = constraints.maxWidth < 620;
+        final veryNarrow = constraints.maxWidth < 380;
+        final padding = compact ? 14.0 : 20.0;
+        final coverW = veryNarrow
+            ? 96.0
+            : compact
+            ? 112.0
+            : 170.0;
+        final coverH = veryNarrow
+            ? 136.0
+            : compact
+            ? 158.0
+            : 240.0;
+        final cover = SubjectCover(
+          subject: subject,
+          width: coverW,
+          height: coverH,
+          borderRadius: compact ? 14 : 18,
+          size: BangumiImageSize.large,
+        );
 
-          final titleStyle = compact
-              ? Theme.of(context).textTheme.titleLarge?.copyWith(
-                  fontWeight: FontWeight.w800,
-                  height: 1.2,
-                )
-              : Theme.of(context).textTheme.headlineMedium;
+        final titleStyle = compact
+            ? Theme.of(context).textTheme.titleLarge?.copyWith(
+                fontWeight: FontWeight.w800,
+                height: 1.2,
+              )
+            : Theme.of(context).textTheme.headlineMedium;
 
-          final titleBlock = Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
+        final titleBlock = Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              subject.displayName,
+              style: titleStyle,
+              maxLines: compact ? 3 : 4,
+              overflow: TextOverflow.ellipsis,
+            ),
+            if (subject.nameCn.isNotEmpty && subject.name.isNotEmpty) ...[
+              const SizedBox(height: 4),
               Text(
-                subject.displayName,
-                style: titleStyle,
-                maxLines: compact ? 3 : 4,
+                subject.name,
+                maxLines: compact ? 2 : 3,
                 overflow: TextOverflow.ellipsis,
-              ),
-              if (subject.nameCn.isNotEmpty && subject.name.isNotEmpty) ...[
-                const SizedBox(height: 4),
-                Text(
-                  subject.name,
-                  maxLines: compact ? 2 : 3,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    color: Theme.of(context).colorScheme.onSurfaceVariant,
-                    fontSize: compact ? 13 : null,
-                  ),
+                style: TextStyle(
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  fontSize: compact ? 13 : null,
                 ),
-              ],
-              SizedBox(height: compact ? 10 : 14),
-              Wrap(
-                spacing: compact ? 8 : 12,
-                runSpacing: 6,
-                children: [
+              ),
+            ],
+            SizedBox(height: compact ? 10 : 14),
+            Wrap(
+              spacing: compact ? 8 : 12,
+              runSpacing: 6,
+              children: [
+                _Meta(
+                  icon: subjectTypeIcon(subject.type),
+                  text: subject.type.label,
+                  compact: compact,
+                ),
+                if (subject.score > 0)
                   _Meta(
-                    icon: subjectTypeIcon(subject.type),
-                    text: subject.type.label,
+                    icon: Icons.star_rounded,
+                    text: subject.score.toStringAsFixed(2),
+                    color: const Color(0xFFF3A646),
                     compact: compact,
                   ),
-                  if (subject.score > 0)
-                    _Meta(
-                      icon: Icons.star_rounded,
-                      text: subject.score.toStringAsFixed(2),
-                      color: const Color(0xFFF3A646),
-                      compact: compact,
-                    ),
-                  if (subject.rank > 0)
-                    _Meta(
-                      icon: Icons.emoji_events_outlined,
-                      text: '#${subject.rank}',
-                      compact: compact,
-                    ),
-                  if (!compact && subject.ratingTotal > 0)
-                    _Meta(
-                      icon: Icons.how_to_vote_outlined,
-                      text: '${subject.ratingTotal} 人评分',
-                    ),
-                  if (subject.episodeCount > 0)
-                    _Meta(
-                      icon: Icons.play_circle_outline_rounded,
-                      text: '${subject.episodeCount} 话',
-                      compact: compact,
-                    ),
-                  if (subject.volumeCount > 0)
-                    _Meta(
-                      icon: Icons.menu_book_outlined,
-                      text: '${subject.volumeCount} 卷',
-                      compact: compact,
-                    ),
-                  if (subject.date.isNotEmpty)
-                    _Meta(
-                      icon: Icons.calendar_today_outlined,
-                      text: subject.date,
-                      compact: compact,
-                    ),
-                  if (!compact && subject.platform.isNotEmpty)
-                    _Meta(icon: Icons.tv_outlined, text: subject.platform),
-                  if (subject.nsfw)
-                    _Meta(
-                      icon: Icons.warning_amber_rounded,
-                      text: 'NSFW',
-                      color: const Color(0xFFE95383),
-                      compact: compact,
+                if (subject.rank > 0)
+                  _Meta(
+                    icon: Icons.emoji_events_outlined,
+                    text: '#${subject.rank}',
+                    compact: compact,
+                  ),
+                if (!compact && subject.ratingTotal > 0)
+                  _Meta(
+                    icon: Icons.how_to_vote_outlined,
+                    text: '${subject.ratingTotal} 人评分',
+                  ),
+                if (subject.episodeCount > 0)
+                  _Meta(
+                    icon: Icons.play_circle_outline_rounded,
+                    text: '${subject.episodeCount} 话',
+                    compact: compact,
+                  ),
+                if (subject.volumeCount > 0)
+                  _Meta(
+                    icon: Icons.menu_book_outlined,
+                    text: '${subject.volumeCount} 卷',
+                    compact: compact,
+                  ),
+                if (subject.date.isNotEmpty)
+                  _Meta(
+                    icon: Icons.calendar_today_outlined,
+                    text: subject.date,
+                    compact: compact,
+                  ),
+                if (!compact && subject.platform.isNotEmpty)
+                  _Meta(icon: Icons.tv_outlined, text: subject.platform),
+                if (subject.nsfw)
+                  _Meta(
+                    icon: Icons.warning_amber_rounded,
+                    text: 'NSFW',
+                    color: const Color(0xFFE95383),
+                    compact: compact,
+                  ),
+              ],
+            ),
+          ],
+        );
+
+        final tags = subject.metaTags.isEmpty && subject.tags.isEmpty
+            ? null
+            : Wrap(
+                spacing: 6,
+                runSpacing: 6,
+                children: [
+                  for (final tag in [
+                    ...subject.metaTags,
+                    ...subject.tags.where((t) => !subject.metaTags.contains(t)),
+                  ].take(compact ? 8 : 10))
+                    ActionChip(
+                      label: Text(tag),
+                      visualDensity: VisualDensity.compact,
+                      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      onPressed: onTagTap == null ? null : () => onTagTap!(tag),
                     ),
                 ],
-              ),
-            ],
-          );
+              );
 
-          final tags = subject.metaTags.isEmpty && subject.tags.isEmpty
-              ? null
-              : Wrap(
-                  spacing: 6,
-                  runSpacing: 6,
-                  children: [
-                    for (final tag in [
-                      ...subject.metaTags,
-                      ...subject.tags.where(
-                        (t) => !subject.metaTags.contains(t),
-                      ),
-                    ].take(compact ? 8 : 10))
-                      ActionChip(
-                        label: Text(tag),
-                        visualDensity: VisualDensity.compact,
-                        materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                        onPressed: onTagTap == null
-                            ? null
-                            : () => onTagTap!(tag),
-                      ),
-                  ],
-                );
-
-          final officialSite = subject.officialSite.isEmpty
-              ? null
-              : Align(
-                  alignment: Alignment.centerLeft,
-                  child: TextButton.icon(
-                    style: TextButton.styleFrom(
-                      visualDensity: VisualDensity.compact,
-                      padding: const EdgeInsets.symmetric(horizontal: 8),
-                    ),
-                    onPressed: () {
-                      final raw = subject.officialSite.trim();
-                      final uri = Uri.tryParse(
-                        raw.startsWith('http') ? raw : 'https://$raw',
-                      );
-                      if (uri != null) {
-                        launchUrl(uri, mode: LaunchMode.externalApplication);
-                      }
-                    },
-                    icon: const Icon(Icons.public_rounded, size: 18),
-                    label: const Text('官方网站'),
+        final officialSite = subject.officialSite.isEmpty
+            ? null
+            : Align(
+                alignment: Alignment.centerLeft,
+                child: TextButton.icon(
+                  style: TextButton.styleFrom(
+                    visualDensity: VisualDensity.compact,
+                    padding: const EdgeInsets.symmetric(horizontal: 8),
                   ),
-                );
-
-          final myCollection =
-              collection == null ||
-                  (collection!.rate <= 0 &&
-                      collection!.comment.isEmpty &&
-                      collection!.tags.isEmpty)
-              ? null
-              : Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Wrap(
-                      spacing: 8,
-                      runSpacing: 6,
-                      children: [
-                        if (collection!.rate > 0)
-                          Chip(
-                            avatar: const Icon(Icons.star_rounded, size: 18),
-                            label: Text('我的评分 ${collection!.rate}'),
-                            visualDensity: VisualDensity.compact,
-                            materialTapTargetSize:
-                                MaterialTapTargetSize.shrinkWrap,
-                          ),
-                        if (collection!.private)
-                          const Chip(
-                            avatar: Icon(Icons.lock_outline_rounded, size: 16),
-                            label: Text('仅自己可见'),
-                            visualDensity: VisualDensity.compact,
-                            materialTapTargetSize:
-                                MaterialTapTargetSize.shrinkWrap,
-                          ),
-                        for (final tag in collection!.tags.take(
-                          compact ? 4 : 6,
-                        ))
-                          ActionChip(
-                            label: Text(tag),
-                            visualDensity: VisualDensity.compact,
-                            materialTapTargetSize:
-                                MaterialTapTargetSize.shrinkWrap,
-                            onPressed: onTagTap == null
-                                ? null
-                                : () => onTagTap!(tag),
-                          ),
-                      ],
-                    ),
-                    if (collection!.comment.isNotEmpty) ...[
-                      const SizedBox(height: 6),
-                      Text(
-                        collection!.comment,
-                        maxLines: compact ? 3 : 6,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          color: Theme.of(context).colorScheme.onSurfaceVariant,
-                        ),
-                      ),
-                    ],
-                  ],
-                );
-
-          final collectButton = MenuAnchor(
-            builder: (context, controller, child) => FilledButton.icon(
-              onPressed: busy
-                  ? null
-                  : () => controller.isOpen
-                        ? controller.close()
-                        : controller.open(),
-              icon: busy
-                  ? const SizedBox.square(
-                      dimension: 18,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : Icon(
-                      collection == null
-                          ? Icons.add_rounded
-                          : Icons.bookmark_rounded,
-                    ),
-              label: Text(
-                collection?.type.labelFor(subject.type) ?? '加入收藏',
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
-            ),
-            menuChildren: [
-              for (final type in CollectionType.values)
-                MenuItemButton(
-                  leadingIcon: collection?.type == type
-                      ? const Icon(Icons.check_rounded)
-                      : null,
-                  onPressed: () => onCollectionChanged(type),
-                  child: Text(type.labelFor(subject.type)),
+                  onPressed: () {
+                    final raw = subject.officialSite.trim();
+                    final uri = Uri.tryParse(
+                      raw.startsWith('http') ? raw : 'https://$raw',
+                    );
+                    if (uri != null) {
+                      launchUrl(uri, mode: LaunchMode.externalApplication);
+                    }
+                  },
+                  icon: const Icon(Icons.public_rounded, size: 18),
+                  label: const Text('官方网站'),
                 ),
-            ],
-          );
+              );
 
-          final manageButton = OutlinedButton.icon(
-            onPressed: busy ? null : onManageCollection,
-            icon: const Icon(Icons.edit_note_rounded),
-            label: Text(compact ? '评分' : '评分与吐槽'),
-          );
-
-          final actions = compact
-              ? Row(
-                  children: [
-                    Expanded(child: collectButton),
-                    const SizedBox(width: 8),
-                    Expanded(child: manageButton),
-                  ],
-                )
-              : Wrap(
-                  spacing: 10,
-                  runSpacing: 8,
-                  children: [
-                    SizedBox(width: 210, child: collectButton),
-                    manageButton,
-                  ],
-                );
-
-          if (compact) {
-            return Padding(
-              padding: EdgeInsets.all(padding),
-              child: Column(
+        final myCollection =
+            collection == null ||
+                (collection!.rate <= 0 &&
+                    collection!.comment.isEmpty &&
+                    collection!.tags.isEmpty)
+            ? null
+            : Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 6,
                     children: [
-                      cover,
-                      SizedBox(width: veryNarrow ? 12 : 14),
-                      Expanded(child: titleBlock),
+                      if (collection!.rate > 0)
+                        Chip(
+                          avatar: const Icon(Icons.star_rounded, size: 18),
+                          label: Text('我的评分 ${collection!.rate}'),
+                          visualDensity: VisualDensity.compact,
+                          materialTapTargetSize:
+                              MaterialTapTargetSize.shrinkWrap,
+                        ),
+                      if (collection!.private)
+                        const Chip(
+                          avatar: Icon(Icons.lock_outline_rounded, size: 16),
+                          label: Text('仅自己可见'),
+                          visualDensity: VisualDensity.compact,
+                          materialTapTargetSize:
+                              MaterialTapTargetSize.shrinkWrap,
+                        ),
+                      for (final tag in collection!.tags.take(compact ? 4 : 6))
+                        ActionChip(
+                          label: Text(tag),
+                          visualDensity: VisualDensity.compact,
+                          materialTapTargetSize:
+                              MaterialTapTargetSize.shrinkWrap,
+                          onPressed: onTagTap == null
+                              ? null
+                              : () => onTagTap!(tag),
+                        ),
                     ],
                   ),
-                  if (tags != null) ...[const SizedBox(height: 12), tags],
-                  if (officialSite != null) ...[
-                    const SizedBox(height: 4),
-                    officialSite,
+                  if (collection!.comment.isNotEmpty) ...[
+                    const SizedBox(height: 6),
+                    Text(
+                      collection!.comment,
+                      maxLines: compact ? 3 : 6,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      ),
+                    ),
                   ],
-                  if (myCollection != null) ...[
-                    const SizedBox(height: 10),
-                    myCollection,
-                  ],
-                  const SizedBox(height: 12),
-                  actions,
                 ],
-              ),
-            );
-          }
+              );
 
+        final collectButton = MenuAnchor(
+          builder: (context, controller, child) => FilledButton.icon(
+            onPressed: busy
+                ? null
+                : () => controller.isOpen
+                      ? controller.close()
+                      : controller.open(),
+            icon: busy
+                ? const SizedBox.square(
+                    dimension: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : Icon(
+                    collection == null
+                        ? Icons.add_rounded
+                        : Icons.bookmark_rounded,
+                  ),
+            label: Text(
+              collection?.type.labelFor(subject.type) ?? '加入收藏',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+          menuChildren: [
+            for (final type in CollectionType.values)
+              MenuItemButton(
+                leadingIcon: collection?.type == type
+                    ? const Icon(Icons.check_rounded)
+                    : null,
+                onPressed: () => onCollectionChanged(type),
+                child: Text(type.labelFor(subject.type)),
+              ),
+          ],
+        );
+
+        final manageButton = OutlinedButton.icon(
+          onPressed: busy ? null : onManageCollection,
+          icon: const Icon(Icons.edit_note_rounded),
+          label: Text(compact ? '评分' : '评分与吐槽'),
+        );
+
+        final actions = compact
+            ? Row(
+                children: [
+                  Expanded(child: collectButton),
+                  const SizedBox(width: 8),
+                  Expanded(child: manageButton),
+                ],
+              )
+            : Wrap(
+                spacing: 10,
+                runSpacing: 8,
+                children: [
+                  SizedBox(width: 210, child: collectButton),
+                  manageButton,
+                ],
+              );
+
+        if (compact) {
           return Padding(
             padding: EdgeInsets.all(padding),
-            child: Row(
+            child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                cover,
-                const SizedBox(width: 28),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      titleBlock,
-                      if (tags != null) ...[const SizedBox(height: 14), tags],
-                      if (officialSite != null) ...[
-                        const SizedBox(height: 4),
-                        officialSite,
-                      ],
-                      if (myCollection != null) ...[
-                        const SizedBox(height: 12),
-                        myCollection,
-                      ],
-                      const SizedBox(height: 12),
-                      actions,
-                    ],
-                  ),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    cover,
+                    SizedBox(width: veryNarrow ? 12 : 14),
+                    Expanded(child: titleBlock),
+                  ],
                 ),
+                if (tags != null) ...[const SizedBox(height: 12), tags],
+                if (officialSite != null) ...[
+                  const SizedBox(height: 4),
+                  officialSite,
+                ],
+                if (myCollection != null) ...[
+                  const SizedBox(height: 10),
+                  myCollection,
+                ],
+                const SizedBox(height: 12),
+                actions,
               ],
             ),
           );
-        },
-      ),
+        }
+
+        return Padding(
+          padding: EdgeInsets.all(padding),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              cover,
+              const SizedBox(width: 28),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    titleBlock,
+                    if (tags != null) ...[const SizedBox(height: 14), tags],
+                    if (officialSite != null) ...[
+                      const SizedBox(height: 4),
+                      officialSite,
+                    ],
+                    if (myCollection != null) ...[
+                      const SizedBox(height: 12),
+                      myCollection,
+                    ],
+                    const SizedBox(height: 12),
+                    actions,
+                  ],
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _MoegirlPanel extends StatelessWidget {
+  const _MoegirlPanel({
+    required this.entry,
+    required this.loading,
+    required this.attempted,
+    required this.error,
+    required this.onLoad,
+    required this.onSearch,
+    required this.onOpen,
+  });
+
+  final MoegirlEntry? entry;
+  final bool loading;
+  final bool attempted;
+  final String? error;
+  final VoidCallback onLoad;
+  final VoidCallback onSearch;
+  final VoidCallback? onOpen;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text('补充资料', style: theme.textTheme.titleLarge),
+        const SizedBox(height: 10),
+        if (!attempted && !loading)
+          OutlinedButton.icon(
+            onPressed: onLoad,
+            icon: const Icon(Icons.auto_stories_outlined),
+            label: const Text('从萌娘百科补充'),
+          )
+        else
+          Container(
+            padding: const EdgeInsets.symmetric(vertical: 14),
+            decoration: BoxDecoration(
+              border: Border.symmetric(
+                horizontal: BorderSide(color: scheme.outlineVariant),
+              ),
+            ),
+            child: loading
+                ? const Row(
+                    children: [
+                      SizedBox.square(
+                        dimension: 20,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      ),
+                      SizedBox(width: 12),
+                      Expanded(child: Text('正在匹配萌娘百科条目…')),
+                    ],
+                  )
+                : entry != null
+                ? Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        entry!.title,
+                        style: theme.textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      _ExpandableText(
+                        text: entry!.extract,
+                        style: theme.textTheme.bodyLarge,
+                        collapsedLines: 7,
+                      ),
+                      const SizedBox(height: 12),
+                      Wrap(
+                        crossAxisAlignment: WrapCrossAlignment.center,
+                        spacing: 10,
+                        runSpacing: 8,
+                        children: [
+                          FilledButton.tonalIcon(
+                            onPressed: onOpen,
+                            icon: const Icon(Icons.article_outlined),
+                            label: Text(
+                              entry!.sections.isEmpty
+                                  ? '原生阅读'
+                                  : '原生阅读 · ${entry!.sections.length} 章',
+                            ),
+                          ),
+                          Text(
+                            '文本来自萌娘百科 · CC BY-NC-SA 3.0 CN',
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: scheme.onSurfaceVariant,
+                            ),
+                          ),
+                          TextButton.icon(
+                            onPressed: () {
+                              final uri = Uri.tryParse(entry!.url);
+                              if (uri != null) {
+                                unawaited(
+                                  launchUrl(
+                                    uri,
+                                    mode: LaunchMode.externalApplication,
+                                  ),
+                                );
+                              }
+                            },
+                            icon: const Icon(Icons.open_in_new_rounded),
+                            label: const Text('查看原文'),
+                          ),
+                        ],
+                      ),
+                    ],
+                  )
+                : Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        error ?? '未找到可信匹配，已避免展示可能错误的条目。',
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                          color: error == null
+                              ? scheme.onSurfaceVariant
+                              : scheme.error,
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      Wrap(
+                        spacing: 10,
+                        runSpacing: 8,
+                        children: [
+                          OutlinedButton.icon(
+                            onPressed: onLoad,
+                            icon: const Icon(Icons.refresh_rounded),
+                            label: const Text('重试'),
+                          ),
+                          TextButton.icon(
+                            onPressed: onSearch,
+                            icon: const Icon(Icons.search_rounded),
+                            label: const Text('手动搜索'),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+          ),
+      ],
     );
   }
 }
@@ -1100,9 +1293,14 @@ class _RatingPanel extends StatelessWidget {
       0,
       (max, value) => value > max ? value : max,
     );
-    return Card(
+    return Container(
+      decoration: BoxDecoration(
+        border: Border.symmetric(
+          horizontal: BorderSide(color: scheme.outlineVariant),
+        ),
+      ),
       child: Padding(
-        padding: EdgeInsets.all(narrow ? 12 : 16),
+        padding: EdgeInsets.symmetric(vertical: narrow ? 12 : 16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -1112,7 +1310,7 @@ class _RatingPanel extends StatelessWidget {
                   child: Text(
                     '评分详情',
                     style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.w800,
+                      fontWeight: FontWeight.w600,
                     ),
                   ),
                 ),
@@ -1145,7 +1343,7 @@ class _RatingPanel extends StatelessWidget {
                                 : Theme.of(context).textTheme.headlineMedium)
                             ?.copyWith(
                               color: const Color(0xFFF3A646),
-                              fontWeight: FontWeight.w800,
+                              fontWeight: FontWeight.w700,
                             ),
                   ),
                 if (subject.ratingTotal > 0) Text('${subject.ratingTotal} 人评分'),
@@ -1265,18 +1463,25 @@ class _FriendsWatchingPanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Card(
+    return Container(
+      decoration: BoxDecoration(
+        border: Border.symmetric(
+          horizontal: BorderSide(
+            color: Theme.of(context).colorScheme.outlineVariant,
+          ),
+        ),
+      ),
       child: Padding(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.symmetric(vertical: 12),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Row(
               children: [
                 Text(
-                  '好友看？',
+                  '好友收藏',
                   style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.w800,
+                    fontWeight: FontWeight.w600,
                   ),
                 ),
                 const Spacer(),
@@ -1300,16 +1505,6 @@ class _FriendsWatchingPanel extends StatelessWidget {
                   ),
               ],
             ),
-            if (!expanded && !loading)
-              Padding(
-                padding: const EdgeInsets.only(top: 4),
-                child: Text(
-                  '按需查询，避免打开条目时卡顿',
-                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: Theme.of(context).colorScheme.onSurfaceVariant,
-                  ),
-                ),
-              ),
             if (loaded && statuses.isNotEmpty) ...[
               const SizedBox(height: 12),
               Wrap(
@@ -2084,48 +2279,45 @@ class _MetaSection extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final narrow = MediaQuery.sizeOf(context).width < 600;
-    return Card(
-      child: Padding(
-        padding: EdgeInsets.all(narrow ? 12 : 16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    title,
-                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.w800,
-                    ),
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  title,
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w600,
                   ),
                 ),
-                ?trailing,
-              ],
-            ),
-            const SizedBox(height: 10),
-            if (loading)
-              const Padding(
-                padding: EdgeInsets.symmetric(vertical: 16),
-                child: Center(
-                  child: SizedBox.square(
-                    dimension: 22,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  ),
+              ),
+              ?trailing,
+            ],
+          ),
+          const SizedBox(height: 10),
+          if (loading)
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 16),
+              child: Center(
+                child: SizedBox.square(
+                  dimension: 22,
+                  child: CircularProgressIndicator(strokeWidth: 2),
                 ),
-              )
-            else if (empty)
-              Text(
-                '暂无数据',
-                style: TextStyle(
-                  color: Theme.of(context).colorScheme.onSurfaceVariant,
-                ),
-              )
-            else
-              child,
-          ],
-        ),
+              ),
+            )
+          else if (empty)
+            Text(
+              '暂无数据',
+              style: TextStyle(
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
+            )
+          else
+            child,
+        ],
       ),
     );
   }

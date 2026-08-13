@@ -61,6 +61,10 @@ class WebsiteSessionController extends StateNotifier<WebsiteSessionState> {
 
   final WebsiteSessionStore _store;
 
+  /// Bumped whenever the store is cleared (sign-out): in-flight saves that
+  /// started before the clear must not resurrect the previous session.
+  int _generation = 0;
+
   Future<void> reload() async {
     final snapshot = await _store.read();
     state = WebsiteSessionState(ready: true, snapshot: snapshot);
@@ -70,6 +74,7 @@ class WebsiteSessionController extends StateNotifier<WebsiteSessionState> {
     List<WebsiteCookie> cookies, {
     DateTime? syncedAt,
   }) async {
+    final generation = _generation;
     final cleaned = [
       for (final cookie in cookies)
         if (cookie.name.trim().isNotEmpty && cookie.value.isNotEmpty) cookie,
@@ -93,6 +98,18 @@ class WebsiteSessionController extends StateNotifier<WebsiteSessionState> {
       // Still persist — some environments only expose partial cookies.
     }
     await _store.write(snapshot);
+    if (generation != _generation) {
+      // The store was cleared (sign-out) while this save was in flight: the
+      // snapshot just written belongs to the previous session. Undo the
+      // write and keep the cleared in-memory state.
+      try {
+        await _store.clear();
+      } catch (_) {
+        // Best-effort: the generation check still prevents the stale write
+        // from being trusted as the current session.
+      }
+      return false;
+    }
     state = WebsiteSessionState(
       ready: true,
       snapshot: snapshot,
@@ -104,6 +121,7 @@ class WebsiteSessionController extends StateNotifier<WebsiteSessionState> {
   }
 
   Future<void> clear({String? message}) async {
+    _generation++;
     await _store.clear();
     await WebsiteCookieBridge.clearBgmCookies();
     state = WebsiteSessionState(
@@ -115,6 +133,7 @@ class WebsiteSessionController extends StateNotifier<WebsiteSessionState> {
   /// Reflect an external storage wipe (e.g. OAuth force sign-out) without
   /// re-deleting secure storage.
   void markCleared({String? message}) {
+    _generation++;
     state = WebsiteSessionState(
       ready: true,
       message: message,

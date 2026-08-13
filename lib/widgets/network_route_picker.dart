@@ -75,17 +75,22 @@ Future<void> showNetworkRoutePicker(BuildContext context, WidgetRef ref) async {
     );
     if (confirmed != true || !context.mounted) return;
   }
-  final error = await ref
-      .read(sessionProvider.notifier)
-      .setNetworkRoute(selected);
+  String? error;
+  try {
+    error = await ref
+        .read(sessionProvider.notifier)
+        .setNetworkRoute(selected);
+  } catch (_) {
+    // The controller degrades storage failures internally, but an unexpected
+    // error must still reach the user instead of the zone handler.
+    error = '切换线路时发生了意外错误，请稍后重试';
+  }
   if (!context.mounted) return;
   ScaffoldMessenger.of(context)
     ..hideCurrentSnackBar()
     ..showSnackBar(
       SnackBar(
-        content: Text(
-          error == null ? '已切换到「${selected.label}」' : '线路已切换，但同步失败：$error',
-        ),
+        content: Text(error ?? '已切换到「${selected.label}」'),
       ),
     );
 }
