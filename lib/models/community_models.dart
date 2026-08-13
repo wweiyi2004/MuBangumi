@@ -160,6 +160,7 @@ class CommunityPost {
     this.rawBody = '',
     this.isOriginal = false,
     this.isNested = false,
+    this.reactions = const [],
   });
 
   final String id;
@@ -172,6 +173,22 @@ class CommunityPost {
   final String rawBody;
   final bool isOriginal;
   final bool isNested;
+  final List<CommunityReaction> reactions;
+}
+
+class CommunityReaction {
+  const CommunityReaction({required this.value, this.users = const []});
+
+  final int value;
+  final List<CommunityUser> users;
+
+  int get count => users.length;
+
+  bool isSelectedBy(String? username) {
+    final normalized = username?.trim().toLowerCase() ?? '';
+    return normalized.isNotEmpty &&
+        users.any((user) => user.username.toLowerCase() == normalized);
+  }
 }
 
 class CommunityTopicDetail {
@@ -254,13 +271,64 @@ class BangumiNotice {
   final DateTime createdAt;
   final CommunityUser? sender;
 
+  bool get isFriendRequest =>
+      type == 14 && sender?.username.trim().isNotEmpty == true;
+
+  bool get showsContextTitle => title.isNotEmpty && type != 14 && type != 15;
+
+  String get actionText {
+    final actor = sender?.displayName ?? 'Bangumi';
+    final action = switch (type) {
+      1 => '在你的小组话题中发表了新回复',
+      2 => '在小组话题中回复了你',
+      3 => '在你的条目讨论中发表了新回复',
+      4 => '在条目讨论中回复了你',
+      5 => '在角色讨论中发表了新回复',
+      6 => '在角色讨论中回复了你',
+      // The current P1 subject reply route emits 7/8. Older notices used
+      // these values for blog replies, so keep the wording intentionally
+      // broad and let [title] provide the exact context.
+      7 => '在你参与的讨论中发表了新回复',
+      8 => '在讨论中回复了你',
+      9 => '在章节讨论中发表了新回复',
+      10 => '在章节讨论中回复了你',
+      11 => '在目录中给你留言了',
+      12 => '在目录中回复了你',
+      13 => '在人物讨论中回复了你',
+      14 => '请求与你成为好友',
+      15 => '通过了你的好友请求',
+      22 => '回复了你的吐槽',
+      23 => '在小组话题中提到了你',
+      24 => '在条目讨论中提到了你',
+      25 => '在角色讨论中提到了你',
+      26 => '在人物讨论中提到了你',
+      27 => '在目录中提到了你',
+      28 => '在吐槽中提到了你',
+      29 => '在日志中提到了你',
+      30 => '在章节讨论中提到了你',
+      35 || 36 || 41 || 42 => '接受了你的 Wiki Patch',
+      37 || 38 || 43 || 44 => '拒绝了你的 Wiki Patch',
+      39 || 40 || 45 || 46 => '将你的 Wiki Patch 标记为过期',
+      47 || 48 || 49 || 50 => '回复了你参与的 Wiki Patch',
+      _ => '发来一条提醒',
+    };
+    return '$actor$action';
+  }
+
+  /// Whether the app can resolve the referenced reply through a native P1
+  /// topic endpoint. The title and action remain available when it cannot.
+  bool get canLoadReplyContent =>
+      mainId > 0 &&
+      relatedId > 0 &&
+      const {1, 2, 3, 4, 7, 8, 23, 24}.contains(type);
+
   /// Best-effort deep link on bgm.tv; empty when unknown.
   String get webUrl {
-    // Type numbers follow bangumi/next notify settings (topic/post/user/…).
-    // Prefer stable public paths when ids are present.
-    if (type >= 1 && type <= 8 && mainId > 0) {
-      // Group / subject topic style notices commonly carry topic id in mainID.
+    if (const {1, 2, 23}.contains(type) && mainId > 0) {
       return 'https://bgm.tv/rakuen/topic/group/$mainId';
+    }
+    if (const {3, 4, 7, 8, 24}.contains(type) && mainId > 0) {
+      return 'https://bgm.tv/rakuen/topic/subject/$mainId';
     }
     if (sender != null && sender!.username.isNotEmpty) {
       return sender!.webUrl;

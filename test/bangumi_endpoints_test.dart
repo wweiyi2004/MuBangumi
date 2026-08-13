@@ -69,11 +69,25 @@ void main() {
     );
   });
 
+  test('builds the canonical user avatar path from a uid', () {
+    expect(
+      BangumiEndpoints.userAvatarUrl(1),
+      'https://lain.bgm.tv/pic/user/l/000/00/00/1.jpg',
+    );
+    expect(
+      BangumiEndpoints.userAvatarUrl(763686),
+      'https://lain.bgm.tv/pic/user/l/000/76/36/763686.jpg',
+    );
+    BangumiEndpoints.setRoute(BangumiNetworkRoute.reverseProxy);
+    expect(
+      BangumiEndpoints.userAvatarUrl(1, size: BangumiImageSize.medium),
+      'https://bgmimg.anibt.net/pic/user/m/000/00/00/1.jpg',
+    );
+    expect(BangumiEndpoints.userAvatarUrl(0), '');
+  });
+
   test('does not rewrite size on unrelated image hosts', () {
     const url = 'https://example.com/pic/cover/l/a.png';
-    expect(
-      BangumiEndpoints.imageUrl(url, size: BangumiImageSize.common),
-      url,
-    );
+    expect(BangumiEndpoints.imageUrl(url, size: BangumiImageSize.common), url);
   });
 }

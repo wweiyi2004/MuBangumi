@@ -6,6 +6,7 @@ import '../models/bangumi_models.dart';
 import '../state/notify_controller.dart';
 import '../state/session_controller.dart';
 import '../widgets/episode_grid_sheet.dart';
+import '../widgets/friend_qr_actions.dart';
 import '../widgets/subject_widgets.dart';
 import 'calendar_page.dart';
 import 'fan_recommend_page.dart';
@@ -34,9 +35,8 @@ class HomePage extends ConsumerWidget {
     final isLoadingCollections = ref.watch(
       sessionProvider.select((state) => state.isLoadingCollections),
     );
-    final nickname = ref.watch(
-      sessionProvider.select((state) => state.user?.nickname ?? ''),
-    );
+    final user = ref.watch(sessionProvider.select((state) => state.user));
+    final nickname = user?.nickname ?? '';
     final updating = ref.watch(
       sessionProvider.select((state) => state.updatingSubjects),
     );
@@ -68,6 +68,7 @@ class HomePage extends ConsumerWidget {
       ref,
       greeting: greeting,
       nickname: nickname,
+      user: user,
       isRefreshing: isRefreshing,
       phone: phone,
     );
@@ -235,6 +236,7 @@ class HomePage extends ConsumerWidget {
     WidgetRef ref, {
     required String greeting,
     required String nickname,
+    required BangumiUser? user,
     required bool isRefreshing,
     required bool phone,
   }) {
@@ -306,6 +308,25 @@ class HomePage extends ConsumerWidget {
                     )
                   : const Icon(Icons.sync_rounded),
             ),
+            if (user != null) ...[
+              IconButton(
+                visualDensity: phone
+                    ? VisualDensity.compact
+                    : VisualDensity.standard,
+                tooltip: '我的二维码',
+                onPressed: () => showMyFriendQr(context, user),
+                icon: const Icon(Icons.qr_code_2_rounded),
+              ),
+              IconButton(
+                visualDensity: phone
+                    ? VisualDensity.compact
+                    : VisualDensity.standard,
+                tooltip: '扫一扫',
+                onPressed: () =>
+                    scanAndAddFriend(context, myUsername: user.username),
+                icon: const Icon(Icons.qr_code_scanner_rounded),
+              ),
+            ],
           ],
         ),
       ],

@@ -1,11 +1,17 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../app.dart';
 import '../core/layout/app_layout.dart';
+import '../core/shortcuts/app_shortcut.dart';
 import '../core/widget/home_widget_sync_host.dart';
+import '../state/app_shortcut_controller.dart';
 import '../state/background_controller.dart';
 import '../state/notify_controller.dart';
+import '../state/session_controller.dart';
+import '../widgets/friend_qr_actions.dart';
 import '../widgets/update_check_host.dart';
 import 'community_hub_page.dart';
 import 'discover_page.dart';
@@ -66,14 +72,45 @@ class _HomeShellState extends ConsumerState<HomeShell> {
     }
   }
 
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _consumeShortcut());
+  }
+
   void _openSchedule() {
     Navigator.of(
       context,
     ).push(MaterialPageRoute<void>(builder: (_) => const SchedulePage()));
   }
 
+  void _consumeShortcut() {
+    if (!mounted) return;
+    final shortcut = ref.read(pendingAppShortcutProvider.notifier).take();
+    if (shortcut != null) unawaited(_openShortcut(shortcut));
+  }
+
+  Future<void> _openShortcut(AppShortcut shortcut) async {
+    final user = ref.read(sessionProvider).user;
+    switch (shortcut) {
+      case AppShortcut.schedule:
+        _openSchedule();
+      case AppShortcut.scan:
+        if (user != null && mounted) {
+          await scanAndAddFriend(context, myUsername: user.username);
+        }
+      case AppShortcut.myQr:
+        if (user != null && mounted) {
+          await showMyFriendQr(context, user);
+        }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
+    ref.listen(pendingAppShortcutProvider, (previous, next) {
+      if (next != null) _consumeShortcut();
+    });
     final unread = ref.watch(notifyBadgeProvider.select((s) => s.unreadCount));
     final pages = [
       HomePage(onDiscover: () => _selectPage(2), onSchedule: _openSchedule),

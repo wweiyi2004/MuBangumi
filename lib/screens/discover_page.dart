@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/layout/app_layout.dart';
 import '../core/network/bangumi_endpoints.dart';
+import '../core/network/bangumi_meta_tags.dart';
 import '../core/network/bangumi_support.dart';
 import '../core/storage/snapshot_cache.dart';
 import '../models/bangumi_models.dart';
@@ -32,11 +33,12 @@ DiscoverQueryMode resolveDiscoverQueryMode({
   required DiscoverSearchTarget target,
   required String keyword,
   required String tag,
+  List<String> metaTags = const [],
 }) {
   final hasKeyword = keyword.trim().isNotEmpty;
   return switch (target) {
     DiscoverSearchTarget.subject =>
-      hasKeyword || tag.trim().isNotEmpty
+      hasKeyword || tag.trim().isNotEmpty || metaTags.isNotEmpty
           ? DiscoverQueryMode.subjectSearch
           : DiscoverQueryMode.browse,
     DiscoverSearchTarget.character =>
@@ -110,6 +112,7 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
   int _minimumRating = 0;
   int _startYear = 0;
   late String _tag;
+  List<String> _metaTags = const [];
   DiscoverSearchTarget _searchTarget = DiscoverSearchTarget.subject;
   List<CharacterDetail> _characters = const [];
   List<PersonDetail> _persons = const [];
@@ -118,6 +121,7 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
     target: _searchTarget,
     keyword: _searchController.text,
     tag: _tag,
+    metaTags: _metaTags,
   );
 
   bool get _searching => switch (_queryMode) {
@@ -144,11 +148,11 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
   };
 
   List<String> get _suggestedTags => switch (_subjectType) {
-    SubjectType.anime => const ['原创', '漫画改', '小说改', '科幻', '日常', '治愈'],
-    SubjectType.book => const ['漫画', '小说', '轻小说', '画集', '科幻'],
-    SubjectType.music => const ['OP', 'ED', 'OST', '专辑', '角色歌'],
-    SubjectType.game => const ['Galgame', 'RPG', 'ACT', 'PC', 'NS'],
-    SubjectType.real => const ['日剧', '美剧', '综艺', '纪录片'],
+    SubjectType.anime => const ['科幻', '日常', '治愈', '战斗', '恋爱'],
+    SubjectType.book => const ['轻小说', '科幻'],
+    SubjectType.music => const ['OP', 'ED', 'OST', '角色歌'],
+    SubjectType.game => const ['Galgame', 'RPG', 'ACT'],
+    SubjectType.real => const ['推理', '爱情'],
   };
 
   String get _searchHint => switch (_searchTarget) {
@@ -171,6 +175,7 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
       if (_minimumRating > 0) count++;
       if (_startYear > 0) count++;
       if (_tag.trim().isNotEmpty) count++;
+      if (_metaTags.isNotEmpty) count += _metaTags.length;
     } else if (_supportsSeason) {
       final now = DateTime.now();
       final currentQuarter = (now.month - 1) ~/ 3;
@@ -294,6 +299,7 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
       _minimumRating = 0;
       _startYear = 0;
       _tag = '';
+      _metaTags = const [];
       _browseSort = 'rank';
       final now = DateTime.now();
       _browseYear = now.year;
@@ -316,6 +322,7 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
     _minimumRating = 0;
     _startYear = 0;
     _tag = '';
+    _metaTags = const [];
   }
 
   void _clearSearch() {
@@ -556,6 +563,7 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
             minimumRating: _minimumRating,
             startYear: _startYear,
             tags: tags,
+            metaTags: _metaTags,
             subjectType: _subjectType,
             limit: _pageSize,
             offset: offset,
@@ -797,6 +805,8 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
             Chip(label: Text('评分 ≥ $_minimumRating')),
           if (_searchingSubjects && _startYear > 0)
             Chip(label: Text('$_startYear 年后')),
+          if (_searchingSubjects && _metaTags.isNotEmpty)
+            Chip(label: Text(_metaTags.join(' · '))),
           if (_searchingSubjects && _tag.trim().isNotEmpty)
             Chip(label: Text('标签：${_tag.trim()}')),
           if (_activeFilterCount > 0)
@@ -1098,6 +1108,7 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
     var searchSort = _searchSort;
     var minimumRating = _minimumRating;
     var startYear = _startYear;
+    var metaTags = List<String>.from(_metaTags);
     final tagController = TextEditingController(text: _tag);
     final currentYear = DateTime.now().year;
     final yearChoices = [
@@ -1139,14 +1150,44 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
               const SizedBox(height: 8),
               Text(
                 _searching
-                    ? '当前为搜索模式：以下条件作用于关键词搜索。'
+                    ? '当前为搜索模式：官方标签与下列条件作用于关键词搜索。'
                     : _supportsSeason
-                    ? '当前为季度浏览：可按年份和季度查看排行。'
-                    : '当前为年度浏览：可按年份与排序查看热门作品。',
+                    ? '当前为季度浏览：可按年份和季度查看排行。选中官方标签后会改为搜索。'
+                    : '当前为年度浏览：可按年份与排序查看热门作品。选中官方标签后会改为搜索。',
                 style: TextStyle(
                   color: Theme.of(context).colorScheme.onSurfaceVariant,
                 ),
               ),
+              const SizedBox(height: 22),
+              Text('官方标签', style: Theme.of(context).textTheme.titleMedium),
+              for (final group in BangumiMetaTags.groupsFor(_subjectType)) ...[
+                const SizedBox(height: 10),
+                Text(
+                  group.label,
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    for (final tag in group.tags)
+                      ChoiceChip(
+                        label: Text(tag),
+                        selected: metaTags.contains(tag),
+                        onSelected: (selected) => setSheetState(() {
+                          metaTags = [
+                            for (final item in metaTags)
+                              if (!group.tags.contains(item)) item,
+                          ];
+                          if (selected) metaTags = [...metaTags, tag];
+                        }),
+                      ),
+                  ],
+                ),
+              ],
               if (!_searching) ...[
                 const SizedBox(height: 22),
                 Text(
@@ -1299,6 +1340,7 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
                       searchSort = 'match';
                       minimumRating = 0;
                       startYear = 0;
+                      metaTags = [];
                       tagController.clear();
                     }),
                     child: const Text('重置'),
@@ -1313,6 +1355,7 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
                         _searchSort = searchSort;
                         _minimumRating = minimumRating;
                         _startYear = startYear;
+                        _metaTags = List<String>.from(metaTags);
                         _tag = tagController.text.trim();
                       });
                       Navigator.pop(sheetContext, true);

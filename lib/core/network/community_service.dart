@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import '../../core/storage/community_cache.dart';
 import '../../models/bangumi_models.dart';
 import '../../models/community_models.dart';
+import 'bangumi_smiles.dart';
 import 'community_html_parser.dart';
 import 'community_p1_parser.dart';
 
@@ -56,6 +57,7 @@ class CommunityService {
   final Map<String, _CachedFriends> _friendsCache = {};
   String? _currentUsername;
   String _currentNickname = '';
+  String _currentAvatarUrl = '';
 
   /// Called once on HTTP 401; return true if a new token was applied.
   Future<bool> Function()? onUnauthorizedRefresh;
@@ -75,10 +77,15 @@ class CommunityService {
     _friendsCache.clear();
   }
 
-  void setCurrentUsername(String? username, {String nickname = ''}) {
+  void setCurrentUsername(
+    String? username, {
+    String nickname = '',
+    String avatarUrl = '',
+  }) {
     final value = username?.trim() ?? '';
     _currentUsername = value.isEmpty ? null : value;
     _currentNickname = value.isEmpty ? '' : nickname.trim();
+    _currentAvatarUrl = value.isEmpty ? '' : avatarUrl.trim();
   }
 
   Future<void> clearAccountCache() async {
@@ -267,6 +274,9 @@ class CommunityService {
       fallbackNickname: mode == CommunityTimelineMode.me
           ? _currentNickname
           : null,
+      fallbackAvatarUrl: mode == CommunityTimelineMode.me
+          ? _currentAvatarUrl
+          : null,
     );
   }
 
@@ -301,6 +311,8 @@ class CommunityService {
     String username, {
     int limit = 12,
     bool refresh = false,
+    String? fallbackAvatarUrl,
+    String? fallbackNickname,
   }) async {
     final value = username.trim();
     if (value.isEmpty) return const [];
@@ -310,7 +322,12 @@ class CommunityService {
       refresh: refresh,
     );
     // Same shape as the own-timeline endpoint: no `user` object per item.
-    return _p1Parser.parseTimeline(data, fallbackUsername: value);
+    return _p1Parser.parseTimeline(
+      data,
+      fallbackUsername: value,
+      fallbackNickname: fallbackNickname,
+      fallbackAvatarUrl: fallbackAvatarUrl,
+    );
   }
 
   Future<List<CommunityTimelineReply>> loadTimelineReplies(
@@ -343,7 +360,51 @@ class CommunityService {
     required String content,
     required String turnstileToken,
     int? replyTo,
+  }) => _replyToTopicViaP1(
+    topic: topic,
+    content: content,
+    turnstileToken: turnstileToken,
+    replyTo: replyTo,
+  );
+
+  /// Adds, changes, or removes the signed-in user's reaction on a reply.
+  Future<void> updatePostReaction({
+    required CommunityTopic topic,
+    required CommunityPost post,
+    required int? value,
   }) async {
+    _requireAuthentication();
+    final area = switch (topic.kind) {
+      CommunityTopicKind.group => 'groups',
+      CommunityTopicKind.subject => 'subjects',
+      _ => throw const FormatException('暂不支持给此类话题贴贴'),
+    };
+    final postId = parseReplyId(post.id);
+    if (postId == null) throw const FormatException('无法识别回复编号');
+    if (value != null && !BangumiReactions.accepts(value)) {
+      throw const FormatException('不支持这个贴贴表情');
+    }
+    final path = '/$area/-/posts/$postId/like';
+    if (value == null) {
+      await _deleteJson(path);
+    } else {
+      await _putJson(path, data: {'value': value});
+    }
+    final topicId = resolveTopicId(topic);
+    if (topicId != null) {
+      _jsonCache.removeWhere(
+        (key, _) => key.contains('/$area/-/topics/$topicId'),
+      );
+    }
+  }
+
+  Future<void> _replyToTopicViaP1({
+    required CommunityTopic topic,
+    required String content,
+    required String turnstileToken,
+    int? replyTo,
+  }) async {
+    // Fallback to P1 API + Turnstile (original implementation)
     _requireAuthentication();
     final area = switch (topic.kind) {
       CommunityTopicKind.group => 'groups',
@@ -359,7 +420,6 @@ class CommunityService {
       throw const FormatException('回复内容不能为空');
     }
     final token = _requireTurnstileToken(turnstileToken);
-    // API: replyTo=0 means top-level reply; otherwise nest under that reply id.
     await _postJson(
       '/$area/-/topics/$id/replies',
       data: {
@@ -776,6 +836,80 @@ class CommunityService {
     );
   }
 
+  /// Loads the reply excerpts referenced by a page of notices.
+  ///
+  /// Notices for the same topic share one request. Unsupported notice types,
+  /// deleted replies without visible content, and transient failures are
+  /// omitted so the notification list itself remains usable.
+  Future<Map<int, String>> loadNoticeContents(
+    Iterable<BangumiNotice> notices, {
+    bool refresh = false,
+  }) async {
+    final batches = <String, _NoticeTopicBatch>{};
+    for (final notice in notices) {
+      final kind = _noticeTopicKind(notice);
+      if (kind == null || !notice.canLoadReplyContent) continue;
+      final key = '${kind.name}:${notice.mainId}';
+      final batch = batches.putIfAbsent(
+        key,
+        () => _NoticeTopicBatch(topic: _noticeTopic(notice, kind), notices: []),
+      );
+      batch.notices.add(notice);
+    }
+
+    final contents = <int, String>{};
+    final pending = batches.values.toList();
+    const concurrency = 4;
+    for (var index = 0; index < pending.length; index += concurrency) {
+      final end = (index + concurrency).clamp(0, pending.length);
+      await Future.wait(
+        pending.sublist(index, end).map((batch) async {
+          try {
+            final detail = await loadTopic(batch.topic, refresh: refresh);
+            final postsById = <int, CommunityPost>{};
+            for (final post in detail.posts) {
+              final id = parseReplyId(post.id);
+              if (id != null) postsById[id] = post;
+            }
+            for (final notice in batch.notices) {
+              final post = postsById[notice.relatedId];
+              if (post == null) continue;
+              final body = post.body.trim();
+              if (body.isNotEmpty) {
+                contents[notice.id] = body;
+              } else if (post.images.isNotEmpty) {
+                contents[notice.id] = '（图片回复）';
+              }
+            }
+          } catch (_) {
+            // A detail failure must not hide or fail the parent notice list.
+          }
+        }),
+      );
+    }
+    return contents;
+  }
+
+  CommunityTopicKind? _noticeTopicKind(BangumiNotice notice) =>
+      switch (notice.type) {
+        1 || 2 || 23 => CommunityTopicKind.group,
+        // 7/8 are emitted by the current P1 subject reply implementation;
+        // 3/4 retain compatibility with older subject notifications.
+        3 || 4 || 7 || 8 || 24 => CommunityTopicKind.subject,
+        _ => null,
+      };
+
+  CommunityTopic _noticeTopic(BangumiNotice notice, CommunityTopicKind kind) {
+    final kindName = kind == CommunityTopicKind.group ? 'group' : 'subject';
+    return CommunityTopic(
+      id: notice.mainId,
+      kind: kind,
+      title: notice.title,
+      url: 'https://bgm.tv/rakuen/topic/$kindName/${notice.mainId}',
+      webUrl: 'https://bgm.tv/$kindName/topic/${notice.mainId}',
+    );
+  }
+
   /// Mark notices read. Empty [ids] clears all unread.
   Future<void> clearNotices({List<int> ids = const []}) async {
     _requireAuthentication();
@@ -787,36 +921,46 @@ class CommunityService {
     _requireAuthentication();
     final value = username.trim();
     if (value.isEmpty) throw Exception('用户名无效');
-    await _putJson('/friends/${Uri.encodeComponent(value)}');
+    final encoded = Uri.encodeComponent(value);
+    await _putJson('/friends/$encoded', data: const {});
     _friendsCache.clear();
+    _jsonCache.removeWhere(
+      (key, _) => key.contains('/users/$encoded') || key.contains('/notify'),
+    );
+  }
+
+  /// Accepts exactly the user carried by a P1 friend-request notice.
+  Future<void> acceptFriendRequest(BangumiNotice notice) async {
+    final sender = notice.sender;
+    if (!notice.isFriendRequest || sender == null) {
+      throw const FormatException('这不是可接受的好友申请');
+    }
+    await addFriend(sender.username);
   }
 
   Future<void> removeFriend(String username) async {
     _requireAuthentication();
     final value = username.trim();
     if (value.isEmpty) throw Exception('用户名无效');
-    await _deleteJson('/friends/${Uri.encodeComponent(value)}');
+    final encoded = Uri.encodeComponent(value);
+    await _deleteJson('/friends/$encoded');
     _friendsCache.clear();
+    _jsonCache.removeWhere((key, _) => key.contains('/users/$encoded'));
   }
 
-  /// Returns whether [username] is already a friend (via current user's list).
+  /// Returns whether [username] is already a friend.
+  ///
+  /// Uses `GET /p1/users/{username}` (`isFriend`) so it matches the same
+  /// username lookup as [addFriend], instead of walking a possibly nested
+  /// friends list.
   Future<bool> isFriend(String username) async {
     _requireAuthentication();
-    final me = _requireCurrentUsername();
-    final value = username.trim().toLowerCase();
-    if (value.isEmpty || value == me.toLowerCase()) return false;
-    // Walk first pages; friend graphs are usually small enough.
-    var offset = 0;
-    const limit = 50;
-    while (offset < 500) {
-      final page = await loadFriends(me, limit: limit, offset: offset);
-      for (final friend in page.data) {
-        if (friend.username.toLowerCase() == value) return true;
-      }
-      offset += page.data.length;
-      if (page.data.isEmpty || offset >= page.total) break;
-    }
-    return false;
+    final value = username.trim();
+    if (value.isEmpty) return false;
+    final me = _currentUsername;
+    if (me != null && value.toLowerCase() == me.toLowerCase()) return false;
+    final json = await _getJson('/users/${Uri.encodeComponent(value)}');
+    return json['isFriend'] == true;
   }
 
   Future<void> _postJson(
@@ -856,7 +1000,7 @@ class CommunityService {
     try {
       await _p1Dio.put<Object?>(
         '/p1$path',
-        data: data.isEmpty ? null : data,
+        data: data,
         options: Options(
           contentType: Headers.jsonContentType,
           headers: const {'Accept': 'application/json'},
@@ -973,6 +1117,13 @@ class _CachedHtml {
 
   final String html;
   final DateTime createdAt;
+}
+
+class _NoticeTopicBatch {
+  _NoticeTopicBatch({required this.topic, required this.notices});
+
+  final CommunityTopic topic;
+  final List<BangumiNotice> notices;
 }
 
 class _CachedJson {

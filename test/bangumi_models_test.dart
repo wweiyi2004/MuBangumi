@@ -122,4 +122,18 @@ void main() {
     expect(user.displayName, 'Sai');
     expect(user.avatarUrl, contains('lain.bgm.tv'));
   });
+
+  test('unwraps nested P1 friend.user objects', () {
+    final user = BangumiUser.fromJson({
+      'user': {
+        'id': 7,
+        'username': 'sai',
+        'nickname': 'Sai',
+        'avatar': {'large': 'https://lain.bgm.tv/pic/user/l/000/00/00/1.jpg'},
+      },
+    });
+
+    expect(user.username, 'sai');
+    expect(user.displayName, 'Sai');
+  });
 }

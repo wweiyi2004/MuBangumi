@@ -1,8 +1,10 @@
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:image/image.dart' as img;
 import 'package:mubangumi/core/social/friend_qr.dart';
+import 'package:mubangumi/core/social/friend_qr_export.dart';
 import 'package:zxing2/qrcode.dart';
 
 void main() {
@@ -11,10 +13,7 @@ void main() {
   });
 
   test('encodes usernames that need escaping', () {
-    expect(
-      FriendQr.encode('user name'),
-      'mubangumi:friend:v1:user%20name',
-    );
+    expect(FriendQr.encode('user name'), 'mubangumi:friend:v1:user%20name');
   });
 
   test('decodes a valid payload', () {
@@ -48,6 +47,20 @@ void main() {
     }
     final bytes = Uint8List.fromList(img.encodePng(image));
     expect(FriendQr.decodeFromImageBytes(bytes), 'wweiyi');
+  });
+
+  test('saves a friend QR png into the given directory', () async {
+    final dir = await Directory.systemTemp.createTemp('mubangumi-qr-');
+    addTearDown(() => dir.delete(recursive: true));
+    final file = await FriendQrExporter.savePng(
+      username: 'wweiyi',
+      bytes: Uint8List.fromList(const [137, 80, 78, 71]),
+      directory: dir,
+    );
+    expect(file.existsSync(), isTrue);
+    expect(file.path, contains('wweiyi'));
+    expect(file.path.endsWith('.png'), isTrue);
+    expect(file.lengthSync(), greaterThan(0));
   });
 
   test('rejects empty, foreign, or malformed payloads', () {

@@ -19,7 +19,11 @@ bool friendQrSupportsCamera() {
 }
 
 Future<void> showMyFriendQr(BuildContext context, BangumiUser user) {
-  return showMyFriendQrSheet(context, user);
+  return showFriendQrSheet(context, user, mine: true);
+}
+
+Future<void> showFriendQr(BuildContext context, BangumiUser user) {
+  return showFriendQrSheet(context, user);
 }
 
 Future<bool> scanAndAddFriend(
@@ -74,10 +78,7 @@ Future<bool> scanAndAddFriend(
     return true;
   } catch (error) {
     if (context.mounted) {
-      showAppMessage(
-        context,
-        error.toString().replaceFirst('Exception: ', ''),
-      );
+      showAppMessage(context, error.toString().replaceFirst('Exception: ', ''));
     }
     return false;
   }
@@ -85,9 +86,9 @@ Future<bool> scanAndAddFriend(
 
 Future<String?> _readQrPayload(BuildContext context) async {
   if (friendQrSupportsCamera()) {
-    final result = await Navigator.of(context).push<String>(
-      MaterialPageRoute(builder: (_) => const FriendQrScanPage()),
-    );
+    final result = await Navigator.of(
+      context,
+    ).push<String>(MaterialPageRoute(builder: (_) => const FriendQrScanPage()));
     if (result == null) return null;
     if (result != '__pick_image__') return result;
   }

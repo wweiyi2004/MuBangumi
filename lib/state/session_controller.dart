@@ -176,6 +176,7 @@ class SessionController extends StateNotifier<SessionState> {
     CommunityService.shared.setCurrentUsername(
       lastUser.username,
       nickname: lastUser.nickname,
+      avatarUrl: lastUser.avatarUrl,
     );
     state = SessionState(
       phase: SessionPhase.signedIn,
@@ -252,6 +253,7 @@ class SessionController extends StateNotifier<SessionState> {
       CommunityService.shared.setCurrentUsername(
         user.username,
         nickname: user.nickname,
+        avatarUrl: user.avatarUrl,
       );
       if (persist) {
         await _tokenStore.write(token);
@@ -312,11 +314,7 @@ class SessionController extends StateNotifier<SessionState> {
         return;
       }
       // Replace only anime bucket; keep other types from snapshot until refreshed.
-      final merged = _replaceType(
-        state.collections,
-        SubjectType.anime,
-        anime,
-      );
+      final merged = _replaceType(state.collections, SubjectType.anime, anime);
       _sortCollections(merged);
       state = state.copyWith(
         collections: merged,
@@ -406,10 +404,7 @@ class SessionController extends StateNotifier<SessionState> {
     List<UserCollection> current,
     SubjectType type,
     List<UserCollection> page,
-  ) => [
-    ...current.where((item) => item.subject.type != type),
-    ...page,
-  ];
+  ) => [...current.where((item) => item.subject.type != type), ...page];
 
   Future<List<UserCollection>> _loadAllCollections(String username) async {
     final pages = await Future.wait([

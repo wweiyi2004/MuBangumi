@@ -290,6 +290,15 @@ void main() {
           'createdAt': 1785981000,
           'state': 0,
           'creator': {'username': 'bob', 'nickname': 'Bob'},
+          'reactions': [
+            {
+              'value': 54,
+              'users': [
+                {'id': 7, 'username': 'alice', 'nickname': 'Alice'},
+                {'id': 8, 'username': 'bob', 'nickname': 'Bob'},
+              ],
+            },
+          ],
           'replies': [
             {
               'id': 102,
@@ -315,6 +324,9 @@ void main() {
     expect(detail.posts[1].meta, startsWith('楼主-1 · '));
     expect(detail.posts[2].body, '回复正文');
     expect(detail.posts[2].meta, startsWith('#1 · '));
+    expect(detail.posts[2].reactions.single.value, 54);
+    expect(detail.posts[2].reactions.single.count, 2);
+    expect(detail.posts[2].reactions.single.isSelectedBy('ALICE'), isTrue);
     expect(detail.posts[3].isNested, isTrue);
     expect(detail.posts[3].meta, startsWith('#1-1 · '));
     expect(detail.posts[3].body, '（该回复已被删除或不可见）');
@@ -323,42 +335,74 @@ void main() {
   test('keeps user-less timeline items when a fallback user is provided', () {
     // /p1/users/{username}/timeline omits the redundant `user` object;
     // only `uid` identifies the owner. The fallback rebuilds the identity.
-    final items = parser.parseTimeline([
-      {
-        'id': 71228734,
-        'uid': 763686,
-        'cat': 4,
-        'type': 2,
-        'createdAt': 1786588552,
-        'memo': {
-          'progress': {
-            'single': {
-              'episode': {
-                'id': 1656013,
-                'subjectID': 590353,
-                'sort': 6,
-                'type': 0,
-                'name': '私と一緒に',
-                'nameCN': '和我一起',
-                'airdate': '2026-05-12',
-              },
-              'subject': {
-                'id': 590353,
-                'name': 'マリッジトキシン',
-                'nameCN': '婚姻剧毒',
-                'type': 2,
+    final items = parser.parseTimeline(
+      [
+        {
+          'id': 71228734,
+          'uid': 763686,
+          'cat': 4,
+          'type': 2,
+          'createdAt': 1786588552,
+          'memo': {
+            'progress': {
+              'single': {
+                'episode': {
+                  'id': 1656013,
+                  'subjectID': 590353,
+                  'sort': 6,
+                  'type': 0,
+                  'name': '私と一緒に',
+                  'nameCN': '和我一起',
+                  'airdate': '2026-05-12',
+                },
+                'subject': {
+                  'id': 590353,
+                  'name': 'マリッジトキシン',
+                  'nameCN': '婚姻剧毒',
+                  'type': 2,
+                },
               },
             },
           },
         },
-      },
-    ], fallbackUsername: 'wweiyi', fallbackNickname: '维依');
+      ],
+      fallbackUsername: 'wweiyi',
+      fallbackNickname: '维依',
+    );
 
     expect(items, hasLength(1));
     expect(items.single.user.id, 763686);
     expect(items.single.user.username, 'wweiyi');
     expect(items.single.user.displayName, '维依');
+    expect(
+      items.single.user.avatarUrl,
+      'https://lain.bgm.tv/pic/user/l/000/76/36/763686.jpg',
+    );
     expect(items.single.description, '看过 婚姻剧毒 EP.6');
+  });
+
+  test('prefers an explicit fallback avatar over the uid path', () {
+    final items = parser.parseTimeline(
+      [
+        {
+          'id': 1,
+          'uid': 763686,
+          'cat': 5,
+          'type': 1,
+          'createdAt': 1786588552,
+          'memo': {
+            'status': {'tsukkomi': '你好'},
+          },
+        },
+      ],
+      fallbackUsername: 'alice',
+      fallbackAvatarUrl: 'https://lain.bgm.tv/pic/user/l/alice.jpg',
+    );
+
+    expect(
+      items.single.user.avatarUrl,
+      'https://lain.bgm.tv/pic/user/l/alice.jpg',
+    );
   });
 
   test('still drops user-less timeline items without a fallback', () {
@@ -385,7 +429,7 @@ void main() {
           'type': 4,
           'mainID': 1001,
           'relatedID': 2002,
-          'title': '爱丽丝 回复了你的话题',
+          'title': '测试话题',
           'unread': true,
           'createdAt': 1785986029,
           'sender': {
@@ -397,12 +441,13 @@ void main() {
         },
         {
           'id': 43,
-          'type': 1,
-          'mainID': 0,
+          'type': 14,
+          'mainID': 7,
           'relatedID': 0,
-          'title': '系统通知',
+          'title': '爱丽丝',
           'unread': false,
           'createdAt': 1785987000,
+          'sender': {'id': 7, 'username': 'alice', 'nickname': '爱丽丝'},
         },
       ],
     });
@@ -410,7 +455,13 @@ void main() {
     expect(notices.first.id, 42);
     expect(notices.first.unread, isTrue);
     expect(notices.first.sender?.username, 'alice');
-    expect(notices.first.title, contains('回复'));
-    expect(notices.last.sender, isNull);
+    expect(notices.first.title, '测试话题');
+    expect(notices.first.actionText, '爱丽丝在条目讨论中回复了你');
+    expect(notices.first.canLoadReplyContent, isTrue);
+    expect(notices.first.webUrl, 'https://bgm.tv/rakuen/topic/subject/1001');
+    expect(notices.last.isFriendRequest, isTrue);
+    expect(notices.last.showsContextTitle, isFalse);
+    expect(notices.last.actionText, '爱丽丝请求与你成为好友');
+    expect(notices.last.webUrl, 'https://bgm.tv/user/alice');
   });
 }

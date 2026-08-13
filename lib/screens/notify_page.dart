@@ -27,6 +27,12 @@ class _NotifyPageState extends ConsumerState<NotifyPage> {
   bool _busy = false;
   bool _unreadOnly = false;
   String? _error;
+  Map<int, String> _noticeContents = const {};
+  Set<int> _loadingContentIds = const {};
+  Map<String, bool> _friendRequestAccepted = const {};
+  Set<String> _loadingFriendRequestUsers = const {};
+  final Set<int> _acceptingNoticeIds = {};
+  int _loadGeneration = 0;
 
   @override
   void initState() {
@@ -35,6 +41,7 @@ class _NotifyPageState extends ConsumerState<NotifyPage> {
   }
 
   Future<void> _load({bool refresh = false}) async {
+    final generation = ++_loadGeneration;
     setState(() {
       _loading = true;
       _error = null;
@@ -44,12 +51,23 @@ class _NotifyPageState extends ConsumerState<NotifyPage> {
         unreadOnly: _unreadOnly,
         refresh: refresh,
       );
-      if (!mounted) return;
+      if (!mounted || generation != _loadGeneration) return;
       setState(() {
         _items = page.data;
         _total = page.total;
         _loading = false;
+        _noticeContents = const {};
+        _loadingContentIds = {
+          for (final notice in page.data)
+            if (notice.canLoadReplyContent) notice.id,
+        };
+        _loadingFriendRequestUsers = {
+          for (final notice in page.data)
+            if (notice.isFriendRequest) notice.sender!.username.toLowerCase(),
+        };
       });
+      unawaited(_loadContents(page.data, generation, refresh: refresh));
+      unawaited(_loadFriendRequestStatuses(page.data, generation));
       // Keep shell badge in sync with unread totals.
       if (_unreadOnly) {
         ref
@@ -65,12 +83,112 @@ class _NotifyPageState extends ConsumerState<NotifyPage> {
         }
       }
     } catch (error) {
-      if (!mounted) return;
+      if (!mounted || generation != _loadGeneration) return;
       setState(() {
         _loading = false;
         _error = error.toString().replaceFirst('Exception: ', '');
       });
     }
+  }
+
+  Future<void> _loadFriendRequestStatuses(
+    List<BangumiNotice> notices,
+    int generation,
+  ) async {
+    final usernames = {
+      for (final notice in notices)
+        if (notice.isFriendRequest) notice.sender!.username,
+    }.toList();
+    if (usernames.isEmpty) return;
+    final accepted = <String, bool>{};
+    const concurrency = 4;
+    for (var index = 0; index < usernames.length; index += concurrency) {
+      final end = (index + concurrency).clamp(0, usernames.length);
+      await Future.wait(
+        usernames.sublist(index, end).map((username) async {
+          try {
+            accepted[username.toLowerCase()] = await _service.isFriend(
+              username,
+            );
+          } catch (_) {
+            // The actionable request remains visible when status lookup fails.
+          }
+        }),
+      );
+    }
+    if (!mounted || generation != _loadGeneration) return;
+    setState(() {
+      _friendRequestAccepted = {..._friendRequestAccepted, ...accepted};
+      _loadingFriendRequestUsers = const {};
+    });
+  }
+
+  Future<void> _acceptFriendRequest(BangumiNotice notice) async {
+    final sender = notice.sender;
+    if (sender == null || _acceptingNoticeIds.contains(notice.id)) return;
+    setState(() => _acceptingNoticeIds.add(notice.id));
+    try {
+      await _service.acceptFriendRequest(notice);
+      if (!mounted) return;
+      final wasUnread = notice.unread;
+      setState(() {
+        _friendRequestAccepted = {
+          ..._friendRequestAccepted,
+          sender.username.toLowerCase(): true,
+        };
+        _items = [
+          for (final item in _items)
+            if (item.id == notice.id)
+              BangumiNotice(
+                id: item.id,
+                title: item.title,
+                type: item.type,
+                mainId: item.mainId,
+                relatedId: item.relatedId,
+                unread: false,
+                createdAt: item.createdAt,
+                sender: item.sender,
+              )
+            else
+              item,
+        ];
+      });
+      if (wasUnread) {
+        ref.read(notifyBadgeProvider.notifier).markOneReadLocally();
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('已接受 ${sender.displayName} 的好友申请')),
+      );
+      unawaited(ref.read(notifyBadgeProvider.notifier).refresh());
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(error.toString().replaceFirst('Exception: ', '')),
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _acceptingNoticeIds.remove(notice.id));
+      }
+    }
+  }
+
+  Future<void> _loadContents(
+    List<BangumiNotice> notices,
+    int generation, {
+    required bool refresh,
+  }) async {
+    if (!notices.any((notice) => notice.canLoadReplyContent)) return;
+    final contents = await _service.loadNoticeContents(
+      notices,
+      refresh: refresh,
+    );
+    if (!mounted || generation != _loadGeneration) return;
+    setState(() {
+      _noticeContents = contents;
+      _loadingContentIds = const {};
+    });
   }
 
   Future<void> _markAllRead() async {
@@ -190,7 +308,10 @@ class _NotifyPageState extends ConsumerState<NotifyPage> {
                     message: _error!,
                   ),
                   const SizedBox(height: 12),
-                  FilledButton(onPressed: () => _load(refresh: true), child: const Text('重试')),
+                  FilledButton(
+                    onPressed: () => _load(refresh: true),
+                    child: const Text('重试'),
+                  ),
                   TextButton(
                     onPressed: () => launchUrl(
                       Uri.parse('https://bgm.tv/notify/all'),
@@ -235,6 +356,18 @@ class _NotifyPageState extends ConsumerState<NotifyPage> {
                   }
                   final notice = _items[index - 1];
                   final sender = notice.sender;
+                  final content = _noticeContents[notice.id];
+                  final loadingContent = _loadingContentIds.contains(notice.id);
+                  final friendUsername = sender?.username.toLowerCase();
+                  final friendAccepted = friendUsername == null
+                      ? false
+                      : _friendRequestAccepted[friendUsername] == true;
+                  final checkingFriend =
+                      friendUsername != null &&
+                      _loadingFriendRequestUsers.contains(friendUsername);
+                  final acceptingFriend = _acceptingNoticeIds.contains(
+                    notice.id,
+                  );
                   return Card(
                     color: notice.unread
                         ? scheme.primaryContainer.withValues(alpha: 0.35)
@@ -253,16 +386,110 @@ class _NotifyPageState extends ConsumerState<NotifyPage> {
                             : null,
                       ),
                       title: Text(
-                        notice.title.isEmpty ? '通知 #${notice.id}' : notice.title,
-                        maxLines: 3,
+                        notice.actionText,
+                        maxLines: 2,
                         overflow: TextOverflow.ellipsis,
                       ),
-                      subtitle: Text(
-                        [
-                          if (sender != null) sender.displayName,
-                          _formatTime(notice.createdAt),
-                          if (notice.unread) '未读',
-                        ].join(' · '),
+                      subtitle: Padding(
+                        padding: const EdgeInsets.only(top: 4),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            if (notice.showsContextTitle)
+                              Text(
+                                '《${notice.title}》',
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  color: scheme.onSurfaceVariant,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                            if (content != null) ...[
+                              const SizedBox(height: 6),
+                              Container(
+                                width: double.infinity,
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 10,
+                                  vertical: 8,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: scheme.surfaceContainerHighest
+                                      .withValues(alpha: 0.6),
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                                child: Text(
+                                  content,
+                                  maxLines: 4,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                            ] else if (loadingContent) ...[
+                              const SizedBox(height: 5),
+                              Text(
+                                '正在读取回复内容…',
+                                style: Theme.of(context).textTheme.bodySmall
+                                    ?.copyWith(color: scheme.onSurfaceVariant),
+                              ),
+                            ],
+                            if (notice.isFriendRequest) ...[
+                              const SizedBox(height: 8),
+                              Wrap(
+                                spacing: 8,
+                                runSpacing: 6,
+                                crossAxisAlignment: WrapCrossAlignment.center,
+                                children: [
+                                  FilledButton.tonalIcon(
+                                    onPressed:
+                                        friendAccepted ||
+                                            checkingFriend ||
+                                            acceptingFriend
+                                        ? null
+                                        : () => _acceptFriendRequest(notice),
+                                    icon: acceptingFriend || checkingFriend
+                                        ? const SizedBox.square(
+                                            dimension: 16,
+                                            child: CircularProgressIndicator(
+                                              strokeWidth: 2,
+                                            ),
+                                          )
+                                        : Icon(
+                                            friendAccepted
+                                                ? Icons.check_rounded
+                                                : Icons
+                                                      .person_add_alt_1_rounded,
+                                            size: 18,
+                                          ),
+                                    label: Text(
+                                      friendAccepted ? '已接受' : '接受好友',
+                                    ),
+                                  ),
+                                  TextButton(
+                                    onPressed: sender == null
+                                        ? null
+                                        : () => openUserProfile(
+                                            context,
+                                            username: sender.username,
+                                            nickname: sender.nickname,
+                                            avatarUrl: sender.avatarUrl,
+                                            id: sender.id,
+                                          ),
+                                    child: const Text('查看主页'),
+                                  ),
+                                ],
+                              ),
+                            ],
+                            const SizedBox(height: 5),
+                            Text(
+                              [
+                                _formatTime(notice.createdAt),
+                                if (notice.unread) '未读',
+                              ].join(' · '),
+                              style: Theme.of(context).textTheme.bodySmall
+                                  ?.copyWith(color: scheme.onSurfaceVariant),
+                            ),
+                          ],
+                        ),
                       ),
                       trailing: notice.unread
                           ? Icon(Icons.circle, size: 10, color: scheme.primary)

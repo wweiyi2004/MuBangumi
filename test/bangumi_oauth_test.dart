@@ -68,6 +68,36 @@ void main() {
     expect(manifest, contains('CustomTabsService'));
   });
 
+  test('closes the in-app browser after the local callback arrives', () async {
+    var closed = 0;
+    final oauth = BangumiOAuth(
+      closeInAppBrowser: () async {
+        closed += 1;
+      },
+      closeInAppBrowserOnCallback: true,
+    );
+    final authorize = oauth.authorize(
+      const OAuthConfig(clientId: 'client', clientSecret: 'secret'),
+      launchAuthorization: (uri, callback) async {
+        final state = uri.queryParameters['state']!;
+        final client = HttpClient();
+        try {
+          final request = await client.getUrl(
+            Uri.parse('${OAuthConfig.redirectUri}?code=test-code&state=$state'),
+          );
+          final response = await request.close();
+          await response.drain<void>();
+        } finally {
+          client.close(force: true);
+        }
+        return true;
+      },
+    );
+
+    await expectLater(authorize, throwsA(isA<BangumiOAuthException>()));
+    expect(closed, 1);
+  });
+
   test('cancelAuthorization aborts an in-flight authorize wait', () async {
     final oauth = BangumiOAuth();
     // Bind may fail if port is taken; skip gracefully is not needed in CI

@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="utf-8"?>
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <shortcut
+        android:enabled="true"
+        android:icon="@drawable/quick_action_scan"
+        android:shortcutId="scan"
+        android:shortcutLongLabel="@string/shortcut_scan"
+        android:shortcutShortLabel="@string/shortcut_scan">
+        <intent
+            android:action="android.intent.action.RUN"
+            android:targetClass="com.wweiyi.mubangumi.MainActivity"
+            android:targetPackage="com.wweiyi.mubangumi">
+            <extra
+                android:name="some unique action key"
+                android:value="scan" />
+        </intent>
+    </shortcut>
+    <shortcut
+        android:enabled="true"
+        android:icon="@drawable/quick_action_qr"
+        android:shortcutId="my_qr"
+        android:shortcutLongLabel="@string/shortcut_my_qr"
+        android:shortcutShortLabel="@string/shortcut_my_qr">
+        <intent
+            android:action="android.intent.action.RUN"
+            android:targetClass="com.wweiyi.mubangumi.MainActivity"
+            android:targetPackage="com.wweiyi.mubangumi">
+            <extra
+                android:name="some unique action key"
+                android:value="my_qr" />
+        </intent>
+    </shortcut>
+    <shortcut
+        android:enabled="true"
+        android:icon="@drawable/quick_action_schedule"
+        android:shortcutId="schedule"
+        android:shortcutLongLabel="@string/shortcut_schedule"
+        android:shortcutShortLabel="@string/shortcut_schedule">
+        <intent
+            android:action="android.intent.action.RUN"
+            android:targetClass="com.wweiyi.mubangumi.MainActivity"
+            android:targetPackage="com.wweiyi.mubangumi">
+            <extra
+                android:name="some unique action key"
+                android:value="schedule" />
+        </intent>
+    </shortcut>
+</shortcuts>

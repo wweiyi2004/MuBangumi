@@ -12,7 +12,6 @@ import '../state/session_controller.dart';
 import '../state/theme_controller.dart';
 import '../state/update_controller.dart';
 import '../state/website_session_controller.dart';
-import '../widgets/friend_qr_actions.dart';
 import '../widgets/network_route_picker.dart';
 import '../widgets/update_ready_dialog.dart';
 import '../state/notify_controller.dart';
@@ -111,21 +110,7 @@ class ProfilePage extends ConsumerWidget {
                     if (constraints.maxWidth < 280) {
                       return Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
-                            children: [
-                              avatar,
-                              const Spacer(),
-                              IconButton(
-                                tooltip: '我的二维码',
-                                onPressed: () => showMyFriendQr(context, user),
-                                icon: const Icon(Icons.qr_code_2_rounded),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 14),
-                          info,
-                        ],
+                        children: [avatar, const SizedBox(height: 14), info],
                       );
                     }
                     return Row(
@@ -134,11 +119,6 @@ class ProfilePage extends ConsumerWidget {
                         avatar,
                         SizedBox(width: compact ? 14 : 22),
                         Expanded(child: info),
-                        IconButton(
-                          tooltip: '我的二维码',
-                          onPressed: () => showMyFriendQr(context, user),
-                          icon: const Icon(Icons.qr_code_2_rounded),
-                        ),
                       ],
                     );
                   },

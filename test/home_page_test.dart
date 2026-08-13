@@ -76,14 +76,19 @@ void main() {
 
       final notify = find.byTooltip('电波提醒');
       final sync = find.byTooltip('同步收藏');
+      final myQr = find.byTooltip('我的二维码');
+      final scan = find.byTooltip('扫一扫');
       expect(notify, findsOneWidget);
       expect(sync, findsOneWidget);
+      expect(myQr, findsOneWidget);
+      expect(scan, findsOneWidget);
       final notifyBefore = tester.getTopRight(notify);
       final syncBefore = tester.getTopRight(sync);
+      final scanBefore = tester.getTopRight(scan);
       // The last button anchors to the window's top-right with page padding.
-      expect(syncBefore.dx, greaterThan(1360));
-      expect(syncBefore.dx, lessThan(1400));
-      expect(syncBefore.dy, lessThan(120));
+      expect(scanBefore.dx, greaterThan(1360));
+      expect(scanBefore.dx, lessThan(1400));
+      expect(scanBefore.dy, lessThan(120));
 
       await tester.drag(
         find.byType(SingleChildScrollView),
@@ -94,6 +99,7 @@ void main() {
       // Still pinned at the same spot after the content scrolled.
       expect(tester.getTopRight(notify), notifyBefore);
       expect(tester.getTopRight(sync), syncBefore);
+      expect(tester.getTopRight(scan), scanBefore);
     },
   );
 
@@ -132,7 +138,10 @@ void main() {
       await tester.pump();
 
       expect(find.text('还没有进行中的收藏'), findsNothing);
-      expect(find.byKey(const ValueKey('home-collection-skeleton')), findsOneWidget);
+      expect(
+        find.byKey(const ValueKey('home-collection-skeleton')),
+        findsOneWidget,
+      );
     },
   );
 }

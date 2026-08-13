@@ -208,16 +208,16 @@ class BangumiApi {
     int minimumRating = 0,
     int startYear = 0,
     List<String> tags = const [],
+    List<String> metaTags = const [],
     SubjectType subjectType = SubjectType.anime,
   }) async {
-    final filter = <String, dynamic>{
-      'type': [subjectType.value],
-      'nsfw': false,
-      if (minimumRating > 0) 'rating': ['>=$minimumRating'],
-      // air_date covers broadcast / publish / release date across types.
-      if (startYear > 0) 'air_date': ['>=$startYear-01-01'],
-      if (tags.isNotEmpty) 'tag': tags,
-    };
+    final filter = BangumiSupport.subjectSearchFilter(
+      subjectType: subjectType,
+      minimumRating: minimumRating,
+      startYear: startYear,
+      tags: tags,
+      metaTags: metaTags,
+    );
     final response = await _request(
       () => _dio.post<Map<String, dynamic>>(
         '/search/subjects',

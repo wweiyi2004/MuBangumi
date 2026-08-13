@@ -10,6 +10,7 @@ import '../models/community_models.dart';
 import '../state/session_controller.dart';
 import '../state/user_preferences_controller.dart';
 import '../widgets/community_widgets.dart';
+import '../widgets/friend_qr_actions.dart';
 import '../widgets/subject_widgets.dart';
 import 'collection_comparison_page.dart';
 import 'pm_page.dart';
@@ -90,7 +91,15 @@ class _UserProfilePageState extends ConsumerState<UserProfilePage> {
 
   bool get _isSelf {
     final me = ref.read(sessionProvider).user?.username.toLowerCase();
-    return me != null && me == widget.username.toLowerCase();
+    if (me == null) return false;
+    if (me == widget.username.toLowerCase()) return true;
+    final loaded = _user?.username.toLowerCase();
+    return loaded != null && loaded == me;
+  }
+
+  String get _friendUsername {
+    final loaded = _user?.username.trim() ?? '';
+    return loaded.isNotEmpty ? loaded : widget.username.trim();
   }
 
   @override
@@ -116,6 +125,8 @@ class _UserProfilePageState extends ConsumerState<UserProfilePage> {
         widget.username,
         limit: 8,
         refresh: true,
+        fallbackNickname: _user?.nickname ?? widget.seed?.nickname,
+        fallbackAvatarUrl: _user?.avatarUrl ?? widget.seed?.avatarUrl,
       );
       if (!mounted) return;
       setState(() {
@@ -137,7 +148,7 @@ class _UserProfilePageState extends ConsumerState<UserProfilePage> {
       return;
     }
     try {
-      final isFriend = await CommunityService.shared.isFriend(widget.username);
+      final isFriend = await CommunityService.shared.isFriend(_friendUsername);
       if (!mounted) return;
       setState(() => _isFriend = isFriend);
     } catch (_) {
@@ -148,13 +159,17 @@ class _UserProfilePageState extends ConsumerState<UserProfilePage> {
 
   Future<void> _toggleFriend() async {
     if (_friendBusy || _isSelf) return;
+    if (!CommunityService.shared.isAuthenticated) {
+      showAppMessage(context, '请先登录后再加好友');
+      return;
+    }
     final currentlyFriend = _isFriend == true;
     final confirmed = currentlyFriend
         ? await showDialog<bool>(
             context: context,
             builder: (context) => AlertDialog(
               title: const Text('解除好友'),
-              content: Text('确定与 @${widget.username} 解除好友关系？'),
+              content: Text('确定与 @$_friendUsername 解除好友关系？'),
               actions: [
                 TextButton(
                   onPressed: () => Navigator.pop(context, false),
@@ -171,10 +186,11 @@ class _UserProfilePageState extends ConsumerState<UserProfilePage> {
     if (confirmed != true || !mounted) return;
     setState(() => _friendBusy = true);
     try {
+      final username = _friendUsername;
       if (currentlyFriend) {
-        await CommunityService.shared.removeFriend(widget.username);
+        await CommunityService.shared.removeFriend(username);
       } else {
-        await CommunityService.shared.addFriend(widget.username);
+        await CommunityService.shared.addFriend(username);
       }
       if (!mounted) return;
       setState(() {
@@ -197,6 +213,7 @@ class _UserProfilePageState extends ConsumerState<UserProfilePage> {
         _user = user;
         _loadingProfile = false;
       });
+      await _loadFriendship();
     } catch (_) {
       if (!mounted) return;
       setState(() => _loadingProfile = false);
@@ -347,7 +364,9 @@ class _UserProfilePageState extends ConsumerState<UserProfilePage> {
           if (!_isSelf)
             IconButton(
               tooltip: _isFriend == true ? '解除好友' : '加为好友',
-              onPressed: _friendBusy ? null : _toggleFriend,
+              onPressed: (_friendBusy || _loadingProfile)
+                  ? null
+                  : _toggleFriend,
               icon: _friendBusy
                   ? const SizedBox.square(
                       dimension: 18,
@@ -359,6 +378,15 @@ class _UserProfilePageState extends ConsumerState<UserProfilePage> {
                           : Icons.person_add_alt_1_outlined,
                     ),
             ),
+          IconButton(
+            tooltip: _isSelf ? '我的二维码' : '好友二维码',
+            onPressed: user == null
+                ? null
+                : () => _isSelf
+                      ? showMyFriendQr(context, user)
+                      : showFriendQr(context, user),
+            icon: const Icon(Icons.qr_code_2_rounded),
+          ),
           IconButton(
             tooltip: '发短信',
             onPressed: () => openPmPage(context, composeTo: widget.username),

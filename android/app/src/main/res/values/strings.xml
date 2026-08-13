@@ -3,4 +3,7 @@
     <string name="app_name">MuBangumi</string>
     <string name="today_widget_description">今日新番表与 RSS 未读提醒</string>
     <string name="today_widget_label">今日新番</string>
+    <string name="shortcut_scan">扫一扫</string>
+    <string name="shortcut_my_qr">我的二维码</string>
+    <string name="shortcut_schedule">新番表</string>
 </resources>

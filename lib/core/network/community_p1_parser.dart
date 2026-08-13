@@ -1,4 +1,5 @@
 import '../../models/community_models.dart';
+import 'bangumi_endpoints.dart';
 
 class CommunityP1Parser {
   static final _baseUri = Uri.parse('https://bgm.tv');
@@ -88,6 +89,7 @@ class CommunityP1Parser {
     List<dynamic> data, {
     String? fallbackUsername,
     String? fallbackNickname,
+    String? fallbackAvatarUrl,
   }) => data
       .map(_map)
       .whereType<Map<String, dynamic>>()
@@ -96,6 +98,7 @@ class CommunityP1Parser {
           json,
           fallbackUsername: fallbackUsername,
           fallbackNickname: fallbackNickname,
+          fallbackAvatarUrl: fallbackAvatarUrl,
         ),
       )
       .whereType<CommunityTimelineItem>()
@@ -108,10 +111,8 @@ class CommunityP1Parser {
       .whereType<CommunityTimelineReply>()
       .toList();
 
-  List<BangumiNotice> parseNotices(Map<String, dynamic> page) => _pageData(page)
-      .map(_parseNotice)
-      .whereType<BangumiNotice>()
-      .toList();
+  List<BangumiNotice> parseNotices(Map<String, dynamic> page) =>
+      _pageData(page).map(_parseNotice).whereType<BangumiNotice>().toList();
 
   BangumiNotice? _parseNotice(Map<String, dynamic> json) {
     final id = _integer(json['id']);
@@ -266,8 +267,21 @@ class CommunityP1Parser {
       images: images,
       isOriginal: isOriginal,
       isNested: isNested,
+      reactions: _parseReactions(json['reactions']),
     );
   }
+
+  List<CommunityReaction> _parseReactions(Object? value) =>
+      _list(value).map(_map).whereType<Map<String, dynamic>>().map((json) {
+        final reactionValue = _integer(json['value']);
+        final users = _list(json['users'])
+            .map(_map)
+            .whereType<Map<String, dynamic>>()
+            .map(_parseUser)
+            .whereType<CommunityUser>()
+            .toList();
+        return CommunityReaction(value: reactionValue, users: users);
+      }).toList();
 
   CommunityGroup? _parseGroup(Map<String, dynamic> json) {
     final slug = _string(json['name']);
@@ -312,15 +326,20 @@ class CommunityP1Parser {
     Map<String, dynamic> json,
     String? fallbackUsername,
     String? fallbackNickname,
+    String? fallbackAvatarUrl,
   ) {
     final username = fallbackUsername?.trim() ?? '';
     if (username.isEmpty) return null;
     final uid = _integer(json['uid']);
     if (uid <= 0) return null;
+    final avatar = fallbackAvatarUrl?.trim() ?? '';
     return CommunityUser(
       id: uid,
       username: username,
       nickname: fallbackNickname?.trim() ?? '',
+      avatarUrl: avatar.isNotEmpty
+          ? avatar
+          : BangumiEndpoints.userAvatarUrl(uid),
     );
   }
 
@@ -328,13 +347,19 @@ class CommunityP1Parser {
     Map<String, dynamic> json, {
     String? fallbackUsername,
     String? fallbackNickname,
+    String? fallbackAvatarUrl,
   }) {
     final id = _integer(json['id']);
     final user =
         _parseUser(_map(json['user'])) ??
         // The own-timeline endpoint (/p1/users/{username}/timeline) omits the
         // redundant user object and only reports `uid`.
-        _fallbackUser(json, fallbackUsername, fallbackNickname);
+        _fallbackUser(
+          json,
+          fallbackUsername,
+          fallbackNickname,
+          fallbackAvatarUrl,
+        );
     final createdAt = _dateTime(json['createdAt']);
     if (id <= 0 || user == null || createdAt == null) return null;
     final cat = _integer(json['cat']);

@@ -21,6 +21,7 @@ enum BangumiNetworkRoute {
 
   final String label;
   final String description;
+
   /// OpenAPI v0 base, e.g. `https://api.bgm.tv/v0`.
   final String apiBaseUrl;
   final String imageHost;
@@ -60,9 +61,7 @@ class BangumiEndpoints {
 
   static void setRoute(BangumiNetworkRoute route) => _route = route;
 
-  static final _sizePath = RegExp(
-    r'^/(pic/(?:cover|user|crt))/[lmcgs](/.*)$',
-  );
+  static final _sizePath = RegExp(r'^/(pic/(?:cover|user|crt))/[lmcgs](/.*)$');
 
   static String imageUrl(String rawUrl, {BangumiImageSize? size}) {
     final value = rawUrl.trim();
@@ -83,6 +82,23 @@ class BangumiEndpoints {
         path = '${match.group(1)}/${size.pathCode}${match.group(2)}';
       }
     }
-    return uri.replace(scheme: 'https', host: targetHost, path: path).toString();
+    return uri
+        .replace(scheme: 'https', host: targetHost, path: path)
+        .toString();
+  }
+
+  /// Bangumi stores avatars at `/pic/user/{size}/{aaa}/{bb}/{cc}/{uid}.jpg`.
+  static String userAvatarUrl(
+    int userId, {
+    BangumiImageSize size = BangumiImageSize.large,
+  }) {
+    if (userId <= 0) return '';
+    final padded = userId.toString().padLeft(9, '0');
+    return imageUrl(
+      'https://lain.bgm.tv/pic/user/l/'
+      '${padded.substring(0, 3)}/${padded.substring(3, 5)}/'
+      '${padded.substring(5, 7)}/$userId.jpg',
+      size: size,
+    );
   }
 }

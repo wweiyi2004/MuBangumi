@@ -64,10 +64,13 @@ class BangumiUser {
   final String avatarUrl;
   final String sign;
 
-  String get displayName =>
-      nickname.trim().isNotEmpty ? nickname : username;
+  String get displayName => nickname.trim().isNotEmpty ? nickname : username;
 
   factory BangumiUser.fromJson(Map<String, dynamic> json) {
+    final nested = json['user'];
+    if (nested is Map && json['username'] == null) {
+      return BangumiUser.fromJson(Map<String, dynamic>.from(nested));
+    }
     final avatar = _map(json['avatar']);
     return BangumiUser(
       id: _int(json['id']),
@@ -127,8 +130,10 @@ class Subject {
   final int rank;
   final String date;
   final int collectionTotal;
+
   /// Number of users who rated this subject.
   final int ratingTotal;
+
   /// Score bucket (1-10) -> vote count. Inspired by garage "评分显示优化".
   final Map<int, int> ratingCount;
   final int wishCount;
@@ -137,8 +142,10 @@ class Subject {
   final int onHoldCount;
   final int droppedCount;
   final List<String> tags;
+
   /// Broadcast / release platform (e.g. TV, 剧场版, Web).
   final String platform;
+
   /// Official website when present in wiki infobox.
   final String officialSite;
   final bool nsfw;
@@ -181,8 +188,7 @@ class Subject {
     final tagsJson = json['tags'];
     final countMap = _map(rating['count']);
     final ratingCount = <int, int>{
-      for (var score = 1; score <= 10; score++)
-        score: _int(countMap['$score']),
+      for (var score = 1; score <= 10; score++) score: _int(countMap['$score']),
     };
     final typeValue = _int(
       json['type'],
@@ -287,8 +293,9 @@ class Subject {
         : droppedCount,
     tags: detailed.tags.isNotEmpty ? detailed.tags : tags,
     platform: detailed.platform.isNotEmpty ? detailed.platform : platform,
-    officialSite:
-        detailed.officialSite.isNotEmpty ? detailed.officialSite : officialSite,
+    officialSite: detailed.officialSite.isNotEmpty
+        ? detailed.officialSite
+        : officialSite,
     nsfw: detailed.nsfw || nsfw,
     metaTags: detailed.metaTags.isNotEmpty ? detailed.metaTags : metaTags,
   );
@@ -320,7 +327,9 @@ class Subject {
       'on_hold': onHoldCount,
       'dropped': droppedCount,
     },
-    'tags': [for (final tag in tags) {'name': tag}],
+    'tags': [
+      for (final tag in tags) {'name': tag},
+    ],
     'platform': platform,
     'nsfw': nsfw,
     'meta_tags': metaTags,

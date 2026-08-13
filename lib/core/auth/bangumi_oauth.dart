@@ -51,20 +51,28 @@ class BangumiOAuthException implements Exception {
 }
 
 class BangumiOAuth {
-  BangumiOAuth()
-    : _dio = Dio(
-        BaseOptions(
-          baseUrl: 'https://bgm.tv',
-          connectTimeout: const Duration(seconds: 15),
-          receiveTimeout: const Duration(seconds: 20),
-          headers: const {
-            'Accept': 'application/json',
-            'User-Agent': 'MuBangumi/1.2.0 (Flutter; personal Bangumi client)',
-          },
-        ),
-      );
+  BangumiOAuth({
+    Future<void> Function()? closeInAppBrowser,
+    bool? closeInAppBrowserOnCallback,
+  }) : _dio = Dio(
+         BaseOptions(
+           baseUrl: 'https://bgm.tv',
+           connectTimeout: const Duration(seconds: 15),
+           receiveTimeout: const Duration(seconds: 20),
+           headers: const {
+             'Accept': 'application/json',
+             'User-Agent': 'MuBangumi/1.2.0 (Flutter; personal Bangumi client)',
+           },
+         ),
+       ),
+       _closeInAppBrowser = closeInAppBrowser ?? closeInAppWebView,
+       _closeInAppBrowserOnCallback =
+           closeInAppBrowserOnCallback ??
+           (Platform.isAndroid || Platform.isIOS);
 
   final Dio _dio;
+  final Future<void> Function() _closeInAppBrowser;
+  final bool _closeInAppBrowserOnCallback;
   Completer<Uri>? _authorizationCancel;
   HttpServer? _activeAuthServer;
 
@@ -107,13 +115,11 @@ class BangumiOAuth {
     _authorizationCancel = cancel;
     _activeAuthServer = server;
     try {
-      final callback = Future.any([
-        _waitForCallback(server),
-        cancel.future,
-      ]).timeout(
-        const Duration(minutes: 3),
-        onTimeout: () => throw const BangumiOAuthException('授权等待超时，请重新登录'),
-      );
+      final callback = Future.any([_waitForCallback(server), cancel.future])
+          .timeout(
+            const Duration(minutes: 3),
+            onTimeout: () => throw const BangumiOAuthException('授权等待超时，请重新登录'),
+          );
       final opened = launchAuthorization == null
           ? await launchUrl(
               authorizeUri,
@@ -268,9 +274,19 @@ class BangumiOAuth {
               : (Platform.isAndroid ? _androidFailureHtml : _failureHtml),
         );
       await request.response.close();
+      await _dismissMobileBrowser();
       return request.uri;
     }
     throw const BangumiOAuthException('本地授权回调已关闭');
+  }
+
+  Future<void> _dismissMobileBrowser() async {
+    if (!_closeInAppBrowserOnCallback) return;
+    try {
+      await _closeInAppBrowser();
+    } catch (_) {
+      // Closing Custom Tabs is best-effort; token exchange can still continue.
+    }
   }
 
   String _createState() {

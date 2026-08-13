@@ -31,6 +31,7 @@ class _FakeBangumiApi extends BangumiApi {
     int minimumRating = 0,
     int startYear = 0,
     List<String> tags = const [],
+    List<String> metaTags = const [],
     SubjectType subjectType = SubjectType.anime,
   }) async => const [];
 }
@@ -64,6 +65,15 @@ void main() {
         target: DiscoverSearchTarget.subject,
         keyword: '',
         tag: '科幻',
+      ),
+      DiscoverQueryMode.subjectSearch,
+    );
+    expect(
+      resolveDiscoverQueryMode(
+        target: DiscoverSearchTarget.subject,
+        keyword: '',
+        tag: '',
+        metaTags: const ['TV'],
       ),
       DiscoverQueryMode.subjectSearch,
     );

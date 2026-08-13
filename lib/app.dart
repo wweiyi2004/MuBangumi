@@ -8,6 +8,7 @@ import 'state/background_controller.dart';
 import 'state/session_controller.dart';
 import 'state/theme_controller.dart';
 import 'widgets/app_background.dart';
+import 'widgets/app_shortcut_host.dart';
 
 class MuBangumiApp extends ConsumerWidget {
   const MuBangumiApp({super.key});
@@ -18,22 +19,22 @@ class MuBangumiApp extends ConsumerWidget {
     final phase = ref.watch(sessionProvider.select((state) => state.phase));
     final themeMode = ref.watch(themeModeProvider);
     final background = ref.watch(backgroundSettingsProvider);
-    return MaterialApp(
-      title: 'MuBangumi',
-      debugShowCheckedModeBanner: false,
-      theme: applyBackgroundTheme(AppTheme.light, background),
-      darkTheme: applyBackgroundTheme(AppTheme.dark, background),
-      themeMode: themeMode,
-      builder: (context, child) {
-        return AppBackgroundHost(
-          child: child ?? const SizedBox.shrink(),
-        );
-      },
-      home: switch (phase) {
-        SessionPhase.booting => const _LaunchScreen(),
-        SessionPhase.signedOut => const AuthScreen(),
-        SessionPhase.signedIn => const HomeShell(),
-      },
+    return AppShortcutHost(
+      child: MaterialApp(
+        title: 'MuBangumi',
+        debugShowCheckedModeBanner: false,
+        theme: applyBackgroundTheme(AppTheme.light, background),
+        darkTheme: applyBackgroundTheme(AppTheme.dark, background),
+        themeMode: themeMode,
+        builder: (context, child) {
+          return AppBackgroundHost(child: child ?? const SizedBox.shrink());
+        },
+        home: switch (phase) {
+          SessionPhase.booting => const _LaunchScreen(),
+          SessionPhase.signedOut => const AuthScreen(),
+          SessionPhase.signedIn => const HomeShell(),
+        },
+      ),
     );
   }
 }

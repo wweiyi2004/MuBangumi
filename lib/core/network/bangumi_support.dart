@@ -10,6 +10,22 @@ class BangumiSupport {
     required int offset,
   }) => {'limit': limit, 'offset': offset};
 
+  /// Body `filter` for POST /v0/search/subjects.
+  static Map<String, dynamic> subjectSearchFilter({
+    required SubjectType subjectType,
+    int minimumRating = 0,
+    int startYear = 0,
+    List<String> tags = const [],
+    List<String> metaTags = const [],
+  }) => {
+    'type': [subjectType.value],
+    'nsfw': false,
+    if (minimumRating > 0) 'rating': ['>=$minimumRating'],
+    if (startYear > 0) 'air_date': ['>=$startYear-01-01'],
+    if (tags.isNotEmpty) 'tag': tags,
+    if (metaTags.isNotEmpty) 'meta_tags': metaTags,
+  };
+
   /// Payload for POST /v0/users/-/collections/{id}.
   ///
   /// [episodeStatus] / [volumeStatus] are only meaningful for books

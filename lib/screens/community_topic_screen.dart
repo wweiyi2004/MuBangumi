@@ -27,6 +27,7 @@ class _CommunityTopicScreenState extends ConsumerState<CommunityTopicScreen> {
   bool _loading = true;
   String? _error;
   Set<String> _friendUsernames = const {};
+  final Set<String> _reactionBusyPostIds = {};
 
   @override
   void initState() {
@@ -112,6 +113,32 @@ class _CommunityTopicScreenState extends ConsumerState<CommunityTopicScreen> {
       context,
     ).showSnackBar(const SnackBar(content: Text('回复已发送')));
     await _load(refresh: true);
+  }
+
+  Future<void> _updateReaction(CommunityPost post, int? value) async {
+    if (!_service.isAuthenticated || _reactionBusyPostIds.contains(post.id)) {
+      return;
+    }
+    setState(() => _reactionBusyPostIds.add(post.id));
+    try {
+      await _service.updatePostReaction(
+        topic: widget.topic,
+        post: post,
+        value: value,
+      );
+      await _load(refresh: true);
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(error.toString().replaceFirst('Exception: ', '')),
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _reactionBusyPostIds.remove(post.id));
+      }
+    }
   }
 
   String? get _oldTopicWarning {
@@ -250,6 +277,9 @@ class _CommunityTopicScreenState extends ConsumerState<CommunityTopicScreen> {
           }
           final post = detail.posts[index - 1];
           final username = _usernameFromUserUrl(post.userUrl);
+          final supportsReactions =
+              widget.topic.kind == CommunityTopicKind.group ||
+              widget.topic.kind == CommunityTopicKind.subject;
           return Center(
             child: ConstrainedBox(
               constraints: const BoxConstraints(maxWidth: 920),
@@ -260,6 +290,12 @@ class _CommunityTopicScreenState extends ConsumerState<CommunityTopicScreen> {
                 child: CommunityPostCard(
                   post: post,
                   isFriend: _isFriendPost(post),
+                  currentUsername: _service.currentUsername,
+                  reactionBusy: _reactionBusyPostIds.contains(post.id),
+                  onReactionChanged:
+                      _service.isAuthenticated && supportsReactions
+                      ? (value) => _updateReaction(post, value)
+                      : null,
                   onReply: _service.isAuthenticated
                       ? () => _reply(post: post)
                       : null,

@@ -32,9 +32,11 @@ class CommunityHtmlParser {
       final authorLink = item.querySelector('a.avatar[title]');
       final replyText = item.querySelector('small.grey')?.text ?? '';
       final topicId =
-          int.tryParse(Uri.parse(href).pathSegments.isEmpty
-              ? ''
-              : Uri.parse(href).pathSegments.last) ??
+          int.tryParse(
+            Uri.parse(href).pathSegments.isEmpty
+                ? ''
+                : Uri.parse(href).pathSegments.last,
+          ) ??
           0;
       topics.add(
         CommunityTopic(
@@ -73,9 +75,11 @@ class CommunityHtmlParser {
       final authorLink = cells[2].querySelector('a');
       final replyText = cells[0].querySelector('small.grey')?.text ?? '';
       final topicId =
-          int.tryParse(Uri.parse(href).pathSegments.isEmpty
-              ? ''
-              : Uri.parse(href).pathSegments.last) ??
+          int.tryParse(
+            Uri.parse(href).pathSegments.isEmpty
+                ? ''
+                : Uri.parse(href).pathSegments.last,
+          ) ??
           0;
       topics.add(
         CommunityTopic(
