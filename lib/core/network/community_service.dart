@@ -1,53 +1,85 @@
+import 'dart:convert';
+
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 
 import '../../core/storage/community_cache.dart';
 import '../../models/bangumi_models.dart';
 import '../../models/community_models.dart';
+import '../auth/website_session.dart';
 import 'bangumi_smiles.dart';
 import 'bangumi_user_agent.dart';
 import 'community_html_parser.dart';
 import 'community_p1_parser.dart';
+import 'pm_html_parser.dart';
+
+/// Strong signals that a classic website page is actually the login form.
+bool looksLikeWebsiteLoginPage(String source) {
+  final lower = source.toLowerCase();
+  return lower.contains('name="password"') ||
+      lower.contains('id="loginform"') ||
+      lower.contains('请先登录');
+}
+
+/// The P1 server rejected a private-group post/reply claiming the user is not
+/// a member. As of 2026-08 the server checks membership with the user/group
+/// ids swapped, so even the group owner gets this error.
+class PrivateGroupMembershipException implements Exception {
+  const PrivateGroupMembershipException(this.groupName);
+
+  final String groupName;
+
+  @override
+  String toString() => '「$groupName」是私密小组，需要先加入小组后再回复';
+}
 
 class CommunityService {
-  CommunityService._({Dio? htmlDio, Dio? p1Dio})
-    : _htmlDio =
-          htmlDio ??
-          Dio(
-            BaseOptions(
-              baseUrl: 'https://bgm.tv',
-              connectTimeout: const Duration(seconds: 12),
-              receiveTimeout: const Duration(seconds: 20),
-              responseType: ResponseType.plain,
-              headers: const {
-                'User-Agent': muBangumiUserAgent,
-                'Accept': 'text/html,application/xhtml+xml',
-              },
-            ),
-          ),
-      _p1Dio =
-          p1Dio ??
-          Dio(
-            BaseOptions(
-              baseUrl: 'https://next.bgm.tv',
-              connectTimeout: const Duration(seconds: 12),
-              receiveTimeout: const Duration(seconds: 20),
-              responseType: ResponseType.json,
-              headers: const {
-                'User-Agent': muBangumiUserAgent,
-                'Accept': 'application/json',
-              },
-            ),
-          );
+  CommunityService._({
+    Dio? htmlDio,
+    Dio? p1Dio,
+    WebsiteSessionStore? sessionStore,
+  }) : _sessionStore = sessionStore ?? WebsiteSessionStore(),
+       _htmlDio =
+           htmlDio ??
+           Dio(
+             BaseOptions(
+               baseUrl: 'https://bgm.tv',
+               connectTimeout: const Duration(seconds: 12),
+               receiveTimeout: const Duration(seconds: 20),
+               responseType: ResponseType.plain,
+               headers: const {
+                 'User-Agent': muBangumiUserAgent,
+                 'Accept': 'text/html,application/xhtml+xml',
+               },
+             ),
+           ),
+       _p1Dio =
+           p1Dio ??
+           Dio(
+             BaseOptions(
+               baseUrl: 'https://next.bgm.tv',
+               connectTimeout: const Duration(seconds: 12),
+               receiveTimeout: const Duration(seconds: 20),
+               responseType: ResponseType.json,
+               headers: const {
+                 'User-Agent': muBangumiUserAgent,
+                 'Accept': 'application/json',
+               },
+             ),
+           );
 
   static final shared = CommunityService._();
 
   @visibleForTesting
-  CommunityService.test({Dio? htmlDio, Dio? p1Dio})
-    : this._(htmlDio: htmlDio, p1Dio: p1Dio);
+  CommunityService.test({
+    Dio? htmlDio,
+    Dio? p1Dio,
+    WebsiteSessionStore? sessionStore,
+  }) : this._(htmlDio: htmlDio, p1Dio: p1Dio, sessionStore: sessionStore);
 
   final Dio _htmlDio;
   final Dio _p1Dio;
+  final WebsiteSessionStore _sessionStore;
   final CommunityHtmlParser _htmlParser = CommunityHtmlParser();
   final CommunityP1Parser _p1Parser = CommunityP1Parser();
   final CommunityCache _persistentCache = CommunityCache.shared;
@@ -409,7 +441,6 @@ class CommunityService {
     required String turnstileToken,
     int? replyTo,
   }) async {
-    // Fallback to P1 API + Turnstile (original implementation)
     _requireAuthentication();
     final area = switch (topic.kind) {
       CommunityTopicKind.group => 'groups',
@@ -425,17 +456,119 @@ class CommunityService {
       throw const FormatException('回复内容不能为空');
     }
     final token = _requireTurnstileToken(turnstileToken);
-    await _postJson(
-      '/$area/-/topics/$id/replies',
-      data: {
-        'content': trimmed,
-        'turnstileToken': token,
-        'replyTo': replyTo ?? 0,
-      },
-    );
+    try {
+      await _postJson(
+        '/$area/-/topics/$id/replies',
+        data: {
+          'content': trimmed,
+          'turnstileToken': token,
+          'replyTo': replyTo ?? 0,
+        },
+      );
+    } on PrivateGroupMembershipException {
+      // The P1 server currently checks private-group membership with the
+      // user/group ids swapped, so even the group owner is rejected. Fall
+      // back to the classic website form, which validates membership
+      // correctly. Only group topics can raise this error.
+      await _replyToGroupTopicViaWebsite(
+        topicId: id,
+        content: trimmed,
+        replyTo: replyTo,
+      );
+    }
     _jsonCache.removeWhere(
       (key, _) => key.contains('/topics/$id') || key.contains('topic'),
     );
+    _htmlCache.removeWhere((key, _) => key.contains('/group/topic/$id'));
+  }
+
+  /// Posts a group topic reply through the classic website form
+  /// (`/group/topic/{id}/new_reply`) using the stored website session.
+  Future<void> _replyToGroupTopicViaWebsite({
+    required int topicId,
+    required String content,
+    int? replyTo,
+  }) async {
+    final cookie = await _requireWebsiteCookieHeader();
+    final topicPath = '/group/topic/$topicId';
+    // The topic page carries the session-wide formhash the form needs; the
+    // GET also proves the website session can actually see the group.
+    final formhash = await _loadWebsiteFormhash(topicPath, cookie);
+    final response = await _htmlDio.post<String>(
+      '$topicPath/new_reply?ajax=1',
+      data: {
+        'lastview': '',
+        'formhash': formhash,
+        'content': content,
+        'submit': 'submit',
+        if (replyTo != null && replyTo > 0) ...{
+          'topic_id': '$topicId',
+          'related': '$replyTo',
+        },
+      },
+      options: Options(
+        contentType: Headers.formUrlEncodedContentType,
+        headers: {
+          'Cookie': cookie,
+          'Referer': 'https://bgm.tv$topicPath',
+          'Origin': 'https://bgm.tv',
+          'X-Requested-With': 'XMLHttpRequest',
+        },
+        validateStatus: (status) => status != null && status < 500,
+      ),
+    );
+    final body = response.data ?? '';
+    if (response.statusCode == 401 || looksLikeWebsiteLoginPage(body)) {
+      throw const FormatException('网页版登录已过期，请重新登录网页版后再回复');
+    }
+    // With ?ajax=1 the classic site answers JSON: {"posts": …} on success.
+    Object? decoded;
+    try {
+      decoded = jsonDecode(body);
+    } catch (_) {
+      decoded = null;
+    }
+    if (decoded is Map) {
+      if (decoded.containsKey('posts') || decoded['status'] == 'ok') return;
+      final detail = decoded['error'] ?? decoded['message'];
+      if (detail != null && detail.toString().trim().isNotEmpty) {
+        throw FormatException('回复失败：${detail.toString().trim()}');
+      }
+    }
+    final notice = PmHtmlParser().parseSubmissionError(body);
+    if (notice != null) throw FormatException('回复失败：$notice');
+    final status = response.statusCode;
+    if (status != null && status >= 400) {
+      throw FormatException('回复失败（HTTP $status）');
+    }
+    throw const FormatException('回复结果未知，请刷新话题页确认是否已发出');
+  }
+
+  Future<String> _loadWebsiteFormhash(String topicPath, String cookie) async {
+    final response = await _htmlDio.get<String>(
+      topicPath,
+      options: Options(headers: {'Cookie': cookie}),
+    );
+    final html = response.data ?? '';
+    if (response.statusCode == 401 || looksLikeWebsiteLoginPage(html)) {
+      throw const FormatException('网页版登录已过期，请重新登录网页版后再回复');
+    }
+    final formhash = _htmlParser.parseFormhash(html);
+    if (formhash == null) {
+      throw const FormatException('无法获取网页版表单参数，请稍后重试');
+    }
+    return formhash;
+  }
+
+  Future<String> _requireWebsiteCookieHeader() async {
+    final snapshot = await _sessionStore.read();
+    final header = snapshot?.cookieHeader.trim() ?? '';
+    if (snapshot == null || header.isEmpty || !snapshot.hasSessionCookies) {
+      throw const FormatException(
+        '该小组为私密小组，需要走网站通道回复：请先在「我的」→「同步网站登录」中完成登录后重试',
+      );
+    }
+    return header;
   }
 
   Future<void> postTimeline({
@@ -766,9 +899,8 @@ class CommunityService {
         return json;
       } on DioException catch (error) {
         lastError = error;
-        final status = error.response?.statusCode;
         if (!retriedAuth &&
-            status == 401 &&
+            _isRefreshableAuthFailure(error) &&
             onUnauthorizedRefresh != null &&
             await onUnauthorizedRefresh!()) {
           return _getJson(path, query: query, refresh: true, retriedAuth: true);
@@ -818,9 +950,8 @@ class CommunityService {
         return data;
       } on DioException catch (error) {
         lastError = error;
-        final status = error.response?.statusCode;
         if (!retriedAuth &&
-            status == 401 &&
+            _isRefreshableAuthFailure(error) &&
             onUnauthorizedRefresh != null &&
             await onUnauthorizedRefresh!()) {
           return _getJsonList(
@@ -999,16 +1130,29 @@ class CommunityService {
         ),
       );
     } on DioException catch (error) {
-      final status = error.response?.statusCode;
       if (!retriedAuth &&
-          status == 401 &&
+          _isRefreshableAuthFailure(error) &&
           onUnauthorizedRefresh != null &&
           await onUnauthorizedRefresh!()) {
         await _postJson(path, data: data, retriedAuth: true);
         return;
       }
+      final privateGroup = _privateGroupName(error.response?.data);
+      if (privateGroup != null) {
+        throw PrivateGroupMembershipException(privateGroup);
+      }
       throw Exception(_postErrorMessage(error));
     }
+  }
+
+  /// Extracts the group name from a NOT_JOIN_PRIVATE_GROUP_ERROR response,
+  /// or null for any other error.
+  static String? _privateGroupName(Object? data) {
+    if (data is! Map || data['code'] != 'NOT_JOIN_PRIVATE_GROUP_ERROR') {
+      return null;
+    }
+    final message = data['message']?.toString() ?? '';
+    return RegExp(r"'([^']+)'").firstMatch(message)?.group(1) ?? '';
   }
 
   Future<void> _putJson(
@@ -1028,9 +1172,8 @@ class CommunityService {
         ),
       );
     } on DioException catch (error) {
-      final status = error.response?.statusCode;
       if (!retriedAuth &&
-          status == 401 &&
+          _isRefreshableAuthFailure(error) &&
           onUnauthorizedRefresh != null &&
           await onUnauthorizedRefresh!()) {
         await _putJson(path, data: data, retriedAuth: true);
@@ -1051,9 +1194,8 @@ class CommunityService {
         ),
       );
     } on DioException catch (error) {
-      final status = error.response?.statusCode;
       if (!retriedAuth &&
-          status == 401 &&
+          _isRefreshableAuthFailure(error) &&
           onUnauthorizedRefresh != null &&
           await onUnauthorizedRefresh!()) {
         await _deleteJson(path, retriedAuth: true);
@@ -1061,6 +1203,20 @@ class CommunityService {
       }
       throw Exception(_postErrorMessage(error));
     }
+  }
+
+  /// Only credential 401s justify an OAuth refresh + retry. Domain 401s such
+  /// as CAPTCHA_ERROR or NOT_JOIN_PRIVATE_GROUP_ERROR must not be retried:
+  /// the one-shot Turnstile token is already consumed by then, so a blind
+  /// retry fails with a bogus captcha error that masks the real cause.
+  bool _isRefreshableAuthFailure(DioException error) {
+    if (error.response?.statusCode != 401) return false;
+    final data = error.response?.data;
+    if (data is! Map) return true;
+    final code = data['code']?.toString();
+    return code == null ||
+        code == 'NEED_LOGIN' ||
+        code == 'AUTHORIZATION_INVALID';
   }
 
   String _postErrorMessage(DioException error) {
@@ -1077,6 +1233,12 @@ class CommunityService {
         // Turnstile failures are otherwise opaque.
         if (text.toLowerCase().contains('turnstile') ||
             text.toLowerCase().contains('captcha')) {
+          // Debug builds surface the raw server response so token-rejection
+          // reports can distinguish expired/duplicate/malformed failures.
+          if (kDebugMode) {
+            return '人机验证失败或已过期，请重新点击发送并完成验证'
+                '（HTTP $status: ${jsonEncode(response)}）';
+          }
           return '人机验证失败或已过期，请重新点击发送并完成验证';
         }
         return text;

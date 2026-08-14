@@ -13,6 +13,24 @@ class CommunityHtmlParser {
   static final _dateTime = RegExp(
     r'\d{4}[-/]\d{1,2}[-/]\d{1,2}\s+\d{1,2}:\d{2}',
   );
+  static final _formhashInput = RegExp(
+    r'''name="formhash"\s+value="([^"]+)"''',
+    caseSensitive: false,
+  );
+  static final _formhashLogout = RegExp(
+    r'/logout/([0-9a-f]{8})\b',
+    caseSensitive: false,
+  );
+
+  /// The session-wide CSRF token embedded in every classic website page:
+  /// a hidden `formhash` input in forms, or the `/logout/{formhash}` link.
+  String? parseFormhash(String source) {
+    final fromInput = _formhashInput.firstMatch(source)?.group(1)?.trim();
+    if (fromInput != null && fromInput.isNotEmpty) return fromInput;
+    final fromLogout = _formhashLogout.firstMatch(source)?.group(1)?.trim();
+    if (fromLogout == null || fromLogout.isEmpty) return null;
+    return fromLogout;
+  }
 
   List<CommunityTopic> parseRakuen(String source) {
     final document = html_parser.parse(source);

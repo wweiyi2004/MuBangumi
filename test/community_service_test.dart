@@ -1,5 +1,6 @@
 import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:mubangumi/core/auth/website_session.dart';
 import 'package:mubangumi/core/network/community_service.dart';
 import 'package:mubangumi/models/community_models.dart';
 
@@ -458,6 +459,265 @@ void main() {
       expect(seen[1].path, '/p1/groups/-/posts/456/like');
     },
   );
+
+  test('reply does not burn the one-shot token on a captcha 401', () async {
+    var requests = 0;
+    var refreshes = 0;
+    final service = _errorService(
+      statusCode: 401,
+      body: const {
+        'statusCode': 401,
+        'code': 'CAPTCHA_ERROR',
+        'error': 'Unauthorized',
+        'message': 'wrong captcha',
+      },
+      onRequest: () => requests++,
+    );
+    service.setAccessToken('oauth-token');
+    service.onUnauthorizedRefresh = () async {
+      refreshes++;
+      return true;
+    };
+
+    await expectLater(
+      service.replyToTopic(
+        topic: _groupTopic,
+        content: '测试回复',
+        turnstileToken: 'turnstile-token',
+      ),
+      throwsA(
+        isA<Exception>().having(
+          (error) => error.toString(),
+          'message',
+          contains('人机验证失败或已过期'),
+        ),
+      ),
+    );
+    expect(requests, 1);
+    expect(refreshes, 0);
+  });
+
+  test('private-group reply falls back to the classic website form', () async {
+    var p1Requests = 0;
+    final p1 = Dio(BaseOptions(baseUrl: 'https://next.bgm.tv'));
+    p1.interceptors.add(
+      InterceptorsWrapper(
+        onRequest: (options, handler) {
+          p1Requests++;
+          handler.reject(
+            DioException(
+              requestOptions: options,
+              type: DioExceptionType.badResponse,
+              response: Response<Map<String, dynamic>>(
+                requestOptions: options,
+                statusCode: 401,
+                data: const {
+                  'statusCode': 401,
+                  'code': 'NOT_JOIN_PRIVATE_GROUP_ERROR',
+                  'error': 'Unauthorized',
+                  'message':
+                      "you need to join private group '测试小组' before you create a post or reply",
+                },
+              ),
+            ),
+          );
+        },
+      ),
+    );
+    RequestOptions? formPost;
+    final html = Dio(BaseOptions(baseUrl: 'https://bgm.tv'));
+    html.interceptors.add(
+      InterceptorsWrapper(
+        onRequest: (options, handler) {
+          if (options.method == 'GET') {
+            handler.resolve(
+              Response<String>(
+                requestOptions: options,
+                statusCode: 200,
+                data:
+                    '<html><body><form method="post" '
+                    'action="/group/topic/123/new_reply">'
+                    '<input type="hidden" name="formhash" value="abc12345">'
+                    '</form></body></html>',
+              ),
+            );
+            return;
+          }
+          formPost = options;
+          handler.resolve(
+            Response<String>(
+              requestOptions: options,
+              statusCode: 200,
+              data: '{"posts":{"main":{"9":{}}}}',
+            ),
+          );
+        },
+      ),
+    );
+    final service = CommunityService.test(
+      p1Dio: p1,
+      htmlDio: html,
+      sessionStore: _memorySessionStore(),
+    );
+    service.setAccessToken('oauth-token');
+
+    await service.replyToTopic(
+      topic: _groupTopic,
+      content: '测试回复',
+      turnstileToken: 'turnstile-token',
+      replyTo: 456,
+    );
+
+    expect(p1Requests, 1);
+    expect(formPost?.path, contains('/group/topic/123/new_reply'));
+    expect(formPost?.data, containsPair('formhash', 'abc12345'));
+    expect(formPost?.data, containsPair('content', '测试回复'));
+    expect(formPost?.data, containsPair('submit', 'submit'));
+    expect(formPost?.data, containsPair('topic_id', '123'));
+    expect(formPost?.data, containsPair('related', '456'));
+  });
+
+  test('private-group fallback explains the missing website session', () async {
+    final p1 = Dio(BaseOptions(baseUrl: 'https://next.bgm.tv'));
+    p1.interceptors.add(
+      InterceptorsWrapper(
+        onRequest: (options, handler) => handler.reject(
+          DioException(
+            requestOptions: options,
+            type: DioExceptionType.badResponse,
+            response: Response<Map<String, dynamic>>(
+              requestOptions: options,
+              statusCode: 401,
+              data: const {
+                'statusCode': 401,
+                'code': 'NOT_JOIN_PRIVATE_GROUP_ERROR',
+                'error': 'Unauthorized',
+                'message':
+                    "you need to join private group '测试小组' before you create a post or reply",
+              },
+            ),
+          ),
+        ),
+      ),
+    );
+    final html = Dio(BaseOptions(baseUrl: 'https://bgm.tv'));
+    html.interceptors.add(
+      InterceptorsWrapper(
+        onRequest: (options, handler) =>
+            fail('No website request should be sent without a session'),
+      ),
+    );
+    final service = CommunityService.test(
+      p1Dio: p1,
+      htmlDio: html,
+      sessionStore: _MemoryWebsiteSessionStore(),
+    );
+    service.setAccessToken('oauth-token');
+
+    await expectLater(
+      service.replyToTopic(
+        topic: _groupTopic,
+        content: '测试回复',
+        turnstileToken: 'turnstile-token',
+      ),
+      throwsA(
+        isA<FormatException>().having(
+          (error) => error.message,
+          'message',
+          contains('同步网站登录'),
+        ),
+      ),
+    );
+  });
+
+  test('credential 401 still refreshes the OAuth token and retries', () async {
+    var requests = 0;
+    var refreshes = 0;
+    final dio = Dio(BaseOptions(baseUrl: 'https://next.bgm.tv'));
+    dio.interceptors.add(
+      InterceptorsWrapper(
+        onRequest: (options, handler) {
+          requests++;
+          if (requests == 1) {
+            handler.reject(
+              DioException(
+                requestOptions: options,
+                type: DioExceptionType.badResponse,
+                response: Response<Map<String, dynamic>>(
+                  requestOptions: options,
+                  statusCode: 401,
+                  data: const {
+                    'statusCode': 401,
+                    'code': 'NEED_LOGIN',
+                    'error': 'Unauthorized',
+                    'message': 'you need to login before creating a reply',
+                  },
+                ),
+              ),
+            );
+            return;
+          }
+          handler.resolve(
+            Response<Map<String, dynamic>>(
+              requestOptions: options,
+              statusCode: 200,
+              data: const {'id': 1},
+            ),
+          );
+        },
+      ),
+    );
+    final service = CommunityService.test(p1Dio: dio);
+    service.setAccessToken('oauth-token');
+    service.onUnauthorizedRefresh = () async {
+      refreshes++;
+      return true;
+    };
+
+    await service.replyToTopic(
+      topic: _groupTopic,
+      content: '测试回复',
+      turnstileToken: 'turnstile-token',
+    );
+
+    expect(requests, 2);
+    expect(refreshes, 1);
+  });
+}
+
+const _groupTopic = CommunityTopic(
+  id: 123,
+  kind: CommunityTopicKind.group,
+  title: '测试话题',
+  url: 'https://bgm.tv/rakuen/topic/group/123',
+  webUrl: 'https://bgm.tv/group/topic/123',
+);
+
+CommunityService _errorService({
+  required int statusCode,
+  required Map<String, dynamic> body,
+  required void Function() onRequest,
+}) {
+  final dio = Dio(BaseOptions(baseUrl: 'https://next.bgm.tv'));
+  dio.interceptors.add(
+    InterceptorsWrapper(
+      onRequest: (options, handler) {
+        onRequest();
+        handler.reject(
+          DioException(
+            requestOptions: options,
+            type: DioExceptionType.badResponse,
+            response: Response<Map<String, dynamic>>(
+              requestOptions: options,
+              statusCode: statusCode,
+              data: body,
+            ),
+          ),
+        );
+      },
+    ),
+  );
+  return CommunityService.test(p1Dio: dio);
 }
 
 CommunityService _service(Response<Object?> Function(RequestOptions) respond) {
@@ -468,4 +728,28 @@ CommunityService _service(Response<Object?> Function(RequestOptions) respond) {
     ),
   );
   return CommunityService.test(p1Dio: dio);
+}
+
+WebsiteSessionStore _memorySessionStore() =>
+    _MemoryWebsiteSessionStore()
+      ..snapshot = WebsiteSessionSnapshot(
+        cookies: const [WebsiteCookie(name: 'chii_auth', value: 'cookie')],
+        syncedAt: DateTime(2026),
+      );
+
+class _MemoryWebsiteSessionStore extends WebsiteSessionStore {
+  WebsiteSessionSnapshot? snapshot;
+
+  @override
+  Future<WebsiteSessionSnapshot?> read() async => snapshot;
+
+  @override
+  Future<void> write(WebsiteSessionSnapshot snapshot) async {
+    this.snapshot = snapshot;
+  }
+
+  @override
+  Future<void> clear() async {
+    snapshot = null;
+  }
 }
