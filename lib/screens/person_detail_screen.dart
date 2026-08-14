@@ -63,29 +63,43 @@ class _PersonDetailScreenState extends ConsumerState<PersonDetailScreen> {
       _companyDetailMessage = null;
       _selectedCompanyRole = null;
     });
-    try {
-      final api = ref.read(bangumiApiProvider);
-      final results = await Future.wait([
-        api.getPerson(widget.personId),
-        api.getPersonSubjects(widget.personId),
-        api.getPersonCharacters(widget.personId),
-      ]);
-      if (!mounted) return;
-      setState(() {
-        _detail = results[0] as PersonDetail;
-        _subjects = results[1] as List<MonoLinkedSubject>;
-        _characters = results[2] as List<MonoLinkedCharacter>;
-        _loading = false;
-      });
-      if (_detail?.type == 2) {
-        unawaited(_loadMoreCompanyDetails());
+    final api = ref.read(bangumiApiProvider);
+    Object? detailError;
+    // Independent sections: one failing request must not discard the others.
+    final results = await Future.wait<Object?>([
+      api.getPerson(widget.personId).then<Object?>((value) => value).catchError(
+        (Object error) {
+          detailError = error;
+          return null;
+        },
+      ),
+      api
+          .getPersonSubjects(widget.personId)
+          .then<Object?>((v) => v)
+          .catchError((Object _) => const <MonoLinkedSubject>[]),
+      api
+          .getPersonCharacters(widget.personId)
+          .then<Object?>((v) => v)
+          .catchError((Object _) => const <MonoLinkedCharacter>[]),
+    ]);
+    if (!mounted) return;
+    final detail = results[0] as PersonDetail?;
+    setState(() {
+      if (detail != null) _detail = detail;
+      _subjects = results[1] as List<MonoLinkedSubject>;
+      _characters = results[2] as List<MonoLinkedCharacter>;
+      _loading = false;
+      if (detail == null) {
+        _error =
+            detailError?.toString().replaceFirst(
+              RegExp(r'^.*Exception:\s*'),
+              '',
+            ) ??
+            '人物信息加载失败';
       }
-    } catch (error) {
-      if (!mounted) return;
-      setState(() {
-        _loading = false;
-        _error = error.toString().replaceFirst('Exception: ', '');
-      });
+    });
+    if (detail != null && detail.type == 2) {
+      unawaited(_loadMoreCompanyDetails());
     }
   }
 

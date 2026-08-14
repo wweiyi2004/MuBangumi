@@ -100,7 +100,6 @@ class SessionController extends StateNotifier<SessionState> {
   final void Function()? onWebsiteSessionCleared;
   BangumiNetworkRoute _networkRoute = BangumiNetworkRoute.official;
   Future<bool>? _refreshInFlight;
-  Future<void>? _collectionsInFlight;
 
   /// In-memory OAuth cache so each API call does not hit secure storage.
   String? _cachedRefreshToken;
@@ -110,13 +109,25 @@ class SessionController extends StateNotifier<SessionState> {
 
   Future<void> _bootstrap() async {
     // Parallel secure-storage reads: sequential waits were a cold-start tax.
-    final bootstrap = await Future.wait([
-      _tokenStore.readNetworkRoute(),
-      _tokenStore.read(),
-      _tokenStore.readRefreshToken(),
-      _tokenStore.readExpiresAt(),
-      _tokenStore.readOAuthConfig(),
-    ]);
+    final List<Object?> bootstrap;
+    try {
+      bootstrap = await Future.wait([
+        _tokenStore.readNetworkRoute(),
+        _tokenStore.read(),
+        _tokenStore.readRefreshToken(),
+        _tokenStore.readExpiresAt(),
+        _tokenStore.readOAuthConfig(),
+      ]);
+    } catch (error) {
+      // Secure storage can fail on-device (locked Keychain, keystore error).
+      // Never strand the user on the boot screen: fall back to signed-out.
+      state = SessionState(
+        phase: SessionPhase.signedOut,
+        networkRoute: _networkRoute,
+        message: '读取本地登录信息失败，请重新登录：${_messageFor(error)}',
+      );
+      return;
+    }
     _networkRoute = bootstrap[0]! as BangumiNetworkRoute;
     var token = bootstrap[1] as String?;
     final refreshToken = bootstrap[2] as String?;
@@ -205,6 +216,9 @@ class SessionController extends StateNotifier<SessionState> {
     OAuthConfig config, {
     OAuthAuthorizationLauncher? launchAuthorization,
   }) async {
+    // Defense-in-depth against double-tap races from the auth screen: the
+    // authorize flow is single-instance (loopback port + shared state).
+    if (state.isRefreshing) return false;
     // Stay signedOut while authorizing so AuthScreen (and the Windows WebView
     // dialog that needs its navigator) remains mounted. Booting starts only
     // after tokens exist, inside _authenticate.
@@ -338,13 +352,7 @@ class SessionController extends StateNotifier<SessionState> {
 
   Future<void> _loadRemainingCollections(String username) {
     final generation = ++_collectionsGeneration;
-    final future = _fetchAndMergeOtherTypes(username, generation);
-    _collectionsInFlight = future;
-    return future.whenComplete(() {
-      if (identical(_collectionsInFlight, future)) {
-        _collectionsInFlight = null;
-      }
-    });
+    return _fetchAndMergeOtherTypes(username, generation);
   }
 
   Future<void> _fetchAndMergeOtherTypes(String username, int generation) async {
@@ -675,6 +683,7 @@ class SessionController extends StateNotifier<SessionState> {
         volumeStatus: subject.type.hasVolumes ? nextVolumeStatus : null,
       );
       var resolvedEpisodeStatus = nextEpisodeStatus;
+      String? progressWarning;
       // Garage #461: marking as "done" auto-completes regular episode progress.
       if (completeEpisodesWhenDone &&
           type == CollectionType.done &&
@@ -693,8 +702,10 @@ class SessionController extends StateNotifier<SessionState> {
           resolvedEpisodeStatus = BangumiSupport.mainEpisodeCollections(
             episodes,
           ).length;
-        } catch (_) {
-          // Collection type is already updated; progress fill is best-effort.
+        } catch (error) {
+          // Collection type is already updated; progress fill is best-effort
+          // but the user deserves to know the progress did not fully sync.
+          progressWarning = '已标记看过，但章节进度补完失败：${_messageFor(error)}';
         }
       }
       if (old != null) {
@@ -728,7 +739,7 @@ class SessionController extends StateNotifier<SessionState> {
           ],
         );
       }
-      return null;
+      return progressWarning;
     } catch (error) {
       return _messageFor(error);
     } finally {

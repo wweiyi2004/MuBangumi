@@ -6,6 +6,8 @@ import 'dart:math';
 import 'package:dio/dio.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../network/bangumi_user_agent.dart';
+
 typedef OAuthAuthorizationLauncher =
     Future<bool> Function(Uri authorizationUri, Future<Uri> callback);
 
@@ -61,7 +63,7 @@ class BangumiOAuth {
            receiveTimeout: const Duration(seconds: 20),
            headers: const {
              'Accept': 'application/json',
-             'User-Agent': 'MuBangumi/1.2.0 (Flutter; personal Bangumi client)',
+             'User-Agent': muBangumiUserAgent,
            },
          ),
        ),

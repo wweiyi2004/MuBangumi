@@ -215,7 +215,13 @@ class WebsiteCookieBridge {
       final raw = await controller.runJavaScriptReturningResult(
         'document.cookie',
       );
-      final text = raw.toString().replaceAll('"', '');
+      // Strip only the surrounding JS string quotes, never quotes that may
+      // legitimately appear inside cookie values.
+      var text = raw is String ? raw : raw.toString();
+      text = text.trim();
+      if (text.length >= 2 && text.startsWith('"') && text.endsWith('"')) {
+        text = text.substring(1, text.length - 1);
+      }
       return WebsiteSessionSnapshot.parseDocumentCookie(text);
     } catch (error, stack) {
       debugPrint(
@@ -238,7 +244,11 @@ class WebsiteCookieBridge {
     final value = domain.trim();
     if (value.isEmpty || value.contains('://')) return '.bgm.tv';
     if (value.startsWith('.')) return value;
-    if (value.endsWith('bgm.tv')) return '.$value'.replaceAll('..', '.');
+    // Exact or subdomain match only: endsWith alone would treat a host like
+    // notbgm.tv as a Bangumi domain.
+    if (value == 'bgm.tv' || value.endsWith('.bgm.tv')) {
+      return '.$value'.replaceAll('..', '.');
+    }
     return value;
   }
 

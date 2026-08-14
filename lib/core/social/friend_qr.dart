@@ -1,5 +1,4 @@
-import 'dart:typed_data';
-
+import 'package:flutter/foundation.dart';
 import 'package:image/image.dart' as img;
 import 'package:zxing2/qrcode.dart';
 
@@ -45,5 +44,15 @@ class FriendQr {
     } catch (_) {
       return null;
     }
+  }
+
+  /// Off-main-thread variant for the image picker: decoding a large photo
+  /// synchronously janks the UI (and can ANR on low-end devices).
+  static Future<String?> decodeFromImageBytesAsync(Uint8List bytes) {
+    if (bytes.length < 1024 * 1024) {
+      // Small images decode fast enough; avoids isolate setup overhead.
+      return Future.value(decodeFromImageBytes(bytes));
+    }
+    return compute(decodeFromImageBytes, bytes);
   }
 }

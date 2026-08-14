@@ -72,17 +72,22 @@ class _CommunityComposerDialogState extends State<_CommunityComposerDialog> {
 
   Future<void> _submit() async {
     if (!_canSubmit || _submitting) return;
-    final token = await widget.tokenProvider(context);
-    if (!mounted) return;
-    if (token == null || token.trim().isEmpty) {
-      setState(() => _error = '未完成人机验证，请重新点击发送');
-      return;
-    }
+    // Lock the button before the await so rapid taps cannot open several
+    // Turnstile dialogs and trigger duplicate submissions.
     setState(() {
       _submitting = true;
       _error = null;
     });
     try {
+      final token = await widget.tokenProvider(context);
+      if (!mounted) return;
+      if (token == null || token.trim().isEmpty) {
+        setState(() {
+          _submitting = false;
+          _error = '未完成人机验证，请重新点击发送';
+        });
+        return;
+      }
       await widget.onSubmit(
         _titleController.text.trim(),
         _contentController.text.trim(),

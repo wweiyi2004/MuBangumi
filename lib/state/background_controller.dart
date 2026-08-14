@@ -106,13 +106,17 @@ class BackgroundController extends StateNotifier<AppBackgroundSettings> {
             ? next
             : next.copyWith(clearImage: true, enabled: false);
       }
-    } catch (_) {}
+    } catch (error) {
+      debugPrint('BackgroundController restore failed: $error');
+    }
   }
 
   Future<void> _persist() async {
     try {
       await _storage.write(key: _key, value: jsonEncode(state.toJson()));
-    } catch (_) {}
+    } catch (error) {
+      debugPrint('BackgroundController persist failed: $error');
+    }
   }
 
   Future<void> setEnabled(bool enabled) async {
@@ -162,7 +166,10 @@ class BackgroundController extends StateNotifier<AppBackgroundSettings> {
       _ => '.jpg',
     };
     final target = File(
-      p.join(dir.path, 'wallpaper_${DateTime.now().millisecondsSinceEpoch}$safeExt'),
+      p.join(
+        dir.path,
+        'wallpaper_${DateTime.now().millisecondsSinceEpoch}$safeExt',
+      ),
     );
     await source.copy(target.path);
 

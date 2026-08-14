@@ -54,6 +54,7 @@ android/build/
 android/key.properties
 android/*.jks
 android/*.keystore
+**/*.keystore
 
 # Recommend dataset tool: generated data, DB, logs, venv, local secrets and user lists
 tool/recommend_dataset/.venv/

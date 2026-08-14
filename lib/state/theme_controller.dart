@@ -18,7 +18,9 @@ class ThemeController extends StateNotifier<ThemeMode> {
         'dark' => ThemeMode.dark,
         _ => ThemeMode.system,
       };
-    } catch (_) {}
+    } catch (error) {
+      debugPrint('ThemeController._restore failed: $error');
+    }
   }
 
   Future<void> setMode(ThemeMode mode) async {
@@ -30,11 +32,14 @@ class ThemeController extends StateNotifier<ThemeMode> {
     };
     try {
       await _storage.write(key: _key, value: value);
-    } catch (_) {}
+    } catch (error) {
+      debugPrint('ThemeController.setMode persist failed: $error');
+    }
   }
 }
 
-final themeModeProvider =
-    StateNotifierProvider<ThemeController, ThemeMode>((ref) {
-      return ThemeController(const FlutterSecureStorage());
-    });
+final themeModeProvider = StateNotifierProvider<ThemeController, ThemeMode>((
+  ref,
+) {
+  return ThemeController(const FlutterSecureStorage());
+});

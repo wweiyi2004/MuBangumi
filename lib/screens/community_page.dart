@@ -32,8 +32,7 @@ class CommunityWebScreen extends StatefulWidget {
     this.initialUrl = 'https://bgm.tv/rakuen',
     this.title = 'Bangumi 社区',
     this.showSectionSwitcher = true,
-    this.loginHint =
-        '社区使用 Bangumi 官方网页。可在「我的 → 同步网站登录」保存会话，减少重复登录。',
+    this.loginHint = '社区使用 Bangumi 官方网页。可在「我的 → 同步网站登录」保存会话，减少重复登录。',
     this.seedCookies = const [],
     this.enableCookieCapture = false,
     this.onCookiesCaptured,
@@ -42,6 +41,7 @@ class CommunityWebScreen extends StatefulWidget {
 
   final String initialUrl;
   final String title;
+
   /// When false, hides 超展开/小组 segment chips (e.g. PM / membership flows).
   final bool showSectionSwitcher;
   final String loginHint;
@@ -91,19 +91,20 @@ class _CommunityWebScreenState extends State<CommunityWebScreen> {
   }
 
   Future<void> _captureCookies() async {
-    final cookies = await _browserKey.currentState?.captureCookies() ?? const [];
+    final cookies =
+        await _browserKey.currentState?.captureCookies() ?? const [];
     if (!mounted) return;
     if (cookies.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('未读取到 Cookie，请确认已在页面中登录')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('未读取到 Cookie，请确认已在页面中登录')));
       return;
     }
     widget.onCookiesCaptured?.call(cookies);
     if (widget.onCookiesCaptured == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('已捕获 ${cookies.length} 条 Cookie')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('已捕获 ${cookies.length} 条 Cookie')));
     }
   }
 
@@ -406,6 +407,24 @@ class _CommunityBrowserState extends State<_CommunityBrowser> {
       ..setBackgroundColor(Colors.white)
       ..setNavigationDelegate(
         mobile.NavigationDelegate(
+          onNavigationRequest: (request) {
+            // Keep the address-bar-less embedded browser on Bangumi domains;
+            // community content can link anywhere, and embedding arbitrary
+            // third-party pages in-app invites phishing.
+            final uri = Uri.tryParse(request.url);
+            if (uri == null) return mobile.NavigationDecision.navigate;
+            final host = uri.host.toLowerCase();
+            final allowed =
+                host == 'bgm.tv' ||
+                host.endsWith('.bgm.tv') ||
+                host == 'bangumi.tv' ||
+                host.endsWith('.bangumi.tv') ||
+                host == 'chii.in' ||
+                host.endsWith('.chii.in');
+            if (allowed) return mobile.NavigationDecision.navigate;
+            unawaited(launchUrl(uri, mode: LaunchMode.externalApplication));
+            return mobile.NavigationDecision.prevent;
+          },
           onPageStarted: (url) {
             _currentUrl = url;
             _loading = true;

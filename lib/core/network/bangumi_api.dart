@@ -3,6 +3,7 @@ import 'package:dio/dio.dart';
 import '../../models/bangumi_models.dart';
 import 'bangumi_endpoints.dart';
 import 'bangumi_support.dart';
+import 'bangumi_user_agent.dart';
 
 class BangumiApiException implements Exception {
   const BangumiApiException(this.message, {this.statusCode});
@@ -24,29 +25,32 @@ class BangumiApi {
           headers: const {
             'Accept': 'application/json',
             'Content-Type': 'application/json',
-            'User-Agent': 'MuBangumi/1.1.0 (Flutter; personal Bangumi client)',
+            'User-Agent': muBangumiUserAgent,
           },
         ),
       ) {
     _dio.interceptors.add(
       InterceptorsWrapper(
         onError: (error, handler) {
+          // Check transport/status first so the dedicated messages below are
+          // actually reachable; a JSON error body must not shadow them.
           final data = error.response?.data;
+          final status = error.response?.statusCode;
           var message = '连接 Bangumi 失败，请稍后重试';
-          if (data is Map) {
+          if (error.type == DioExceptionType.connectionTimeout ||
+              error.type == DioExceptionType.receiveTimeout) {
+            message = '请求超时，请检查网络连接';
+          } else if (status == 401) {
+            message = 'Access Token 无效或已过期';
+          } else if (status == 429) {
+            message = '请求太频繁了，稍后再试';
+          } else if (data is Map) {
             message =
                 (data['description'] ??
                         data['title'] ??
                         data['message'] ??
                         message)
                     .toString();
-          } else if (error.type == DioExceptionType.connectionTimeout ||
-              error.type == DioExceptionType.receiveTimeout) {
-            message = '请求超时，请检查网络连接';
-          } else if (error.response?.statusCode == 401) {
-            message = 'Access Token 无效或已过期';
-          } else if (error.response?.statusCode == 429) {
-            message = '请求太频繁了，稍后再试';
           }
           handler.reject(
             DioException(
@@ -65,7 +69,11 @@ class BangumiApi {
   }
 
   final Dio _dio;
-  final Map<int, Future<Subject>> _subjectDetailCache = {};
+  final Map<int, _CachedSubject> _subjectDetailCache = {};
+
+  /// Session-level subject cache TTL; ratings/summaries change server-side,
+  /// so an unbounded forever-cache shows increasingly stale data.
+  static const _subjectCacheTtl = Duration(minutes: 10);
 
   /// Called before authenticated requests to refresh near-expiry tokens.
   Future<void> Function()? ensureFreshToken;
@@ -184,7 +192,7 @@ class BangumiApi {
       offset += page.length;
       if (page.isEmpty) break;
       if (maxItems != null && result.length >= maxItems) {
-        return result.take(maxItems).toList();
+        break;
       }
     } while (offset < total);
 
@@ -193,6 +201,9 @@ class BangumiApi {
       final bTime = b.updatedAt ?? DateTime.fromMillisecondsSinceEpoch(0);
       return bTime.compareTo(aTime);
     });
+    if (maxItems != null && result.length > maxItems) {
+      return result.take(maxItems).toList();
+    }
     return result;
   }
 
@@ -310,10 +321,18 @@ class BangumiApi {
     return _subjectsFromPage(response.data);
   }
 
-  Future<Subject> getSubject(int subjectId) => _subjectDetailCache.putIfAbsent(
-    subjectId,
-    () => _fetchSubject(subjectId),
-  );
+  Future<Subject> getSubject(int subjectId) {
+    // Opportunistic purge of expired entries keeps the map bounded.
+    final cutoff = DateTime.now().subtract(_subjectCacheTtl);
+    _subjectDetailCache.removeWhere(
+      (_, cached) => cached.fetchedAt.isBefore(cutoff),
+    );
+    final cached = _subjectDetailCache[subjectId];
+    if (cached != null) return cached.future;
+    final future = _fetchSubject(subjectId);
+    _subjectDetailCache[subjectId] = _CachedSubject(future, DateTime.now());
+    return future;
+  }
 
   Future<Subject> _fetchSubject(int subjectId) async {
     try {
@@ -423,7 +442,7 @@ class BangumiApi {
           connectTimeout: const Duration(seconds: 15),
           receiveTimeout: const Duration(seconds: 20),
           headers: const {
-            'User-Agent': 'MuBangumi/1.1.0 (Flutter; personal Bangumi client)',
+            'User-Agent': muBangumiUserAgent,
             'Accept': 'text/html,application/xhtml+xml',
           },
           responseType: ResponseType.plain,
@@ -677,4 +696,11 @@ class BangumiApi {
       throw BangumiApiException(error.message ?? '未知网络错误');
     }
   }
+}
+
+class _CachedSubject {
+  const _CachedSubject(this.future, this.fetchedAt);
+
+  final Future<Subject> future;
+  final DateTime fetchedAt;
 }

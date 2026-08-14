@@ -5,6 +5,7 @@ import '../../core/storage/community_cache.dart';
 import '../../models/bangumi_models.dart';
 import '../../models/community_models.dart';
 import 'bangumi_smiles.dart';
+import 'bangumi_user_agent.dart';
 import 'community_html_parser.dart';
 import 'community_p1_parser.dart';
 
@@ -19,8 +20,7 @@ class CommunityService {
               receiveTimeout: const Duration(seconds: 20),
               responseType: ResponseType.plain,
               headers: const {
-                'User-Agent':
-                    'MuBangumi/1.1.0 (Flutter; personal Bangumi client)',
+                'User-Agent': muBangumiUserAgent,
                 'Accept': 'text/html,application/xhtml+xml',
               },
             ),
@@ -34,8 +34,7 @@ class CommunityService {
               receiveTimeout: const Duration(seconds: 20),
               responseType: ResponseType.json,
               headers: const {
-                'User-Agent':
-                    'MuBangumi/1.1.0 (Flutter; personal Bangumi client)',
+                'User-Agent': muBangumiUserAgent,
                 'Accept': 'application/json',
               },
             ),
@@ -126,7 +125,13 @@ class CommunityService {
         : const <BangumiUser>[];
     final total = (json['total'] as num?)?.toInt() ?? users.length;
     final page = CommunityPageResult(data: users, total: total);
-    _friendsCache[cacheKey] = _CachedFriends(page, DateTime.now());
+    _storeIn(
+      _friendsCache,
+      cacheKey,
+      _CachedFriends(page, DateTime.now()),
+      (value) => value.createdAt,
+      const Duration(minutes: 2),
+    );
     return page;
   }
 
@@ -709,7 +714,13 @@ class CommunityService {
       final response = await _htmlDio.get<String>(path, queryParameters: query);
       final html = response.data ?? '';
       if (html.isEmpty) throw const FormatException('Bangumi 返回了空页面');
-      _htmlCache[key] = _CachedHtml(html, DateTime.now());
+      _storeIn(
+        _htmlCache,
+        key,
+        _CachedHtml(html, DateTime.now()),
+        (value) => value.createdAt,
+        const Duration(minutes: 2),
+      );
       return html;
     } on DioException catch (error) {
       final status = error.response?.statusCode;
@@ -745,7 +756,13 @@ class CommunityService {
         );
         final json = response.data;
         if (json == null) throw const FormatException('Bangumi 返回了空数据');
-        _jsonCache[key] = _CachedJson(json, DateTime.now());
+        _storeIn(
+          _jsonCache,
+          key,
+          _CachedJson(json, DateTime.now()),
+          (value) => value.createdAt,
+          const Duration(minutes: 2),
+        );
         return json;
       } on DioException catch (error) {
         lastError = error;
@@ -756,11 +773,7 @@ class CommunityService {
             await onUnauthorizedRefresh!()) {
           return _getJson(path, query: query, refresh: true, retriedAuth: true);
         }
-        final shouldRetry =
-            status == null ||
-            status >= 500 ||
-            error.type == DioExceptionType.unknown;
-        if (!shouldRetry || attempt == 2) break;
+        if (!_shouldRetry(error, attempt)) break;
         await Future<void>.delayed(Duration(milliseconds: 250 * (attempt + 1)));
       }
     }
@@ -795,7 +808,13 @@ class CommunityService {
         );
         final data = response.data;
         if (data == null) throw const FormatException('Bangumi 返回了空数据');
-        _jsonCache[key] = _CachedJson({'data': data}, DateTime.now());
+        _storeIn(
+          _jsonCache,
+          key,
+          _CachedJson({'data': data}, DateTime.now()),
+          (value) => value.createdAt,
+          const Duration(minutes: 2),
+        );
         return data;
       } on DioException catch (error) {
         lastError = error;
@@ -1110,6 +1129,28 @@ class CommunityService {
 
   Map<String, String>? _stringQueryParameters(Map<String, dynamic>? query) =>
       query?.map((key, value) => MapEntry(key, value.toString()));
+
+  /// Bounds the in-memory caches: purge expired entries and cap total size
+  /// (Dart maps keep insertion order, so the oldest entries go first).
+  static const int _cacheMaxEntries = 400;
+
+  static void _storeIn<T>(
+    Map<String, T> cache,
+    String key,
+    T entry,
+    DateTime Function(T value) createdAtOf,
+    Duration ttl,
+  ) {
+    cache[key] = entry;
+    final cutoff = DateTime.now().subtract(ttl);
+    cache.removeWhere((_, value) => createdAtOf(value).isBefore(cutoff));
+    if (cache.length > _cacheMaxEntries) {
+      final excess = cache.length - _cacheMaxEntries;
+      for (final old in cache.keys.take(excess).toList()) {
+        cache.remove(old);
+      }
+    }
+  }
 }
 
 class _CachedHtml {

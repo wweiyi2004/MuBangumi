@@ -110,12 +110,7 @@ class _UserProfilePageState extends ConsumerState<UserProfilePage> {
   }
 
   Future<void> _loadAll() async {
-    await Future.wait([
-      _loadProfile(),
-      _loadCollections(),
-      _loadFriendship(),
-      _loadTimeline(),
-    ]);
+    await Future.wait([_loadProfile(), _loadCollections(), _loadTimeline()]);
   }
 
   Future<void> _loadTimeline() async {
@@ -213,12 +208,14 @@ class _UserProfilePageState extends ConsumerState<UserProfilePage> {
         _user = user;
         _loadingProfile = false;
       });
-      await _loadFriendship();
     } catch (_) {
       if (!mounted) return;
       setState(() => _loadingProfile = false);
       // Keep seed profile if network profile fetch fails.
     }
+    // Single friendship lookup, regardless of whether the profile fetch
+    // succeeded (previously _loadAll ran a duplicate isFriend request).
+    await _loadFriendship();
   }
 
   Future<void> _loadCollections() async {

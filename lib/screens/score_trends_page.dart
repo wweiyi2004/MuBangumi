@@ -45,9 +45,12 @@ class _ScoreTrendsPageState extends ConsumerState<ScoreTrendsPage>
     });
     try {
       final api = ref.read(netabaApiProvider);
-      final results = await Future.wait([
-        api.getTrending(),
-        api.getScoreIncreases(),
+      final results = await Future.wait<Object?>([
+        api.getTrending().then<Object?>((v) => v),
+        api
+            .getScoreIncreases()
+            .then<Object?>((v) => v)
+            .catchError((Object _) => const <NetabaTrendingItem>[]),
       ]);
       if (!mounted) return;
       setState(() {
@@ -112,68 +115,68 @@ class _ScoreTrendsPageState extends ConsumerState<ScoreTrendsPage>
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : _error != null
-              ? Center(
-                  child: Padding(
-                    padding: const EdgeInsets.all(24),
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Text(_error!, textAlign: TextAlign.center),
-                        const SizedBox(height: 12),
-                        FilledButton.icon(
-                          onPressed: _load,
-                          icon: const Icon(Icons.refresh_rounded),
-                          label: const Text('重试'),
-                        ),
-                      ],
-                    ),
-                  ),
-                )
-              : Column(
+          ? Center(
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
                   children: [
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
-                      child: Text(
-                        '近月 Bangumi 评分变化 · 数据来自 netaba.re',
-                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color: Theme.of(context).colorScheme.onSurfaceVariant,
-                        ),
-                      ),
-                    ),
-                    Expanded(
-                      child: TabBarView(
-                        controller: _tabController,
-                        children: [
-                          _TrendList(
-                            items: _trending?.up ?? const [],
-                            rising: true,
-                            emptyLabel: '暂无涨分条目',
-                            onTap: _openSubject,
-                          ),
-                          _TrendList(
-                            items: _trending?.down ?? const [],
-                            rising: false,
-                            emptyLabel: '暂无跌分条目',
-                            onTap: _openSubject,
-                          ),
-                          _TrendList(
-                            items: _trending?.done ?? const [],
-                            rising: null,
-                            emptyLabel: '暂无完结波动数据',
-                            onTap: _openSubject,
-                          ),
-                          _TrendList(
-                            items: _reputation,
-                            rising: true,
-                            emptyLabel: '暂无口碑提升数据',
-                            deltaLabel: '开播以来',
-                            onTap: _openSubject,
-                          ),
-                        ],
-                      ),
+                    Text(_error!, textAlign: TextAlign.center),
+                    const SizedBox(height: 12),
+                    FilledButton.icon(
+                      onPressed: _load,
+                      icon: const Icon(Icons.refresh_rounded),
+                      label: const Text('重试'),
                     ),
                   ],
                 ),
+              ),
+            )
+          : Column(
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
+                  child: Text(
+                    '近月 Bangumi 评分变化 · 数据来自 netaba.re',
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                ),
+                Expanded(
+                  child: TabBarView(
+                    controller: _tabController,
+                    children: [
+                      _TrendList(
+                        items: _trending?.up ?? const [],
+                        rising: true,
+                        emptyLabel: '暂无涨分条目',
+                        onTap: _openSubject,
+                      ),
+                      _TrendList(
+                        items: _trending?.down ?? const [],
+                        rising: false,
+                        emptyLabel: '暂无跌分条目',
+                        onTap: _openSubject,
+                      ),
+                      _TrendList(
+                        items: _trending?.done ?? const [],
+                        rising: null,
+                        emptyLabel: '暂无完结波动数据',
+                        onTap: _openSubject,
+                      ),
+                      _TrendList(
+                        items: _reputation,
+                        rising: true,
+                        emptyLabel: '暂无口碑提升数据',
+                        deltaLabel: '开播以来',
+                        onTap: _openSubject,
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
     );
   }
 }
@@ -307,15 +310,9 @@ class _TrendTile extends StatelessWidget {
                 ),
               ),
               const SizedBox(width: 10),
-              ScoreSparkline(
-                points: item.sparkline(),
-                color: sparkColor,
-              ),
+              ScoreSparkline(points: item.sparkline(), color: sparkColor),
               const SizedBox(width: 4),
-              Icon(
-                Icons.chevron_right_rounded,
-                color: scheme.onSurfaceVariant,
-              ),
+              Icon(Icons.chevron_right_rounded, color: scheme.onSurfaceVariant),
             ],
           ),
         ),

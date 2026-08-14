@@ -2,33 +2,30 @@ import 'package:dio/dio.dart';
 
 import '../auth/website_session.dart';
 import '../../models/pm_models.dart';
+import 'bangumi_user_agent.dart';
 import 'pm_html_parser.dart';
 
 /// Cookie-authenticated Bangumi website PM client (HTML endpoints).
 class PmService {
-  PmService({
-    WebsiteSessionStore? sessionStore,
-    Dio? dio,
-    PmHtmlParser? parser,
-  }) : _sessionStore = sessionStore ?? WebsiteSessionStore(),
-       _parser = parser ?? PmHtmlParser(),
-       _dio =
-           dio ??
-           Dio(
-             BaseOptions(
-               baseUrl: 'https://bgm.tv',
-               connectTimeout: const Duration(seconds: 15),
-               receiveTimeout: const Duration(seconds: 25),
-               responseType: ResponseType.plain,
-               followRedirects: true,
-               validateStatus: (code) => code != null && code < 500,
-               headers: const {
-                 'User-Agent':
-                     'MuBangumi/1.2.0 (Flutter; personal Bangumi client)',
-                 'Accept': 'text/html,application/xhtml+xml',
-               },
-             ),
-           );
+  PmService({WebsiteSessionStore? sessionStore, Dio? dio, PmHtmlParser? parser})
+    : _sessionStore = sessionStore ?? WebsiteSessionStore(),
+      _parser = parser ?? PmHtmlParser(),
+      _dio =
+          dio ??
+          Dio(
+            BaseOptions(
+              baseUrl: 'https://bgm.tv',
+              connectTimeout: const Duration(seconds: 15),
+              receiveTimeout: const Duration(seconds: 25),
+              responseType: ResponseType.plain,
+              followRedirects: true,
+              validateStatus: (code) => code != null && code < 500,
+              headers: const {
+                'User-Agent': muBangumiUserAgent,
+                'Accept': 'text/html,application/xhtml+xml',
+              },
+            ),
+          );
 
   static final shared = PmService();
 
@@ -157,20 +154,14 @@ class PmService {
     }
   }
 
-  Future<String> _getHtml(
-    String path, {
-    Map<String, dynamic>? query,
-  }) async {
+  Future<String> _getHtml(String path, {Map<String, dynamic>? query}) async {
     final cookie = await _requireCookieHeader();
     try {
       final response = await _dio.get<String>(
         path,
         queryParameters: query,
         options: Options(
-          headers: {
-            'Cookie': cookie,
-            'Referer': 'https://bgm.tv/pm',
-          },
+          headers: {'Cookie': cookie, 'Referer': 'https://bgm.tv/pm'},
         ),
       );
       final html = response.data ?? '';
@@ -193,9 +184,7 @@ class PmService {
   Future<String> _requireCookieHeader() async {
     final snapshot = await _sessionStore.read();
     final header = snapshot?.cookieHeader.trim() ?? '';
-    if (snapshot == null ||
-        header.isEmpty ||
-        !snapshot.hasSessionCookies) {
+    if (snapshot == null || header.isEmpty || !snapshot.hasSessionCookies) {
       throw const PmAuthException();
     }
     return header;

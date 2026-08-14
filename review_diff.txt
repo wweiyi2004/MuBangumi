@@ -1,0 +1,1192 @@
+diff --git a/.gitignore b/.gitignore
+index 3aa9ae2..ed3d782 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -48,4 +48,14 @@ app.*.map.json
+ /dist/
+ 
+ android/build/
++android/key.properties
++android/*.jks
++android/*.keystore
++
++# Recommend dataset tool: generated data, DB, logs, venv, local secrets and user lists
++tool/recommend_dataset/.venv/
++tool/recommend_dataset/data/
++tool/recommend_dataset/seed_users.txt
++tool/recommend_dataset/dataset_config.json
++tool/recommend_dataset/*.log
+ 
+diff --git a/README.md b/README.md
+index 9e14d95..149fe1e 100644
+--- a/README.md
++++ b/README.md
+@@ -36,7 +36,7 @@ MuBangumi 是一个使用 Flutter 编写的第三方 Bangumi 追番客户端，
+ - 新番表导出为 PNG 海报（浅色 / 深色），桌面保存到下载目录并可打开位置
+ - 原生浏览超展开、小组最新话题、所有小组、主题正文与嵌套回复
+ - 超展开支持按全部、小组、条目、章节和人物分类筛选
+-- 社区发帖 / 回复等写操作优先走 next.bgm.tv P1 + Turnstile；加组等仍可走内嵌官网
++- 社区发帖 / 回复等写操作走 next.bgm.tv P1 + 官方 Turnstile 验证页；加组等仍可走内嵌官网
+ - 手机底部导航与 Windows 宽屏侧栏自适应布局
+ - 全应用窄屏适配：页边距 / 标题字号 / 列表密度 / 导航栏标签 / 新番表格子防溢出
+ 
+@@ -102,6 +102,10 @@ Android App Bundle：
+ flutter build appbundle --release
+ ```
+ 
++Android 正式构建需要独立上传密钥，不能使用调试签名。先复制
++`android/key.properties.example` 为 `android/key.properties`，填写密钥路径、别名和密码；
++密钥文件与 `key.properties` 已被 Git 忽略。配置缺失时 Release 构建会直接失败，避免误发调试签名包。
++
+ 构建产物分别位于 `build/windows/x64/runner/Release/` 和 `build/app/outputs/`。
+ 
+ ## 项目结构
+diff --git a/android/app/build.gradle.kts b/android/app/build.gradle.kts
+index 754fa76..260db4a 100644
+--- a/android/app/build.gradle.kts
++++ b/android/app/build.gradle.kts
+@@ -1,9 +1,30 @@
++import java.util.Properties
++
+ plugins {
+     id("com.android.application")
+     // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
+     id("dev.flutter.flutter-gradle-plugin")
+ }
+ 
++val keystoreProperties = Properties()
++val keystorePropertiesFile = rootProject.file("key.properties")
++if (keystorePropertiesFile.exists()) {
++    keystorePropertiesFile.inputStream().use(keystoreProperties::load)
++}
++val requiredKeystoreProperties = listOf("storeFile", "storePassword", "keyAlias", "keyPassword")
++val missingKeystoreProperties = requiredKeystoreProperties.filter {
++    keystoreProperties.getProperty(it).isNullOrBlank()
++}
++val isReleaseTask = gradle.startParameter.taskNames.any {
++    it.contains("release", ignoreCase = true)
++}
++if (isReleaseTask && (!keystorePropertiesFile.exists() || missingKeystoreProperties.isNotEmpty())) {
++    throw GradleException(
++        "Android release signing is not configured. Copy key.properties.example to key.properties " +
++            "and provide storeFile, storePassword, keyAlias, and keyPassword.",
++    )
++}
++
+ android {
+     namespace = "com.wweiyi.mubangumi"
+     // file_picker / flutter_plugin_android_lifecycle require API 36 metadata.
+@@ -26,11 +47,20 @@ android {
+         versionName = flutter.versionName
+     }
+ 
++    signingConfigs {
++        if (keystorePropertiesFile.exists() && missingKeystoreProperties.isEmpty()) {
++            create("release") {
++                keyAlias = keystoreProperties.getProperty("keyAlias")
++                keyPassword = keystoreProperties.getProperty("keyPassword")
++                storeFile = rootProject.file(keystoreProperties.getProperty("storeFile"))
++                storePassword = keystoreProperties.getProperty("storePassword")
++            }
++        }
++    }
++
+     buildTypes {
+         release {
+-            // TODO: Add your own signing config for the release build.
+-            // Signing with the debug keys for now, so `flutter run --release` works.
+-            signingConfig = signingConfigs.getByName("debug")
++            signingConfigs.findByName("release")?.let { signingConfig = it }
+         }
+     }
+ }
+diff --git a/lib/core/auth/bangumi_oauth.dart b/lib/core/auth/bangumi_oauth.dart
+index 210b98a..ecc5b5a 100644
+--- a/lib/core/auth/bangumi_oauth.dart
++++ b/lib/core/auth/bangumi_oauth.dart
+@@ -31,9 +31,10 @@ class OAuthTokenBundle {
+ }
+ 
+ class BangumiOAuthException implements Exception {
+-  const BangumiOAuthException(this.message);
++  const BangumiOAuthException(this.message, {this.invalidatesSession = false});
+ 
+   final String message;
++  final bool invalidatesSession;
+ 
+   @override
+   String toString() => message;
+@@ -162,9 +163,15 @@ class BangumiOAuth {
+     }
+     final errorData = lastError?.response?.data;
+     if (errorData is Map) {
++      final errorCode = errorData['error']?.toString() ?? '';
+       throw BangumiOAuthException(
+         (errorData['error_description'] ?? errorData['error'] ?? 'Bangumi 授权失败')
+             .toString(),
++        invalidatesSession: const {
++          'invalid_grant',
++          'invalid_client',
++          'unauthorized_client',
++        }.contains(errorCode),
+       );
+     }
+     throw const BangumiOAuthException('连接 Bangumi 授权服务器失败');
+diff --git a/lib/core/network/community_service.dart b/lib/core/network/community_service.dart
+index e5b95b7..4b77e59 100644
+--- a/lib/core/network/community_service.dart
++++ b/lib/core/network/community_service.dart
+@@ -299,13 +299,10 @@ class CommunityService {
+     required String turnstileToken,
+   }) async {
+     _requireAuthentication();
++    final token = _requireTurnstileToken(turnstileToken);
+     await _postJson(
+       '/groups/${Uri.encodeComponent(slug)}/topics',
+-      data: {
+-        'title': title,
+-        'content': content,
+-        'turnstileToken': turnstileToken,
+-      },
++      data: {'title': title, 'content': content, 'turnstileToken': token},
+     );
+   }
+ 
+@@ -329,15 +326,13 @@ class CommunityService {
+     if (trimmed.isEmpty) {
+       throw const FormatException('回复内容不能为空');
+     }
+-    if (turnstileToken.trim().isEmpty) {
+-      throw const FormatException('人机验证未完成，请重新点击发送');
+-    }
++    final token = _requireTurnstileToken(turnstileToken);
+     // API: replyTo=0 means top-level reply; otherwise nest under that reply id.
+     await _postJson(
+       '/$area/-/topics/$id/replies',
+       data: {
+         'content': trimmed,
+-        'turnstileToken': turnstileToken.trim(),
++        'turnstileToken': token,
+         'replyTo': replyTo ?? 0,
+       },
+     );
+@@ -351,9 +346,10 @@ class CommunityService {
+     required String turnstileToken,
+   }) async {
+     _requireAuthentication();
++    final token = _requireTurnstileToken(turnstileToken);
+     await _postJson(
+       '/timeline',
+-      data: {'content': content, 'turnstileToken': turnstileToken},
++      data: {'content': content, 'turnstileToken': token},
+     );
+   }
+ 
+@@ -364,13 +360,10 @@ class CommunityService {
+     int? replyTo,
+   }) async {
+     _requireAuthentication();
++    final token = _requireTurnstileToken(turnstileToken);
+     await _postJson(
+       '/timeline/$timelineId/replies',
+-      data: {
+-        'content': content,
+-        'turnstileToken': turnstileToken,
+-        'replyTo': ?replyTo,
+-      },
++      data: {'content': content, 'turnstileToken': token, 'replyTo': ?replyTo},
+     );
+   }
+ 
+@@ -922,6 +915,14 @@ class CommunityService {
+     if (!isAuthenticated) throw Exception('请先登录 Bangumi');
+   }
+ 
++  String _requireTurnstileToken(String token) {
++    final value = token.trim();
++    if (value.isEmpty) {
++      throw const FormatException('人机验证未完成，请重新点击发送');
++    }
++    return value;
++  }
++
+   String _requireCurrentUsername() {
+     final username = _currentUsername;
+     if (username == null) throw Exception('无法识别当前登录用户');
+diff --git a/lib/screens/community_timeline_page.dart b/lib/screens/community_timeline_page.dart
+index e143938..efa5f91 100644
+--- a/lib/screens/community_timeline_page.dart
++++ b/lib/screens/community_timeline_page.dart
+@@ -320,8 +320,7 @@ class _CommunityTimelinePageState extends ConsumerState<CommunityTimelinePage> {
+             onOpenSubject: progress == null
+                 ? null
+                 : () => _openSubject(progress),
+-            onOpenUser: (user) =>
+-                openUserProfileFromCommunity(context, user),
++            onOpenUser: (user) => openUserProfileFromCommunity(context, user),
+             replies: _replies[item.id],
+             repliesExpanded: _expandedReplies.contains(item.id),
+             repliesLoading: _loadingReplies.contains(item.id),
+diff --git a/lib/screens/community_topic_screen.dart b/lib/screens/community_topic_screen.dart
+index 4a2e9e4..ee7398a 100644
+--- a/lib/screens/community_topic_screen.dart
++++ b/lib/screens/community_topic_screen.dart
+@@ -83,9 +83,9 @@ class _CommunityTopicScreenState extends State<CommunityTopicScreen> {
+     }
+     final topicId = _service.resolveTopicId(widget.topic);
+     if (topicId == null) {
+-      ScaffoldMessenger.of(context).showSnackBar(
+-        const SnackBar(content: Text('无法识别话题编号，请返回列表重新打开该话题')),
+-      );
++      ScaffoldMessenger.of(
++        context,
++      ).showSnackBar(const SnackBar(content: Text('无法识别话题编号，请返回列表重新打开该话题')));
+       return;
+     }
+     // Top-level reply uses 0. Nested replies use the target post id.
+diff --git a/lib/screens/discover_page.dart b/lib/screens/discover_page.dart
+index cffd576..a723f74 100644
+--- a/lib/screens/discover_page.dart
++++ b/lib/screens/discover_page.dart
+@@ -17,6 +17,41 @@ import 'subject_detail_screen.dart';
+ 
+ enum DiscoverSearchTarget { subject, character, person }
+ 
++enum DiscoverQueryMode {
++  browse,
++  subjectSearch,
++  characterPrompt,
++  characterSearch,
++  personPrompt,
++  personSearch,
++}
++
++DiscoverQueryMode resolveDiscoverQueryMode({
++  required DiscoverSearchTarget target,
++  required String keyword,
++  required String tag,
++}) {
++  final hasKeyword = keyword.trim().isNotEmpty;
++  return switch (target) {
++    DiscoverSearchTarget.subject =>
++      hasKeyword || tag.trim().isNotEmpty
++          ? DiscoverQueryMode.subjectSearch
++          : DiscoverQueryMode.browse,
++    DiscoverSearchTarget.character =>
++      hasKeyword
++          ? DiscoverQueryMode.characterSearch
++          : DiscoverQueryMode.characterPrompt,
++    DiscoverSearchTarget.person =>
++      hasKeyword
++          ? DiscoverQueryMode.personSearch
++          : DiscoverQueryMode.personPrompt,
++  };
++}
++
++final discoverCollectionsProvider = Provider<List<UserCollection>>(
++  (ref) => ref.watch(sessionProvider.select((state) => state.collections)),
++);
++
+ /// Opens a standalone discover surface pre-filtered by [tag].
+ void openDiscoverTagSearch(
+   BuildContext context, {
+@@ -29,10 +64,7 @@ void openDiscoverTagSearch(
+     MaterialPageRoute<void>(
+       builder: (_) => Scaffold(
+         appBar: AppBar(title: Text('标签 · $value')),
+-        body: DiscoverPage(
+-          initialTag: value,
+-          initialSubjectType: subjectType,
+-        ),
++        body: DiscoverPage(initialTag: value, initialSubjectType: subjectType),
+       ),
+     ),
+   );
+@@ -77,13 +109,22 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
+   List<CharacterDetail> _characters = const [];
+   List<PersonDetail> _persons = const [];
+ 
+-  bool get _searching => _searchController.text.trim().isNotEmpty;
+-  bool get _searchingSubjects =>
+-      _searching && _searchTarget == DiscoverSearchTarget.subject;
++  DiscoverQueryMode get _queryMode => resolveDiscoverQueryMode(
++    target: _searchTarget,
++    keyword: _searchController.text,
++    tag: _tag,
++  );
++
++  bool get _searching => switch (_queryMode) {
++    DiscoverQueryMode.subjectSearch ||
++    DiscoverQueryMode.characterSearch ||
++    DiscoverQueryMode.personSearch => true,
++    _ => false,
++  };
++  bool get _searchingSubjects => _queryMode == DiscoverQueryMode.subjectSearch;
+   bool get _searchingCharacters =>
+-      _searching && _searchTarget == DiscoverSearchTarget.character;
+-  bool get _searchingPersons =>
+-      _searching && _searchTarget == DiscoverSearchTarget.person;
++      _queryMode == DiscoverQueryMode.characterSearch;
++  bool get _searchingPersons => _queryMode == DiscoverQueryMode.personSearch;
+ 
+   /// TV-like seasonal browse (year + quarter).
+   bool get _supportsSeason =>
+@@ -118,14 +159,13 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
+   };
+ 
+   int get _activeFilterCount {
++    if (_searchTarget != DiscoverSearchTarget.subject) return 0;
+     var count = 0;
+     if (_searchingSubjects) {
+       if (_searchSort != 'match') count++;
+       if (_minimumRating > 0) count++;
+       if (_startYear > 0) count++;
+       if (_tag.trim().isNotEmpty) count++;
+-    } else if (_searching) {
+-      // Character/person search has no extra filters yet.
+     } else if (_supportsSeason) {
+       final now = DateTime.now();
+       final currentQuarter = (now.month - 1) ~/ 3;
+@@ -146,10 +186,6 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
+     _browseQuarter = (now.month - 1) ~/ 3;
+     _subjectType = widget.initialSubjectType ?? SubjectType.anime;
+     _tag = widget.initialTag.trim();
+-    if (_tag.isNotEmpty) {
+-      // Tag deep-link: use the tag as keyword so search path applies filters.
+-      _searchController.text = _tag;
+-    }
+     _scrollController.addListener(_onScroll);
+     Future.microtask(_runCurrentQuery);
+   }
+@@ -173,8 +209,32 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
+ 
+   void _onSearchChanged(String value) {
+     _debounce?.cancel();
++    _requestId++;
++    final nextMode = resolveDiscoverQueryMode(
++      target: _searchTarget,
++      keyword: value,
++      tag: _tag,
++    );
++    setState(() {
++      _error = null;
++      _offset = 0;
++      _hasMore = false;
++      _loadingMore = false;
++      _loading = switch (nextMode) {
++        DiscoverQueryMode.characterPrompt ||
++        DiscoverQueryMode.personPrompt => false,
++        _ => true,
++      };
++      switch (_searchTarget) {
++        case DiscoverSearchTarget.subject:
++          _subjects = const [];
++        case DiscoverSearchTarget.character:
++          _characters = const [];
++        case DiscoverSearchTarget.person:
++          _persons = const [];
++      }
++    });
+     _debounce = Timer(const Duration(milliseconds: 450), _runCurrentQuery);
+-    setState(() {});
+   }
+ 
+   void _selectSubjectType(SubjectType type) {
+@@ -197,13 +257,24 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
+ 
+   void _clearSearchFilters() {
+     setState(() {
+-      _searchSort = 'match';
+-      _minimumRating = 0;
+-      _startYear = 0;
+-      _tag = '';
++      _resetSearchFilters();
+     });
+   }
+ 
++  void _resetSearchFilters() {
++    _searchSort = 'match';
++    _minimumRating = 0;
++    _startYear = 0;
++    _tag = '';
++  }
++
++  void _clearSearch() {
++    _debounce?.cancel();
++    _searchController.clear();
++    setState(_resetSearchFilters);
++    _runCurrentQuery();
++  }
++
+   void _clearBrowseFilters() {
+     final now = DateTime.now();
+     setState(() {
+@@ -215,22 +286,38 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
+ 
+   void _runCurrentQuery() {
+     final keyword = _searchController.text.trim();
+-    if (keyword.isNotEmpty) {
+-      switch (_searchTarget) {
+-        case DiscoverSearchTarget.subject:
+-          unawaited(_search(keyword));
+-        case DiscoverSearchTarget.character:
+-          unawaited(_searchCharacters(keyword));
+-        case DiscoverSearchTarget.person:
+-          unawaited(_searchPersons(keyword));
+-      }
+-      return;
++    switch (_queryMode) {
++      case DiscoverQueryMode.subjectSearch:
++        unawaited(_search(keyword));
++      case DiscoverQueryMode.characterSearch:
++        unawaited(_searchCharacters(keyword));
++      case DiscoverQueryMode.personSearch:
++        unawaited(_searchPersons(keyword));
++      case DiscoverQueryMode.browse:
++        setState(() {
++          _characters = const [];
++          _persons = const [];
++        });
++        unawaited(_loadBrowse());
++      case DiscoverQueryMode.characterPrompt:
++        _showSearchPrompt(DiscoverSearchTarget.character);
++      case DiscoverQueryMode.personPrompt:
++        _showSearchPrompt(DiscoverSearchTarget.person);
+     }
++  }
++
++  void _showSearchPrompt(DiscoverSearchTarget target) {
++    _requestId++;
+     setState(() {
++      _loading = false;
++      _loadingMore = false;
++      _hasMore = false;
++      _offset = 0;
++      _error = null;
++      _subjects = const [];
+       _characters = const [];
+       _persons = const [];
+     });
+-    unawaited(_loadBrowse());
+   }
+ 
+   Future<void> _searchCharacters(String keyword, {bool append = false}) async {
+@@ -418,25 +505,24 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
+   Future<void> _loadMore() async {
+     if (!_hasMore || _loadingMore || _loading) return;
+     final keyword = _searchController.text.trim();
+-    if (keyword.isNotEmpty) {
+-      switch (_searchTarget) {
+-        case DiscoverSearchTarget.subject:
+-          await _search(keyword, append: true);
+-        case DiscoverSearchTarget.character:
+-          await _searchCharacters(keyword, append: true);
+-        case DiscoverSearchTarget.person:
+-          await _searchPersons(keyword, append: true);
+-      }
+-    } else {
+-      await _loadBrowse(append: true);
++    switch (_queryMode) {
++      case DiscoverQueryMode.subjectSearch:
++        await _search(keyword, append: true);
++      case DiscoverQueryMode.characterSearch:
++        await _searchCharacters(keyword, append: true);
++      case DiscoverQueryMode.personSearch:
++        await _searchPersons(keyword, append: true);
++      case DiscoverQueryMode.browse:
++        await _loadBrowse(append: true);
++      case DiscoverQueryMode.characterPrompt:
++      case DiscoverQueryMode.personPrompt:
++        return;
+     }
+   }
+ 
+   @override
+   Widget build(BuildContext context) {
+-    final collections = ref.watch(
+-      sessionProvider.select((state) => state.collections),
+-    );
++    final collections = ref.watch(discoverCollectionsProvider);
+     final collectionMap = {
+       for (final item in collections) item.subjectId: item,
+     };
+@@ -491,7 +577,9 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
+                           width: phone ? 38 : 42,
+                           height: phone ? 38 : 42,
+                           decoration: BoxDecoration(
+-                            color: const Color(0xFFF3A646).withValues(alpha: 0.16),
++                            color: const Color(
++                              0xFFF3A646,
++                            ).withValues(alpha: 0.16),
+                             borderRadius: BorderRadius.circular(12),
+                           ),
+                           child: const Icon(
+@@ -518,9 +606,9 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
+                                 overflow: TextOverflow.ellipsis,
+                                 style: Theme.of(context).textTheme.bodySmall
+                                     ?.copyWith(
+-                                      color: Theme.of(context)
+-                                          .colorScheme
+-                                          .onSurfaceVariant,
++                                      color: Theme.of(
++                                        context,
++                                      ).colorScheme.onSurfaceVariant,
+                                     ),
+                               ),
+                             ],
+@@ -553,11 +641,7 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
+                         suffixIcon: _searching
+                             ? IconButton(
+                                 tooltip: '清空搜索',
+-                                onPressed: () {
+-                                  _searchController.clear();
+-                                  setState(() {});
+-                                  _runCurrentQuery();
+-                                },
++                                onPressed: _clearSearch,
+                                 icon: const Icon(Icons.close_rounded),
+                               )
+                             : null,
+@@ -640,18 +724,18 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
+                 runSpacing: 8,
+                 crossAxisAlignment: WrapCrossAlignment.center,
+                 children: [
+-                  Text(
+-                    _searchingCharacters
+-                        ? '角色搜索结果'
+-                        : _searchingPersons
+-                        ? '人物搜索结果'
+-                        : _searchingSubjects
+-                        ? '${_subjectType.label}搜索结果'
+-                        : _supportsSeason
+-                        ? '${_subjectType.label}季度榜'
+-                        : '${_subjectType.label}年度榜',
+-                    style: Theme.of(context).textTheme.headlineMedium,
+-                  ),
++                  Text(switch (_queryMode) {
++                    DiscoverQueryMode.characterPrompt ||
++                    DiscoverQueryMode.characterSearch => '角色搜索',
++                    DiscoverQueryMode.personPrompt ||
++                    DiscoverQueryMode.personSearch => '人物搜索',
++                    DiscoverQueryMode.subjectSearch =>
++                      '${_subjectType.label}搜索结果',
++                    DiscoverQueryMode.browse =>
++                      _supportsSeason
++                          ? '${_subjectType.label}季度榜'
++                          : '${_subjectType.label}年度榜',
++                  }, style: Theme.of(context).textTheme.headlineMedium),
+                   if (!_searching && _supportsSeason)
+                     Chip(
+                       label: Text(
+@@ -704,32 +788,28 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
+                     ),
+                   ),
+                 )
++              else if (_queryMode == DiscoverQueryMode.characterPrompt)
++                const _SearchPrompt(target: DiscoverSearchTarget.character)
++              else if (_queryMode == DiscoverQueryMode.personPrompt)
++                const _SearchPrompt(target: DiscoverSearchTarget.person)
+               else if (_searchingCharacters && _characters.isEmpty)
+                 _EmptyDiscoverState(
+                   searching: true,
+-                  subjectType: _subjectType,
++                  resultLabel: '角色',
+                   activeFilterCount: 0,
+                   keyword: _searchController.text.trim(),
+                   onClearFilters: () {},
+-                  onClearSearch: () {
+-                    _searchController.clear();
+-                    setState(() {});
+-                    _runCurrentQuery();
+-                  },
++                  onClearSearch: _clearSearch,
+                   onOpenFilters: () {},
+                 )
+               else if (_searchingPersons && _persons.isEmpty)
+                 _EmptyDiscoverState(
+                   searching: true,
+-                  subjectType: _subjectType,
++                  resultLabel: '人物',
+                   activeFilterCount: 0,
+                   keyword: _searchController.text.trim(),
+                   onClearFilters: () {},
+-                  onClearSearch: () {
+-                    _searchController.clear();
+-                    setState(() {});
+-                    _runCurrentQuery();
+-                  },
++                  onClearSearch: _clearSearch,
+                   onOpenFilters: () {},
+                 )
+               else if (!_searchingCharacters &&
+@@ -737,7 +817,7 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
+                   _subjects.isEmpty)
+                 _EmptyDiscoverState(
+                   searching: _searching,
+-                  subjectType: _subjectType,
++                  resultLabel: _subjectType.label,
+                   activeFilterCount: _activeFilterCount,
+                   keyword: _searchController.text.trim(),
+                   onClearFilters: () {
+@@ -748,12 +828,7 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
+                     }
+                     _runCurrentQuery();
+                   },
+-                  onClearSearch: () {
+-                    _searchController.clear();
+-                    _clearSearchFilters();
+-                    setState(() {});
+-                    _runCurrentQuery();
+-                  },
++                  onClearSearch: _clearSearch,
+                   onOpenFilters: _showFilters,
+                 )
+               else ...[
+@@ -819,11 +894,8 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
+                           ),
+                         ),
+                         onEpisodeGrid: collection != null && supportsEpisodes
+-                            ? () => showEpisodeGridSheet(
+-                                  context,
+-                                  ref,
+-                                  collection,
+-                                )
++                            ? () =>
++                                  showEpisodeGridSheet(context, ref, collection)
+                             : null,
+                       );
+                     },
+@@ -1114,7 +1186,7 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
+ class _EmptyDiscoverState extends StatelessWidget {
+   const _EmptyDiscoverState({
+     required this.searching,
+-    required this.subjectType,
++    required this.resultLabel,
+     required this.activeFilterCount,
+     required this.keyword,
+     required this.onClearFilters,
+@@ -1123,7 +1195,7 @@ class _EmptyDiscoverState extends StatelessWidget {
+   });
+ 
+   final bool searching;
+-  final SubjectType subjectType;
++  final String resultLabel;
+   final int activeFilterCount;
+   final String keyword;
+   final VoidCallback onClearFilters;
+@@ -1132,11 +1204,13 @@ class _EmptyDiscoverState extends StatelessWidget {
+ 
+   @override
+   Widget build(BuildContext context) {
+-    final title = searching ? '没有找到相关${subjectType.label}' : '这里暂时没有内容';
++    final title = searching ? '没有找到相关$resultLabel' : '这里暂时没有内容';
+     final message = searching
+         ? activeFilterCount > 0
+-              ? '关键词「$keyword」在当前筛选下没有结果。可清除筛选，或换更短关键词。'
+-              : '关键词「$keyword」没有匹配的${subjectType.label}。试试换类型，或缩短关键词。'
++              ? keyword.isEmpty
++                    ? '当前标签与筛选条件没有结果。可清除筛选后重试。'
++                    : '关键词「$keyword」在当前筛选下没有结果。可清除筛选，或换更短关键词。'
++              : '关键词「$keyword」没有匹配的$resultLabel。试试换类型，或缩短关键词。'
+         : '当前浏览条件下没有条目，试试换年份/季度，或直接搜索作品名。';
+ 
+     return SizedBox(
+@@ -1181,6 +1255,28 @@ class _EmptyDiscoverState extends StatelessWidget {
+   }
+ }
+ 
++class _SearchPrompt extends StatelessWidget {
++  const _SearchPrompt({required this.target});
++
++  final DiscoverSearchTarget target;
++
++  @override
++  Widget build(BuildContext context) {
++    final label = target == DiscoverSearchTarget.character ? '角色' : '人物';
++    final example = target == DiscoverSearchTarget.character ? '鲁路修' : '福山润';
++    return SizedBox(
++      width: double.infinity,
++      child: EmptyState(
++        icon: target == DiscoverSearchTarget.character
++            ? Icons.face_retouching_natural_rounded
++            : Icons.person_search_rounded,
++        title: '输入$label名开始搜索',
++        message: '例如：$example。这里不会混入条目季度榜。',
++      ),
++    );
++  }
++}
++
+ class _DiscoverMonoThumb extends StatelessWidget {
+   const _DiscoverMonoThumb({required this.url, this.round = false});
+ 
+diff --git a/lib/state/notify_controller.dart b/lib/state/notify_controller.dart
+index ff4f019..36e296d 100644
+--- a/lib/state/notify_controller.dart
++++ b/lib/state/notify_controller.dart
+@@ -3,8 +3,11 @@ import 'dart:async';
+ import 'package:flutter_riverpod/flutter_riverpod.dart';
+ 
+ import '../core/network/community_service.dart';
++import '../models/community_models.dart';
+ import 'session_controller.dart';
+ 
++typedef NoticeLoader = Future<CommunityPageResult<BangumiNotice>> Function();
++
+ class NotifyBadgeState {
+   const NotifyBadgeState({
+     this.unreadCount = 0,
+@@ -29,25 +32,36 @@ class NotifyBadgeState {
+ }
+ 
+ class NotifyBadgeController extends StateNotifier<NotifyBadgeState> {
+-  NotifyBadgeController(this._ref) : super(const NotifyBadgeState()) {
+-    _ref.listen<SessionPhase>(
+-      sessionProvider.select((s) => s.phase),
+-      (previous, next) {
+-        if (next == SessionPhase.signedIn) {
+-          unawaited(refresh());
+-          _startPolling();
+-        } else {
+-          _stopPolling();
+-          state = const NotifyBadgeState();
+-        }
+-      },
+-      fireImmediately: true,
+-    );
+-  }
+-
+-  final Ref _ref;
++  NotifyBadgeController({
++    NoticeLoader? noticeLoader,
++    bool Function()? isAuthenticated,
++  }) : _noticeLoader =
++           noticeLoader ??
++           (() => CommunityService.shared.loadNotices(
++             limit: 40,
++             unreadOnly: true,
++             refresh: true,
++           )),
++       _isAuthenticated =
++           isAuthenticated ?? (() => CommunityService.shared.isAuthenticated),
++       super(const NotifyBadgeState());
++
++  final NoticeLoader _noticeLoader;
++  final bool Function() _isAuthenticated;
+   Timer? _pollTimer;
+   Future<void>? _inFlight;
++  SessionPhase _phase = SessionPhase.booting;
++
++  void updateSession(SessionPhase phase) {
++    _phase = phase;
++    if (phase == SessionPhase.signedIn) {
++      unawaited(refresh());
++      _startPolling();
++    } else {
++      _stopPolling();
++      state = const NotifyBadgeState();
++    }
++  }
+ 
+   void _startPolling() {
+     _pollTimer?.cancel();
+@@ -66,26 +80,23 @@ class NotifyBadgeController extends StateNotifier<NotifyBadgeState> {
+     final existing = _inFlight;
+     if (!force && existing != null) return existing;
+     final future = _refresh();
+-    _inFlight = future.whenComplete(() {
+-      if (identical(_inFlight, future)) _inFlight = null;
++    late final Future<void> tracked;
++    tracked = future.whenComplete(() {
++      if (identical(_inFlight, tracked)) _inFlight = null;
+     });
+-    return _inFlight!;
++    _inFlight = tracked;
++    return tracked;
+   }
+ 
+   Future<void> _refresh() async {
+-    final phase = _ref.read(sessionProvider).phase;
+-    if (phase != SessionPhase.signedIn) {
++    if (_phase != SessionPhase.signedIn) {
+       state = const NotifyBadgeState();
+       return;
+     }
+-    if (!CommunityService.shared.isAuthenticated) return;
++    if (!_isAuthenticated()) return;
+     state = state.copyWith(isLoading: true, clearError: true);
+     try {
+-      final page = await CommunityService.shared.loadNotices(
+-        limit: 40,
+-        unreadOnly: true,
+-        refresh: true,
+-      );
++      final page = await _noticeLoader();
+       // API total is authoritative when present.
+       final count = page.total > 0 ? page.total : page.data.length;
+       state = NotifyBadgeState(unreadCount: count);
+@@ -123,5 +134,11 @@ class NotifyBadgeController extends StateNotifier<NotifyBadgeState> {
+ 
+ final notifyBadgeProvider =
+     StateNotifierProvider<NotifyBadgeController, NotifyBadgeState>((ref) {
+-      return NotifyBadgeController(ref);
++      final controller = NotifyBadgeController();
++      ref.listen<SessionPhase>(
++        sessionProvider.select((state) => state.phase),
++        (_, phase) => controller.updateSession(phase),
++        fireImmediately: true,
++      );
++      return controller;
+     });
+diff --git a/lib/state/session_controller.dart b/lib/state/session_controller.dart
+index 336361d..599d811 100644
+--- a/lib/state/session_controller.dart
++++ b/lib/state/session_controller.dart
+@@ -124,10 +124,18 @@ class SessionController extends StateNotifier<SessionState> {
+         await _persistTokens(tokens);
+         token = tokens.accessToken;
+       } catch (error) {
+-        await _forceSignOut(
+-          message: '登录已过期，请重新授权：${_messageFor(error)}',
+-        );
+-        return;
++        if (_invalidatesSession(error)) {
++          await _forceSignOut(message: '登录已过期，请重新授权：${_messageFor(error)}');
++          return;
++        }
++        if (token == null || token.trim().isEmpty) {
++          state = SessionState(
++            phase: SessionPhase.signedOut,
++            networkRoute: _networkRoute,
++            message: '暂时无法刷新登录状态：${_messageFor(error)}',
++          );
++          return;
++        }
+       }
+     }
+     if (token == null || token.trim().isEmpty) {
+@@ -200,7 +208,7 @@ class SessionController extends StateNotifier<SessionState> {
+       unawaited(_loadCollectionsAfterSignIn(user.username));
+       return true;
+     } catch (error) {
+-      if (!persist) {
++      if (!persist && _invalidatesSession(error)) {
+         await _forceSignOut(message: _messageFor(error));
+       } else {
+         _api.setAccessToken(null);
+@@ -374,9 +382,11 @@ class SessionController extends StateNotifier<SessionState> {
+       await _persistTokens(tokens);
+       return true;
+     } catch (error) {
+-      await _forceSignOut(
+-        message: '登录已过期，请重新授权：${_messageFor(error)}',
+-      );
++      if (_invalidatesSession(error)) {
++        await _forceSignOut(message: '登录已过期，请重新授权：${_messageFor(error)}');
++      } else if (state.phase == SessionPhase.signedIn) {
++        state = state.copyWith(message: '暂时无法刷新登录状态：${_messageFor(error)}');
++      }
+       return false;
+     }
+   }
+@@ -634,6 +644,12 @@ class SessionController extends StateNotifier<SessionState> {
+       : error is BangumiOAuthException
+       ? error.message
+       : '发生了意外错误，请稍后重试';
++
++  bool _invalidatesSession(Object error) =>
++      (error is BangumiOAuthException && error.invalidatesSession) ||
++      (error is BangumiApiException &&
++          error.statusCode == 401 &&
++          (_cachedRefreshToken == null || _cachedRefreshToken!.isEmpty));
+ }
+ 
+ final sessionProvider = StateNotifierProvider<SessionController, SessionState>((
+diff --git a/lib/widgets/turnstile_dialog.dart b/lib/widgets/turnstile_dialog.dart
+index e1759eb..d278c30 100644
+--- a/lib/widgets/turnstile_dialog.dart
++++ b/lib/widgets/turnstile_dialog.dart
+@@ -1,5 +1,4 @@
+ import 'dart:async';
+-import 'dart:convert';
+ import 'dart:io';
+ 
+ import 'package:flutter/material.dart';
+@@ -7,6 +6,25 @@ import 'package:webview_flutter/webview_flutter.dart' as mobile;
+ import 'package:webview_flutter_windows/webview_flutter_windows.dart'
+     as windows;
+ 
++const turnstileCallbackUri = 'bangumi://mubangumi/turnstile';
++
++final turnstileVerificationUri = Uri.https('next.bgm.tv', '/p1/turnstile', {
++  'theme': 'auto',
++  'redirect_uri': turnstileCallbackUri,
++});
++
++String? parseTurnstileCallbackToken(String url) {
++  final uri = Uri.tryParse(url);
++  if (uri == null ||
++      uri.scheme != 'bangumi' ||
++      uri.host != 'mubangumi' ||
++      uri.path != '/turnstile') {
++    return null;
++  }
++  final token = uri.queryParameters['token']?.trim() ?? '';
++  return token.isEmpty ? null : token;
++}
++
+ Future<String?> showTurnstileDialog(BuildContext context) => showDialog<String>(
+   context: context,
+   barrierDismissible: false,
+@@ -27,10 +45,10 @@ class _TurnstileDialogState extends State<_TurnstileDialog> {
+ 
+   @override
+   Widget build(BuildContext context) => AlertDialog(
+-    title: const Text('请完成验证'),
++    title: const Text('请完成人机验证'),
+     content: SizedBox(
+-      width: 360,
+-      height: Platform.isWindows ? 180 : 120,
++      width: 400,
++      height: Platform.isWindows ? 260 : 220,
+       child: Column(
+         children: [
+           Expanded(
+@@ -44,7 +62,8 @@ class _TurnstileDialogState extends State<_TurnstileDialog> {
+           ),
+           const SizedBox(height: 6),
+           Text(
+-            '若验证框空白，请点下方重试',
++            '验证完成后会自动继续发送；若页面空白，请重试',
++            textAlign: TextAlign.center,
+             style: Theme.of(context).textTheme.labelSmall?.copyWith(
+               color: Theme.of(context).colorScheme.onSurfaceVariant,
+             ),
+@@ -77,7 +96,6 @@ class _TurnstileViewState extends State<TurnstileView> {
+   final List<StreamSubscription<dynamic>> _subscriptions = [];
+ 
+   bool _ready = false;
+-  bool _injected = false;
+   bool _accepted = false;
+   String? _error;
+   Timer? _timeout;
+@@ -92,7 +110,7 @@ class _TurnstileViewState extends State<TurnstileView> {
+     } else {
+       _error = '当前平台暂不支持 Turnstile 验证';
+     }
+-    _timeout = Timer(const Duration(seconds: 45), () {
++    _timeout = Timer(const Duration(seconds: 60), () {
+       if (!mounted || _accepted) return;
+       _setError('验证加载超时，请点「重试验证」');
+     });
+@@ -104,111 +122,59 @@ class _TurnstileViewState extends State<TurnstileView> {
+     try {
+       await controller.initialize();
+       if (!mounted) return;
+-      _subscriptions.add(
+-        controller.webMessage.listen(
+-          _handleWindowsMessage,
+-          onError: (_) => _setError('验证结果读取失败'),
+-        ),
+-      );
+-      _subscriptions.add(
+-        controller.loadingState.listen((state) {
+-          if (state == windows.LoadingState.navigationCompleted) {
+-            unawaited(_injectWindows());
+-          }
++      _subscriptions.addAll([
++        controller.url.listen(_handleWindowsUrl),
++        controller.onLoadError.listen((error) {
++          if (_accepted) return;
++          _setError('验证页面加载失败（$error）');
+         }),
+-      );
++      ]);
+       _ready = true;
+       setState(() {});
+-      await controller.loadUrl('https://next.bgm.tv/turnstile');
++      await controller.loadUrl(turnstileVerificationUri.toString());
+     } catch (error) {
+       _setError('无法启动验证组件：$error');
+     }
+   }
+ 
++  void _handleWindowsUrl(String url) {
++    final token = parseTurnstileCallbackToken(url);
++    if (token == null) return;
++    final controller = _windowsController;
++    if (controller != null) unawaited(controller.stop());
++    _acceptToken(token);
++  }
++
+   void _initializeMobile() {
+     final controller = mobile.WebViewController()
+       ..setJavaScriptMode(mobile.JavaScriptMode.unrestricted)
+       ..setBackgroundColor(Colors.transparent)
+-      ..addJavaScriptChannel(
+-        'Turnstile',
+-        onMessageReceived: (message) =>
+-            _handleTurnstileMessage(message.message),
+-      )
+       ..setNavigationDelegate(
+         mobile.NavigationDelegate(
+-          onPageFinished: (_) => unawaited(_injectMobile()),
++          onNavigationRequest: (request) {
++            final token = parseTurnstileCallbackToken(request.url);
++            if (token == null) return mobile.NavigationDecision.navigate;
++            _acceptToken(token);
++            return mobile.NavigationDecision.prevent;
++          },
+           onWebResourceError: (error) {
+-            if (error.isForMainFrame == true) {
+-              _setError('验证页面加载失败：${error.description}');
+-            }
++            if (error.isForMainFrame != true || _accepted) return;
++            _setError('验证页面加载失败：${error.description}');
+           },
+         ),
+       );
+     _mobileController = controller;
+     _ready = true;
+-    unawaited(
+-      controller.loadRequest(Uri.parse('https://next.bgm.tv/turnstile')),
+-    );
+-  }
+-
+-  Future<void> _injectWindows() async {
+-    if (_injected) return;
+-    _injected = true;
+-    try {
+-      await _windowsController?.executeScript(_turnstileScript);
+-    } catch (error) {
+-      _injected = false;
+-      _setError('验证组件初始化失败：$error');
+-    }
+-  }
+-
+-  Future<void> _injectMobile() async {
+-    if (_injected) return;
+-    _injected = true;
+-    try {
+-      await _mobileController?.runJavaScript(_turnstileScript);
+-    } catch (error) {
+-      _injected = false;
+-      _setError('验证组件初始化失败：$error');
+-    }
+-  }
+-
+-  void _handleWindowsMessage(dynamic message) {
+-    _handleTurnstileMessage(message);
+-  }
+-
+-  void _handleTurnstileMessage(dynamic message) {
+-    dynamic decoded = message;
+-    if (message is String) {
+-      final text = message.trim();
+-      if (text.isEmpty) return;
+-      try {
+-        decoded = jsonDecode(text);
+-      } on FormatException {
+-        decoded = text;
+-      }
+-    }
+-    if (decoded is Map) {
+-      final type = decoded['type']?.toString() ?? '';
+-      if (type == 'turnstile-token') {
+-        _acceptToken(decoded['token']?.toString() ?? '');
+-      } else if (type == 'turnstile-error') {
+-        _setError(decoded['message']?.toString() ?? '验证失败，请重试');
+-      }
+-      return;
+-    }
+-    // Backward compatibility for a directly posted JSON string token.
+-    if (decoded is String) _acceptToken(decoded);
++    unawaited(controller.loadRequest(turnstileVerificationUri));
+   }
+ 
+   void _acceptToken(String token) {
+     if (!mounted || _accepted) return;
+     final value = token.trim();
+-    if (value.isEmpty || value == 'null' || value == '{}') return;
+-    // Turnstile response tokens are opaque, long strings (max 2048
+-    // characters). Ignore unrelated WebView messages instead of accidentally
+-    // submitting them as a captcha response.
+-    if (value.length < 100 || value.length > 2048) return;
++    if (value.isEmpty || value.length > 2048) {
++      _setError('验证结果无效，请点「重试验证」');
++      return;
++    }
+     _accepted = true;
+     _timeout?.cancel();
+     widget.onToken(value);
+@@ -242,70 +208,3 @@ class _TurnstileViewState extends State<TurnstileView> {
+     return mobile.WebViewWidget(controller: _mobileController!);
+   }
+ }
+-
+-const _turnstileScript = r'''
+-(() => {
+-  if (window.__mubangumiTurnstileInstalled) return;
+-  window.__mubangumiTurnstileInstalled = true;
+-
+-  document.documentElement.style.colorScheme = 'light dark';
+-  document.body.innerHTML = '<div id="mubangumi-turnstile"></div>';
+-  document.body.style.margin = '0';
+-  document.body.style.padding = '8px';
+-  document.body.style.overflow = 'hidden';
+-
+-  const post = (payload) => {
+-    const message = JSON.stringify(payload);
+-    try {
+-      if (window.chrome && window.chrome.webview) {
+-        window.chrome.webview.postMessage(message);
+-      }
+-    } catch (_) {}
+-    try {
+-      if (window.Turnstile && window.Turnstile.postMessage) {
+-        window.Turnstile.postMessage(message);
+-      }
+-    } catch (_) {}
+-  };
+-
+-  const deliver = (token) => {
+-    if (!token) return;
+-    post({type: 'turnstile-token', token: String(token)});
+-  };
+-
+-  const render = () => {
+-    try {
+-      window.turnstile.render('#mubangumi-turnstile', {
+-        sitekey: '0x4AAAAAAABkMYinukE8nzYS',
+-        theme: 'auto',
+-        callback: deliver,
+-        'error-callback': (code) => post({
+-          type: 'turnstile-error',
+-          message: `验证组件错误（${code || 'unknown'}），请重试`,
+-        }),
+-        'expired-callback': () => post({
+-          type: 'turnstile-error',
+-          message: '验证已过期，请重试',
+-        }),
+-      });
+-    } catch (error) {
+-      console && console.error && console.error(error);
+-    }
+-  };
+-
+-  if (window.turnstile) {
+-    render();
+-    return;
+-  }
+-  const script = document.createElement('script');
+-  script.src = 'https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit';
+-  script.async = true;
+-  script.defer = true;
+-  script.onload = render;
+-  script.onerror = () => post({
+-    type: 'turnstile-error',
+-    message: '验证脚本加载失败，请检查网络后重试',
+-  });
+-  document.head.appendChild(script);
+-})();
+-''';

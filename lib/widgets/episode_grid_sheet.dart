@@ -11,7 +11,7 @@ Future<void> showEpisodeGridSheet(
   WidgetRef ref,
   UserCollection collection,
 ) async {
-  await showModalBottomSheet<bool>(
+  final changed = await showModalBottomSheet<bool>(
     context: context,
     isScrollControlled: true,
     useSafeArea: true,
@@ -22,7 +22,9 @@ Future<void> showEpisodeGridSheet(
       child: _EpisodeGridPanel(collection: collection),
     ),
   );
-  if (context.mounted) {
+  // Skip the full collections sync unless the user actually toggled a cell;
+  // opening and closing the grid used to trigger a whole library refresh.
+  if (changed == true && context.mounted) {
     await ref.read(sessionProvider.notifier).refresh(showIndicator: false);
   }
 }
@@ -42,6 +44,9 @@ class _EpisodeGridPanelState extends ConsumerState<_EpisodeGridPanel> {
   bool _loading = true;
   String? _error;
   int? _typeFilter;
+
+  /// True once the user changed any episode status in this sheet session.
+  bool _changed = false;
 
   @override
   void initState() {
@@ -96,95 +101,111 @@ class _EpisodeGridPanelState extends ConsumerState<_EpisodeGridPanel> {
   Widget build(BuildContext context) {
     final visible = _visible;
     final watched = visible.where((item) => item.type == 2).length;
-    return Column(
-      children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(22, 4, 10, 14),
-          child: Row(
-            children: [
-              SubjectCover(
-                subject: widget.collection.subject,
-                width: 46,
-                height: 62,
-                borderRadius: 9,
-              ),
-              const SizedBox(width: 14),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      widget.collection.subject.displayName,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: Theme.of(context).textTheme.titleLarge,
-                    ),
-                    const SizedBox(height: 3),
-                    Text(
-                      _loading
-                          ? '正在读取章节状态…'
-                          : '看过 $watched / ${visible.length}',
-                      style: TextStyle(
-                        color: Theme.of(context).colorScheme.onSurfaceVariant,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              IconButton(
-                tooltip: '关闭',
-                onPressed: () => Navigator.pop(context),
-                icon: const Icon(Icons.close_rounded),
-              ),
-            ],
-          ),
-        ),
-        const Divider(height: 1),
-        if (_types.length > 1)
-          SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            padding: const EdgeInsets.fromLTRB(16, 10, 16, 0),
+    // Route drag-down / system back also carries the changed flag so an
+    // edited grid is never silently dropped.
+    return PopScope<bool>(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, result) {
+        if (didPop) return;
+        Navigator.of(context).pop(_changed);
+      },
+      child: Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(22, 4, 10, 14),
             child: Row(
               children: [
-                ChoiceChip(
-                  label: const Text('全部'),
-                  selected: _typeFilter == null,
-                  onSelected: (_) => setState(() => _typeFilter = null),
+                SubjectCover(
+                  subject: widget.collection.subject,
+                  width: 46,
+                  height: 62,
+                  borderRadius: 9,
                 ),
-                const SizedBox(width: 8),
-                for (final type in _types) ...[
-                  ChoiceChip(
-                    label: Text(BangumiSupport.episodeTypeLabel(type)),
-                    selected: _typeFilter == type,
-                    onSelected: (_) => setState(() => _typeFilter = type),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        widget.collection.subject.displayName,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context).textTheme.titleLarge,
+                      ),
+                      const SizedBox(height: 3),
+                      Text(
+                        _loading
+                            ? '正在读取章节状态…'
+                            : '看过 $watched / ${visible.length}',
+                        style: TextStyle(
+                          color: Theme.of(context).colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ],
                   ),
-                  const SizedBox(width: 8),
-                ],
+                ),
+                IconButton(
+                  tooltip: '关闭',
+                  onPressed: () => Navigator.pop(context, _changed),
+                  icon: const Icon(Icons.close_rounded),
+                ),
               ],
             ),
           ),
-        Padding(
-          padding: const EdgeInsets.fromLTRB(22, 14, 22, 10),
-          child: Row(
-            children: [
-              _Legend(
-                color: Theme.of(context).colorScheme.primary,
-                label: '看过',
+          const Divider(height: 1),
+          if (_types.length > 1)
+            SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              padding: const EdgeInsets.fromLTRB(16, 10, 16, 0),
+              child: Row(
+                children: [
+                  ChoiceChip(
+                    label: const Text('全部'),
+                    selected: _typeFilter == null,
+                    onSelected: (_) => setState(() => _typeFilter = null),
+                  ),
+                  const SizedBox(width: 8),
+                  for (final type in _types) ...[
+                    ChoiceChip(
+                      label: Text(BangumiSupport.episodeTypeLabel(type)),
+                      selected: _typeFilter == type,
+                      onSelected: (_) => setState(() => _typeFilter = type),
+                    ),
+                    const SizedBox(width: 8),
+                  ],
+                ],
               ),
-              const SizedBox(width: 16),
-              _Legend(
-                color: Theme.of(context).colorScheme.secondaryContainer,
-                label: '想看',
-              ),
-              const SizedBox(width: 16),
-              _Legend(color: Colors.transparent, label: '未标记', outlined: true),
-              const Spacer(),
-              Text('点击切换 · 长按更多', style: Theme.of(context).textTheme.bodySmall),
-            ],
+            ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(22, 14, 22, 10),
+            child: Row(
+              children: [
+                _Legend(
+                  color: Theme.of(context).colorScheme.primary,
+                  label: '看过',
+                ),
+                const SizedBox(width: 16),
+                _Legend(
+                  color: Theme.of(context).colorScheme.secondaryContainer,
+                  label: '想看',
+                ),
+                const SizedBox(width: 16),
+                _Legend(
+                  color: Colors.transparent,
+                  label: '未标记',
+                  outlined: true,
+                ),
+                const Spacer(),
+                Text(
+                  '点击切换 · 长按更多',
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+              ],
+            ),
           ),
-        ),
-        Expanded(child: _buildContent(context)),
-      ],
+          Expanded(child: _buildContent(context)),
+        ],
+      ),
     );
   }
 
@@ -297,7 +318,11 @@ class _EpisodeGridPanelState extends ConsumerState<_EpisodeGridPanel> {
     if (!mounted) return;
     setState(() {
       _updating.remove(item.episode.id);
-      if (error != null) _episodes[index] = item;
+      if (error != null) {
+        _episodes[index] = item;
+      } else {
+        _changed = true;
+      }
     });
     if (error != null) showAppMessage(context, error);
   }

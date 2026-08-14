@@ -57,6 +57,10 @@ class _SubjectDetailScreenState extends ConsumerState<SubjectDetailScreen> {
   bool _loadingMoreComments = false;
   bool _loadingTopics = false;
   bool _loadingHistory = false;
+  String? _metaError;
+  String? _topicsError;
+  String? _commentsError;
+  String? _friendsError;
   bool _loadingMoegirl = false;
   bool _moegirlAttempted = false;
   NetabaSubjectHistory? _scoreHistory;
@@ -134,7 +138,7 @@ class _SubjectDetailScreenState extends ConsumerState<SubjectDetailScreen> {
       if (!mounted) return;
       setState(() {
         _loading = false;
-        _error = error.toString();
+        _error = error.toString().replaceFirst('Exception: ', '');
       });
     }
   }
@@ -175,13 +179,26 @@ class _SubjectDetailScreenState extends ConsumerState<SubjectDetailScreen> {
   }
 
   Future<void> _loadMeta(int subjectId) async {
-    setState(() => _loadingMeta = true);
+    setState(() {
+      _loadingMeta = true;
+      _metaError = null;
+    });
+    var failed = false;
+    Future<Object?> guarded<T>(Future<T> future, List<T> fallback) =>
+        future.then<Object?>((value) => value).catchError((Object _) {
+          failed = true;
+          return fallback;
+        });
     try {
       final api = ref.read(bangumiApiProvider);
-      final results = await Future.wait([
-        api.getSubjectCharacters(subjectId),
-        api.getSubjectPersons(subjectId),
-        api.getRelatedSubjects(subjectId),
+      // Independent sections: one failing request must not discard the others.
+      final results = await Future.wait<Object?>([
+        guarded(
+          api.getSubjectCharacters(subjectId),
+          const <SubjectCharacter>[],
+        ),
+        guarded(api.getSubjectPersons(subjectId), const <SubjectPerson>[]),
+        guarded(api.getRelatedSubjects(subjectId), const <RelatedSubject>[]),
       ]);
       if (!mounted) return;
       setState(() {
@@ -189,15 +206,22 @@ class _SubjectDetailScreenState extends ConsumerState<SubjectDetailScreen> {
         _persons = results[1] as List<SubjectPerson>;
         _related = results[2] as List<RelatedSubject>;
         _loadingMeta = false;
+        if (failed) _metaError = '部分关联信息加载失败';
       });
     } catch (_) {
       if (!mounted) return;
-      setState(() => _loadingMeta = false);
+      setState(() {
+        _loadingMeta = false;
+        _metaError = '角色 / 制作人员 / 关联条目加载失败';
+      });
     }
   }
 
   Future<void> _loadTopics(int subjectId) async {
-    setState(() => _loadingTopics = true);
+    setState(() {
+      _loadingTopics = true;
+      _topicsError = null;
+    });
     try {
       final topics = await CommunityService.shared.loadTopicsForSubject(
         subjectId,
@@ -209,7 +233,10 @@ class _SubjectDetailScreenState extends ConsumerState<SubjectDetailScreen> {
       });
     } catch (_) {
       if (!mounted) return;
-      setState(() => _loadingTopics = false);
+      setState(() {
+        _loadingTopics = false;
+        _topicsError = '讨论加载失败';
+      });
     }
   }
 
@@ -222,6 +249,7 @@ class _SubjectDetailScreenState extends ConsumerState<SubjectDetailScreen> {
         _loadingComments = true;
         _commentsPage = 1;
         _commentsHasMore = true;
+        _commentsError = null;
       });
     }
     final page = append ? _commentsPage + 1 : 1;
@@ -244,6 +272,7 @@ class _SubjectDetailScreenState extends ConsumerState<SubjectDetailScreen> {
           _comments = comments;
           _commentsPage = 1;
           _loadingComments = false;
+          _commentsError = null;
         }
         // HTML pages are typically ~20 items; short page => end.
         _commentsHasMore = comments.length >= 10;
@@ -253,6 +282,7 @@ class _SubjectDetailScreenState extends ConsumerState<SubjectDetailScreen> {
       setState(() {
         _loadingComments = false;
         _loadingMoreComments = false;
+        if (!append) _commentsError = '吐槽加载失败';
       });
     }
   }
@@ -263,6 +293,7 @@ class _SubjectDetailScreenState extends ConsumerState<SubjectDetailScreen> {
     setState(() {
       _friendsExpanded = true;
       _loadingFriends = true;
+      _friendsError = null;
     });
     try {
       final friends = await CommunityService.shared.loadFriends(
@@ -282,12 +313,14 @@ class _SubjectDetailScreenState extends ConsumerState<SubjectDetailScreen> {
         _friendStatuses = statuses;
         _loadingFriends = false;
         _friendsLoaded = true;
+        _friendsError = null;
       });
     } catch (_) {
       if (!mounted) return;
       setState(() {
         _loadingFriends = false;
         _friendsLoaded = true;
+        _friendsError = '好友收藏加载失败';
       });
     }
   }
@@ -418,6 +451,7 @@ class _SubjectDetailScreenState extends ConsumerState<SubjectDetailScreen> {
                         loaded: _friendsLoaded,
                         statuses: _friendStatuses,
                         subjectType: subject.type,
+                        error: _friendsError,
                         onExpand: () => _loadFriendStatuses(subject.id),
                       ),
                       if (subject.summary.isNotEmpty) ...[
@@ -525,6 +559,8 @@ class _SubjectDetailScreenState extends ConsumerState<SubjectDetailScreen> {
                         title: '角色',
                         loading: _loadingMeta,
                         empty: _characters.isEmpty,
+                        error: _metaError,
+                        onRetry: () => _loadMeta(subject.id),
                         trailing: _MetaCount('${_characters.length} 个角色'),
                         child: _CharacterRail(
                           characters: _characters,
@@ -544,6 +580,8 @@ class _SubjectDetailScreenState extends ConsumerState<SubjectDetailScreen> {
                         title: '制作人员',
                         loading: _loadingMeta,
                         empty: _persons.isEmpty,
+                        error: _metaError,
+                        onRetry: () => _loadMeta(subject.id),
                         trailing: _MetaCount('${_persons.length} 条职员记录'),
                         child: _StaffRoleGroups(
                           people: _persons,
@@ -563,6 +601,8 @@ class _SubjectDetailScreenState extends ConsumerState<SubjectDetailScreen> {
                         title: '关联条目',
                         loading: _loadingMeta,
                         empty: _related.isEmpty,
+                        error: _metaError,
+                        onRetry: () => _loadMeta(subject.id),
                         trailing: _MetaCount('${_related.length} 个条目'),
                         child: _RelatedSubjectRail(
                           subjects: _related,
@@ -580,6 +620,8 @@ class _SubjectDetailScreenState extends ConsumerState<SubjectDetailScreen> {
                         title: '讨论',
                         loading: _loadingTopics,
                         empty: _topics.isEmpty,
+                        error: _topicsError,
+                        onRetry: () => _loadTopics(subject.id),
                         trailing: TextButton(
                           style: TextButton.styleFrom(
                             visualDensity: VisualDensity.compact,
@@ -628,6 +670,8 @@ class _SubjectDetailScreenState extends ConsumerState<SubjectDetailScreen> {
                         title: '吐槽',
                         loading: _loadingComments,
                         empty: _comments.isEmpty,
+                        error: _commentsError,
+                        onRetry: () => _loadComments(subject.id),
                         trailing: TextButton(
                           style: TextButton.styleFrom(
                             visualDensity: VisualDensity.compact,
@@ -1452,6 +1496,7 @@ class _FriendsWatchingPanel extends StatelessWidget {
     required this.statuses,
     required this.subjectType,
     required this.onExpand,
+    this.error,
   });
 
   final bool loading;
@@ -1460,6 +1505,7 @@ class _FriendsWatchingPanel extends StatelessWidget {
   final List<FriendSubjectStatus> statuses;
   final SubjectType subjectType;
   final VoidCallback onExpand;
+  final String? error;
 
   @override
   Widget build(BuildContext context) {
@@ -1498,9 +1544,15 @@ class _FriendsWatchingPanel extends StatelessWidget {
                   )
                 else
                   Text(
-                    statuses.isEmpty ? '暂无好友收藏' : '${statuses.length} 位好友',
+                    statuses.isEmpty && error != null
+                        ? error!
+                        : (statuses.isEmpty
+                              ? '暂无好友收藏'
+                              : '${statuses.length} 位好友'),
                     style: TextStyle(
-                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      color: statuses.isEmpty && error != null
+                          ? Theme.of(context).colorScheme.error
+                          : Theme.of(context).colorScheme.onSurfaceVariant,
                     ),
                   ),
               ],
@@ -1523,8 +1575,10 @@ class _FriendsWatchingPanel extends StatelessWidget {
                               ),
                         child: status.user.avatarUrl.isEmpty
                             ? Text(
-                                status.user.displayName.characters.first
-                                    .toUpperCase(),
+                                status.user.displayName.isEmpty
+                                    ? '?'
+                                    : status.user.displayName.characters.first
+                                          .toUpperCase(),
                               )
                             : null,
                       ),
@@ -1734,6 +1788,9 @@ class _ExpandableTextState extends State<_ExpandableText> {
           textDirection: TextDirection.ltr,
         )..layout(maxWidth: constraints.maxWidth);
         final overflow = painter.didExceedMaxLines;
+        // Measurement-only painter: release native text layout resources
+        // immediately instead of leaking one per rebuild.
+        painter.dispose();
 
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -2269,6 +2326,8 @@ class _MetaSection extends StatelessWidget {
     required this.empty,
     required this.child,
     this.trailing,
+    this.error,
+    this.onRetry,
   });
 
   final String title;
@@ -2276,6 +2335,8 @@ class _MetaSection extends StatelessWidget {
   final bool empty;
   final Widget child;
   final Widget? trailing;
+  final String? error;
+  final VoidCallback? onRetry;
 
   @override
   Widget build(BuildContext context) {
@@ -2309,12 +2370,31 @@ class _MetaSection extends StatelessWidget {
               ),
             )
           else if (empty)
-            Text(
-              '暂无数据',
-              style: TextStyle(
-                color: Theme.of(context).colorScheme.onSurfaceVariant,
-              ),
-            )
+            error != null
+                ? Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          error!,
+                          style: TextStyle(
+                            color: Theme.of(context).colorScheme.error,
+                          ),
+                        ),
+                      ),
+                      if (onRetry != null)
+                        TextButton.icon(
+                          onPressed: onRetry,
+                          icon: const Icon(Icons.refresh_rounded, size: 16),
+                          label: const Text('重试'),
+                        ),
+                    ],
+                  )
+                : Text(
+                    '暂无数据',
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    ),
+                  )
           else
             child,
         ],

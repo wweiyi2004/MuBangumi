@@ -241,7 +241,11 @@ class _RssBindSheetState extends ConsumerState<_RssBindSheet> {
         .where((b) => b.subjectId == widget.item.subjectId)
         .toList();
     final sources = state.sources;
-    _sourceId ??= sources.isEmpty ? null : sources.first.id;
+    // The FormField owns the displayed selection (initialValue); _sourceId
+    // only tracks explicit user changes. Default to the first source so the
+    // save action works without touching the dropdown.
+    final effectiveSourceId =
+        _sourceId ?? (sources.isEmpty ? null : sources.first.id);
 
     return Padding(
       padding: EdgeInsets.only(
@@ -255,10 +259,7 @@ class _RssBindSheetState extends ConsumerState<_RssBindSheet> {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           mainAxisSize: MainAxisSize.min,
           children: [
-            Text(
-              '绑定更新源',
-              style: Theme.of(context).textTheme.titleLarge,
-            ),
+            Text('绑定更新源', style: Theme.of(context).textTheme.titleLarge),
             const SizedBox(height: 4),
             Text(
               widget.item.displayName,
@@ -280,8 +281,7 @@ class _RssBindSheetState extends ConsumerState<_RssBindSheet> {
               )
             else ...[
               DropdownButtonFormField<int>(
-                // ignore: deprecated_member_use
-                value: _sourceId,
+                initialValue: effectiveSourceId,
                 decoration: const InputDecoration(labelText: '更新源'),
                 items: [
                   for (final source in sources)
@@ -310,13 +310,13 @@ class _RssBindSheetState extends ConsumerState<_RssBindSheet> {
               ),
               const SizedBox(height: 16),
               FilledButton(
-                onPressed: _sourceId == null
+                onPressed: effectiveSourceId == null
                     ? null
                     : () async {
                         await ref
                             .read(rssProvider.notifier)
                             .bindSubject(
-                              sourceId: _sourceId!,
+                              sourceId: effectiveSourceId,
                               item: widget.item,
                               season: widget.season,
                               matchKeywords: _keywords.text,
@@ -447,9 +447,7 @@ class _RssUpdatesSheetState extends ConsumerState<_RssUpdatesSheet> {
                         ),
                         tileColor: item.read
                             ? null
-                            : Theme.of(context)
-                                  .colorScheme
-                                  .primaryContainer
+                            : Theme.of(context).colorScheme.primaryContainer
                                   .withValues(alpha: .35),
                         leading: Icon(
                           item.read

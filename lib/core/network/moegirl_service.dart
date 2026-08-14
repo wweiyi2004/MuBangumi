@@ -4,6 +4,7 @@ import 'package:html/parser.dart' as html_parser;
 
 import '../../models/bangumi_models.dart';
 import '../storage/community_cache.dart';
+import 'bangumi_user_agent.dart';
 
 class MoegirlEntry {
   const MoegirlEntry({
@@ -94,7 +95,7 @@ class MoegirlService {
               headers: const {
                 'Accept': 'application/json',
                 'User-Agent':
-                    'MuBangumi/1.3.0 (https://github.com/wweiyi2004/MuBangumi)',
+                    'MuBangumi/$muBangumiUaVersion (https://github.com/wweiyi2004/MuBangumi)',
               },
             ),
           ),

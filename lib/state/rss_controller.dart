@@ -57,24 +57,35 @@ class RssController extends StateNotifier<RssState> {
   final RssStore _store;
   final RssFetcher _fetcher;
 
-  Future<void> reload() async {
-    final sources = await _store.listSources();
-    final bindings = await _store.listBindings();
-    final unread = await _store.unreadCountsBySubject();
-    final total = await _store.totalUnread();
-    state = state.copyWith(
-      sources: sources,
-      bindings: bindings,
-      unreadBySubject: unread,
-      totalUnread: total,
-      loaded: true,
-      clearMessage: true,
-    );
+  Future<bool> reload() async {
+    try {
+      final sources = await _store.listSources();
+      final bindings = await _store.listBindings();
+      final unread = await _store.unreadCountsBySubject();
+      final total = await _store.totalUnread();
+      state = state.copyWith(
+        sources: sources,
+        bindings: bindings,
+        unreadBySubject: unread,
+        totalUnread: total,
+        loaded: true,
+        clearMessage: true,
+      );
+      return true;
+    } catch (error) {
+      state = state.copyWith(
+        loaded: false,
+        message: '读取更新源失败：${_errorText(error)}',
+      );
+      return false;
+    }
   }
 
   Future<void> addSource({required String name, required String url}) async {
     final trimmedUrl = url.trim();
-    final trimmedName = name.trim().isEmpty ? _guessName(trimmedUrl) : name.trim();
+    final trimmedName = name.trim().isEmpty
+        ? _guessName(trimmedUrl)
+        : name.trim();
     if (trimmedUrl.isEmpty) {
       state = state.copyWith(message: '请填写 RSS 链接');
       return;
@@ -90,8 +101,9 @@ class RssController extends StateNotifier<RssState> {
       await _store.upsertSource(
         RssSource(id: 0, name: trimmedName, url: trimmedUrl),
       );
-      await reload();
-      state = state.copyWith(message: '已添加更新源：$trimmedName');
+      if (await reload()) {
+        state = state.copyWith(message: '已添加更新源：$trimmedName');
+      }
     } catch (error) {
       state = state.copyWith(
         message: '添加失败：${error.toString().replaceFirst('Exception: ', '')}',
@@ -100,9 +112,14 @@ class RssController extends StateNotifier<RssState> {
   }
 
   Future<void> deleteSource(int sourceId) async {
-    await _store.deleteSource(sourceId);
-    await reload();
-    state = state.copyWith(message: '已删除更新源');
+    try {
+      await _store.deleteSource(sourceId);
+      if (await reload()) {
+        state = state.copyWith(message: '已删除更新源');
+      }
+    } catch (error) {
+      state = state.copyWith(message: '删除失败：${_errorText(error)}');
+    }
   }
 
   Future<void> bindSubject({
@@ -121,20 +138,21 @@ class RssController extends StateNotifier<RssState> {
       matchKeywords: matchKeywords?.trim().isNotEmpty == true
           ? matchKeywords!.trim()
           : _defaultKeywords(item),
-      excludeKeywords: excludeKeywords ??
-          '合集,NC-OP,NC-ED,NCOP,NCED,SP,特典',
+      excludeKeywords: excludeKeywords ?? '合集,NC-OP,NC-ED,NCOP,NCED,SP,特典',
     );
     try {
-      await _store.upsertBinding(binding);
-      await reload();
-      state = state.copyWith(message: '已绑定更新源 → ${item.displayName}');
-    } catch (error) {
-      // UNIQUE conflict: update existing
+      // Decide insert vs update up-front instead of guessing from a caught
+      // error, so genuine storage failures are surfaced, not masked.
       final existing = (await _store.listBindings(
         subjectId: item.subjectId,
         sourceId: sourceId,
       )).firstOrNull;
-      if (existing != null) {
+      if (existing == null) {
+        await _store.upsertBinding(binding);
+        if (await reload()) {
+          state = state.copyWith(message: '已绑定更新源 → ${item.displayName}');
+        }
+      } else {
         await _store.upsertBinding(
           existing.copyWith(
             subjectName: item.displayName,
@@ -144,26 +162,35 @@ class RssController extends StateNotifier<RssState> {
             enabled: true,
           ),
         );
-        await reload();
-        state = state.copyWith(message: '已更新绑定：${item.displayName}');
-        return;
+        if (await reload()) {
+          state = state.copyWith(message: '已更新绑定：${item.displayName}');
+        }
       }
-      state = state.copyWith(
-        message: '绑定失败：${error.toString().replaceFirst('Exception: ', '')}',
-      );
+    } catch (error) {
+      state = state.copyWith(message: '绑定失败：${_errorText(error)}');
     }
   }
 
   Future<void> unbind(int bindingId) async {
-    await _store.deleteBinding(bindingId);
-    await reload();
-    state = state.copyWith(message: '已解除绑定');
+    try {
+      await _store.deleteBinding(bindingId);
+      if (await reload()) {
+        state = state.copyWith(message: '已解除绑定');
+      }
+    } catch (error) {
+      state = state.copyWith(message: '解除失败：${_errorText(error)}');
+    }
   }
 
   Future<void> unbindSubject(int subjectId) async {
-    await _store.deleteBindingsForSubject(subjectId);
-    await reload();
-    state = state.copyWith(message: '已解除该番的更新源');
+    try {
+      await _store.deleteBindingsForSubject(subjectId);
+      if (await reload()) {
+        state = state.copyWith(message: '已解除该番的更新源');
+      }
+    } catch (error) {
+      state = state.copyWith(message: '解除失败：${_errorText(error)}');
+    }
   }
 
   /// Refresh all enabled sources. Only keeps items matching schedule bindings.
@@ -190,7 +217,10 @@ class RssController extends StateNotifier<RssState> {
           errors++;
         }
       }
-      await reload();
+      if (!await reload()) {
+        state = state.copyWith(refreshing: false);
+        return;
+      }
       final msg = errors == 0
           ? (newCount > 0 ? '检查完成，新增 $newCount 条可看提醒' : '检查完成，暂无新更新')
           : '检查完成：+$newCount 条，另有 $errors 个源失败';
@@ -272,30 +302,45 @@ class RssController extends StateNotifier<RssState> {
     }
   }
 
-  Future<List<RssItem>> itemsForSubject(int subjectId, {bool unreadOnly = false}) =>
+  Future<List<RssItem>> itemsForSubject(
+    int subjectId, {
+    bool unreadOnly = false,
+  }) =>
       _store.listItems(subjectId: subjectId, unreadOnly: unreadOnly, limit: 50);
 
   Future<List<RssItem>> recentItems({int limit = 40}) =>
       _store.listItems(limit: limit);
 
   Future<void> markItemRead(int itemId) async {
-    await _store.markRead(itemId);
-    await reload();
+    try {
+      await _store.markRead(itemId);
+      await reload();
+    } catch (error) {
+      state = state.copyWith(message: '标记已读失败：${_errorText(error)}');
+    }
   }
 
   Future<void> markSubjectRead(int subjectId) async {
-    await _store.markSubjectRead(subjectId);
-    await reload();
+    try {
+      await _store.markSubjectRead(subjectId);
+      await reload();
+    } catch (error) {
+      state = state.copyWith(message: '标记已读失败：${_errorText(error)}');
+    }
   }
 
   void clearMessage() => state = state.copyWith(clearMessage: true);
+
+  String _errorText(Object error) => error
+      .toString()
+      .replaceFirst('Exception: ', '')
+      .replaceFirst('FormatException: ', '');
 
   String _defaultKeywords(ScheduleItem item) {
     // Prefer shorter Chinese name as single token; also keep original name if different.
     final parts = <String>[];
     if (item.nameCn.trim().isNotEmpty) parts.add(item.nameCn.trim());
-    if (item.name.trim().isNotEmpty &&
-        item.name.trim() != item.nameCn.trim()) {
+    if (item.name.trim().isNotEmpty && item.name.trim() != item.nameCn.trim()) {
       parts.add(item.name.trim());
     }
     // Use first token only for match (OR would need different semantics).

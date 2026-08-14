@@ -71,7 +71,10 @@ class ProfilePage extends ConsumerWidget {
                             ),
                       child: user.avatarUrl.isEmpty
                           ? Text(
-                              user.nickname.characters.first.toUpperCase(),
+                              user.nickname.isEmpty
+                                  ? '?'
+                                  : user.nickname.characters.first
+                                        .toUpperCase(),
                               style: Theme.of(context).textTheme.headlineMedium,
                             )
                           : null,

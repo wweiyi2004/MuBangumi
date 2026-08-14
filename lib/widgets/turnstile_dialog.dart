@@ -19,20 +19,40 @@ final turnstileVerificationUri = Uri.https('next.bgm.tv', '/p1/turnstile', {
   'redirect_uri': turnstileCallbackUri,
 });
 
+/// The official page renders explicitly without a <form>, so Cloudflare
+/// usually creates no hidden input; `turnstile.getResponse()` is the
+/// dependable source. Kept as the Dart-driven fallback for when the injected
+/// bridge itself failed to run.
 const _readHiddenTokenScript = r'''
 (function() {
   var nodes = document.getElementsByName('cf-turnstile-response');
   for (var i = 0; i < nodes.length; i++) {
     if (nodes[i].value) return nodes[i].value;
   }
+  try {
+    if (window.turnstile && typeof window.turnstile.getResponse === 'function') {
+      var t = window.turnstile.getResponse();
+      if (t) return t;
+    }
+  } catch (e) {}
   return '';
 })();
 ''';
 
+/// The official `/p1/turnstile` page reports success with
+/// `window.location.href = redirect?token=…`. `location.href` assignment can
+/// not be hooked, and the custom-scheme navigation is then reported by the
+/// WebViews at best as a load error, so the token must be captured *in-page*
+/// before that navigation happens:
+///  1. wrap `turnstile.render` and re-post the success callback token;
+///  2. poll `turnstile.getResponse()` / the hidden input until one yields a
+///     token — this also covers implicit rendering and slow api.js loads
+///     (Cloudflare can take far longer than a fixed few-second retry window).
 const _turnstileBridgeScript = r'''
 (function () {
   if (window.__mubangumiTurnstileBridge) return;
   window.__mubangumiTurnstileBridge = true;
+  var delivered = false;
   function post(payload) {
     var raw = JSON.stringify(payload);
     try {
@@ -45,6 +65,11 @@ const _turnstileBridgeScript = r'''
         window.MuBangumiTurnstile.postMessage(raw);
       }
     } catch (e) {}
+  }
+  function deliverToken(token) {
+    if (delivered || !token) return;
+    delivered = true;
+    post({ token: String(token) });
   }
   function consider(url) {
     if (url) post({ url: String(url) });
@@ -73,7 +98,7 @@ const _turnstileBridgeScript = r'''
       opts = opts || {};
       var userCb = opts.callback;
       opts.callback = function (token) {
-        post({ token: token });
+        deliverToken(token);
         if (typeof userCb === 'function') userCb(token);
       };
       return orig(el, opts);
@@ -81,12 +106,28 @@ const _turnstileBridgeScript = r'''
     window.turnstile.__mubangumiWrapped = true;
     return true;
   }
-  if (!wrapRender()) {
-    var tries = 0;
-    var timer = setInterval(function () {
-      if (wrapRender() || ++tries > 80) clearInterval(timer);
-    }, 50);
+  function pollToken() {
+    try {
+      var nodes = document.getElementsByName('cf-turnstile-response');
+      for (var i = 0; i < nodes.length; i++) {
+        if (nodes[i].value) return nodes[i].value;
+      }
+    } catch (e) {}
+    try {
+      if (window.turnstile && typeof window.turnstile.getResponse === 'function') {
+        return window.turnstile.getResponse() || '';
+      }
+    } catch (e) {}
+    return '';
   }
+  var timer = setInterval(function () {
+    if (delivered) {
+      clearInterval(timer);
+      return;
+    }
+    wrapRender();
+    deliverToken(pollToken());
+  }, 250);
 })();
 ''';
 
@@ -202,9 +243,13 @@ class _TurnstileDialogState extends State<_TurnstileDialog> {
 }
 
 class TurnstileView extends StatefulWidget {
-  const TurnstileView({super.key, required this.onToken});
+  const TurnstileView({super.key, required this.onToken, this.uri});
 
   final ValueChanged<String> onToken;
+
+  /// Overrides the verification page; defaults to the official
+  /// [turnstileVerificationUri]. Only used by diagnostics tooling.
+  final Uri? uri;
 
   @override
   State<TurnstileView> createState() => _TurnstileViewState();
@@ -219,6 +264,7 @@ class _TurnstileViewState extends State<TurnstileView> {
   bool _accepted = false;
   String? _error;
   Timer? _timeout;
+  Timer? _poller;
 
   @override
   void initState() {
@@ -258,13 +304,21 @@ class _TurnstileViewState extends State<TurnstileView> {
         controller.onLoadError.listen((error) {
           if (_accepted) return;
           // Official page then navigates to bangumi://… WebView2 reports that
-          // as a load error and never emits the URL. Read the hidden input.
+          // as a load error and never emits the URL. Read the token in-page.
           unawaited(_readHiddenToken());
         }),
       ]);
+      // Belt-and-braces next to the injected bridge: if the page script was
+      // blocked or the bridge never ran, keep asking the page for the token
+      // until the challenge succeeds or the dialog is dismissed.
+      _poller = Timer.periodic(const Duration(milliseconds: 500), (_) {
+        unawaited(_readHiddenToken());
+      });
       _ready = true;
       setState(() {});
-      await controller.loadUrl(turnstileVerificationUri.toString());
+      await controller.loadUrl(
+        (widget.uri ?? turnstileVerificationUri).toString(),
+      );
     } catch (error) {
       _setError('无法启动验证组件：$error');
     }
@@ -336,7 +390,7 @@ class _TurnstileViewState extends State<TurnstileView> {
   Future<void> _prepareMobile(mobile.WebViewController controller) async {
     await _enableAndroidThirdPartyCookies(controller);
     if (!mounted || _accepted) return;
-    await controller.loadRequest(turnstileVerificationUri);
+    await controller.loadRequest(widget.uri ?? turnstileVerificationUri);
   }
 
   Future<void> _readHiddenToken() async {
@@ -402,6 +456,7 @@ class _TurnstileViewState extends State<TurnstileView> {
     }
     _accepted = true;
     _timeout?.cancel();
+    _poller?.cancel();
     widget.onToken(value);
   }
 
@@ -413,6 +468,7 @@ class _TurnstileViewState extends State<TurnstileView> {
   @override
   void dispose() {
     _timeout?.cancel();
+    _poller?.cancel();
     for (final subscription in _subscriptions) {
       unawaited(subscription.cancel());
     }

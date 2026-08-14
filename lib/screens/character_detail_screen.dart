@@ -45,33 +45,49 @@ class _CharacterDetailScreenState extends ConsumerState<CharacterDetailScreen> {
       _loading = true;
       _error = null;
     });
-    try {
-      final api = ref.read(bangumiApiProvider);
-      final results = await Future.wait([
-        api.getCharacter(widget.characterId),
-        api.getCharacterSubjects(widget.characterId),
-        api.getCharacterPersons(widget.characterId),
-      ]);
-      if (!mounted) return;
-      setState(() {
-        _detail = results[0] as CharacterDetail;
-        _subjects = results[1] as List<MonoLinkedSubject>;
-        _persons = results[2] as List<MonoLinkedPerson>;
-        _loading = false;
-      });
-    } catch (error) {
-      if (!mounted) return;
-      setState(() {
-        _loading = false;
-        _error = error.toString().replaceFirst('Exception: ', '');
-      });
-    }
+    final api = ref.read(bangumiApiProvider);
+    Object? detailError;
+    // Independent sections: one failing request must not discard the others.
+    final results = await Future.wait<Object?>([
+      api
+          .getCharacter(widget.characterId)
+          .then<Object?>((value) => value)
+          .catchError((Object error) {
+            detailError = error;
+            return null;
+          }),
+      api
+          .getCharacterSubjects(widget.characterId)
+          .then<Object?>((v) => v)
+          .catchError((Object _) => const <MonoLinkedSubject>[]),
+      api
+          .getCharacterPersons(widget.characterId)
+          .then<Object?>((v) => v)
+          .catchError((Object _) => const <MonoLinkedPerson>[]),
+    ]);
+    if (!mounted) return;
+    final detail = results[0] as CharacterDetail?;
+    setState(() {
+      if (detail != null) _detail = detail;
+      _subjects = results[1] as List<MonoLinkedSubject>;
+      _persons = results[2] as List<MonoLinkedPerson>;
+      _loading = false;
+      if (detail == null) {
+        _error =
+            detailError?.toString().replaceFirst(
+              RegExp(r'^.*Exception:\s*'),
+              '',
+            ) ??
+            '角色信息加载失败';
+      }
+    });
   }
 
   @override
   Widget build(BuildContext context) {
     final detail = _detail;
-    final title = detail?.displayName ??
+    final title =
+        detail?.displayName ??
         (widget.seedName.isEmpty ? '角色' : widget.seedName);
     return Scaffold(
       appBar: AppBar(
@@ -122,7 +138,8 @@ class _CharacterDetailScreenState extends ConsumerState<CharacterDetailScreen> {
                 children: [
                   _MonoHeader(
                     name: detail?.displayName ?? title,
-                    subtitle: detail != null &&
+                    subtitle:
+                        detail != null &&
                             detail.name.isNotEmpty &&
                             detail.name != detail.displayName
                         ? detail.name
@@ -131,8 +148,7 @@ class _CharacterDetailScreenState extends ConsumerState<CharacterDetailScreen> {
                         ? detail!.imageUrl
                         : widget.seedImageUrl,
                     meta: [
-                      if (detail?.gender.isNotEmpty == true)
-                        detail!.gender,
+                      if (detail?.gender.isNotEmpty == true) detail!.gender,
                       if ((detail?.collectCount ?? 0) > 0)
                         '收藏 ${detail!.collectCount}',
                       if ((detail?.commentCount ?? 0) > 0)
@@ -179,8 +195,10 @@ class _CharacterDetailScreenState extends ConsumerState<CharacterDetailScreen> {
                         ),
                       ),
                   const SizedBox(height: 18),
-                  Text('声优 / 相关人物',
-                      style: Theme.of(context).textTheme.titleLarge),
+                  Text(
+                    '声优 / 相关人物',
+                    style: Theme.of(context).textTheme.titleLarge,
+                  ),
                   const SizedBox(height: 8),
                   if (_persons.isEmpty)
                     const EmptyState(

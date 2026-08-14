@@ -136,9 +136,9 @@ class _PmPageState extends ConsumerState<PmPage> {
   }
 
   Future<void> _openCompose() async {
-    final sent = await Navigator.of(context).push<bool>(
-      MaterialPageRoute(builder: (_) => const PmComposeScreen()),
-    );
+    final sent = await Navigator.of(
+      context,
+    ).push<bool>(MaterialPageRoute(builder: (_) => const PmComposeScreen()));
     if (sent == true && mounted) unawaited(_loadInbox());
   }
 
@@ -239,9 +239,7 @@ class _PmPageState extends ConsumerState<PmPage> {
               needAuth: _needAuth,
               items: items,
               emptyLabel: _tab == 0 ? '还没有收到短信' : '还没有发出的短信',
-              emptyHint: _tab == 0
-                  ? '和好友互相发送站内短信后会出现在这里'
-                  : '写一封新短信开始对话',
+              emptyHint: _tab == 0 ? '和好友互相发送站内短信后会出现在这里' : '写一封新短信开始对话',
               onRetry: _tab == 0 ? _loadInbox : _loadOutbox,
               onSyncLogin: _syncWebsiteLogin,
               onOpenWeb: _openWebFallback,
@@ -454,10 +452,7 @@ class _PmListBody extends StatelessWidget {
         separatorBuilder: (_, _) => const SizedBox(height: 8),
         itemBuilder: (context, index) {
           final item = items[index];
-          return _PmConversationTile(
-            item: item,
-            onTap: () => onOpen(item),
-          );
+          return _PmConversationTile(item: item, onTap: () => onOpen(item));
         },
       ),
     );
@@ -663,7 +658,10 @@ class _PmStateCard extends StatelessWidget {
               ),
               if (secondaryLabel != null && onSecondary != null) ...[
                 const SizedBox(height: 8),
-                TextButton(onPressed: onSecondary, child: Text(secondaryLabel!)),
+                TextButton(
+                  onPressed: onSecondary,
+                  child: Text(secondaryLabel!),
+                ),
               ],
             ],
           ),
@@ -718,6 +716,10 @@ class _PmConversationScreenState extends State<PmConversationScreen> {
   }
 
   Future<void> _load() async {
+    // Capture the requested thread up-front so a slow response for a
+    // previously-selected thread cannot overwrite the current one (and so
+    // _send can never reply through a stale thread's form).
+    final requestedThread = _threadId;
     setState(() {
       _loading = true;
       _error = null;
@@ -725,9 +727,9 @@ class _PmConversationScreenState extends State<PmConversationScreen> {
     try {
       final detail = await _service.loadConversation(
         widget.conversationId,
-        threadId: _threadId,
+        threadId: requestedThread,
       );
-      if (!mounted) return;
+      if (!mounted || requestedThread != _threadId) return;
       setState(() {
         _detail = detail;
         _loading = false;
@@ -738,7 +740,7 @@ class _PmConversationScreenState extends State<PmConversationScreen> {
         }
       });
     } catch (error) {
-      if (!mounted) return;
+      if (!mounted || requestedThread != _threadId) return;
       setState(() {
         _loading = false;
         _error = error.toString().replaceFirst('Exception: ', '');
@@ -749,7 +751,7 @@ class _PmConversationScreenState extends State<PmConversationScreen> {
   Future<void> _send() async {
     final detail = _detail;
     final text = _input.text.trim();
-    if (detail == null || text.isEmpty || _sending) return;
+    if (detail == null || text.isEmpty || _sending || _loading) return;
     setState(() => _sending = true);
     try {
       await _service.reply(form: detail.form, body: text);
@@ -870,7 +872,7 @@ class _PmConversationScreenState extends State<PmConversationScreen> {
             controller: _input,
             focusNode: _focus,
             sending: _sending,
-            enabled: detail != null && !_sending,
+            enabled: detail != null && !_sending && !_loading,
             onSend: _send,
           ),
         ],
@@ -1051,7 +1053,9 @@ class _ComposerBar extends StatelessWidget {
           decoration: BoxDecoration(
             color: scheme.surface.withValues(alpha: .92),
             border: Border(
-              top: BorderSide(color: scheme.outlineVariant.withValues(alpha: .7)),
+              top: BorderSide(
+                color: scheme.outlineVariant.withValues(alpha: .7),
+              ),
             ),
           ),
           child: SafeArea(
@@ -1322,10 +1326,7 @@ class _PmComposeScreenState extends State<PmComposeScreen> {
           ),
           if (_error != null) ...[
             const SizedBox(height: 12),
-            Text(
-              _error!,
-              style: TextStyle(color: scheme.error, height: 1.4),
-            ),
+            Text(_error!, style: TextStyle(color: scheme.error, height: 1.4)),
           ],
           if (_params != null) ...[
             const SizedBox(height: 12),
@@ -1337,7 +1338,11 @@ class _PmComposeScreenState extends State<PmComposeScreen> {
               ),
               child: Row(
                 children: [
-                  Icon(Icons.check_circle_rounded, color: scheme.primary, size: 18),
+                  Icon(
+                    Icons.check_circle_rounded,
+                    color: scheme.primary,
+                    size: 18,
+                  ),
                   const SizedBox(width: 8),
                   Text(
                     '收件人已确认，可以发送',
@@ -1364,7 +1369,10 @@ class _PmComposeScreenState extends State<PmComposeScreen> {
                     dimension: 20,
                     child: CircularProgressIndicator(strokeWidth: 2.2),
                   )
-                : const Text('发送短信', style: TextStyle(fontWeight: FontWeight.w800)),
+                : const Text(
+                    '发送短信',
+                    style: TextStyle(fontWeight: FontWeight.w800),
+                  ),
           ),
         ],
       ),
@@ -1425,10 +1433,7 @@ class _PmAvatar extends StatelessWidget {
           colors: [Color(0xFFFF779D), Color(0xFFE7447A)],
         ),
         boxShadow: [
-          BoxShadow(
-            color: AppTheme.seed.withValues(alpha: .25),
-            blurRadius: 8,
-          ),
+          BoxShadow(color: AppTheme.seed.withValues(alpha: .25), blurRadius: 8),
         ],
       ),
       child: avatar,
@@ -1438,9 +1443,7 @@ class _PmAvatar extends StatelessWidget {
 
 /// Opens native inbox (or compose when [composeTo] is set).
 Future<void> openPmPage(BuildContext context, {String? composeTo}) async {
-  await Navigator.of(context).push(
-    MaterialPageRoute<void>(
-      builder: (_) => PmPage(composeTo: composeTo),
-    ),
-  );
+  await Navigator.of(
+    context,
+  ).push(MaterialPageRoute<void>(builder: (_) => PmPage(composeTo: composeTo)));
 }

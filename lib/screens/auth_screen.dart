@@ -24,6 +24,12 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
   final _tokenController = TextEditingController();
   bool? _hasSavedOAuthConfig;
 
+  /// Synchronous reentry guard: set before any await in [_startOAuth] so a
+  /// rapid double-tap cannot start two concurrent authorization flows
+  /// (the second would fail to bind the loopback port and reset session
+  /// state mid-flow).
+  bool _startingOAuth = false;
+
   @override
   void initState() {
     super.initState();
@@ -51,25 +57,31 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
     if (session.isRefreshing && session.phase == SessionPhase.signedOut) {
       return;
     }
-    ref.read(sessionProvider.notifier).clearMessage();
-    // Prefer built-in app (one-tap), then saved custom app, then setup dialog.
-    OAuthConfig? config = OAuthBuiltin.config;
-    final savedConfig = await ref.read(tokenStoreProvider).readOAuthConfig();
-    config ??= savedConfig;
-    if (config == null || editConfiguration) {
-      if (!mounted) return;
-      config = await _showOAuthSetup(
-        editConfiguration ? savedConfig ?? OAuthBuiltin.config : config,
-      );
-    }
-    if (config == null || !mounted) return;
-    final signedIn = await ref
-        .read(sessionProvider.notifier)
-        .signInWithOAuth(
-          config,
-          launchAuthorization: _launchOAuthAuthorization,
+    if (_startingOAuth) return;
+    _startingOAuth = true;
+    try {
+      ref.read(sessionProvider.notifier).clearMessage();
+      // Prefer built-in app (one-tap), then saved custom app, then setup dialog.
+      OAuthConfig? config = OAuthBuiltin.config;
+      final savedConfig = await ref.read(tokenStoreProvider).readOAuthConfig();
+      config ??= savedConfig;
+      if (config == null || editConfiguration) {
+        if (!mounted) return;
+        config = await _showOAuthSetup(
+          editConfiguration ? savedConfig ?? OAuthBuiltin.config : config,
         );
-    if (!signedIn && mounted) await _refreshOAuthConfigurationState();
+      }
+      if (config == null || !mounted) return;
+      final signedIn = await ref
+          .read(sessionProvider.notifier)
+          .signInWithOAuth(
+            config,
+            launchAuthorization: _launchOAuthAuthorization,
+          );
+      if (!signedIn && mounted) await _refreshOAuthConfigurationState();
+    } finally {
+      _startingOAuth = false;
+    }
   }
 
   Future<void> _cancelOAuth() async {

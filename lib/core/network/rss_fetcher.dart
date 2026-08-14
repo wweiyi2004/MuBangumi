@@ -2,6 +2,7 @@ import 'package:dio/dio.dart';
 import 'package:xml/xml.dart';
 
 import '../../models/rss_models.dart';
+import 'bangumi_user_agent.dart';
 
 class RssFetchResult {
   const RssFetchResult({
@@ -27,7 +28,8 @@ class RssFetcher {
               connectTimeout: const Duration(seconds: 20),
               receiveTimeout: const Duration(seconds: 30),
               headers: const {
-                'User-Agent': 'MuBangumi/0.4 (RSS reminder; +local)',
+                'User-Agent':
+                    'MuBangumi/$muBangumiUaVersion (RSS reminder; +local)',
                 'Accept':
                     'application/rss+xml, application/atom+xml, application/xml, text/xml, */*',
               },
@@ -68,8 +70,7 @@ class RssFetcher {
     }
 
     final responseEtag = response.headers.value('etag') ?? etag;
-    final responseLm =
-        response.headers.value('last-modified') ?? lastModified;
+    final responseLm = response.headers.value('last-modified') ?? lastModified;
 
     return RssFetchResult(
       entries: parseFeedXml(body),
@@ -80,7 +81,12 @@ class RssFetcher {
 
   /// Public for unit tests.
   static List<RssFeedEntry> parseFeedXml(String body) {
-    final document = XmlDocument.parse(body);
+    final XmlDocument document;
+    try {
+      document = XmlDocument.parse(body);
+    } on XmlException {
+      throw const FormatException('RSS 源返回了无法解析的内容');
+    }
     final root = document.rootElement;
     final name = root.name.local.toLowerCase();
 
@@ -108,7 +114,7 @@ class RssFetcher {
       if (title.isEmpty && link.isEmpty) continue;
       result.add(
         RssFeedEntry(
-          guid: guid.isEmpty ? '${title.hashCode}' : guid,
+          guid: guid.isEmpty ? _stableGuid(title) : guid,
           title: title,
           link: link,
           publishedAt:
@@ -131,7 +137,7 @@ class RssFetcher {
       if (title.isEmpty && link.isEmpty) continue;
       result.add(
         RssFeedEntry(
-          guid: guid.isEmpty ? '${title.hashCode}' : guid,
+          guid: guid.isEmpty ? _stableGuid(title) : guid,
           title: title,
           link: link,
           publishedAt:
@@ -171,6 +177,17 @@ class RssFetcher {
     return null;
   }
 
+  /// Stable 32-bit FNV-1a digest so dedup GUIDs survive Dart runtime
+  /// upgrades (unlike String.hashCode) without pulling in a crypto package.
+  static String _stableGuid(String value) {
+    var hash = 0x811c9dc5;
+    for (final unit in value.codeUnits) {
+      hash ^= unit;
+      hash = (hash * 0x01000193) & 0xFFFFFFFF;
+    }
+    return hash.toRadixString(16);
+  }
+
   static String _atomLink(XmlElement entry) {
     String alternate = '';
     String any = '';
@@ -208,7 +225,8 @@ class HttpDate {
     // Fallback: strip weekday and use DateTime.tryParse after reformatting is hard;
     // use a simple regex for common torrent RSS dates.
     final match = RegExp(
-      r'(\d{1,2})\s+([A-Za-z]{3})\s+(\d{4})\s+(\d{2}):(\d{2}):(\d{2})',
+      r'(\d{1,2})\s+([A-Za-z]{3})\s+(\d{4})\s+(\d{2}):(\d{2}):(\d{2})'
+      r'(?:\s+(UTC|GMT|([+-])(\d{2})(\d{2})))?',
     ).firstMatch(date);
     if (match == null) {
       throw FormatException('Bad HTTP date', date);
@@ -229,7 +247,7 @@ class HttpDate {
     };
     final month = months[match.group(2)!];
     if (month == null) throw FormatException('Bad month', date);
-    return DateTime.utc(
+    final base = DateTime.utc(
       int.parse(match.group(3)!),
       month,
       int.parse(match.group(1)!),
@@ -237,5 +255,15 @@ class HttpDate {
       int.parse(match.group(5)!),
       int.parse(match.group(6)!),
     );
+    // Respect explicit timezone offsets (e.g. "+0800") so non-UTC feeds are
+    // not shifted by up to ±12h; RFC 822 dates without a zone stay UTC.
+    final zone = match.group(7);
+    if (zone == null || zone == 'UTC' || zone == 'GMT') return base;
+    final sign = match.group(8) == '-' ? -1 : 1;
+    final offset = Duration(
+      hours: sign * int.parse(match.group(9)!),
+      minutes: sign * int.parse(match.group(10)!),
+    );
+    return base.subtract(offset);
   }
 }

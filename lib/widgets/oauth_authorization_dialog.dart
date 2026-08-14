@@ -50,6 +50,8 @@ class _OAuthAuthorizationDialogState extends State<_OAuthAuthorizationDialog> {
   bool _finished = false;
   bool _callbackSettled = false;
   bool _initializing = false;
+  bool _disposed = false;
+  Future<void>? _disposing;
   String? _error;
 
   @override
@@ -70,7 +72,21 @@ class _OAuthAuthorizationDialogState extends State<_OAuthAuthorizationDialog> {
     unawaited(_initialize());
   }
 
-  Future<void> _disposeController() async {
+  /// Single-flight disposal: dispose() and _initialize() could previously
+  /// run this concurrently (interleaving _subscriptions snapshots), and a
+  /// controller created mid-dispose could leak. Sharing one future plus a
+  /// _disposed flag closes both gaps.
+  Future<void> _disposeController() {
+    final inFlight = _disposing;
+    if (inFlight != null) return inFlight;
+    final future = _runDispose();
+    _disposing = future;
+    return future.whenComplete(() {
+      if (identical(_disposing, future)) _disposing = null;
+    });
+  }
+
+  Future<void> _runDispose() async {
     final subscriptions = List<StreamSubscription<dynamic>>.from(
       _subscriptions,
     );
@@ -87,16 +103,19 @@ class _OAuthAuthorizationDialogState extends State<_OAuthAuthorizationDialog> {
   }
 
   Future<void> _initialize() async {
-    if (_initializing || _finished) return;
+    if (_initializing || _finished || _disposed) return;
     _initializing = true;
     try {
       await _disposeController();
-      if (!mounted || _finished) return;
+      if (!mounted || _finished || _disposed) return;
       final controller = windows.WebviewController();
       _controller = controller;
       try {
         await controller.initialize();
-        if (!mounted || _finished) return;
+        if (!mounted || _finished || _disposed) {
+          await _runDispose();
+          return;
+        }
         _subscriptions.addAll([
           controller.loadingState.listen((state) {
             if (!mounted || _finished) return;
@@ -171,6 +190,7 @@ class _OAuthAuthorizationDialogState extends State<_OAuthAuthorizationDialog> {
 
   @override
   void dispose() {
+    _disposed = true;
     unawaited(_disposeController());
     super.dispose();
   }

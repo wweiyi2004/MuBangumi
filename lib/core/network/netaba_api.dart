@@ -2,6 +2,7 @@ import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../models/netaba_models.dart';
+import 'bangumi_user_agent.dart';
 
 class NetabaApiException implements Exception {
   const NetabaApiException(this.message, {this.statusCode});
@@ -27,26 +28,29 @@ class NetabaApi {
           headers: const {
             'Accept': 'application/json',
             'User-Agent':
-                'MuBangumi/1.1.0 (Flutter; personal Bangumi client; +https://netaba.re)',
+                'MuBangumi/$muBangumiUaVersion (Flutter; personal Bangumi client; +https://netaba.re)',
           },
         ),
       ) {
     _dio.interceptors.add(
       InterceptorsWrapper(
         onError: (error, handler) {
+          // Status/transport first so dedicated messages are reachable;
+          // a JSON error body must not shadow them.
           final data = error.response?.data;
+          final status = error.response?.statusCode;
           var message = '获取评分历史失败，请稍后重试';
-          if (data is Map) {
+          if (error.type == DioExceptionType.connectionTimeout ||
+              error.type == DioExceptionType.receiveTimeout) {
+            message = '评分历史请求超时，请检查网络';
+          } else if (status == 404) {
+            message = '该条目暂无历史评分记录';
+          } else if (status == 429) {
+            message = '评分历史请求太频繁，稍后再试';
+          } else if (data is Map) {
             message =
                 (data['message'] ?? data['error'] ?? data['title'] ?? message)
                     .toString();
-          } else if (error.type == DioExceptionType.connectionTimeout ||
-              error.type == DioExceptionType.receiveTimeout) {
-            message = '评分历史请求超时，请检查网络';
-          } else if (error.response?.statusCode == 404) {
-            message = '该条目暂无历史评分记录';
-          } else if (error.response?.statusCode == 429) {
-            message = '评分历史请求太频繁，稍后再试';
           }
           handler.reject(
             DioException(
@@ -84,7 +88,9 @@ class NetabaApi {
 
   /// Long-term reputation gains ranking (开播以来评分提升).
   Future<List<NetabaTrendingItem>> getScoreIncreases() async {
-    final response = await _request(() => _dio.get<dynamic>('/score-increases'));
+    final response = await _request(
+      () => _dio.get<dynamic>('/score-increases'),
+    );
     final data = response.data;
     if (data is List) {
       return [

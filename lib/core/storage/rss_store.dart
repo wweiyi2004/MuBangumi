@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as path;
 import 'package:sqflite/sqflite.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart' as ffi;
@@ -9,6 +10,9 @@ import '../../models/rss_models.dart';
 /// Local persistence for RSS sources, bindings, and matched items.
 class RssStore {
   RssStore._();
+
+  @visibleForTesting
+  RssStore.test();
 
   static final shared = RssStore._();
 

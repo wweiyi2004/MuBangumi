@@ -332,8 +332,7 @@ Future<void> _createSeasonDialog(BuildContext context, WidgetRef ref) async {
                   children: [
                     Expanded(
                       child: DropdownButtonFormField<int>(
-                        // ignore: deprecated_member_use
-                        value: year,
+                        initialValue: year,
                         decoration: const InputDecoration(labelText: '年份'),
                         items: [
                           for (var y = DateTime.now().year + 2; y >= 2000; y--)
@@ -347,8 +346,7 @@ Future<void> _createSeasonDialog(BuildContext context, WidgetRef ref) async {
                     const SizedBox(width: 12),
                     Expanded(
                       child: DropdownButtonFormField<int>(
-                        // ignore: deprecated_member_use
-                        value: quarter,
+                        initialValue: quarter,
                         decoration: const InputDecoration(labelText: '季度'),
                         items: const [
                           DropdownMenuItem(value: 0, child: Text('冬季（1月）')),
@@ -483,7 +481,12 @@ class _SearchAddSheetState extends ConsumerState<_SearchAddSheet> {
               autofocus: true,
               textInputAction: TextInputAction.search,
               onChanged: _onQueryChanged,
-              onSubmitted: (value) => unawaited(_search(value.trim())),
+              onSubmitted: (value) {
+                // Enter submits immediately; cancel the pending debounce so
+                // the same keyword is not searched twice.
+                _debounce?.cancel();
+                unawaited(_search(value.trim()));
+              },
               decoration: InputDecoration(
                 hintText: _type == SubjectType.anime
                     ? '搜索动画名，例如：迷宫饭'
@@ -1003,9 +1006,22 @@ class _CourseTable extends StatelessWidget {
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final today = DateTime.now().weekday;
+    // Precompute each weekday's sorted items once: itemsOn() filters and
+    // sorts on every call, and the table below used to call it repeatedly
+    // per day/slot (hundreds of O(n) passes per rebuild).
+    final itemsByDay = <int, List<ScheduleItem>>{};
+    for (final item in schedule.items) {
+      final weekday = item.weekday;
+      if (weekday == null) continue;
+      itemsByDay.putIfAbsent(weekday, () => []).add(item);
+    }
+    for (final list in itemsByDay.values) {
+      list.sort((a, b) => a.sortOrder.compareTo(b.sortOrder));
+    }
+    List<ScheduleItem> dayItems(int day) => itemsByDay[day] ?? const [];
     final maxRows = [
       for (var day = DateTime.monday; day <= DateTime.sunday; day++)
-        schedule.itemsOn(day).length,
+        dayItems(day).length,
     ].fold<int>(0, math.max);
     // Not capped at 3: always keep one empty row so users can drop/add more.
     // Minimum 3 rows is only visual (timetable-like empty slots).
@@ -1068,7 +1084,7 @@ class _CourseTable extends StatelessWidget {
                             onAcceptWithDetails: (details) => onAccept(
                               details.data,
                               day,
-                              schedule.itemsOn(day).length,
+                              dayItems(day).length,
                             ),
                             builder: (context, candidate, _) {
                               final hot = candidate.isNotEmpty;
@@ -1106,7 +1122,7 @@ class _CourseTable extends StatelessWidget {
                                     ),
                                     if (!dense)
                                       Text(
-                                        '${schedule.itemsOn(day).length}',
+                                        '${dayItems(day).length}',
                                         style: TextStyle(
                                           fontSize: 10,
                                           color: scheme.onSurfaceVariant,
@@ -1172,20 +1188,18 @@ class _CourseTable extends StatelessWidget {
                                     slot: slot,
                                     isToday: day == today,
                                     dense: dense,
-                                    item: slot < schedule.itemsOn(day).length
-                                        ? schedule.itemsOn(day)[slot]
+                                    item: slot < dayItems(day).length
+                                        ? dayItems(day)[slot]
                                         : null,
-                                    collection:
-                                        slot < schedule.itemsOn(day).length
-                                        ? progressMap[schedule
-                                              .itemsOn(day)[slot]
-                                              .subjectId]
+                                    collection: slot < dayItems(day).length
+                                        ? progressMap[dayItems(
+                                            day,
+                                          )[slot].subjectId]
                                         : null,
-                                    unreadCount:
-                                        slot < schedule.itemsOn(day).length
-                                        ? (unreadBySubject[schedule
-                                                  .itemsOn(day)[slot]
-                                                  .subjectId] ??
+                                    unreadCount: slot < dayItems(day).length
+                                        ? (unreadBySubject[dayItems(
+                                                day,
+                                              )[slot].subjectId] ??
                                               0)
                                         : 0,
                                     season: season,

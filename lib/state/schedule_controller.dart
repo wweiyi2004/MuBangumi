@@ -7,7 +7,9 @@ import '../models/schedule_models.dart';
 class ScheduleState {
   const ScheduleState({
     required this.season,
-    this.schedule = const SeasonSchedule(season: SeasonKey(year: 0, quarter: 0)),
+    this.schedule = const SeasonSchedule(
+      season: SeasonKey(year: 0, quarter: 0),
+    ),
     this.knownSeasons = const [],
     this.loading = true,
     this.message,
@@ -45,44 +47,70 @@ class ScheduleController extends StateNotifier<ScheduleState> {
 
   final ScheduleStore _store;
 
-  Future<void> load(SeasonKey season) async {
-    state = state.copyWith(season: season, loading: true, clearMessage: true);
-    final results = await Future.wait([
-      _store.load(season),
-      _store.listSeasons(),
-    ]);
-    final schedule = results[0] as SeasonSchedule;
-    final saved = results[1] as List<SeasonKey>;
-    final known = _mergeKnownSeasons([
-      ...state.knownSeasons,
-      ...saved,
-      season,
-      SeasonKey.current(),
-    ]);
-    // Ensure empty new seasons still appear in the picker after first open.
-    if (schedule.items.isEmpty) {
-      await _store.save(schedule);
+  /// Guards rapid season switches: stale loads are dropped instead of
+  /// overwriting a newer season's table.
+  int _loadGeneration = 0;
+
+  Future<bool> load(SeasonKey season) async {
+    final generation = ++_loadGeneration;
+    state = state.copyWith(loading: true, clearMessage: true);
+    try {
+      final results = await Future.wait([
+        _store.load(season),
+        _store.listSeasons(),
+      ]);
+      if (generation != _loadGeneration) return false; // Stale load; drop.
+      final schedule = results[0] as SeasonSchedule;
+      final saved = results[1] as List<SeasonKey>;
+      final known = _mergeKnownSeasons([
+        ...state.knownSeasons,
+        ...saved,
+        season,
+        SeasonKey.current(),
+      ]);
+      // Ensure empty new seasons still appear in the picker after first open.
+      if (schedule.items.isEmpty) {
+        await _store.save(schedule);
+      }
+      if (generation != _loadGeneration) return false; // Stale load; drop.
+      state = state.copyWith(
+        season: season,
+        schedule: schedule,
+        knownSeasons: known,
+        loading: false,
+      );
+      return true;
+    } catch (error) {
+      if (generation != _loadGeneration) return false;
+      final alignedSchedule = state.schedule.season == state.season
+          ? state.schedule
+          : SeasonSchedule.empty(state.season);
+      state = state.copyWith(
+        schedule: alignedSchedule,
+        loading: false,
+        message: '加载季度表失败：${_errorText(error)}',
+      );
+      return false;
     }
-    state = state.copyWith(
-      schedule: schedule,
-      knownSeasons: known,
-      loading: false,
-    );
   }
 
-  Future<void> setSeason(SeasonKey season) => load(season);
+  Future<bool> setSeason(SeasonKey season) => load(season);
 
   /// Create/open an arbitrary year-quarter table (local only).
   Future<void> createSeason(SeasonKey season) async {
-    final known = _mergeKnownSeasons([...state.knownSeasons, season]);
-    state = state.copyWith(knownSeasons: known);
-    await load(season);
-    state = state.copyWith(message: '已打开 ${season.label}');
+    if (await load(season)) {
+      state = state.copyWith(message: '已打开 ${season.label}');
+    }
   }
 
   Future<void> deleteCurrentSeason() async {
     final season = state.season;
-    await _store.deleteSeason(season);
+    try {
+      await _store.deleteSeason(season);
+    } catch (error) {
+      state = state.copyWith(message: '删除季度表失败：${_errorText(error)}');
+      return;
+    }
     final remaining = [
       for (final key in state.knownSeasons)
         if (key != season) key,
@@ -92,7 +120,15 @@ class ScheduleController extends StateNotifier<ScheduleState> {
       knownSeasons: remaining,
       message: '已删除 ${season.label}',
     );
-    await load(next);
+    if (await load(next)) {
+      state = state.copyWith(message: '已删除 ${season.label}');
+    } else {
+      state = state.copyWith(
+        season: next,
+        schedule: SeasonSchedule.empty(next),
+        knownSeasons: remaining,
+      );
+    }
   }
 
   List<SeasonKey> _mergeKnownSeasons(Iterable<SeasonKey> raw) {
@@ -123,11 +159,7 @@ class ScheduleController extends StateNotifier<ScheduleState> {
         : current.itemsOn(weekday).length;
     final items = [
       ...current.items,
-      ScheduleItem.fromSubject(
-        subject,
-        weekday: weekday,
-        sortOrder: sortOrder,
-      ),
+      ScheduleItem.fromSubject(subject, weekday: weekday, sortOrder: sortOrder),
     ];
     final place = weekday == null ? '待安排' : weekdayLabel(weekday);
     await _persist(
@@ -155,18 +187,11 @@ class ScheduleController extends StateNotifier<ScheduleState> {
   }
 
   /// Move to a weekday (`1–7`) or `null` 待安排. Optional insert index in that day.
-  Future<void> setWeekday(
-    int subjectId,
-    int? weekday, {
-    int? insertIndex,
-  }) => moveItem(subjectId, weekday: weekday, insertIndex: insertIndex);
+  Future<void> setWeekday(int subjectId, int? weekday, {int? insertIndex}) =>
+      moveItem(subjectId, weekday: weekday, insertIndex: insertIndex);
 
   /// Place [subjectId] within the current season (drag-and-drop / menu).
-  Future<void> moveItem(
-    int subjectId, {
-    int? weekday,
-    int? insertIndex,
-  }) async {
+  Future<void> moveItem(int subjectId, {int? weekday, int? insertIndex}) async {
     final current = state.schedule;
     final moving = current.items
         .where((item) => item.subjectId == subjectId)
@@ -192,10 +217,7 @@ class ScheduleController extends StateNotifier<ScheduleState> {
       final dayItems = bucket(day);
       if (weekday == day) {
         final at = (insertIndex ?? dayItems.length).clamp(0, dayItems.length);
-        dayItems.insert(
-          at,
-          moving.copyWith(weekday: day, sortOrder: at),
-        );
+        dayItems.insert(at, moving.copyWith(weekday: day, sortOrder: at));
       }
       for (var i = 0; i < dayItems.length; i++) {
         rebuilt.add(dayItems[i].copyWith(weekday: day, sortOrder: i));
@@ -205,20 +227,14 @@ class ScheduleController extends StateNotifier<ScheduleState> {
     final pool = bucket(null);
     if (weekday == null) {
       final at = (insertIndex ?? pool.length).clamp(0, pool.length);
-      pool.insert(
-        at,
-        moving.copyWith(clearWeekday: true, sortOrder: at),
-      );
+      pool.insert(at, moving.copyWith(clearWeekday: true, sortOrder: at));
     }
     for (var i = 0; i < pool.length; i++) {
       rebuilt.add(pool[i].copyWith(clearWeekday: true, sortOrder: i));
     }
 
     final place = weekday == null ? '待安排' : weekdayLabel(weekday);
-    await _persist(
-      current.copyWith(items: rebuilt),
-      message: '已改到$place',
-    );
+    await _persist(current.copyWith(items: rebuilt), message: '已改到$place');
   }
 
   Future<void> reorderOnDay(int weekday, List<int> subjectIds) async {
@@ -239,16 +255,31 @@ class ScheduleController extends StateNotifier<ScheduleState> {
   void clearMessage() => state = state.copyWith(clearMessage: true);
 
   Future<void> _persist(SeasonSchedule schedule, {String? message}) async {
+    final previous = state.schedule;
     state = state.copyWith(
       schedule: schedule,
       message: message,
       clearMessage: message == null,
     );
-    await _store.save(schedule);
+    try {
+      await _store.save(schedule);
+    } catch (error) {
+      state = state.copyWith(
+        schedule: identical(state.schedule, schedule) ? previous : null,
+        message: '保存新番表失败：${_errorText(error)}',
+      );
+    }
   }
+
+  String _errorText(Object error) => error
+      .toString()
+      .replaceFirst('Exception: ', '')
+      .replaceFirst('FormatException: ', '');
 }
 
-final scheduleStoreProvider = Provider<ScheduleStore>((ref) => ScheduleStore.shared);
+final scheduleStoreProvider = Provider<ScheduleStore>(
+  (ref) => ScheduleStore.shared,
+);
 
 final scheduleProvider =
     StateNotifierProvider<ScheduleController, ScheduleState>((ref) {

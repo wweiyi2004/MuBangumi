@@ -112,7 +112,7 @@ Future<String?> _readQrFromPickedImage(BuildContext context) async {
     if (context.mounted) showAppMessage(context, '无法读取所选图片');
     return null;
   }
-  final username = FriendQr.decodeFromImageBytes(bytes);
+  final username = await FriendQr.decodeFromImageBytesAsync(bytes);
   if (username == null) {
     if (context.mounted) showAppMessage(context, '没有识别到 MuBangumi 好友二维码');
     return null;
