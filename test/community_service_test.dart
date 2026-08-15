@@ -131,6 +131,23 @@ void main() {
     },
   );
 
+  test('user timeline forwards until for deep-link paging', () async {
+    RequestOptions? seen;
+    final service = _service((options) {
+      seen = options;
+      return Response<List<dynamic>>(
+        requestOptions: options,
+        statusCode: 200,
+        data: const [],
+      );
+    });
+
+    await service.loadUserTimeline('alice', until: 100);
+
+    expect(seen?.path, '/p1/users/alice/timeline');
+    expect(seen?.queryParameters['until'], 100);
+  });
+
   test(
     'cached me timeline keeps user-less items with the signed-in identity',
     () {

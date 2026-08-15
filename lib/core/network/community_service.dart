@@ -347,6 +347,7 @@ class CommunityService {
   Future<List<CommunityTimelineItem>> loadUserTimeline(
     String username, {
     int limit = 12,
+    int? until,
     bool refresh = false,
     String? fallbackAvatarUrl,
     String? fallbackNickname,
@@ -355,7 +356,7 @@ class CommunityService {
     if (value.isEmpty) return const [];
     final data = await _getJsonList(
       '/users/${Uri.encodeComponent(value)}/timeline',
-      query: {'limit': limit.clamp(1, 30)},
+      query: {'limit': limit.clamp(1, 30), 'until': ?until},
       refresh: refresh,
     );
     // Same shape as the own-timeline endpoint: no `user` object per item.
@@ -997,12 +998,12 @@ class CommunityService {
   }) async {
     final batches = <String, _NoticeTopicBatch>{};
     for (final notice in notices) {
-      final kind = _noticeTopicKind(notice);
-      if (kind == null || !notice.canLoadReplyContent) continue;
-      final key = '${kind.name}:${notice.mainId}';
+      final topic = notice.nativeTopic;
+      if (topic == null || !notice.canLoadReplyContent) continue;
+      final key = '${topic.kind.name}:${notice.mainId}';
       final batch = batches.putIfAbsent(
         key,
-        () => _NoticeTopicBatch(topic: _noticeTopic(notice, kind), notices: []),
+        () => _NoticeTopicBatch(topic: topic, notices: []),
       );
       batch.notices.add(notice);
     }
@@ -1038,26 +1039,6 @@ class CommunityService {
       );
     }
     return contents;
-  }
-
-  CommunityTopicKind? _noticeTopicKind(BangumiNotice notice) =>
-      switch (notice.type) {
-        1 || 2 || 23 => CommunityTopicKind.group,
-        // 7/8 are emitted by the current P1 subject reply implementation;
-        // 3/4 retain compatibility with older subject notifications.
-        3 || 4 || 7 || 8 || 24 => CommunityTopicKind.subject,
-        _ => null,
-      };
-
-  CommunityTopic _noticeTopic(BangumiNotice notice, CommunityTopicKind kind) {
-    final kindName = kind == CommunityTopicKind.group ? 'group' : 'subject';
-    return CommunityTopic(
-      id: notice.mainId,
-      kind: kind,
-      title: notice.title,
-      url: 'https://bgm.tv/rakuen/topic/$kindName/${notice.mainId}',
-      webUrl: 'https://bgm.tv/$kindName/topic/${notice.mainId}',
-    );
   }
 
   /// Mark notices read. Empty [ids] clears all unread.

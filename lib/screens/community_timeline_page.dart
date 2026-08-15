@@ -13,7 +13,16 @@ import 'subject_detail_screen.dart';
 import 'user_profile_page.dart';
 
 class CommunityTimelinePage extends ConsumerStatefulWidget {
-  const CommunityTimelinePage({super.key});
+  const CommunityTimelinePage({
+    super.key,
+    this.initialMode = CommunityTimelineMode.friends,
+    this.initialTimelineId,
+    this.username,
+  });
+
+  final CommunityTimelineMode initialMode;
+  final int? initialTimelineId;
+  final String? username;
 
   @override
   ConsumerState<CommunityTimelinePage> createState() =>
@@ -23,7 +32,8 @@ class CommunityTimelinePage extends ConsumerStatefulWidget {
 class _CommunityTimelinePageState extends ConsumerState<CommunityTimelinePage> {
   final _service = CommunityService.shared;
   final _scrollController = ScrollController();
-  CommunityTimelineMode _mode = CommunityTimelineMode.friends;
+  final _initialTimelineKey = GlobalKey();
+  late CommunityTimelineMode _mode;
   List<CommunityTimelineItem> _items = const [];
   bool _loading = true;
   bool _loadingMore = false;
@@ -34,10 +44,25 @@ class _CommunityTimelinePageState extends ConsumerState<CommunityTimelinePage> {
   final Set<int> _expandedReplies = {};
   final Set<int> _loadingReplies = {};
   final Map<int, String> _replyErrors = {};
+  bool _initialTargetRevealed = false;
+  bool _initialTargetFailed = false;
+
+  bool get _isUserTimeline => widget.username?.trim().isNotEmpty == true;
+
+  bool get _initialTargetSettled =>
+      _initialTargetRevealed || _initialTargetFailed;
+
+  int? get _anchorUntil {
+    if (_initialTargetSettled) return null;
+    final targetId = widget.initialTimelineId;
+    if (targetId == null || targetId <= 0) return null;
+    return targetId + 1;
+  }
 
   @override
   void initState() {
     super.initState();
+    _mode = widget.initialMode;
     _scrollController.addListener(_onScroll);
     unawaited(_loadCacheThenRefresh());
   }
@@ -51,18 +76,37 @@ class _CommunityTimelinePageState extends ConsumerState<CommunityTimelinePage> {
   Future<void> _loadCacheThenRefresh() async {
     final mode = _mode;
     final requestId = ++_requestId;
-    final cached = await _service.readCachedTimeline(mode);
-    if (cached != null &&
-        cached.isNotEmpty &&
-        mounted &&
-        requestId == _requestId &&
-        mode == _mode) {
-      setState(() {
-        _items = cached;
-        _loading = false;
-      });
+    if (!_isUserTimeline && _anchorUntil == null) {
+      final cached = await _service.readCachedTimeline(mode);
+      if (cached != null &&
+          cached.isNotEmpty &&
+          mounted &&
+          requestId == _requestId &&
+          mode == _mode) {
+        setState(() {
+          _items = cached;
+          _loading = false;
+        });
+      }
     }
     await _load(refresh: true, requestId: requestId);
+  }
+
+  Future<List<CommunityTimelineItem>> _fetchTimeline({
+    required CommunityTimelineMode mode,
+    int? until,
+    bool refresh = false,
+  }) {
+    final username = widget.username?.trim() ?? '';
+    if (username.isNotEmpty) {
+      return _service.loadUserTimeline(
+        username,
+        limit: 20,
+        until: until,
+        refresh: refresh,
+      );
+    }
+    return _service.loadTimeline(mode, until: until, refresh: refresh);
   }
 
   Future<void> _load({bool refresh = false, int? requestId}) async {
@@ -73,13 +117,18 @@ class _CommunityTimelinePageState extends ConsumerState<CommunityTimelinePage> {
       _error = null;
     });
     try {
-      final items = await _service.loadTimeline(mode, refresh: refresh);
+      final items = await _fetchTimeline(
+        mode: mode,
+        until: _anchorUntil,
+        refresh: refresh,
+      );
       if (!mounted || activeRequest != _requestId || mode != _mode) return;
       setState(() {
         _items = items;
         _hasMore = items.length >= 20;
         _loading = false;
       });
+      _revealInitialTarget();
     } catch (error) {
       if (!mounted || activeRequest != _requestId || mode != _mode) return;
       setState(() {
@@ -89,13 +138,53 @@ class _CommunityTimelinePageState extends ConsumerState<CommunityTimelinePage> {
     }
   }
 
+  void _revealInitialTarget() {
+    final targetId = widget.initialTimelineId;
+    if (_initialTargetSettled || targetId == null || targetId <= 0) return;
+    CommunityTimelineItem? target;
+    for (final item in _items) {
+      if (item.id == targetId) {
+        target = item;
+        break;
+      }
+    }
+    if (target == null) {
+      _failInitialTarget();
+      return;
+    }
+    _initialTargetRevealed = true;
+    _expandedReplies.add(targetId);
+    unawaited(_loadReplies(target));
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final targetContext = _initialTimelineKey.currentContext;
+      if (!mounted || targetContext == null) return;
+      Scrollable.ensureVisible(
+        targetContext,
+        duration: const Duration(milliseconds: 280),
+        curve: Curves.easeOutCubic,
+        alignment: 0.15,
+      );
+    });
+  }
+
+  void _failInitialTarget() {
+    if (_initialTargetSettled) return;
+    _initialTargetFailed = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      ScaffoldMessenger.maybeOf(
+        context,
+      )?.showSnackBar(const SnackBar(content: Text('没有找到对应的动态')));
+    });
+  }
+
   Future<void> _loadMore() async {
     if (_loading || _loadingMore || !_hasMore || _items.isEmpty) return;
     final mode = _mode;
     final requestId = _requestId;
     setState(() => _loadingMore = true);
     try {
-      final next = await _service.loadTimeline(mode, until: _items.last.id);
+      final next = await _fetchTimeline(mode: mode, until: _items.last.id);
       if (!mounted || mode != _mode || requestId != _requestId) return;
       final known = _items.map((item) => item.id).toSet();
       setState(() {
@@ -113,13 +202,14 @@ class _CommunityTimelinePageState extends ConsumerState<CommunityTimelinePage> {
   }
 
   void _selectMode(CommunityTimelineMode mode) {
-    if (_mode == mode) return;
+    if (_mode == mode || _isUserTimeline) return;
     setState(() {
       _mode = mode;
       _items = const [];
       _hasMore = true;
       _error = null;
       _loadingMore = false;
+      _initialTargetFailed = true;
       _replies.clear();
       _expandedReplies.clear();
       _loadingReplies.clear();
@@ -243,31 +333,33 @@ class _CommunityTimelinePageState extends ConsumerState<CommunityTimelinePage> {
   Widget build(BuildContext context) => Column(
     crossAxisAlignment: CrossAxisAlignment.stretch,
     children: [
-      Row(
-        children: [
-          Expanded(
-            child: SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              child: SegmentedButton<CommunityTimelineMode>(
-                segments: [
-                  for (final mode in CommunityTimelineMode.values)
-                    ButtonSegment(value: mode, label: Text(mode.label)),
-                ],
-                selected: {_mode},
-                onSelectionChanged: (value) => _selectMode(value.first),
-                showSelectedIcon: false,
+      if (!_isUserTimeline) ...[
+        Row(
+          children: [
+            Expanded(
+              child: SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: SegmentedButton<CommunityTimelineMode>(
+                  segments: [
+                    for (final mode in CommunityTimelineMode.values)
+                      ButtonSegment(value: mode, label: Text(mode.label)),
+                  ],
+                  selected: {_mode},
+                  onSelectionChanged: (value) => _selectMode(value.first),
+                  showSelectedIcon: false,
+                ),
               ),
             ),
-          ),
-          const SizedBox(width: 10),
-          FilledButton.icon(
-            onPressed: _service.isAuthenticated ? _post : null,
-            icon: const Icon(Icons.edit_rounded, size: 18),
-            label: const Text('发动态'),
-          ),
-        ],
-      ),
-      const SizedBox(height: 12),
+            const SizedBox(width: 10),
+            FilledButton.icon(
+              onPressed: _service.isAuthenticated ? _post : null,
+              icon: const Icon(Icons.edit_rounded, size: 18),
+              label: const Text('发动态'),
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+      ],
       Expanded(child: _buildBody()),
     ],
   );
@@ -317,7 +409,9 @@ class _CommunityTimelinePageState extends ConsumerState<CommunityTimelinePage> {
           final progress = item.progress;
           final canReply = _service.isAuthenticated && item.isStatus;
           return BlockedCommunityContent(
-            key: ValueKey('timeline-${item.id}'),
+            key: item.id == widget.initialTimelineId
+                ? _initialTimelineKey
+                : ValueKey('timeline-${item.id}'),
             username: item.user.username,
             blocked: preferences.isBlocked(item.user.username),
             child: CommunityTimelineCard(
@@ -347,4 +441,32 @@ class _CommunityTimelinePageState extends ConsumerState<CommunityTimelinePage> {
       ),
     );
   }
+}
+
+class CommunityTimelineScreen extends StatelessWidget {
+  const CommunityTimelineScreen({
+    super.key,
+    this.initialMode = CommunityTimelineMode.friends,
+    this.initialTimelineId,
+    this.username,
+  });
+
+  final CommunityTimelineMode initialMode;
+  final int? initialTimelineId;
+  final String? username;
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    appBar: AppBar(title: const Text('时光机')),
+    body: SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(14, 14, 14, 0),
+        child: CommunityTimelinePage(
+          initialMode: initialMode,
+          initialTimelineId: initialTimelineId,
+          username: username,
+        ),
+      ),
+    ),
+  );
 }

@@ -10,6 +10,8 @@ import '../core/network/community_service.dart';
 import '../models/community_models.dart';
 import '../state/notify_controller.dart';
 import '../widgets/subject_widgets.dart';
+import 'community_timeline_page.dart';
+import 'community_topic_screen.dart';
 import 'user_profile_page.dart';
 
 class NotifyPage extends ConsumerStatefulWidget {
@@ -244,11 +246,37 @@ class _NotifyPageState extends ConsumerState<NotifyPage> {
 
   Future<void> _openNotice(BangumiNotice notice) async {
     await _markOne(notice);
-    final url = notice.webUrl;
-    final uri = Uri.tryParse(url);
-    if (uri != null) {
-      await launchUrl(uri, mode: LaunchMode.externalApplication);
+    if (!mounted) return;
+    final topic = notice.nativeTopic;
+    if (topic != null) {
+      await Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          builder: (_) => CommunityTopicScreen(topic: topic),
+        ),
+      );
+      return;
     }
+    final timeline = notice.nativeTimelineDestination;
+    if (timeline != null) {
+      await Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          builder: (_) => CommunityTimelineScreen(
+            initialMode: timeline.mode,
+            initialTimelineId: timeline.timelineId,
+            username: timeline.username,
+          ),
+        ),
+      );
+      return;
+    }
+    final sender = notice.sender;
+    if (sender != null && sender.username.trim().isNotEmpty) {
+      openUserProfileFromCommunity(context, sender);
+      return;
+    }
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(const SnackBar(content: Text('暂时无法识别这条提醒的应用内目标')));
   }
 
   @override

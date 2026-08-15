@@ -58,6 +58,22 @@ enum CommunityTimelineMode {
   final String label;
 }
 
+class NoticeTimelineDestination {
+  const NoticeTimelineDestination({
+    required this.timelineId,
+    required this.mode,
+    this.username,
+  });
+
+  final int timelineId;
+  final CommunityTimelineMode mode;
+  final String? username;
+
+  /// P1 `until` is an exclusive max id, so this keeps [timelineId] on the
+  /// first page.
+  int get fetchUntil => timelineId + 1;
+}
+
 class CommunityPageResult<T> {
   const CommunityPageResult({required this.data, required this.total});
 
@@ -322,13 +338,70 @@ class BangumiNotice {
       relatedId > 0 &&
       const {1, 2, 3, 4, 7, 8, 23, 24}.contains(type);
 
+  CommunityTopicKind? get nativeTopicKind => switch (type) {
+    1 || 2 || 23 => CommunityTopicKind.group,
+    3 || 4 || 7 || 8 || 24 => CommunityTopicKind.subject,
+    5 || 6 || 25 => CommunityTopicKind.character,
+    9 || 10 || 30 => CommunityTopicKind.episode,
+    13 || 26 => CommunityTopicKind.person,
+    29 => CommunityTopicKind.blog,
+    _ => null,
+  };
+
+  CommunityTopic? get nativeTopic {
+    final kind = nativeTopicKind;
+    if (kind == null || mainId <= 0) return null;
+    final (rakuenKind, webPath) = switch (kind) {
+      CommunityTopicKind.group => ('group', '/group/topic/$mainId'),
+      CommunityTopicKind.subject => ('subject', '/subject/topic/$mainId'),
+      CommunityTopicKind.episode => ('ep', '/ep/$mainId'),
+      CommunityTopicKind.character => ('crt', '/character/$mainId'),
+      CommunityTopicKind.person => ('prsn', '/person/$mainId'),
+      CommunityTopicKind.blog => ('blog', '/blog/$mainId'),
+      CommunityTopicKind.unknown => ('', ''),
+    };
+    return CommunityTopic(
+      id: mainId,
+      kind: kind,
+      title: title,
+      url: 'https://bgm.tv/rakuen/topic/$rakuenKind/$mainId',
+      webUrl: 'https://bgm.tv$webPath',
+    );
+  }
+
+  /// Type 22 is a reply on the current user's status. Type 28 is a mention on
+  /// the sender's status, so it must not open `CommunityTimelineMode.me`.
+  NoticeTimelineDestination? get nativeTimelineDestination {
+    if (mainId <= 0) return null;
+    return switch (type) {
+      22 => NoticeTimelineDestination(
+        timelineId: mainId,
+        mode: CommunityTimelineMode.me,
+      ),
+      28 => NoticeTimelineDestination(
+        timelineId: mainId,
+        mode: CommunityTimelineMode.all,
+        username: _senderUsername,
+      ),
+      _ => null,
+    };
+  }
+
+  String? get _senderUsername {
+    final value = sender?.username.trim() ?? '';
+    return value.isEmpty ? null : value;
+  }
+
+  bool get opensNativeTimeline => nativeTimelineDestination != null;
+
   /// Best-effort deep link on bgm.tv; empty when unknown.
   String get webUrl {
-    if (const {1, 2, 23}.contains(type) && mainId > 0) {
-      return 'https://bgm.tv/rakuen/topic/group/$mainId';
-    }
-    if (const {3, 4, 7, 8, 24}.contains(type) && mainId > 0) {
-      return 'https://bgm.tv/rakuen/topic/subject/$mainId';
+    final topic = nativeTopic;
+    if (topic != null) {
+      return topic.kind == CommunityTopicKind.group ||
+              topic.kind == CommunityTopicKind.subject
+          ? topic.url
+          : topic.webUrl;
     }
     if (sender != null && sender!.username.isNotEmpty) {
       return sender!.webUrl;
