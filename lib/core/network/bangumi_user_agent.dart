@@ -5,7 +5,7 @@
 /// netaba.re, moegirl). Per-service suffixes stay local to each caller.
 library;
 
-const muBangumiUaVersion = '1.5.0';
+const muBangumiUaVersion = '1.6.0';
 
 /// Default UA used by the official Bangumi API and community clients.
 const muBangumiUserAgent =
