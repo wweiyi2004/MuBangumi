@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../core/external_link.dart';
 import '../core/insights/subject_meta_insights.dart';
 import '../core/layout/app_layout.dart';
 import '../core/network/bangumi_endpoints.dart';
@@ -993,9 +994,7 @@ class _SubjectHeader extends StatelessWidget {
                     final uri = Uri.tryParse(
                       raw.startsWith('http') ? raw : 'https://$raw',
                     );
-                    if (uri != null) {
-                      launchUrl(uri, mode: LaunchMode.externalApplication);
-                    }
+                    unawaited(launchExternalLink(uri));
                   },
                   icon: const Icon(Icons.public_rounded, size: 18),
                   label: const Text('官方网站'),
@@ -1270,17 +1269,8 @@ class _MoegirlPanel extends StatelessWidget {
                             ),
                           ),
                           TextButton.icon(
-                            onPressed: () {
-                              final uri = Uri.tryParse(entry!.url);
-                              if (uri != null) {
-                                unawaited(
-                                  launchUrl(
-                                    uri,
-                                    mode: LaunchMode.externalApplication,
-                                  ),
-                                );
-                              }
-                            },
+                            onPressed: () =>
+                                unawaited(launchExternalLink(Uri.tryParse(entry!.url))),
                             icon: const Icon(Icons.open_in_new_rounded),
                             label: const Text('查看原文'),
                           ),

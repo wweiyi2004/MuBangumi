@@ -2,13 +2,13 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
-import 'package:url_launcher/url_launcher.dart';
 import 'package:webview_flutter/webview_flutter.dart' as mobile;
 import 'package:webview_flutter_windows/webview_flutter_windows.dart'
     as windows;
 
 import '../core/auth/website_cookie_bridge.dart';
 import '../core/auth/website_session.dart';
+import '../core/external_link.dart';
 
 enum _CommunitySection {
   rakuen('超展开', Icons.forum_outlined, 'https://bgm.tv/rakuen'),
@@ -81,8 +81,7 @@ class _CommunityWebScreenState extends State<CommunityWebScreen> {
 
   Future<void> _openExternally() async {
     final uri = Uri.tryParse(_browser.url ?? widget.initialUrl);
-    if (uri == null ||
-        !await launchUrl(uri, mode: LaunchMode.externalApplication)) {
+    if (!await launchExternalLink(uri)) {
       if (!mounted) return;
       ScaffoldMessenger.of(
         context,
@@ -313,6 +312,29 @@ class _BrowserSnapshot {
   final String? url;
 }
 
+/// Whether [uri] may render inside the address-bar-less embedded browser.
+/// Community content can link anywhere, and embedding arbitrary third-party
+/// pages in-app invites phishing, so only Bangumi's own domains stay embedded.
+@visibleForTesting
+bool isBangumiCommunityHost(Uri uri) {
+  if (!uri.isScheme('http') && !uri.isScheme('https')) return false;
+  final host = uri.host.toLowerCase();
+  return host == 'bgm.tv' ||
+      host.endsWith('.bgm.tv') ||
+      host == 'bangumi.tv' ||
+      host.endsWith('.bangumi.tv') ||
+      host == 'chii.in' ||
+      host.endsWith('.chii.in');
+}
+
+/// Intermediate WebView documents that are not community-controlled links.
+@visibleForTesting
+bool isBenignEmbeddedWebViewUrl(Uri uri) {
+  if (!uri.isScheme('about')) return false;
+  final target = (uri.path.isNotEmpty ? uri.path : uri.host).toLowerCase();
+  return target == 'blank' || target == 'srcdoc';
+}
+
 class _CommunityBrowser extends StatefulWidget {
   const _CommunityBrowser({
     super.key,
@@ -337,6 +359,8 @@ class _CommunityBrowserState extends State<_CommunityBrowser> {
   String? _error;
   String? _currentUrl;
   late String _targetUrl;
+
+  String? _lastBangumiUrl;
   bool _ready = false;
   bool _loading = true;
   bool _canGoBack = false;
@@ -346,6 +370,10 @@ class _CommunityBrowserState extends State<_CommunityBrowser> {
   void initState() {
     super.initState();
     _targetUrl = widget.initialUrl;
+    final initial = Uri.tryParse(widget.initialUrl);
+    if (initial != null && isBangumiCommunityHost(initial)) {
+      _lastBangumiUrl = widget.initialUrl;
+    }
     if (Platform.isWindows) {
       unawaited(_initializeWindows());
     } else if (Platform.isAndroid || Platform.isIOS || Platform.isMacOS) {
@@ -363,10 +391,7 @@ class _CommunityBrowserState extends State<_CommunityBrowser> {
       await controller.initialize();
       if (!mounted) return;
       _subscriptions.addAll([
-        controller.url.listen((url) {
-          _currentUrl = url;
-          _notify();
-        }),
+        controller.url.listen(_handleWindowsUrl),
         controller.loadingState.listen((state) {
           _loading = state == windows.LoadingState.loading;
           _notify();
@@ -399,6 +424,38 @@ class _CommunityBrowserState extends State<_CommunityBrowser> {
     }
   }
 
+  /// WebView2 has no NavigationStarting hook, so the whitelist is applied
+  /// after the URL changes.
+  void _handleWindowsUrl(String url) {
+    _currentUrl = url;
+    _notify();
+    final uri = Uri.tryParse(url);
+    if (uri == null) return;
+    if (isBangumiCommunityHost(uri)) {
+      _lastBangumiUrl = url;
+      return;
+    }
+    if (isBenignEmbeddedWebViewUrl(uri)) return;
+    unawaited(_detachWindowsNavigation(url));
+  }
+
+  Future<void> _detachWindowsNavigation(String url) async {
+    final controller = _windowsController;
+    if (controller == null) return;
+    try {
+      await controller.stop();
+    } catch (_) {
+      // Navigation may already have finished; restoring still applies.
+    }
+    final restore = _lastBangumiUrl;
+    if (restore != null && restore != url) {
+      try {
+        await controller.loadUrl(restore);
+      } catch (_) {}
+    }
+    await launchExternalLink(Uri.tryParse(url));
+  }
+
   Future<void> _initializeMobile() async {
     await WebsiteCookieBridge.injectMobile(widget.seedCookies);
     if (!mounted) return;
@@ -408,21 +465,13 @@ class _CommunityBrowserState extends State<_CommunityBrowser> {
       ..setNavigationDelegate(
         mobile.NavigationDelegate(
           onNavigationRequest: (request) {
-            // Keep the address-bar-less embedded browser on Bangumi domains;
-            // community content can link anywhere, and embedding arbitrary
-            // third-party pages in-app invites phishing.
             final uri = Uri.tryParse(request.url);
             if (uri == null) return mobile.NavigationDecision.navigate;
-            final host = uri.host.toLowerCase();
-            final allowed =
-                host == 'bgm.tv' ||
-                host.endsWith('.bgm.tv') ||
-                host == 'bangumi.tv' ||
-                host.endsWith('.bangumi.tv') ||
-                host == 'chii.in' ||
-                host.endsWith('.chii.in');
-            if (allowed) return mobile.NavigationDecision.navigate;
-            unawaited(launchUrl(uri, mode: LaunchMode.externalApplication));
+            if (isBangumiCommunityHost(uri) ||
+                isBenignEmbeddedWebViewUrl(uri)) {
+              return mobile.NavigationDecision.navigate;
+            }
+            unawaited(launchExternalLink(uri));
             return mobile.NavigationDecision.prevent;
           },
           onPageStarted: (url) {

@@ -34,6 +34,8 @@ class PrivateGroupMembershipException implements Exception {
 }
 
 class CommunityService {
+  /// Hard stop so two large public friend lists cannot walk unbounded P1 pages.
+  static const maxFriendPages = 100;
   CommunityService._({
     Dio? htmlDio,
     Dio? p1Dio,
@@ -165,6 +167,36 @@ class CommunityService {
       const Duration(minutes: 2),
     );
     return page;
+  }
+
+  /// Loads every public friend page for [username].
+  Future<List<BangumiUser>> loadAllFriends(
+    String username, {
+    bool refresh = false,
+    int pageSize = 30,
+  }) async {
+    final friends = <BangumiUser>[];
+    final known = <String>{};
+    var offset = 0;
+    var total = 0;
+    var pages = 0;
+    do {
+      final page = await loadFriends(
+        username,
+        limit: pageSize,
+        offset: offset,
+        refresh: refresh,
+      );
+      for (final friend in page.data) {
+        final key = friend.username.trim().toLowerCase();
+        if (key.isNotEmpty && known.add(key)) friends.add(friend);
+      }
+      total = page.total;
+      pages++;
+      if (page.data.isEmpty || pages >= maxFriendPages) break;
+      offset += page.data.length;
+    } while (offset < total);
+    return friends;
   }
 
   Future<CommunityPageResult<CommunityTopic>?> readCachedTopics(

@@ -7,7 +7,9 @@
     <application
         android:label="MuBangumi"
         android:name="${applicationName}"
-        android:icon="@mipmap/ic_launcher">
+        android:icon="@mipmap/ic_launcher"
+        android:allowBackup="false">
+        <!-- No backup: tokens are device-bound. -->
         <activity
             android:name=".MainActivity"
             android:exported="true"

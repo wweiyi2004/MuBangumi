@@ -11,6 +11,8 @@ class _FakeBangumiApi extends BangumiApi {
   _FakeBangumiApi([this.subjects = const []]);
 
   final List<Subject> subjects;
+  int? lastBrowseYear;
+  int? lastStartYear;
 
   @override
   Future<List<Subject>> browseSubjects({
@@ -20,7 +22,10 @@ class _FakeBangumiApi extends BangumiApi {
     String sort = 'rank',
     int limit = 24,
     int offset = 0,
-  }) async => offset == 0 ? subjects : const [];
+  }) async {
+    lastBrowseYear = year;
+    return offset == 0 ? subjects : const [];
+  }
 
   @override
   Future<List<Subject>> searchSubjects(
@@ -33,7 +38,10 @@ class _FakeBangumiApi extends BangumiApi {
     List<String> tags = const [],
     List<String> metaTags = const [],
     SubjectType subjectType = SubjectType.anime,
-  }) async => const [];
+  }) async {
+    lastStartYear = startYear;
+    return const [];
+  }
 }
 
 List<Override> _overrides([BangumiApi? api]) => [
@@ -175,5 +183,112 @@ void main() {
     expect(builtTiles, greaterThan(0));
     expect(builtTiles, lessThan(subjects.length));
     expect(find.text('条目 120'), findsNothing);
+  });
+
+  testWidgets('discover browse year accepts manual values within anime range', (
+    tester,
+  ) async {
+    final api = _FakeBangumiApi();
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: _overrides(api),
+        child: const MaterialApp(home: Scaffold(body: DiscoverPage())),
+      ),
+    );
+    await tester.pump();
+
+    await tester.tap(find.widgetWithText(OutlinedButton, '筛选'));
+    await tester.pumpAndSettle();
+
+    final yearInput = find.byKey(const ValueKey('discover-browse-year-input'));
+    expect(yearInput, findsOneWidget);
+    expect(
+      tester.widget<TextField>(yearInput).controller!.text,
+      '${DateTime.now().year}',
+    );
+
+    await tester.enterText(yearInput, '${discoverEarliestAnimeYear - 1}');
+    await tester.pump();
+    expect(
+      find.text(
+        '请输入 $discoverEarliestAnimeYear—${DateTime.now().year + 1} 年',
+      ),
+      findsOneWidget,
+    );
+    expect(
+      tester
+          .widget<FilledButton>(
+            find.ancestor(
+              of: find.text('应用筛选'),
+              matching: find.byType(FilledButton),
+            ),
+          )
+          .onPressed,
+      isNull,
+    );
+
+    await tester.enterText(yearInput, '$discoverEarliestAnimeYear');
+    await tester.pump();
+    await tester.ensureVisible(find.text('应用筛选'));
+    await tester.tap(find.text('应用筛选'));
+    await tester.pumpAndSettle();
+    expect(api.lastBrowseYear, discoverEarliestAnimeYear);
+  });
+
+  testWidgets('discover browse year accepts next year for upcoming seasons', (
+    tester,
+  ) async {
+    final api = _FakeBangumiApi();
+    final nextYear = DateTime.now().year + 1;
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: _overrides(api),
+        child: const MaterialApp(home: Scaffold(body: DiscoverPage())),
+      ),
+    );
+    await tester.pump();
+
+    await tester.tap(find.widgetWithText(OutlinedButton, '筛选'));
+    await tester.pumpAndSettle();
+
+    await tester.enterText(
+      find.byKey(const ValueKey('discover-browse-year-input')),
+      '$nextYear',
+    );
+    await tester.pump();
+    await tester.ensureVisible(find.text('应用筛选'));
+    await tester.tap(find.text('应用筛选'));
+    await tester.pumpAndSettle();
+    expect(api.lastBrowseYear, nextYear);
+  });
+
+  testWidgets('subject search sends a manually entered start year', (
+    tester,
+  ) async {
+    final api = _FakeBangumiApi();
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: _overrides(api),
+        child: const MaterialApp(home: Scaffold(body: DiscoverPage())),
+      ),
+    );
+    await tester.pump();
+
+    await tester.enterText(find.byType(TextField).first, '科幻');
+    await tester.pump(const Duration(milliseconds: 500));
+    await tester.tap(find.widgetWithText(OutlinedButton, '筛选'));
+    await tester.pumpAndSettle();
+
+    final startYearInput = find.byKey(
+      const ValueKey('discover-start-year-input'),
+    );
+    expect(startYearInput, findsOneWidget);
+    await tester.enterText(startYearInput, '$discoverEarliestAnimeYear');
+    await tester.pump();
+    await tester.ensureVisible(find.text('应用筛选'));
+    await tester.tap(find.text('应用筛选'));
+    await tester.pumpAndSettle();
+
+    expect(api.lastStartYear, discoverEarliestAnimeYear);
   });
 }

@@ -343,6 +343,106 @@ void main() {
     expect(page.data.single.username, 'alice');
   });
 
+  test('loadAllFriends follows friend pages and removes duplicates', () async {
+    final service = _service((options) {
+      final offset = options.queryParameters['offset'];
+      final data = offset == 0
+          ? [
+              {'id': 7, 'username': 'alice', 'nickname': 'Alice'},
+              {'id': 8, 'username': 'bob', 'nickname': 'Bob'},
+            ]
+          : [
+              {'id': 8, 'username': 'BOB', 'nickname': 'Bob 2'},
+              {'id': 9, 'username': 'carol', 'nickname': 'Carol'},
+            ];
+      return Response<Map<String, dynamic>>(
+        requestOptions: options,
+        statusCode: 200,
+        data: {'total': 4, 'data': data},
+      );
+    });
+
+    final friends = await service.loadAllFriends('wweiyi', pageSize: 2);
+
+    expect(friends.map((user) => user.username), ['alice', 'bob', 'carol']);
+  });
+
+  test('loadAllFriends refresh bypasses cache on later pages', () async {
+    var generation = 0;
+    final service = _service((options) {
+      final offset = options.queryParameters['offset'];
+      final data = generation == 0
+          ? offset == 0
+                ? [
+                    {'id': 1, 'username': 'alice'},
+                    {'id': 2, 'username': 'bob'},
+                  ]
+                : [
+                    {'id': 3, 'username': 'carol'},
+                    {'id': 4, 'username': 'dave'},
+                  ]
+          : offset == 0
+          ? [
+              {'id': 1, 'username': 'alice'},
+              {'id': 5, 'username': 'eve'},
+            ]
+          : [
+              {'id': 6, 'username': 'frank'},
+              {'id': 7, 'username': 'grace'},
+            ];
+      return Response<Map<String, dynamic>>(
+        requestOptions: options,
+        statusCode: 200,
+        data: {'total': 4, 'data': data},
+      );
+    });
+
+    expect(
+      (await service.loadAllFriends('wweiyi', pageSize: 2)).map(
+        (user) => user.username,
+      ),
+      ['alice', 'bob', 'carol', 'dave'],
+    );
+
+    generation = 1;
+    expect(
+      (await service.loadAllFriends('wweiyi', pageSize: 2)).map(
+        (user) => user.username,
+      ),
+      ['alice', 'bob', 'carol', 'dave'],
+    );
+    expect(
+      (await service.loadAllFriends(
+        'wweiyi',
+        pageSize: 2,
+        refresh: true,
+      )).map((user) => user.username),
+      ['alice', 'eve', 'frank', 'grace'],
+    );
+  });
+
+  test('loadAllFriends stops after the documented page cap', () async {
+    var calls = 0;
+    final service = _service((options) {
+      calls++;
+      return Response<Map<String, dynamic>>(
+        requestOptions: options,
+        statusCode: 200,
+        data: {
+          'total': 100000,
+          'data': [
+            {'id': calls, 'username': 'u$calls'},
+          ],
+        },
+      );
+    });
+
+    final friends = await service.loadAllFriends('wweiyi', pageSize: 1);
+
+    expect(friends, hasLength(CommunityService.maxFriendPages));
+    expect(calls, CommunityService.maxFriendPages);
+  });
+
   test(
     'loadNoticeContents fetches a topic once and extracts replies',
     () async {

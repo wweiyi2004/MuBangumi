@@ -4,6 +4,7 @@
 *.pyc
 *.swp
 .DS_Store
+.tmp-shaft/
 .atom/
 .build/
 .buildlog/
@@ -55,6 +56,10 @@ android/key.properties
 android/*.jks
 android/*.keystore
 **/*.keystore
+/native-android/local.properties
+/native-android/.gradle/
+/native-android/build/
+/native-android/app/build/
 
 # Recommend dataset tool: generated data, DB, logs, venv, local secrets and user lists
 tool/recommend_dataset/.venv/

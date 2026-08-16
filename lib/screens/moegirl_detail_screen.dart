@@ -1,8 +1,8 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:url_launcher/url_launcher.dart';
 
+import '../core/external_link.dart';
 import '../core/layout/app_layout.dart';
 import '../core/network/moegirl_service.dart';
 
@@ -12,9 +12,7 @@ class MoegirlDetailScreen extends StatelessWidget {
   final MoegirlEntry entry;
 
   Future<void> _openOriginal() async {
-    final uri = Uri.tryParse(entry.url);
-    if (uri == null) return;
-    await launchUrl(uri, mode: LaunchMode.externalApplication);
+    await launchExternalLink(Uri.tryParse(entry.url));
   }
 
   @override

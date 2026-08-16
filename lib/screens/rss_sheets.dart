@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:url_launcher/url_launcher.dart';
 
+import '../core/external_link.dart';
 import '../models/rss_models.dart';
 import '../models/schedule_models.dart';
 import '../state/rss_controller.dart';
@@ -471,13 +471,7 @@ class _RssUpdatesSheetState extends ConsumerState<_RssUpdatesSheet> {
                           await ref
                               .read(rssProvider.notifier)
                               .markItemRead(item.id);
-                          final uri = Uri.tryParse(item.link);
-                          if (uri != null) {
-                            await launchUrl(
-                              uri,
-                              mode: LaunchMode.externalApplication,
-                            );
-                          }
+                          await launchExternalLink(Uri.tryParse(item.link));
                           if (mounted) setState(() => _future = _load());
                         },
                       );

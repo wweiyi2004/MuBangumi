@@ -13,6 +13,7 @@ import '../widgets/community_widgets.dart';
 import '../widgets/friend_qr_actions.dart';
 import '../widgets/subject_widgets.dart';
 import 'collection_comparison_page.dart';
+import 'common_friends_page.dart';
 import 'pm_page.dart';
 import 'subject_detail_screen.dart';
 
@@ -274,6 +275,21 @@ class _UserProfilePageState extends ConsumerState<UserProfilePage> {
     );
   }
 
+  void _openCommonFriends() {
+    if (ref.read(sessionProvider).user == null) {
+      showAppMessage(context, '请先登录后查看共同好友');
+      return;
+    }
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => CommonFriendsPage(
+          targetUsername: widget.username,
+          targetDisplayName: _user?.displayName ?? widget.username,
+        ),
+      ),
+    );
+  }
+
   Future<void> _editLocalNote(String currentNote) async {
     final controller = TextEditingController(text: currentNote);
     final note = await showDialog<String>(
@@ -501,6 +517,11 @@ class _UserProfilePageState extends ConsumerState<UserProfilePage> {
                                       Icons.compare_arrows_rounded,
                                     ),
                                     label: const Text('口味对比'),
+                                  ),
+                                  OutlinedButton.icon(
+                                    onPressed: _openCommonFriends,
+                                    icon: const Icon(Icons.people_alt_outlined),
+                                    label: const Text('共同好友'),
                                   ),
                                   OutlinedButton.icon(
                                     onPressed: () =>

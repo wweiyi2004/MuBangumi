@@ -1,9 +1,11 @@
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mubangumi/core/auth/bangumi_oauth.dart';
 import 'package:mubangumi/core/network/bangumi_api.dart';
 import 'package:mubangumi/core/network/bangumi_endpoints.dart';
+import 'package:mubangumi/core/network/network_route_probe.dart';
 import 'package:mubangumi/core/storage/token_store.dart';
 import 'package:mubangumi/state/session_controller.dart';
 import 'package:mubangumi/widgets/network_route_picker.dart';
@@ -23,7 +25,11 @@ void main() {
             body: Consumer(
               builder: (context, ref, _) => Center(
                 child: ElevatedButton(
-                  onPressed: () => showNetworkRoutePicker(context, ref),
+                  onPressed: () => showNetworkRoutePicker(
+                    context,
+                    ref,
+                    probe: _instantProbe(),
+                  ),
                   child: const Text('open'),
                 ),
               ),
@@ -43,6 +49,20 @@ void main() {
     expect(find.textContaining('意外错误'), findsOneWidget);
   });
 }
+
+BangumiRouteProbe _instantProbe() => BangumiRouteProbe(
+  dioFactory: (route) {
+    final dio = Dio(BaseOptions(baseUrl: route.apiBaseUrl));
+    dio.interceptors.add(
+      InterceptorsWrapper(
+        onRequest: (options, handler) => handler.resolve(
+          Response<void>(requestOptions: options, statusCode: 200),
+        ),
+      ),
+    );
+    return dio;
+  },
+);
 
 class _ThrowingRouteSessionController extends SessionController {
   _ThrowingRouteSessionController()

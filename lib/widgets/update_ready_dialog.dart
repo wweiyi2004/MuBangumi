@@ -1,7 +1,9 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_markdown_plus/flutter_markdown_plus.dart';
-import 'package:url_launcher/url_launcher.dart';
 
+import '../core/external_link.dart';
 import '../core/update/app_update_service.dart';
 
 /// Shows the Shorebird "restart to apply" dialog with Markdown release notes.
@@ -78,12 +80,8 @@ class UpdateReadyDialog extends StatelessWidget {
               selectable: true,
               styleSheet: markdownStyle,
               softLineBreak: true,
-              onTapLink: (text, href, title) async {
-                if (href == null || href.isEmpty) return;
-                final uri = Uri.tryParse(href);
-                if (uri == null) return;
-                await launchUrl(uri, mode: LaunchMode.externalApplication);
-              },
+              onTapLink: (text, href, title) =>
+                  unawaited(launchExternalLink(Uri.tryParse(href ?? ''))),
             ),
           ),
         ),

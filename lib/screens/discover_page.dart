@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/layout/app_layout.dart';
@@ -19,6 +20,9 @@ import 'score_trends_page.dart';
 import 'subject_detail_screen.dart';
 
 enum DiscoverSearchTarget { subject, character, person }
+
+const discoverEarliestAnimeYear = 1906;
+const _discoverEarliestOtherYear = 1900;
 
 enum DiscoverQueryMode {
   browse,
@@ -138,6 +142,10 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
   /// TV-like seasonal browse (year + quarter).
   bool get _supportsSeason =>
       _subjectType == SubjectType.anime || _subjectType == SubjectType.real;
+
+  int get _earliestDiscoverYear => _subjectType == SubjectType.anime
+      ? discoverEarliestAnimeYear
+      : _discoverEarliestOtherYear;
 
   String get _yearFilterLabel => switch (_subjectType) {
     SubjectType.book => '最早出版年份',
@@ -1110,9 +1118,17 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
     var startYear = _startYear;
     var metaTags = List<String>.from(_metaTags);
     final tagController = TextEditingController(text: _tag);
+    final browseYearController = TextEditingController(text: '$browseYear');
+    final startYearController = TextEditingController(
+      text: startYear == 0 ? '' : '$startYear',
+    );
     final currentYear = DateTime.now().year;
+    final latestBrowseYear = currentYear + 1;
+    final earliestYear = _earliestDiscoverYear;
+    String? browseYearError;
+    String? startYearError;
     final yearChoices = [
-      for (var year = currentYear + 1; year >= currentYear - 8; year--) year,
+      for (var year = latestBrowseYear; year >= currentYear - 8; year--) year,
     ];
     final startYearChoices = <int>{
       0,
@@ -1124,6 +1140,7 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
       2015,
       2010,
     }.toList()..sort((a, b) => b.compareTo(a));
+    Animation<double>? sheetAnimation;
 
     final applied = await showModalBottomSheet<bool>(
       context: context,
@@ -1131,246 +1148,326 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
       useSafeArea: true,
       showDragHandle: true,
       constraints: const BoxConstraints(maxWidth: 680),
-      builder: (sheetContext) => StatefulBuilder(
-        builder: (context, setSheetState) => SingleChildScrollView(
-          padding: EdgeInsets.fromLTRB(
-            24,
-            4,
-            24,
-            24 + MediaQuery.viewInsetsOf(context).bottom,
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                '${_subjectType.label}筛选',
-                style: Theme.of(context).textTheme.headlineMedium,
-              ),
-              const SizedBox(height: 8),
-              Text(
-                _searching
-                    ? '当前为搜索模式：官方标签与下列条件作用于关键词搜索。'
-                    : _supportsSeason
-                    ? '当前为季度浏览：可按年份和季度查看排行。选中官方标签后会改为搜索。'
-                    : '当前为年度浏览：可按年份与排序查看热门作品。选中官方标签后会改为搜索。',
-                style: TextStyle(
-                  color: Theme.of(context).colorScheme.onSurfaceVariant,
-                ),
-              ),
-              const SizedBox(height: 22),
-              Text('官方标签', style: Theme.of(context).textTheme.titleMedium),
-              for (final group in BangumiMetaTags.groupsFor(_subjectType)) ...[
-                const SizedBox(height: 10),
+      builder: (sheetContext) {
+        sheetAnimation ??= ModalRoute.of(sheetContext)?.animation;
+        return StatefulBuilder(
+          builder: (context, setSheetState) => SingleChildScrollView(
+            padding: EdgeInsets.fromLTRB(
+              24,
+              4,
+              24,
+              24 + MediaQuery.viewInsetsOf(context).bottom,
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
                 Text(
-                  group.label,
-                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                  '${_subjectType.label}筛选',
+                  style: Theme.of(context).textTheme.headlineMedium,
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  _searching
+                      ? '当前为搜索模式：官方标签与下列条件作用于关键词搜索。'
+                      : _supportsSeason
+                      ? '当前为季度浏览：可按年份和季度查看排行。选中官方标签后会改为搜索。'
+                      : '当前为年度浏览：可按年份与排序查看热门作品。选中官方标签后会改为搜索。',
+                  style: TextStyle(
                     color: Theme.of(context).colorScheme.onSurfaceVariant,
                   ),
                 ),
-                const SizedBox(height: 8),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: [
-                    for (final tag in group.tags)
-                      ChoiceChip(
-                        label: Text(tag),
-                        selected: metaTags.contains(tag),
-                        onSelected: (selected) => setSheetState(() {
-                          metaTags = [
-                            for (final item in metaTags)
-                              if (!group.tags.contains(item)) item,
-                          ];
-                          if (selected) metaTags = [...metaTags, tag];
-                        }),
-                      ),
-                  ],
-                ),
-              ],
-              if (!_searching) ...[
                 const SizedBox(height: 22),
-                Text(
-                  _supportsSeason ? '季度浏览' : '年度浏览',
-                  style: Theme.of(context).textTheme.titleMedium,
-                ),
-                const SizedBox(height: 10),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: [
-                    for (final year in yearChoices)
-                      ChoiceChip(
-                        label: Text('$year'),
-                        selected: browseYear == year,
-                        onSelected: (_) =>
-                            setSheetState(() => browseYear = year),
-                      ),
-                  ],
-                ),
-                if (_supportsSeason) ...[
+                Text('官方标签', style: Theme.of(context).textTheme.titleMedium),
+                for (final group in BangumiMetaTags.groupsFor(
+                  _subjectType,
+                )) ...[
                   const SizedBox(height: 10),
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: [
-                      for (var quarter = 0; quarter < 4; quarter++)
-                        ChoiceChip(
-                          label: Text(_quarterLabel(quarter)),
-                          selected: browseQuarter == quarter,
-                          onSelected: (_) =>
-                              setSheetState(() => browseQuarter = quarter),
-                        ),
-                    ],
+                  Text(
+                    group.label,
+                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    ),
                   ),
-                ] else ...[
-                  const SizedBox(height: 10),
+                  const SizedBox(height: 8),
                   Wrap(
                     spacing: 8,
                     runSpacing: 8,
                     children: [
-                      for (final sort in ['rank', 'date'])
+                      for (final tag in group.tags)
                         ChoiceChip(
-                          label: Text(_browseSortLabel(sort)),
-                          selected: browseSort == sort,
-                          onSelected: (_) =>
-                              setSheetState(() => browseSort = sort),
+                          label: Text(tag),
+                          selected: metaTags.contains(tag),
+                          onSelected: (selected) => setSheetState(() {
+                            metaTags = [
+                              for (final item in metaTags)
+                                if (!group.tags.contains(item)) item,
+                            ];
+                            if (selected) metaTags = [...metaTags, tag];
+                          }),
                         ),
                     ],
                   ),
                 ],
-              ],
-              if (_searching) ...[
-                const SizedBox(height: 22),
-                Text('搜索排序', style: Theme.of(context).textTheme.titleMedium),
-                const SizedBox(height: 10),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: [
-                    for (final sort in ['match', 'heat', 'rank', 'score'])
-                      ChoiceChip(
-                        label: Text(_searchSortLabel(sort)),
-                        selected: searchSort == sort,
-                        onSelected: (_) =>
-                            setSheetState(() => searchSort = sort),
-                      ),
-                  ],
-                ),
-                const SizedBox(height: 22),
-                Text(
-                  '最低 Bangumi 评分',
-                  style: Theme.of(context).textTheme.titleMedium,
-                ),
-                const SizedBox(height: 10),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: [
-                    for (final rating in [0, 6, 7, 8, 9])
-                      ChoiceChip(
-                        label: Text(rating == 0 ? '不限' : '$rating 分以上'),
-                        selected: minimumRating == rating,
-                        onSelected: (_) =>
-                            setSheetState(() => minimumRating = rating),
-                      ),
-                  ],
-                ),
-                const SizedBox(height: 22),
-                Text(
-                  _yearFilterLabel,
-                  style: Theme.of(context).textTheme.titleMedium,
-                ),
-                const SizedBox(height: 10),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: [
-                    for (final year in startYearChoices)
-                      ChoiceChip(
-                        label: Text(year == 0 ? '不限' : '$year 年后'),
-                        selected: startYear == year,
-                        onSelected: (_) =>
-                            setSheetState(() => startYear = year),
-                      ),
-                  ],
-                ),
-                const SizedBox(height: 22),
-                TextField(
-                  controller: tagController,
-                  decoration: InputDecoration(
-                    labelText: '标签',
-                    hintText: '例如：${_suggestedTags.take(2).join('、')}',
-                    prefixIcon: const Icon(Icons.sell_outlined),
-                    helperText: '多个标签用逗号分隔；标签过窄容易搜不到结果',
+                if (!_searching) ...[
+                  const SizedBox(height: 22),
+                  Text(
+                    _supportsSeason ? '季度浏览' : '年度浏览',
+                    style: Theme.of(context).textTheme.titleMedium,
                   ),
-                ),
-                const SizedBox(height: 10),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: [
-                    for (final tag in _suggestedTags)
-                      ActionChip(
-                        label: Text(tag),
-                        onPressed: () {
-                          final current = tagController.text.trim();
-                          if (current.isEmpty) {
-                            tagController.text = tag;
-                          } else if (!current
-                              .split(RegExp(r'[,，\s]+'))
-                              .contains(tag)) {
-                            tagController.text = '$current，$tag';
-                          }
-                          setSheetState(() {});
-                        },
-                      ),
-                  ],
-                ),
-              ],
-              const SizedBox(height: 28),
-              Row(
-                children: [
-                  TextButton(
-                    onPressed: () => setSheetState(() {
-                      final now = DateTime.now();
-                      browseYear = now.year;
-                      browseQuarter = (now.month - 1) ~/ 3;
-                      browseSort = 'rank';
-                      searchSort = 'match';
-                      minimumRating = 0;
-                      startYear = 0;
-                      metaTags = [];
-                      tagController.clear();
+                  const SizedBox(height: 10),
+                  TextField(
+                    key: const ValueKey('discover-browse-year-input'),
+                    controller: browseYearController,
+                    keyboardType: TextInputType.number,
+                    textInputAction: TextInputAction.done,
+                    inputFormatters: [
+                      FilteringTextInputFormatter.digitsOnly,
+                      LengthLimitingTextInputFormatter(4),
+                    ],
+                    onChanged: (value) => setSheetState(() {
+                      browseYearError = _discoverYearInputError(
+                        value,
+                        minimum: earliestYear,
+                        maximum: latestBrowseYear,
+                      );
+                      if (browseYearError == null) {
+                        browseYear = int.parse(value);
+                      }
                     }),
-                    child: const Text('重置'),
+                    decoration: InputDecoration(
+                      labelText: '年份',
+                      hintText: '$currentYear',
+                      prefixIcon: const Icon(Icons.calendar_today_outlined),
+                      suffixText: '年',
+                      helperText: '可输入 $earliestYear—$latestBrowseYear',
+                      errorText: browseYearError,
+                    ),
                   ),
-                  const Spacer(),
-                  FilledButton.icon(
-                    onPressed: () {
-                      setState(() {
-                        _browseYear = browseYear;
-                        _browseQuarter = browseQuarter;
-                        _browseSort = browseSort;
-                        _searchSort = searchSort;
-                        _minimumRating = minimumRating;
-                        _startYear = startYear;
-                        _metaTags = List<String>.from(metaTags);
-                        _tag = tagController.text.trim();
-                      });
-                      Navigator.pop(sheetContext, true);
-                    },
-                    icon: const Icon(Icons.check_rounded),
-                    label: const Text('应用筛选'),
+                  const SizedBox(height: 10),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      for (final year in yearChoices)
+                        ChoiceChip(
+                          label: Text('$year'),
+                          selected: browseYear == year,
+                          onSelected: (_) => setSheetState(() {
+                            browseYear = year;
+                            browseYearController.text = '$year';
+                            browseYearError = null;
+                          }),
+                        ),
+                    ],
+                  ),
+                  if (_supportsSeason) ...[
+                    const SizedBox(height: 10),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        for (var quarter = 0; quarter < 4; quarter++)
+                          ChoiceChip(
+                            label: Text(_quarterLabel(quarter)),
+                            selected: browseQuarter == quarter,
+                            onSelected: (_) =>
+                                setSheetState(() => browseQuarter = quarter),
+                          ),
+                      ],
+                    ),
+                  ] else ...[
+                    const SizedBox(height: 10),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        for (final sort in ['rank', 'date'])
+                          ChoiceChip(
+                            label: Text(_browseSortLabel(sort)),
+                            selected: browseSort == sort,
+                            onSelected: (_) =>
+                                setSheetState(() => browseSort = sort),
+                          ),
+                      ],
+                    ),
+                  ],
+                ],
+                if (_searching) ...[
+                  const SizedBox(height: 22),
+                  Text('搜索排序', style: Theme.of(context).textTheme.titleMedium),
+                  const SizedBox(height: 10),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      for (final sort in ['match', 'heat', 'rank', 'score'])
+                        ChoiceChip(
+                          label: Text(_searchSortLabel(sort)),
+                          selected: searchSort == sort,
+                          onSelected: (_) =>
+                              setSheetState(() => searchSort = sort),
+                        ),
+                    ],
+                  ),
+                  const SizedBox(height: 22),
+                  Text(
+                    '最低 Bangumi 评分',
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
+                  const SizedBox(height: 10),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      for (final rating in [0, 6, 7, 8, 9])
+                        ChoiceChip(
+                          label: Text(rating == 0 ? '不限' : '$rating 分以上'),
+                          selected: minimumRating == rating,
+                          onSelected: (_) =>
+                              setSheetState(() => minimumRating = rating),
+                        ),
+                    ],
+                  ),
+                  const SizedBox(height: 22),
+                  Text(
+                    _yearFilterLabel,
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
+                  const SizedBox(height: 10),
+                  TextField(
+                    key: const ValueKey('discover-start-year-input'),
+                    controller: startYearController,
+                    keyboardType: TextInputType.number,
+                    textInputAction: TextInputAction.done,
+                    inputFormatters: [
+                      FilteringTextInputFormatter.digitsOnly,
+                      LengthLimitingTextInputFormatter(4),
+                    ],
+                    onChanged: (value) => setSheetState(() {
+                      startYearError = _discoverYearInputError(
+                        value,
+                        minimum: earliestYear,
+                        maximum: currentYear,
+                        optional: true,
+                      );
+                      if (startYearError == null) {
+                        startYear = value.trim().isEmpty ? 0 : int.parse(value);
+                      }
+                    }),
+                    decoration: InputDecoration(
+                      labelText: _yearFilterLabel,
+                      hintText: '留空表示不限',
+                      prefixIcon: const Icon(Icons.calendar_today_outlined),
+                      suffixText: '年',
+                      helperText: '可输入 $earliestYear—$currentYear，留空不限',
+                      errorText: startYearError,
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      for (final year in startYearChoices)
+                        ChoiceChip(
+                          label: Text(year == 0 ? '不限' : '$year 年后'),
+                          selected: startYear == year,
+                          onSelected: (_) => setSheetState(() {
+                            startYear = year;
+                            startYearController.text = year == 0 ? '' : '$year';
+                            startYearError = null;
+                          }),
+                        ),
+                    ],
+                  ),
+                  const SizedBox(height: 22),
+                  TextField(
+                    controller: tagController,
+                    decoration: InputDecoration(
+                      labelText: '标签',
+                      hintText: '例如：${_suggestedTags.take(2).join('、')}',
+                      prefixIcon: const Icon(Icons.sell_outlined),
+                      helperText: '多个标签用逗号分隔；标签过窄容易搜不到结果',
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      for (final tag in _suggestedTags)
+                        ActionChip(
+                          label: Text(tag),
+                          onPressed: () {
+                            final current = tagController.text.trim();
+                            if (current.isEmpty) {
+                              tagController.text = tag;
+                            } else if (!current
+                                .split(RegExp(r'[,，\s]+'))
+                                .contains(tag)) {
+                              tagController.text = '$current，$tag';
+                            }
+                            setSheetState(() {});
+                          },
+                        ),
+                    ],
                   ),
                 ],
-              ),
-            ],
+                const SizedBox(height: 28),
+                Row(
+                  children: [
+                    TextButton(
+                      onPressed: () => setSheetState(() {
+                        final now = DateTime.now();
+                        browseYear = now.year;
+                        browseYearController.text = '${now.year}';
+                        browseYearError = null;
+                        browseQuarter = (now.month - 1) ~/ 3;
+                        browseSort = 'rank';
+                        searchSort = 'match';
+                        minimumRating = 0;
+                        startYear = 0;
+                        startYearController.clear();
+                        startYearError = null;
+                        metaTags = [];
+                        tagController.clear();
+                      }),
+                      child: const Text('重置'),
+                    ),
+                    const Spacer(),
+                    FilledButton.icon(
+                      onPressed:
+                          browseYearError != null || startYearError != null
+                          ? null
+                          : () {
+                              setState(() {
+                                _browseYear = browseYear;
+                                _browseQuarter = browseQuarter;
+                                _browseSort = browseSort;
+                                _searchSort = searchSort;
+                                _minimumRating = minimumRating;
+                                _startYear = startYear;
+                                _metaTags = List<String>.from(metaTags);
+                                _tag = tagController.text.trim();
+                              });
+                              Navigator.pop(sheetContext, true);
+                            },
+                      icon: const Icon(Icons.check_rounded),
+                      label: const Text('应用筛选'),
+                    ),
+                  ],
+                ),
+              ],
+            ),
           ),
-        ),
-      ),
+        );
+      },
     );
+    await _waitForDismissed(sheetAnimation);
     tagController.dispose();
+    browseYearController.dispose();
+    startYearController.dispose();
     if (applied == true && mounted) {
       setState(() {
         _subjects = const [];
@@ -1378,6 +1475,39 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
       });
       unawaited(_startCurrentQuery());
     }
+  }
+
+  String? _discoverYearInputError(
+    String value, {
+    required int minimum,
+    required int maximum,
+    bool optional = false,
+  }) {
+    final normalized = value.trim();
+    if (normalized.isEmpty) return optional ? null : '请输入年份';
+    final year = int.tryParse(normalized);
+    if (year == null || year < minimum || year > maximum) {
+      return '请输入 $minimum—$maximum 年';
+    }
+    return null;
+  }
+
+  Future<void> _waitForDismissed(Animation<double>? animation) async {
+    if (animation == null || animation.status == AnimationStatus.dismissed) {
+      return;
+    }
+    final completer = Completer<void>();
+    void listener(AnimationStatus status) {
+      if (status != AnimationStatus.dismissed || completer.isCompleted) return;
+      animation.removeStatusListener(listener);
+      completer.complete();
+    }
+
+    animation.addStatusListener(listener);
+    if (animation.status == AnimationStatus.dismissed) {
+      listener(animation.status);
+    }
+    await completer.future;
   }
 
   String _quarterLabel(int quarter) => switch (quarter) {

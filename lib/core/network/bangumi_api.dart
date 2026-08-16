@@ -15,6 +15,22 @@ class BangumiApiException implements Exception {
   String toString() => message;
 }
 
+bool shouldRetryBangumiProxyRequest(DioException error) {
+  final request = error.requestOptions;
+  if (request.method.toUpperCase() != 'GET' ||
+      request.baseUrl != BangumiNetworkRoute.reverseProxy.apiBaseUrl) {
+    return false;
+  }
+  if (const {502, 503, 504}.contains(error.response?.statusCode)) return true;
+  return switch (error.type) {
+    DioExceptionType.connectionTimeout ||
+    DioExceptionType.sendTimeout ||
+    DioExceptionType.receiveTimeout ||
+    DioExceptionType.connectionError => true,
+    _ => false,
+  };
+}
+
 class BangumiApi {
   BangumiApi()
     : _dio = Dio(
@@ -36,10 +52,15 @@ class BangumiApi {
           // actually reachable; a JSON error body must not shadow them.
           final data = error.response?.data;
           final status = error.response?.statusCode;
-          var message = '连接 Bangumi 失败，请稍后重试';
+          final usingProxy =
+              error.requestOptions.baseUrl ==
+              BangumiNetworkRoute.reverseProxy.apiBaseUrl;
+          var message = usingProxy
+              ? 'Bangumi 反代连接失败，请测速或切换线路'
+              : '连接 Bangumi 失败，请稍后重试';
           if (error.type == DioExceptionType.connectionTimeout ||
               error.type == DioExceptionType.receiveTimeout) {
-            message = '请求超时，请检查网络连接';
+            message = usingProxy ? 'Bangumi 反代请求超时，请测速或切换线路' : '请求超时，请检查网络连接';
           } else if (status == 401) {
             message = 'Access Token 无效或已过期';
           } else if (status == 429) {
@@ -676,7 +697,8 @@ class BangumiApi {
 
   Future<Response<T>> _request<T>(
     Future<Response<T>> Function() request, {
-    bool retried = false,
+    bool authRetried = false,
+    bool transportRetried = false,
     bool checkToken = true,
   }) async {
     try {
@@ -684,11 +706,25 @@ class BangumiApi {
       return await request();
     } on DioException catch (error) {
       final status = error.response?.statusCode;
-      if (!retried &&
+      if (!transportRetried && shouldRetryBangumiProxyRequest(error)) {
+        await Future<void>.delayed(const Duration(milliseconds: 300));
+        return _request(
+          request,
+          authRetried: authRetried,
+          transportRetried: true,
+          checkToken: false,
+        );
+      }
+      if (!authRetried &&
           status == 401 &&
           onUnauthorizedRefresh != null &&
           await onUnauthorizedRefresh!()) {
-        return _request(request, retried: true, checkToken: false);
+        return _request(
+          request,
+          authRetried: true,
+          transportRetried: transportRetried,
+          checkToken: false,
+        );
       }
       if (error.error is BangumiApiException) {
         throw error.error! as BangumiApiException;
