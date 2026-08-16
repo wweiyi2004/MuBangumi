@@ -1,3 +1,4 @@
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_markdown_plus/flutter_markdown_plus.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -70,5 +71,53 @@ void main() {
     expect(find.textContaining('Patch #2'), findsWidgets);
     expect(find.textContaining('修复登录'), findsWidgets);
     expect(find.textContaining('重要'), findsWidgets);
+  });
+
+  test('fetchLatestGithubRelease parses the published release', () async {
+    final dio = Dio();
+    dio.interceptors.add(
+      InterceptorsWrapper(
+        onRequest: (options, handler) {
+          expect(options.path, contains('/releases/latest'));
+          handler.resolve(
+            Response<Map<String, dynamic>>(
+              requestOptions: options,
+              statusCode: 200,
+              data: {
+                'tag_name': 'v1.7.0',
+                'name': 'MuBangumi v1.7.0',
+                'body': '## 亮点\n\n- 共同好友',
+                'html_url':
+                    'https://github.com/wweiyi2004/MuBangumi/releases/tag/v1.7.0',
+              },
+            ),
+          );
+        },
+      ),
+    );
+
+    final release = await AppUpdateService(dio: dio).fetchLatestGithubRelease();
+
+    expect(release?.tagName, 'v1.7.0');
+    expect(release?.version, '1.7.0');
+    expect(release?.body, contains('共同好友'));
+  });
+
+  test('fetchLatestGithubRelease returns null when GitHub is unreachable', () async {
+    final dio = Dio();
+    dio.interceptors.add(
+      InterceptorsWrapper(
+        onRequest: (options, handler) {
+          handler.reject(
+            DioException(
+              requestOptions: options,
+              type: DioExceptionType.connectionError,
+            ),
+          );
+        },
+      ),
+    );
+
+    expect(await AppUpdateService(dio: dio).fetchLatestGithubRelease(), isNull);
   });
 }

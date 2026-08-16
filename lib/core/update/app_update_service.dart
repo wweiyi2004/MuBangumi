@@ -2,6 +2,8 @@ import 'package:dio/dio.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:shorebird_code_push/shorebird_code_push.dart';
 
+import 'github_release.dart';
+
 /// Result of a Shorebird update check / download cycle.
 enum AppUpdatePhase {
   /// Shorebird engine is not in this build (debug / non-shorebird release).
@@ -210,17 +212,25 @@ class AppUpdateService {
     }
   }
 
-  /// Loads GitHub Release body (Markdown) for the latest published version.
-  Future<String?> _fetchReleaseNotesMarkdown() async {
+  /// Latest published GitHub Release, or null if the request fails.
+  Future<GithubRelease?> fetchLatestGithubRelease() async {
     try {
       final response = await _dio.get<Map<String, dynamic>>(
         githubLatestReleaseUrl,
       );
-      final body = response.data?['body']?.toString().trim();
-      if (body == null || body.isEmpty) return null;
-      return body;
+      final data = response.data;
+      if (data == null) return null;
+      return GithubRelease.fromJson(data);
     } catch (_) {
       return null;
     }
+  }
+
+  /// Loads GitHub Release body (Markdown) for the latest published version.
+  Future<String?> _fetchReleaseNotesMarkdown() async {
+    final release = await fetchLatestGithubRelease();
+    final body = release?.body?.trim();
+    if (body == null || body.isEmpty) return null;
+    return body;
   }
 }

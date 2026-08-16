@@ -4,7 +4,7 @@ MuBangumi 是一个使用 Flutter 编写的第三方 Bangumi 追番客户端，�
 
 > 本项目是非官方客户端，与 Bangumi 番组计划官方无隶属关系。条目、收藏和章节数据来自 [Bangumi API](https://github.com/bangumi/api)。
 
-当前版本：**v1.7.0**
+当前版本：**v2.0.0**
 
 ## 原生 Android 版本
 
@@ -44,6 +44,7 @@ MuBangumi 是一个使用 Flutter 编写的第三方 Bangumi 追番客户端，�
 - 原生电波提醒列表（P1，支持标已读、应用内打开话题 / 时光机）；「我的」Tab 未读角标
 - 站内短信：原生收件箱 / 会话 / 发送（网站 Cookie；失败可回退网页）
 - Shorebird 热更新检查与重启提示（需 shorebird release 包）
+- 自动检测 GitHub Release 整包更新，Markdown 公告弹窗可前往下载或跳过此版本
 - 收藏本地快照与发现页 stale-while-revalidate
 - 同步网站登录（Cookie 安全存储，供私信等网页能力）
 - 深色 / 浅色 / 跟随系统主题
@@ -110,8 +111,9 @@ Token 与 Secret 由 `flutter_secure_storage` 保存在系统安全存储中，�
 
 应用使用 [Shorebird](https://shorebird.dev) 做 **Dart 代码热更新**（Android / Windows 等）。
 
-- 登录后进入主界面会延迟检查；有可用 patch 时下载，并弹窗展示 **Markdown 更新说明**（含 GitHub Release body），可「立即重启 / 稍后」。
-- 「我的」→「检查热更新」可手动检查。
+- 登录后进入主界面会延迟检查：有 Shorebird patch 时下载并弹窗展示 **Markdown 更新说明**（含 GitHub Release body），可「退出并生效 / 稍后」。
+- 若没有可应用的热更新，但 GitHub 上有更新的正式版，会再弹 **Markdown 公告**，可「前往下载 / 稍后 / 跳过此版本」。跳过只作用于该 tag，下一个版本仍会提示。
+- 「我的」→「检查更新」可手动检查；手动检查仍会展示已跳过的版本。
 - 必须用 Shorebird 打的包用户才能收到 patch；普通 `flutter run` / `flutter build` **不会**启用 updater。
 - 改原生代码、资源或 Flutter 引擎版本时，需要重新 `shorebird release`，不能只 patch。
 

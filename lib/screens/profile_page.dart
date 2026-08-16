@@ -13,6 +13,7 @@ import '../state/theme_controller.dart';
 import '../state/update_controller.dart';
 import '../state/website_session_controller.dart';
 import '../widgets/network_route_picker.dart';
+import '../widgets/github_release_dialog.dart';
 import '../widgets/update_ready_dialog.dart';
 import '../state/notify_controller.dart';
 import 'background_settings_sheet.dart';
@@ -519,21 +520,25 @@ class _UpdateSettingsTile extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final update = ref.watch(updateControllerProvider);
     final snapshot = update.snapshot;
+    final github = update.githubRelease;
     final subtitle = update.busy
-        ? '正在检查 / 下载热更新…'
+        ? '正在检查更新…'
+        : github != null
+        ? '发现新版本 ${github.version}'
         : snapshot == null
-        ? 'Shorebird 热更新 · 检查并下载补丁'
+        ? '检查热更新与 GitHub 安装包'
         : switch (snapshot.phase) {
             AppUpdatePhase.upToDate => '已是最新 · ${snapshot.versionLabel}',
             AppUpdatePhase.outdated => '发现可用热更新',
-            AppUpdatePhase.restartRequired => '已就绪，重启后生效',
-            AppUpdatePhase.unavailable => snapshot.message ?? '当前构建未启用热更新',
+            AppUpdatePhase.restartRequired => '热更新已就绪，重启后生效',
+            AppUpdatePhase.unavailable =>
+              '热更新不可用 · ${snapshot.versionLabel}',
             AppUpdatePhase.error => snapshot.message ?? '检查失败',
           };
 
     return ListTile(
       leading: const Icon(Icons.system_update_alt_rounded),
-      title: const Text('检查热更新'),
+      title: const Text('检查更新'),
       subtitle: Text(subtitle),
       trailing: update.busy
           ? const SizedBox.square(
@@ -559,11 +564,25 @@ class _UpdateSettingsTile extends ConsumerWidget {
       return;
     }
 
+    final github = ref.read(updateControllerProvider).githubRelease;
+    if (github != null) {
+      final result = await showGithubReleaseDialog(
+        context,
+        currentVersion: snapshot.appVersion,
+        currentBuild: snapshot.buildNumber,
+        release: github,
+      );
+      if (result == GithubReleaseDialogResult.skip && context.mounted) {
+        await controller.skipGithubRelease(github);
+      }
+      return;
+    }
+
     final text = switch (snapshot.phase) {
-      AppUpdatePhase.upToDate => '已是最新热更新（${snapshot.versionLabel}）',
+      AppUpdatePhase.upToDate => '已是最新版本（${snapshot.versionLabel}）',
       AppUpdatePhase.outdated => '发现可用热更新，请稍后再试或重启后重试',
-      AppUpdatePhase.unavailable => snapshot.message ?? '当前构建未启用 Shorebird 热更新',
-      AppUpdatePhase.error => snapshot.message ?? '检查热更新失败',
+      AppUpdatePhase.unavailable => '已是最新版本（${snapshot.versionLabel}）',
+      AppUpdatePhase.error => snapshot.message ?? '检查更新失败',
       AppUpdatePhase.restartRequired => '热更新已就绪，请重启应用',
     };
     messenger.showSnackBar(SnackBar(content: Text(text)));
