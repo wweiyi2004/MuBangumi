@@ -36,6 +36,10 @@ test("server-renders the MuBangumi homepage", async () => {
   assert.match(html, /可交互演示/);
   assert.match(html, /标记下一集/);
   assert.match(html, /从“想看”到“看完”/);
+  assert.match(html, /参考与致谢/);
+  assert.match(html, /https:\/\/zcode\.z\.ai\/en/);
+  assert.match(html, /https:\/\/bangumi\.tv\/dev\/garage/);
+  assert.match(html, /不代表任何官方合作、隶属关系或背书/);
   assert.match(html, /https:\/\/github\.com\/wweiyi2004\/MuBangumi\/releases/);
   assert.match(html, /property="og:image"/);
   assert.doesNotMatch(html, /codex-preview|Your site is taking shape/);

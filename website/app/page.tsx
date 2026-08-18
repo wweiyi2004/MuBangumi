@@ -148,6 +148,7 @@ export default function Home() {
           <a href="#features">功能</a>
           <a href="#platforms">平台</a>
           <a href="#opensource">开源</a>
+          <a href="#references">致谢</a>
         </nav>
         <a className="header-github" href={githubUrl} target="_blank" rel="noreferrer">
           <GithubIcon />
@@ -288,6 +289,52 @@ export default function Home() {
         </div>
       </section>
 
+      <section className="references-section" id="references">
+        <div className="references-heading">
+          <span className="section-kicker">REFERENCE & THANKS</span>
+          <h2>参考与致谢</h2>
+          <p>感谢这些项目、服务与社区，让 MuBangumi 的数据能力、产品体验和跨端开发成为可能。</p>
+        </div>
+        <div className="reference-grid">
+          <a href="https://bgm.tv/" target="_blank" rel="noreferrer">
+            <span className="reference-number">01</span>
+            <div><small>数据与社区</small><h3>Bangumi 番组计划</h3><p>条目、收藏、进度、社区与 OAuth 能力的核心来源。</p></div>
+            <i>↗</i>
+          </a>
+          <a href="https://github.com/bangumi/api" target="_blank" rel="noreferrer">
+            <span className="reference-number">02</span>
+            <div><small>开放接口</small><h3>Bangumi API</h3><p>公开 OpenAPI 规范及接口文档，为客户端数据访问提供基础。</p></div>
+            <i>↗</i>
+          </a>
+          <a href="https://netaba.re/" target="_blank" rel="noreferrer">
+            <span className="reference-number">03</span>
+            <div><small>趋势数据</small><h3>netaba.re</h3><p>为历史评分、排名、收藏变化与口碑趋势提供公开数据。</p></div>
+            <i>↗</i>
+          </a>
+          <a href="https://bangumi.tv/dev/garage" target="_blank" rel="noreferrer">
+            <span className="reference-number">04</span>
+            <div><small>功能灵感</small><h3>超合金组件格纳库</h3><p>评分详情、好友观看状态和讨论高亮等体验的灵感来源。</p></div>
+            <i>↗</i>
+          </a>
+          <a href="https://zcode.z.ai/en" target="_blank" rel="noreferrer">
+            <span className="reference-number">05</span>
+            <div><small>网页呈现</small><h3>ZCode</h3><p>本项目主页首屏可交互产品演示的呈现方式参考。</p></div>
+            <i>↗</i>
+          </a>
+          <a href="https://flutter.dev/" target="_blank" rel="noreferrer">
+            <span className="reference-number">06</span>
+            <div><small>跨端框架</small><h3>Flutter</h3><p>MuBangumi 在 Android、iOS 与 Windows 上共享代码的技术基础。</p></div>
+            <i>↗</i>
+          </a>
+          <a href="https://shorebird.dev/" target="_blank" rel="noreferrer">
+            <span className="reference-number">07</span>
+            <div><small>发布工具</small><h3>Shorebird</h3><p>为支持的平台提供 Dart 代码热更新能力。</p></div>
+            <i>↗</i>
+          </a>
+        </div>
+        <p className="reference-note">以上仅表示数据来源、技术使用或设计与功能参考，不代表任何官方合作、隶属关系或背书。</p>
+      </section>
+
       <footer>
         <div className="footer-brand">
           <Image src="/favicon.svg" alt="" width="34" height="34" />
@@ -297,6 +344,7 @@ export default function Home() {
           <a href={githubUrl} target="_blank" rel="noreferrer">GitHub</a>
           <a href={`${githubUrl}/issues`} target="_blank" rel="noreferrer">问题反馈</a>
           <a href="https://github.com/bangumi/api" target="_blank" rel="noreferrer">Bangumi API</a>
+          <a href="#references">参考与致谢</a>
         </div>
         <p>非官方客户端，与 Bangumi 番组计划官方无隶属关系。</p>
       </footer>

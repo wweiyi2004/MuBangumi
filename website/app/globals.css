@@ -1795,6 +1795,118 @@ svg {
   justify-content: center;
 }
 
+.references-section {
+  width: min(1180px, calc(100% - 48px));
+  margin: 0 auto 110px;
+  padding: 72px 76px 62px;
+  border: 1px solid #ebe5e9;
+  border-radius: 28px;
+  background:
+    radial-gradient(circle at 92% 5%, rgba(244, 38, 86, 0.08), transparent 29%),
+    #faf7f8;
+}
+
+.references-heading {
+  max-width: 650px;
+}
+
+.references-heading h2 {
+  margin: 13px 0 12px;
+  font-size: 38px;
+  line-height: 1.2;
+  letter-spacing: -0.05em;
+}
+
+.references-heading > p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.8;
+}
+
+.reference-grid {
+  margin-top: 42px;
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 11px;
+}
+
+.reference-grid > a {
+  min-height: 128px;
+  padding: 21px 22px;
+  border: 1px solid #e9e2e6;
+  border-radius: 16px;
+  display: grid;
+  grid-template-columns: 34px 1fr auto;
+  align-items: start;
+  gap: 14px;
+  background: rgba(255, 255, 255, 0.78);
+  transition: border-color 180ms ease, background 180ms ease, transform 180ms ease, box-shadow 180ms ease;
+}
+
+.reference-grid > a:last-child {
+  grid-column: 1 / -1;
+}
+
+.reference-grid > a:hover {
+  border-color: #edbdc9;
+  background: #fff;
+  transform: translateY(-3px);
+  box-shadow: 0 13px 28px rgba(61, 38, 48, 0.07);
+}
+
+.reference-grid > a:focus-visible {
+  outline: 2px solid rgba(244, 38, 86, 0.55);
+  outline-offset: 3px;
+}
+
+.reference-number {
+  padding-top: 3px;
+  color: var(--pink);
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.reference-grid small {
+  color: #9a8f96;
+  font-size: 8px;
+  font-weight: 650;
+  letter-spacing: 0.08em;
+}
+
+.reference-grid h3 {
+  margin: 5px 0 7px;
+  font-size: 14px;
+  letter-spacing: -0.02em;
+}
+
+.reference-grid p {
+  margin: 0;
+  color: #766d73;
+  font-size: 10px;
+  line-height: 1.65;
+}
+
+.reference-grid i {
+  color: #b5abb1;
+  font-size: 15px;
+  font-style: normal;
+  transition: color 180ms ease, transform 180ms ease;
+}
+
+.reference-grid > a:hover i {
+  color: var(--pink);
+  transform: translate(2px, -2px);
+}
+
+.reference-note {
+  margin: 24px 0 0;
+  color: #9b9197;
+  font-size: 9px;
+  line-height: 1.7;
+}
+
 footer {
   width: min(1180px, calc(100% - 48px));
   min-height: 126px;
@@ -1901,6 +2013,7 @@ footer > p {
   .hero,
   .trust-strip,
   .opensource-section,
+  .references-section,
   footer {
     width: min(100% - 32px, 1180px);
   }
@@ -2043,6 +2156,34 @@ footer > p {
   .final-cta {
     width: min(100% - 32px, 850px);
     padding: 105px 0 96px;
+  }
+
+  .references-section {
+    margin-bottom: 70px;
+    padding: 55px 22px 44px;
+    border-radius: 23px;
+  }
+
+  .references-heading {
+    text-align: center;
+  }
+
+  .references-heading h2 {
+    font-size: 35px;
+  }
+
+  .reference-grid {
+    grid-template-columns: 1fr;
+    margin-top: 35px;
+  }
+
+  .reference-grid > a:last-child {
+    grid-column: auto;
+  }
+
+  .reference-grid > a {
+    min-height: 0;
+    padding: 19px;
   }
 
   footer {
