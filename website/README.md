@@ -1,0 +1,34 @@
+# MuBangumi 项目主页
+
+这是 MuBangumi 的独立项目主页，使用 React、vinext 和 Cloudflare Workers 构建。它与仓库根目录的 Flutter 应用互不影响，可以单独开发和发布。
+
+## 本地运行
+
+需要 Node.js 22.13 或更高版本。
+
+```powershell
+cd website
+npm ci
+npm run dev
+```
+
+浏览器打开 `http://localhost:3000`。
+
+## 验证构建
+
+```powershell
+npm run lint
+npm test
+```
+
+`npm test` 会重新构建主页，并检查服务端输出的标题、介绍和关键链接。
+
+## 修改位置
+
+- `app/page.tsx`：主页内容和区块结构
+- `app/globals.css`：配色、布局、响应式样式和页面动效
+- `app/layout.tsx`：页面标题、描述和社交分享信息
+- `public/favicon.svg`：项目图标
+- `public/og.png`：社交平台分享封面
+
+主页中的下载和源码按钮分别指向项目的 GitHub Releases 与仓库首页。
