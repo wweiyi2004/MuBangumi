@@ -17,7 +17,8 @@ test("exports a GitHub Pages-ready homepage", async () => {
 
   const scriptPath = html.match(/src="(\/MuBangumi\/_next\/static\/[^"]+\.js)"/)?.[1];
   assert.ok(scriptPath, "the exported page should reference a client JavaScript bundle");
-  await access(new URL(`.${scriptPath}`, exportRoot));
+  await access(new URL(`.${scriptPath.replace("/MuBangumi", "")}`, exportRoot));
+  await assert.rejects(access(new URL("MuBangumi/_next/", exportRoot)));
 
   await Promise.all([
     access(new URL(".nojekyll", exportRoot)),
