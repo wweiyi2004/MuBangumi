@@ -2,8 +2,11 @@ import type { ReactNode } from "react";
 import Image from "next/image";
 import { ProductDemo } from "./ProductDemo";
 
+export const dynamic = "force-static";
+
 const githubUrl = "https://github.com/wweiyi2004/MuBangumi";
 const releasesUrl = `${githubUrl}/releases`;
+const faviconUrl = `${process.env.NEXT_PUBLIC_BASE_PATH ?? ""}/favicon.svg`;
 
 const features = [
   {
@@ -141,7 +144,7 @@ export default function Home() {
     <main>
       <header className="site-header">
         <a className="brand" href="#top" aria-label="MuBangumi 首页">
-          <Image src="/favicon.svg" alt="" width="40" height="40" priority />
+          <Image src={faviconUrl} alt="" width="40" height="40" priority />
           <span>MuBangumi</span>
         </a>
         <nav aria-label="主导航">
@@ -280,7 +283,7 @@ export default function Home() {
       </section>
 
       <section className="final-cta">
-        <Image src="/favicon.svg" alt="MuBangumi" width="74" height="74" />
+        <Image src={faviconUrl} alt="MuBangumi" width="74" height="74" />
         <h2>下一集，从这里开始。</h2>
         <p>打开 MuBangumi，把喜欢的作品和每一点进度好好收起来。</p>
         <div className="hero-actions">
@@ -337,7 +340,7 @@ export default function Home() {
 
       <footer>
         <div className="footer-brand">
-          <Image src="/favicon.svg" alt="" width="34" height="34" />
+          <Image src={faviconUrl} alt="" width="34" height="34" />
           <div><b>MuBangumi</b><span>认真记录每一部喜欢。</span></div>
         </div>
         <div className="footer-links">
