@@ -1,6 +1,5 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
-import { headers } from "next/headers";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -16,47 +15,47 @@ const geistMono = Geist_Mono({
 const title = "MuBangumi — 简单又好看的 Bangumi 客户端";
 const description =
   "开源、跨平台的第三方 Bangumi 客户端，把收藏、进度、发现与社区收进一个舒服的应用。";
+const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ??
+  "https://wweiyi2004.github.io/MuBangumi/";
+const metadataBase = new URL(siteUrl);
 
-export async function generateMetadata(): Promise<Metadata> {
-  const requestHeaders = await headers();
-  const host = requestHeaders.get("host") ?? "localhost:3000";
-  const protocol = host.startsWith("localhost") || host.startsWith("127.0.0.1")
-    ? "http"
-    : "https";
-  const metadataBase = new URL(`${protocol}://${host}`);
+export const dynamic = "force-static";
 
-  return {
-    metadataBase,
+export const metadata: Metadata = {
+  metadataBase,
+  title,
+  description,
+  keywords: ["MuBangumi", "Bangumi", "追番", "Flutter", "开源客户端"],
+  alternates: {
+    canonical: siteUrl,
+  },
+  icons: {
+    icon: new URL("favicon.svg", metadataBase).toString(),
+    shortcut: new URL("favicon.svg", metadataBase).toString(),
+  },
+  openGraph: {
     title,
     description,
-    keywords: ["MuBangumi", "Bangumi", "追番", "Flutter", "开源客户端"],
-    icons: {
-      icon: "/favicon.svg",
-      shortcut: "/favicon.svg",
-    },
-    openGraph: {
-      title,
-      description,
-      type: "website",
-      locale: "zh_CN",
-      siteName: "MuBangumi",
-      images: [
-        {
-          url: "/og.png",
-          width: 1734,
-          height: 907,
-          alt: "MuBangumi — 追番这件事，简单又好看。",
-        },
-      ],
-    },
-    twitter: {
-      card: "summary_large_image",
-      title,
-      description,
-      images: ["/og.png"],
-    },
-  };
-}
+    url: siteUrl,
+    type: "website",
+    locale: "zh_CN",
+    siteName: "MuBangumi",
+    images: [
+      {
+        url: new URL("og.png", metadataBase).toString(),
+        width: 1734,
+        height: 907,
+        alt: "MuBangumi — 追番这件事，简单又好看。",
+      },
+    ],
+  },
+  twitter: {
+    card: "summary_large_image",
+    title,
+    description,
+    images: [new URL("og.png", metadataBase).toString()],
+  },
+};
 
 export default function RootLayout({
   children,

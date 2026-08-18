@@ -25,6 +25,14 @@ npm test
 
 `npm test` 会重新构建主页，并检查服务端输出的标题、介绍和关键链接。
 
+GitHub Pages 静态版本使用：
+
+```powershell
+npm run test:pages
+```
+
+静态文件会生成到 `dist/client/`，并由仓库的 GitHub Actions 工作流自动发布。
+
 ## 修改位置
 
 - `app/page.tsx`：主页内容和区块结构

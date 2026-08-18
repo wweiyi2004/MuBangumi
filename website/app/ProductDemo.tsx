@@ -3,6 +3,8 @@
 import Image from "next/image";
 import { useEffect, useRef, useState } from "react";
 
+const faviconUrl = `${process.env.NEXT_PUBLIC_BASE_PATH ?? ""}/favicon.svg`;
+
 const tabs = [
   { id: "home", label: "首页", icon: "⌂" },
   { id: "collection", label: "收藏", icon: "◇" },
@@ -145,7 +147,7 @@ export function ProductDemo() {
       <div className="demo-hint"><span>●</span> 可交互演示</div>
       <div className="app-window">
         <aside className="mock-sidebar" aria-label="演示导航">
-          <Image src="/favicon.svg" alt="" width="34" height="34" />
+          <Image src={faviconUrl} alt="" width="34" height="34" />
           {tabs.map((tab) => (
             <button
               className={`mock-nav ${activeTab === tab.id ? "active" : ""}`}

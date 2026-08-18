@@ -58,7 +58,9 @@ test("removes all disposable starter content", async () => {
   assert.match(demo, /markNextEpisode/);
   assert.match(demo, /aria-pressed/);
   assert.match(demo, /setActiveTab/);
-  assert.match(layout, /generateMetadata/);
+  assert.match(layout, /export const metadata/);
+  assert.match(layout, /force-static/);
+  assert.doesNotMatch(layout, /next\/headers/);
   assert.match(layout, /openGraph/);
   assert.match(packageJson, /"name": "mubangumi-homepage"/);
   assert.doesNotMatch(packageJson, /react-loading-skeleton/);
