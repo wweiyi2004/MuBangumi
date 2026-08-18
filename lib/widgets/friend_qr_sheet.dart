@@ -61,9 +61,15 @@ class _FriendQrSheetState extends State<_FriendQrSheet> {
   Future<void> _share() async {
     final file = await _exportPng();
     if (file == null || !mounted) return;
-    await Share.shareXFiles([
-      XFile(file.path, mimeType: 'image/png'),
-    ], text: '用 MuBangumi 扫描添加 @${widget.user.username}');
+    final renderBox = context.findRenderObject() as RenderBox?;
+    final shareOrigin = renderBox == null
+        ? null
+        : renderBox.localToGlobal(Offset.zero) & renderBox.size;
+    await Share.shareXFiles(
+      [XFile(file.path, mimeType: 'image/png')],
+      text: '用 MuBangumi 扫描添加 @${widget.user.username}',
+      sharePositionOrigin: shareOrigin,
+    );
   }
 
   Future<File?> _exportPng() async {

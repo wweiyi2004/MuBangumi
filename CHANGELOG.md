@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+### iOS
+
+- 补齐 iPhone / iPad 品牌图标、相机与相册权限文案、OAuth 自定义 URL 回跳和本机 HTTP 回调配置。
+- 增加 App Privacy manifest，并写入 Xcode Runner target 的资源构建阶段。
+- 修复 iPad 分享二维码时缺少 popover 锚点的问题。
+- iOS 热更新改为提示用户手动重启，不再主动退出应用；整包升级不再跳转 GitHub 安装包。
+- README 增加 iOS 真机运行、签名、IPA / TestFlight 和 Shorebird 发布说明。
+
 ## 2.0.0 - 2026-08-16
 
 ### 新功能

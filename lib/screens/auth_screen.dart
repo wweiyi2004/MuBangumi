@@ -95,10 +95,10 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
     if (Platform.isWindows) {
       return '将在 MuBangumi 内打开官方授权页，成功后自动关闭';
     }
-    if (Platform.isAndroid) {
+    if (Platform.isAndroid || Platform.isIOS) {
       return '将在应用内安全标签页打开官方授权页，成功后自动返回';
     }
-    // iOS / desktop fallbacks: in-app browser does not auto-deep-link back.
+    // Other desktop fallbacks cannot deep-link back into the app.
     return '将在应用内安全标签页打开官方授权页，完成后请关闭标签页返回';
   }
 
