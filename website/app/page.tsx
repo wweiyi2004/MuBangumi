@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import Image from "next/image";
+import { ProductDemo } from "./ProductDemo";
 
 const githubUrl = "https://github.com/wweiyi2004/MuBangumi";
 const releasesUrl = `${githubUrl}/releases`;
@@ -182,51 +183,7 @@ export default function Home() {
           </div>
         </div>
 
-        <div className="app-showcase" aria-label="MuBangumi 界面示意">
-          <div className="showcase-orbit orbit-one" />
-          <div className="showcase-orbit orbit-two" />
-          <div className="app-window">
-            <aside className="mock-sidebar">
-              <Image src="/favicon.svg" alt="" width="34" height="34" />
-              <div className="mock-nav active"><span>⌂</span><b>首页</b></div>
-              <div className="mock-nav"><span>◇</span><b>收藏</b></div>
-              <div className="mock-nav"><span>⌕</span><b>发现</b></div>
-              <div className="mock-nav"><span>◌</span><b>社区</b></div>
-              <div className="mock-avatar">M</div>
-            </aside>
-            <div className="mock-content">
-              <div className="mock-topline"><span>晚上好</span><button aria-label="搜索">⌕</button></div>
-              <div className="mock-title-row">
-                <div><small>继续观看</small><h2>我的追番</h2></div>
-                <span className="mock-date">本季 · 12 部</span>
-              </div>
-              <div className="progress-card">
-                <div className="poster poster-main"><span>12</span></div>
-                <div className="progress-copy">
-                  <span className="status-pill">正在追</span>
-                  <h3>今天也有新的故事</h3>
-                  <p>看到第 11 话 · 共 12 话</p>
-                  <div className="progress-track"><span /></div>
-                  <button>标记下一集 <b>→</b></button>
-                </div>
-              </div>
-              <div className="mock-section-title"><b>本周放送</b><span>查看全部</span></div>
-              <div className="poster-row">
-                <div><div className="poster poster-a" /><span>周一</span></div>
-                <div><div className="poster poster-b" /><span>周三</span></div>
-                <div><div className="poster poster-c" /><span>周五</span></div>
-                <div><div className="poster poster-d" /><span>周日</span></div>
-              </div>
-            </div>
-          </div>
-          <div className="floating-card floating-sync">
-            <span className="float-icon">✓</span>
-            <div><b>进度已同步</b><small>刚刚更新</small></div>
-          </div>
-          <div className="floating-card floating-score">
-            <small>好友口味相似度</small><b>86<sup>%</sup></b>
-          </div>
-        </div>
+        <ProductDemo />
       </section>
 
       <section className="trust-strip" aria-label="支持平台">

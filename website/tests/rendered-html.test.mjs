@@ -33,6 +33,8 @@ test("server-renders the MuBangumi homepage", async () => {
   const html = await response.text();
   assert.match(html, /<title>MuBangumi — 简单又好看的 Bangumi 客户端<\/title>/i);
   assert.match(html, /追番这件事/);
+  assert.match(html, /可交互演示/);
+  assert.match(html, /标记下一集/);
   assert.match(html, /从“想看”到“看完”/);
   assert.match(html, /https:\/\/github\.com\/wweiyi2004\/MuBangumi\/releases/);
   assert.match(html, /property="og:image"/);
@@ -40,13 +42,18 @@ test("server-renders the MuBangumi homepage", async () => {
 });
 
 test("removes all disposable starter content", async () => {
-  const [page, layout, packageJson] = await Promise.all([
+  const [page, demo, layout, packageJson] = await Promise.all([
     readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/ProductDemo.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/layout.tsx", import.meta.url), "utf8"),
     readFile(new URL("../package.json", import.meta.url), "utf8"),
   ]);
 
   assert.match(page, /MuBangumi/);
+  assert.match(demo, /^"use client";/);
+  assert.match(demo, /markNextEpisode/);
+  assert.match(demo, /aria-pressed/);
+  assert.match(demo, /setActiveTab/);
   assert.match(layout, /generateMetadata/);
   assert.match(layout, /openGraph/);
   assert.match(packageJson, /"name": "mubangumi-homepage"/);
