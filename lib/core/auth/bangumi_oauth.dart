@@ -11,6 +11,8 @@ import '../network/bangumi_user_agent.dart';
 typedef OAuthAuthorizationLauncher =
     Future<bool> Function(Uri authorizationUri, Future<Uri> callback);
 
+/// App link used by the Android and iOS browser fallback pages to return to
+/// MuBangumi after the loopback OAuth callback has completed.
 const oauthAppReturnUri = 'mubangumi://oauth/complete';
 
 class OAuthConfig {
@@ -272,8 +274,8 @@ class BangumiOAuth {
         ..headers.contentType = ContentType.html
         ..write(
           hasCode
-              ? (Platform.isAndroid ? _androidSuccessHtml : _successHtml)
-              : (Platform.isAndroid ? _androidFailureHtml : _failureHtml),
+              ? (_usesMobileReturnLink ? _mobileSuccessHtml : _successHtml)
+              : (_usesMobileReturnLink ? _mobileFailureHtml : _failureHtml),
         );
       await request.response.close();
       await _dismissMobileBrowser();
@@ -291,6 +293,8 @@ class BangumiOAuth {
     }
   }
 
+  bool get _usesMobileReturnLink => Platform.isAndroid || Platform.isIOS;
+
   String _createState() {
     final random = Random.secure();
     final bytes = List<int>.generate(24, (_) => random.nextInt(256));
@@ -300,14 +304,14 @@ class BangumiOAuth {
   static const _successHtml = '''
 <!DOCTYPE html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>MuBangumi 授权完成</title><style>body{margin:0;font-family:system-ui;background:#f7f7fa;color:#1d2433;display:grid;place-items:center;min-height:100vh}.card{background:white;padding:48px;border-radius:24px;text-align:center;box-shadow:0 12px 40px #1d243312}.mark{width:64px;height:64px;border-radius:20px;background:#e95383;color:white;display:grid;place-items:center;font-size:36px;margin:auto}h1{margin:24px 0 8px;font-size:24px}p{color:#6d707f;margin:0}</style></head><body><div class="card"><div class="mark">✓</div><h1>授权成功</h1><p>可以关闭浏览器，回到 MuBangumi 了。</p></div></body></html>
 ''';
-  static const _androidSuccessHtml =
+  static const _mobileSuccessHtml =
       '''
 <!DOCTYPE html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><meta http-equiv="refresh" content="0;url=$oauthAppReturnUri"><title>MuBangumi 授权完成</title><style>body{margin:0;font-family:system-ui;background:#f7f7fa;color:#1d2433;display:grid;place-items:center;min-height:100vh}.card{background:white;padding:48px;border-radius:24px;text-align:center;box-shadow:0 12px 40px #1d243312}.mark{width:64px;height:64px;border-radius:20px;background:#e95383;color:white;display:grid;place-items:center;font-size:36px;margin:auto}h1{margin:24px 0 8px;font-size:24px}p{color:#6d707f;margin:0 0 22px}a{display:inline-block;padding:12px 20px;border-radius:999px;background:#e95383;color:white;text-decoration:none;font-weight:600}</style></head><body><div class="card"><div class="mark">✓</div><h1>授权成功</h1><p>正在返回 MuBangumi…</p><a href="$oauthAppReturnUri">返回 MuBangumi</a></div><script>setTimeout(function(){location.replace('$oauthAppReturnUri')},120)</script></body></html>
 ''';
   static const _failureHtml = '''
 <!DOCTYPE html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>MuBangumi 授权失败</title></head><body style="font-family:system-ui;text-align:center;padding:60px"><h1>授权未完成</h1><p>请返回 MuBangumi 再试一次。</p></body></html>
 ''';
-  static const _androidFailureHtml =
+  static const _mobileFailureHtml =
       '''
 <!DOCTYPE html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><meta http-equiv="refresh" content="0;url=$oauthAppReturnUri"><title>MuBangumi 授权失败</title><style>body{margin:0;font-family:system-ui;background:#f7f7fa;color:#1d2433;display:grid;place-items:center;min-height:100vh}.card{background:white;padding:48px;border-radius:24px;text-align:center;box-shadow:0 12px 40px #1d243312}.mark{width:64px;height:64px;border-radius:20px;background:#8a93a8;color:white;display:grid;place-items:center;font-size:36px;margin:auto}h1{margin:24px 0 8px;font-size:24px}p{color:#6d707f;margin:0 0 22px}a{display:inline-block;padding:12px 20px;border-radius:999px;background:#e95383;color:white;text-decoration:none;font-weight:600}</style></head><body><div class="card"><div class="mark">!</div><h1>授权未完成</h1><p>正在返回 MuBangumi…</p><a href="$oauthAppReturnUri">返回 MuBangumi</a></div><script>setTimeout(function(){location.replace('$oauthAppReturnUri')},120)</script></body></html>
 ''';

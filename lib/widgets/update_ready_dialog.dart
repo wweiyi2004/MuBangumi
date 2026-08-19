@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_markdown_plus/flutter_markdown_plus.dart';
 
@@ -17,17 +18,27 @@ Future<bool?> showUpdateReadyDialog(
     nextPatch: snapshot.nextPatch,
     releaseNotesMarkdown: snapshot.releaseNotesMarkdown,
   );
+  final allowImmediateExit =
+      !kIsWeb && defaultTargetPlatform != TargetPlatform.iOS;
   return showDialog<bool>(
     context: context,
     barrierDismissible: false,
-    builder: (context) => UpdateReadyDialog(markdown: markdown),
+    builder: (context) => UpdateReadyDialog(
+      markdown: markdown,
+      allowImmediateExit: allowImmediateExit,
+    ),
   );
 }
 
 class UpdateReadyDialog extends StatelessWidget {
-  const UpdateReadyDialog({super.key, required this.markdown});
+  const UpdateReadyDialog({
+    super.key,
+    required this.markdown,
+    this.allowImmediateExit = true,
+  });
 
   final String markdown;
+  final bool allowImmediateExit;
 
   @override
   Widget build(BuildContext context) {
@@ -56,9 +67,7 @@ class UpdateReadyDialog extends StatelessWidget {
         borderRadius: BorderRadius.circular(10),
       ),
       horizontalRuleDecoration: BoxDecoration(
-        border: Border(
-          top: BorderSide(color: scheme.outlineVariant, width: 1),
-        ),
+        border: Border(top: BorderSide(color: scheme.outlineVariant, width: 1)),
       ),
     );
 
@@ -87,15 +96,21 @@ class UpdateReadyDialog extends StatelessWidget {
         ),
       ),
       actions: [
-        TextButton(
-          onPressed: () => Navigator.of(context).pop(false),
-          child: const Text('稍后'),
-        ),
-        FilledButton.icon(
-          onPressed: () => Navigator.of(context).pop(true),
-          icon: const Icon(Icons.restart_alt_rounded),
-          label: const Text('退出并生效'),
-        ),
+        if (allowImmediateExit) ...[
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('稍后'),
+          ),
+          FilledButton.icon(
+            onPressed: () => Navigator.of(context).pop(true),
+            icon: const Icon(Icons.restart_alt_rounded),
+            label: const Text('退出并生效'),
+          ),
+        ] else
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('知道了，稍后手动重启'),
+          ),
       ],
     );
   }

@@ -526,13 +526,17 @@ class _UpdateSettingsTile extends ConsumerWidget {
         : github != null
         ? '发现新版本 ${github.version}'
         : snapshot == null
-        ? '检查热更新与 GitHub 安装包'
+        ? supportsGithubReleaseDownloads
+              ? '检查热更新与 GitHub 安装包'
+              : '检查热更新 · 整包由 App Store 更新'
         : switch (snapshot.phase) {
             AppUpdatePhase.upToDate => '已是最新 · ${snapshot.versionLabel}',
             AppUpdatePhase.outdated => '发现可用热更新',
             AppUpdatePhase.restartRequired => '热更新已就绪，重启后生效',
             AppUpdatePhase.unavailable =>
-              '热更新不可用 · ${snapshot.versionLabel}',
+              supportsGithubReleaseDownloads
+                  ? '热更新不可用 · ${snapshot.versionLabel}'
+                  : '当前版本 ${snapshot.versionLabel} · 整包由 App Store 更新',
             AppUpdatePhase.error => snapshot.message ?? '检查失败',
           };
 
@@ -581,7 +585,10 @@ class _UpdateSettingsTile extends ConsumerWidget {
     final text = switch (snapshot.phase) {
       AppUpdatePhase.upToDate => '已是最新版本（${snapshot.versionLabel}）',
       AppUpdatePhase.outdated => '发现可用热更新，请稍后再试或重启后重试',
-      AppUpdatePhase.unavailable => '已是最新版本（${snapshot.versionLabel}）',
+      AppUpdatePhase.unavailable =>
+        supportsGithubReleaseDownloads
+            ? '已是最新版本（${snapshot.versionLabel}）'
+            : '当前版本 ${snapshot.versionLabel}；整包请在 App Store 检查更新',
       AppUpdatePhase.error => snapshot.message ?? '检查更新失败',
       AppUpdatePhase.restartRequired => '热更新已就绪，请重启应用',
     };

@@ -20,6 +20,16 @@ final updateControllerProvider =
       );
     });
 
+/// iOS full-version upgrades are distributed by the App Store, not by opening
+/// a GitHub release that contains desktop/Android installers.
+bool get supportsGithubReleaseDownloads =>
+    !kIsWeb && defaultTargetPlatform != TargetPlatform.iOS;
+
+/// iOS apps must let the user terminate them; other native targets can exit so
+/// a downloaded Shorebird patch is loaded on the next process start.
+bool get supportsProgrammaticUpdateExit =>
+    !kIsWeb && defaultTargetPlatform != TargetPlatform.iOS;
+
 class UpdateUiState {
   const UpdateUiState({
     this.busy = false,
@@ -179,6 +189,7 @@ class UpdateController extends StateNotifier<UpdateUiState> {
     required String currentVersion,
     required bool ignoreSkip,
   }) async {
+    if (!supportsGithubReleaseDownloads) return null;
     final release = await _service.fetchLatestGithubRelease();
     if (release == null) return null;
     final skipped = ignoreSkip ? null : await _skipStore.readSkippedTag();
@@ -205,17 +216,14 @@ class UpdateController extends StateNotifier<UpdateUiState> {
   Future<void> skipGithubRelease(GithubRelease release) async {
     await _skipStore.skipTag(release.tagName);
     if (!mounted) return;
-    state = state.copyWith(
-      clearGithub: true,
-      shouldPresentGithubDialog: false,
-    );
+    state = state.copyWith(clearGithub: true, shouldPresentGithubDialog: false);
   }
 
   /// Fully exits so the next cold start loads the downloaded Shorebird patch.
   void restartApp() {
     // Process exit is required; Flutter hot-restart would not reload the engine
     // patch cache on device/desktop release builds.
-    if (kIsWeb) return;
+    if (!supportsProgrammaticUpdateExit) return;
     exit(0);
   }
 }

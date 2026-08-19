@@ -57,7 +57,7 @@ void main() {
     });
   });
 
-  test('Android OAuth return URI matches the manifest route', () {
+  test('mobile OAuth return URI matches Android and iOS routes', () {
     expect(oauthAppReturnUri, 'mubangumi://oauth/complete');
     final manifest = File(
       'android/app/src/main/AndroidManifest.xml',
@@ -66,6 +66,10 @@ void main() {
     expect(manifest, contains('android:host="oauth"'));
     expect(manifest, contains('android:path="/complete"'));
     expect(manifest, contains('CustomTabsService'));
+
+    final infoPlist = File('ios/Runner/Info.plist').readAsStringSync();
+    expect(infoPlist, contains('<string>mubangumi</string>'));
+    expect(infoPlist, contains('<key>NSAllowsLocalNetworking</key>'));
   });
 
   test('closes the in-app browser after the local callback arrives', () async {

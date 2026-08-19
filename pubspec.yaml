@@ -1,5 +1,5 @@
 name: mubangumi
-description: "A responsive Bangumi client for mobile and Windows."
+description: "A responsive Bangumi client for iOS, Android, and Windows."
 # The following line prevents the package from being accidentally published to
 # pub.dev using `flutter pub publish`. This is preferred for private packages.
 publish_to: 'none' # Remove this line if you wish to publish to pub.dev
@@ -93,7 +93,8 @@ flutter_launcher_icons:
   adaptive_icon_foreground: assets/branding/mubangumi_icon_foreground.png
   adaptive_icon_monochrome: assets/branding/mubangumi_icon_foreground.png
   adaptive_icon_foreground_inset: 12
-  ios: false
+  ios: true
+  remove_alpha_ios: true
   windows:
     generate: true
     image_path: assets/branding/mubangumi_icon.png

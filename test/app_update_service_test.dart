@@ -1,8 +1,10 @@
 import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_markdown_plus/flutter_markdown_plus.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mubangumi/core/update/app_update_service.dart';
+import 'package:mubangumi/state/update_controller.dart';
 import 'package:mubangumi/widgets/update_ready_dialog.dart';
 
 void main() {
@@ -36,6 +38,14 @@ void main() {
     });
   });
 
+  test('iOS uses App Store full releases and never exits itself', () {
+    debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
+    addTearDown(() => debugDefaultTargetPlatformOverride = null);
+
+    expect(supportsGithubReleaseDownloads, isFalse);
+    expect(supportsProgrammaticUpdateExit, isFalse);
+  });
+
   testWidgets('UpdateReadyDialog renders Markdown headings and emphasis', (
     tester,
   ) async {
@@ -54,9 +64,7 @@ void main() {
 
     await tester.pumpWidget(
       const MaterialApp(
-        home: Scaffold(
-          body: UpdateReadyDialog(markdown: markdown),
-        ),
+        home: Scaffold(body: UpdateReadyDialog(markdown: markdown)),
       ),
     );
 
@@ -71,6 +79,22 @@ void main() {
     expect(find.textContaining('Patch #2'), findsWidgets);
     expect(find.textContaining('修复登录'), findsWidgets);
     expect(find.textContaining('重要'), findsWidgets);
+  });
+
+  testWidgets('iOS update dialog asks for a manual restart', (tester) async {
+    await tester.pumpWidget(
+      const MaterialApp(
+        home: Scaffold(
+          body: UpdateReadyDialog(
+            markdown: '## 热更新已就绪',
+            allowImmediateExit: false,
+          ),
+        ),
+      ),
+    );
+
+    expect(find.text('退出并生效'), findsNothing);
+    expect(find.text('知道了，稍后手动重启'), findsOneWidget);
   });
 
   test('fetchLatestGithubRelease parses the published release', () async {
@@ -103,21 +127,27 @@ void main() {
     expect(release?.body, contains('共同好友'));
   });
 
-  test('fetchLatestGithubRelease returns null when GitHub is unreachable', () async {
-    final dio = Dio();
-    dio.interceptors.add(
-      InterceptorsWrapper(
-        onRequest: (options, handler) {
-          handler.reject(
-            DioException(
-              requestOptions: options,
-              type: DioExceptionType.connectionError,
-            ),
-          );
-        },
-      ),
-    );
+  test(
+    'fetchLatestGithubRelease returns null when GitHub is unreachable',
+    () async {
+      final dio = Dio();
+      dio.interceptors.add(
+        InterceptorsWrapper(
+          onRequest: (options, handler) {
+            handler.reject(
+              DioException(
+                requestOptions: options,
+                type: DioExceptionType.connectionError,
+              ),
+            );
+          },
+        ),
+      );
 
-    expect(await AppUpdateService(dio: dio).fetchLatestGithubRelease(), isNull);
-  });
+      expect(
+        await AppUpdateService(dio: dio).fetchLatestGithubRelease(),
+        isNull,
+      );
+    },
+  );
 }

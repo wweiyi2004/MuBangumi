@@ -69,7 +69,7 @@ API 的 OAuth 登录可直接调用 next.bgm.tv P1 完成电波提醒与加/删�
 
 ## 开始运行
 
-环境要求：Flutter 3.44 或兼容版本、Dart 3.12 或兼容版本。
+环境要求：Flutter 3.44 或兼容版本、Dart 3.12 或兼容版本。iOS 需要 macOS、Xcode 和 Apple 开发者签名环境，最低支持 iOS 13。
 
 ```powershell
 flutter pub get
@@ -82,7 +82,19 @@ flutter run -d windows
 flutter run -d android
 ```
 
-iOS 工程已生成，但 iOS 编译和签名必须在安装了 Xcode 的 macOS 上完成。
+iOS（仅可在 macOS 上编译）：
+
+```bash
+cp config/oauth.local.json.example config/oauth.local.json
+# 填入 OAuth 配置后，先启动 Simulator 或连接已启用开发者模式的 iPhone/iPad
+flutter pub get
+flutter devices
+flutter run -d <iOS-device-id> --dart-define-from-file=config/oauth.local.json
+```
+
+首次连接真机时，用 Xcode 打开 `ios/Runner.xcworkspace`，在 Runner target 的
+Signing & Capabilities 中选择自己的 Team；若 `com.wweiyi.mubangumi` 不属于该 Team，
+还需换成自己的唯一 Bundle Identifier。摄像头扫码应在真机验证，模拟器可用于其余界面和流程。
 
 ## 登录
 
@@ -111,10 +123,10 @@ Token 与 Secret 由 `flutter_secure_storage` 保存在系统安全存储中，�
 
 ## 热更新（Shorebird）
 
-应用使用 [Shorebird](https://shorebird.dev) 做 **Dart 代码热更新**（Android / Windows 等）。
+应用使用 [Shorebird](https://shorebird.dev) 做 **Dart 代码热更新**（Android / iOS / Windows）。
 
-- 登录后进入主界面会延迟检查：有 Shorebird patch 时下载并弹窗展示 **Markdown 更新说明**（含 GitHub Release body），可「退出并生效 / 稍后」。
-- 若没有可应用的热更新，但 GitHub 上有更新的正式版，会再弹 **Markdown 公告**，可「前往下载 / 稍后 / 跳过此版本」。跳过只作用于该 tag，下一个版本仍会提示。
+- 登录后进入主界面会延迟检查：有 Shorebird patch 时下载并弹窗展示 **Markdown 更新说明**（含 GitHub Release body）。Android / Windows 可选「退出并生效」，iOS 会提示稍后手动重启。
+- 若没有可应用的热更新，但 GitHub 上有更新的正式版，Android / Windows 会再弹 **Markdown 公告**，可「前往下载 / 稍后 / 跳过此版本」；iOS 整包更新只走 App Store / TestFlight。
 - 「我的」→「检查更新」可手动检查；手动检查仍会展示已跳过的版本。
 - 必须用 Shorebird 打的包用户才能收到 patch；普通 `flutter run` / `flutter build` **不会**启用 updater。
 - 改原生代码、资源或 Flutter 引擎版本时，需要重新 `shorebird release`，不能只 patch。
@@ -130,11 +142,29 @@ Token 与 Secret 由 `flutter_secure_storage` 保存在系统安全存储中，�
 # 只改了 Dart → 推送热更新
 shorebird patch windows '--' --dart-define-from-file=config/oauth.local.json
 shorebird patch android '--' --dart-define-from-file=config/oauth.local.json
+# iOS 命令在 macOS 终端运行
+shorebird patch ios -- --dart-define-from-file=config/oauth.local.json
 ```
 
 `shorebird.yaml` 中 `auto_update: false`，由应用内控制检查与下载，以便展示重启弹窗。
 
 ## 构建
+
+iOS / iPadOS（仅 macOS）：
+
+```bash
+# 先在 Xcode 配好 Team、Bundle Identifier 和自动签名
+flutter build ipa --release --dart-define-from-file=config/oauth.local.json
+
+# 若需要 Shorebird 热更新，则用它生成提交到 App Store Connect 的基线 IPA
+shorebird release ios -- --dart-define-from-file=config/oauth.local.json
+```
+
+普通 Flutter 构建会在 `build/ios/archive/` 生成 archive，并在 `build/ios/ipa/` 生成 IPA；
+可用 Xcode Organizer 或 Transporter 上传到 App Store Connect / TestFlight。iOS 端不会展示
+GitHub 安装包下载提示，正式版本升级应通过 TestFlight 或 App Store。项目已配置品牌图标、
+相机/相册用途说明、OAuth 回跳以及 App Privacy manifest。提交前仍需在 App Store Connect
+填写隐私问卷，并提供本仓库的 [`PRIVACY.md`](PRIVACY.md) 对应的公开隐私政策网址。
 
 Windows：
 
@@ -166,7 +196,7 @@ Android 正式构建需要独立上传密钥，不能使用调试签名。先复
 `android/key.properties.example` 为 `android/key.properties`，填写密钥路径、别名和密码；
 密钥文件与 `key.properties` 已被 Git 忽略。配置缺失时 Release 构建会直接失败，避免误发调试签名包。
 
-构建产物分别位于 `build/windows/x64/runner/Release/` 和 `build/app/outputs/`。
+构建产物分别位于 `build/ios/ipa/`、`build/windows/x64/runner/Release/` 和 `build/app/outputs/`。
 
 ## 项目结构
 
