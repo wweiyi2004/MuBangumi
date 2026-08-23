@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/network/bangumi_support.dart';
+import '../core/storage/snapshot_cache.dart';
 import '../models/bangumi_models.dart';
 import '../state/session_controller.dart';
 import 'subject_widgets.dart';
@@ -11,7 +12,7 @@ Future<void> showEpisodeGridSheet(
   WidgetRef ref,
   UserCollection collection,
 ) async {
-  final changed = await showModalBottomSheet<bool>(
+  await showModalBottomSheet<bool>(
     context: context,
     isScrollControlled: true,
     useSafeArea: true,
@@ -22,11 +23,6 @@ Future<void> showEpisodeGridSheet(
       child: _EpisodeGridPanel(collection: collection),
     ),
   );
-  // Skip the full collections sync unless the user actually toggled a cell;
-  // opening and closing the grid used to trigger a whole library refresh.
-  if (changed == true && context.mounted) {
-    await ref.read(sessionProvider.notifier).refresh(showIndicator: false);
-  }
 }
 
 class _EpisodeGridPanel extends ConsumerStatefulWidget {
@@ -59,23 +55,45 @@ class _EpisodeGridPanelState extends ConsumerState<_EpisodeGridPanel> {
       _loading = true;
       _error = null;
     });
+    final cache = SnapshotCache.shared;
+    final cached = await cache.readEpisodeCollections(
+      widget.collection.subjectId,
+    );
+    if (!mounted) return;
+    if (cached != null && cached.isNotEmpty) {
+      final localCached = await ref
+          .read(sessionProvider.notifier)
+          .applyPendingEpisodeChanges(widget.collection.subjectId, cached);
+      if (!mounted) return;
+      setState(() {
+        _episodes = localCached;
+        _loading = false;
+      });
+    }
     try {
-      final episodes = await ref
+      var episodes = await ref
           .read(bangumiApiProvider)
           .getEpisodeCollections(
             widget.collection.subjectId,
             episodeType: null,
           );
+      episodes = await ref
+          .read(sessionProvider.notifier)
+          .applyPendingEpisodeChanges(widget.collection.subjectId, episodes);
       if (!mounted) return;
       setState(() {
         _episodes = episodes;
         _loading = false;
       });
+      await cache.writeEpisodeCollections(
+        widget.collection.subjectId,
+        episodes,
+      );
     } catch (error) {
       if (!mounted) return;
       setState(() {
         _loading = false;
-        _error = error.toString();
+        if (_episodes.isEmpty) _error = error.toString();
       });
     }
   }
@@ -312,7 +330,7 @@ class _EpisodeGridPanelState extends ConsumerState<_EpisodeGridPanel> {
           subjectId: widget.collection.subjectId,
           episodeId: item.episode.id,
           type: type,
-          refreshCollection: false,
+          previousType: item.type,
           trackGlobalBusy: false,
         );
     if (!mounted) return;
@@ -324,7 +342,9 @@ class _EpisodeGridPanelState extends ConsumerState<_EpisodeGridPanel> {
         _changed = true;
       }
     });
-    if (error != null) showAppMessage(context, error);
+    if (error != null) {
+      showAppMessage(context, error);
+    }
   }
 
   String _number(double value) =>

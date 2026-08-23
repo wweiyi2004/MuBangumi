@@ -14,6 +14,7 @@ import '../core/network/bangumi_support.dart';
 import '../core/network/community_service.dart';
 import '../core/network/moegirl_service.dart';
 import '../core/network/netaba_api.dart';
+import '../core/storage/snapshot_cache.dart';
 import '../models/bangumi_models.dart';
 import '../models/community_models.dart';
 import '../models/netaba_models.dart';
@@ -71,7 +72,6 @@ class _SubjectDetailScreenState extends ConsumerState<SubjectDetailScreen> {
   int? _episodeTypeFilter; // null = all, 0 = main
   final Set<int> _updatingEpisodes = {};
   late final SessionController _sessionController;
-  bool _episodesChanged = false;
   bool _loading = true;
   String? _error;
 
@@ -79,46 +79,83 @@ class _SubjectDetailScreenState extends ConsumerState<SubjectDetailScreen> {
   void initState() {
     super.initState();
     _sessionController = ref.read(sessionProvider.notifier);
+    _details = widget.subject;
+    _loading = false;
     Future.microtask(_load);
-  }
-
-  @override
-  void dispose() {
-    if (_episodesChanged) {
-      unawaited(_sessionController.refresh(showIndicator: false));
-    }
-    super.dispose();
   }
 
   Future<void> _load() async {
     setState(() {
-      _loading = true;
+      _loading = _details == null;
       _error = null;
     });
     try {
       final api = ref.read(bangumiApiProvider);
       final hasCollection =
           ref.read(sessionProvider).collectionFor(widget.subject.id) != null;
-      final details = await api.getSubject(widget.subject.id);
+      if (hasCollection) {
+        final cachedEpisodes = await SnapshotCache.shared
+            .readEpisodeCollections(widget.subject.id);
+        if (cachedEpisodes != null && cachedEpisodes.isNotEmpty) {
+          final localCachedEpisodes = await _sessionController
+              .applyPendingEpisodeChanges(widget.subject.id, cachedEpisodes);
+          if (!mounted) return;
+          setState(() {
+            _episodes = [for (final item in localCachedEpisodes) item.episode];
+            _episodeTypes = {
+              for (final item in localCachedEpisodes)
+                item.episode.id: item.type,
+            };
+          });
+        }
+      }
+      Subject details;
+      try {
+        details = await api.getSubject(widget.subject.id);
+      } catch (_) {
+        details = widget.subject;
+      }
       List<Episode> episodes = const [];
       Map<int, int> episodeTypes = {};
       if (details.type.hasEpisodes || widget.subject.type.hasEpisodes) {
         if (hasCollection) {
-          // Explicit null = all types for SP/OP/ED filter UI.
-          final episodeCollections = await api.getEpisodeCollections(
-            widget.subject.id,
-            episodeType: null,
-          );
+          List<UserEpisodeCollection> episodeCollections;
+          var fetchedEpisodeCollections = false;
+          try {
+            episodeCollections = await api.getEpisodeCollections(
+              widget.subject.id,
+              episodeType: null,
+            );
+            fetchedEpisodeCollections = true;
+          } catch (_) {
+            episodeCollections =
+                await SnapshotCache.shared.readEpisodeCollections(
+                  widget.subject.id,
+                ) ??
+                const [];
+          }
+          episodeCollections = await _sessionController
+              .applyPendingEpisodeChanges(
+                widget.subject.id,
+                episodeCollections,
+              );
+          if (fetchedEpisodeCollections) {
+            await SnapshotCache.shared.writeEpisodeCollections(
+              widget.subject.id,
+              episodeCollections,
+            );
+          }
           episodes = [for (final item in episodeCollections) item.episode];
           episodeTypes = {
             for (final item in episodeCollections) item.episode.id: item.type,
           };
         } else {
-          // Explicit null = all types for SP/OP/ED filter UI.
-          episodes = await api.getEpisodes(
-            widget.subject.id,
-            episodeType: null,
-          );
+          try {
+            episodes = await api.getEpisodes(
+              widget.subject.id,
+              episodeType: null,
+            );
+          } catch (_) {}
         }
       }
       if (!mounted) return;
@@ -139,7 +176,9 @@ class _SubjectDetailScreenState extends ConsumerState<SubjectDetailScreen> {
       if (!mounted) return;
       setState(() {
         _loading = false;
-        _error = error.toString().replaceFirst('Exception: ', '');
+        if (_details == null) {
+          _error = error.toString().replaceFirst('Exception: ', '');
+        }
       });
     }
   }
@@ -767,20 +806,31 @@ class _SubjectDetailScreenState extends ConsumerState<SubjectDetailScreen> {
     final successText = type == CollectionType.done && subject.type.hasEpisodes
         ? '已更新为“${type.labelFor(subject.type)}”，并自动补全章节进度'
         : '已更新为“${type.labelFor(subject.type)}”';
-    showAppMessage(context, error ?? successText);
+    final pending = ref.read(sessionProvider).pendingSyncCount;
+    showAppMessage(
+      context,
+      error ?? (pending > 0 ? '$successText；已保存在本机，联网后自动同步' : successText),
+    );
     if (error == null &&
         subject.type.hasEpisodes &&
         (!hadCollection || type == CollectionType.done)) {
       await _reloadEpisodeWatchState(subject.id);
-      _episodesChanged = true;
     }
   }
 
   Future<void> _reloadEpisodeWatchState(int subjectId) async {
     try {
-      final episodeCollections = await ref
+      var episodeCollections = await ref
           .read(bangumiApiProvider)
           .getEpisodeCollections(subjectId, episodeType: null);
+      episodeCollections = await _sessionController.applyPendingEpisodeChanges(
+        subjectId,
+        episodeCollections,
+      );
+      await SnapshotCache.shared.writeEpisodeCollections(
+        subjectId,
+        episodeCollections,
+      );
       if (!mounted) return;
       setState(() {
         _episodes = [for (final item in episodeCollections) item.episode];
@@ -813,7 +863,7 @@ class _SubjectDetailScreenState extends ConsumerState<SubjectDetailScreen> {
       subjectId: subjectId,
       episodeId: episode.id,
       type: type,
-      refreshCollection: false,
+      previousType: previousType,
       trackGlobalBusy: false,
     );
     if (!mounted) return;
@@ -821,8 +871,6 @@ class _SubjectDetailScreenState extends ConsumerState<SubjectDetailScreen> {
       _updatingEpisodes.remove(episode.id);
       if (error != null) {
         _episodeTypes = {..._episodeTypes, episode.id: previousType};
-      } else {
-        _episodesChanged = true;
       }
     });
     if (error != null) {
@@ -1269,8 +1317,9 @@ class _MoegirlPanel extends StatelessWidget {
                             ),
                           ),
                           TextButton.icon(
-                            onPressed: () =>
-                                unawaited(launchExternalLink(Uri.tryParse(entry!.url))),
+                            onPressed: () => unawaited(
+                              launchExternalLink(Uri.tryParse(entry!.url)),
+                            ),
                             icon: const Icon(Icons.open_in_new_rounded),
                             label: const Text('查看原文'),
                           ),

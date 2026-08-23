@@ -47,6 +47,52 @@ void main() {
     expect(find.text('回复话题'), findsNothing);
   });
 
+  testWidgets('submits a group topic with title and content', (tester) async {
+    String? submittedTitle;
+    String? submittedContent;
+    String? submittedToken;
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Builder(
+          builder: (context) => Scaffold(
+            body: Center(
+              child: FilledButton(
+                onPressed: () => showCommunityComposer(
+                  context,
+                  heading: '在「测试小组」发帖',
+                  requireTitle: true,
+                  tokenProvider: (_) async => 'verified-turnstile-token',
+                  onSubmit: (title, content, token) async {
+                    submittedTitle = title;
+                    submittedContent = content;
+                    submittedToken = token;
+                  },
+                ),
+                child: const Text('发帖'),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    await tester.tap(find.text('发帖'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.widgetWithText(TextField, '标题'), '测试标题');
+    await tester.enterText(find.widgetWithText(TextField, '内容'), '测试正文');
+    await tester.pump();
+    final sendButton = find.widgetWithText(FilledButton, '发送');
+    expect(tester.widget<FilledButton>(sendButton).onPressed, isNotNull);
+    await tester.tap(sendButton);
+    await tester.pumpAndSettle();
+
+    expect(submittedTitle, '测试标题');
+    expect(submittedContent, '测试正文');
+    expect(submittedToken, 'verified-turnstile-token');
+    expect(find.text('在「测试小组」发帖'), findsNothing);
+  });
+
   test('BBCode wraps selected text and keeps selection', () {
     final controller = TextEditingController(text: 'hello world')
       ..selection = const TextSelection(baseOffset: 6, extentOffset: 11);

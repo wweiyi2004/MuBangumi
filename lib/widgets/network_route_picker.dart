@@ -150,6 +150,7 @@ class _NetworkRouteDialogState extends State<_NetworkRouteDialog> {
         padding: EdgeInsets.fromLTRB(24, 8, 24, 4),
         child: Text(
           '测速仅检查 v0 API。反代 GET 请求遇到瞬时超时或网关错误会自动重试一次；'
+          '收藏和章节修改会先保存在本机，联网后自动补传；'
           'OAuth 登录、社区 P1 和官网页面仍使用官方线路。',
           style: TextStyle(fontSize: 12),
         ),

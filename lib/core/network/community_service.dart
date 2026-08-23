@@ -30,7 +30,7 @@ class PrivateGroupMembershipException implements Exception {
   final String groupName;
 
   @override
-  String toString() => '「$groupName」是私密小组，需要先加入小组后再回复';
+  String toString() => '「$groupName」是私密小组，需要先加入小组后再发帖或回复';
 }
 
 class CommunityService {
@@ -418,10 +418,37 @@ class CommunityService {
     required String turnstileToken,
   }) async {
     _requireAuthentication();
+    final trimmedTitle = title.trim();
+    final trimmedContent = content.trim();
+    if (trimmedTitle.isEmpty) {
+      throw const FormatException('标题不能为空');
+    }
+    if (trimmedContent.isEmpty) {
+      throw const FormatException('正文不能为空');
+    }
     final token = _requireTurnstileToken(turnstileToken);
-    await _postJson(
-      '/groups/${Uri.encodeComponent(slug)}/topics',
-      data: {'title': title, 'content': content, 'turnstileToken': token},
+    final encoded = Uri.encodeComponent(slug);
+    try {
+      await _postJson(
+        '/groups/$encoded/topics',
+        data: {
+          'title': trimmedTitle,
+          'content': trimmedContent,
+          'turnstileToken': token,
+        },
+      );
+    } on PrivateGroupMembershipException {
+      // Same P1 membership-id swap as replies: the official create-topic
+      // endpoint rejects even the group owner. The classic website form
+      // checks membership correctly.
+      await _createGroupTopicViaWebsite(
+        slug: slug,
+        title: trimmedTitle,
+        content: trimmedContent,
+      );
+    }
+    _jsonCache.removeWhere(
+      (key, _) => key.contains('/groups/$encoded') || key.contains('/topics'),
     );
   }
 
@@ -515,6 +542,73 @@ class CommunityService {
     _htmlCache.removeWhere((key, _) => key.contains('/group/topic/$id'));
   }
 
+  /// Creates a group topic through the classic website form
+  /// (`/group/{slug}/new_topic`) using the stored website session.
+  Future<void> _createGroupTopicViaWebsite({
+    required String slug,
+    required String title,
+    required String content,
+  }) async {
+    final cookie = await _requireWebsiteCookieHeader();
+    final path = '/group/${Uri.encodeComponent(slug)}/new_topic';
+    final formhash = await _loadWebsiteFormhash(path, cookie);
+    final response = await _htmlDio.post<String>(
+      path,
+      data: {
+        'formhash': formhash,
+        'title': title,
+        'subject': title,
+        'content': content,
+        'submit': 'submit',
+      },
+      options: Options(
+        contentType: Headers.formUrlEncodedContentType,
+        followRedirects: false,
+        headers: {
+          'Cookie': cookie,
+          'Referer': 'https://bgm.tv$path',
+          'Origin': 'https://bgm.tv',
+        },
+        validateStatus: (status) => status != null && status < 500,
+      ),
+    );
+    final status = response.statusCode ?? 0;
+    final location = response.headers.value('location') ?? '';
+    if (status >= 300 && status < 400 && location.contains('/group/topic/')) {
+      return;
+    }
+    final body = response.data ?? '';
+    if (status == 401 || looksLikeWebsiteLoginPage(body)) {
+      throw const FormatException('网页版登录已过期，请重新登录网页版后再发帖');
+    }
+    Object? decoded;
+    try {
+      decoded = jsonDecode(body);
+    } catch (_) {
+      decoded = null;
+    }
+    if (decoded is Map) {
+      if (decoded['id'] != null ||
+          decoded.containsKey('topic') ||
+          decoded['status'] == 'ok') {
+        return;
+      }
+      final detail = decoded['error'] ?? decoded['message'];
+      if (detail != null && detail.toString().trim().isNotEmpty) {
+        throw FormatException('发帖失败：${detail.toString().trim()}');
+      }
+    }
+    if (body.contains('postTopic') || body.contains('/group/topic/')) {
+      return;
+    }
+    final notice = PmHtmlParser().parseSubmissionError(body);
+    if (notice != null) throw FormatException('发帖失败：$notice');
+    if (status >= 400) {
+      throw FormatException('发帖失败（HTTP $status）');
+    }
+    throw const FormatException('发帖结果未知，请刷新小组页确认是否已发出');
+  }
+
   /// Posts a group topic reply through the classic website form
   /// (`/group/topic/{id}/new_reply`) using the stored website session.
   Future<void> _replyToGroupTopicViaWebsite({
@@ -577,20 +671,40 @@ class CommunityService {
     throw const FormatException('回复结果未知，请刷新话题页确认是否已发出');
   }
 
-  Future<String> _loadWebsiteFormhash(String topicPath, String cookie) async {
+  Future<String> _loadWebsiteFormhash(String path, String cookie) async {
+    final html = await _fetchWebsiteHtml(path, cookie);
+    _throwIfWebsiteLoginPage(html);
+    final fromPage = _htmlParser.parseFormhash(html);
+    if (fromPage != null) return fromPage;
+    // Private-group / permission pages omit the reply form. The homepage
+    // still carries the session formhash on the logout link when cookies
+    // actually authenticated.
+    if (path != '/') {
+      final home = await _fetchWebsiteHtml('/', cookie);
+      _throwIfWebsiteLoginPage(home);
+      final fromHome = _htmlParser.parseFormhash(home);
+      if (fromHome != null) return fromHome;
+    }
+    throw const FormatException('网页版看起来没有登录成功，请到「我的 → 同步网站登录」重新登录后再试');
+  }
+
+  Future<String> _fetchWebsiteHtml(String path, String cookie) async {
     final response = await _htmlDio.get<String>(
-      topicPath,
-      options: Options(headers: {'Cookie': cookie}),
+      path,
+      options: Options(
+        headers: {'Cookie': cookie, 'Referer': 'https://bgm.tv/'},
+      ),
     );
-    final html = response.data ?? '';
-    if (response.statusCode == 401 || looksLikeWebsiteLoginPage(html)) {
-      throw const FormatException('网页版登录已过期，请重新登录网页版后再回复');
+    if (response.statusCode == 401) {
+      throw const FormatException('网页版登录已过期，请重新登录网页版后再试');
     }
-    final formhash = _htmlParser.parseFormhash(html);
-    if (formhash == null) {
-      throw const FormatException('无法获取网页版表单参数，请稍后重试');
+    return response.data ?? '';
+  }
+
+  void _throwIfWebsiteLoginPage(String html) {
+    if (looksLikeWebsiteLoginPage(html)) {
+      throw const FormatException('网页版登录已过期，请重新登录网页版后再试');
     }
-    return formhash;
   }
 
   Future<String> _requireWebsiteCookieHeader() async {
@@ -598,7 +712,7 @@ class CommunityService {
     final header = snapshot?.cookieHeader.trim() ?? '';
     if (snapshot == null || header.isEmpty || !snapshot.hasSessionCookies) {
       throw const FormatException(
-        '该小组为私密小组，需要走网站通道回复：请先在「我的」→「同步网站登录」中完成登录后重试',
+        '该小组为私密小组，需要走网站通道发帖或回复：请先在「我的」→「同步网站登录」中完成登录后重试',
       );
     }
     return header;

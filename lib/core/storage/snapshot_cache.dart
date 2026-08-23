@@ -20,10 +20,15 @@ class SnapshotCache {
   /// Collections can be older; still better than an empty library on cold start.
   static const collectionsMaxAge = Duration(days: 30);
 
+  static const episodeCollectionsMaxAge = Duration(days: 30);
+
   static const lastUserKey = 'session_last_user';
 
   static String collectionsKey(String username) =>
       'collections_snapshot:${username.trim().toLowerCase()}';
+
+  static String episodeCollectionsKey(int subjectId) =>
+      'episode_collections_snapshot:$subjectId';
 
   static String discoverBrowseKey({
     required SubjectType type,
@@ -93,6 +98,40 @@ class SnapshotCache {
     await _cache.writeJson(collectionsKey(username), {
       'saved_at': DateTime.now().toIso8601String(),
       'items': [for (final item in items) item.toJson()],
+    }, accountScoped: true);
+  }
+
+  Future<List<UserEpisodeCollection>?> readEpisodeCollections(
+    int subjectId,
+  ) async {
+    final json = await _cache.readJson(episodeCollectionsKey(subjectId));
+    if (json == null) return null;
+    final savedAt = DateTime.tryParse(json['saved_at']?.toString() ?? '');
+    if (savedAt == null ||
+        DateTime.now().difference(savedAt) > episodeCollectionsMaxAge) {
+      return null;
+    }
+    final items = json['items'];
+    if (items is! List || items.isEmpty) return null;
+    try {
+      return [
+        for (final item in items)
+          if (item is Map)
+            UserEpisodeCollection.fromJson(Map<String, dynamic>.from(item)),
+      ];
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<void> writeEpisodeCollections(
+    int subjectId,
+    List<UserEpisodeCollection> episodes,
+  ) async {
+    if (subjectId <= 0 || episodes.isEmpty) return;
+    await _cache.writeJson(episodeCollectionsKey(subjectId), {
+      'saved_at': DateTime.now().toIso8601String(),
+      'items': [for (final item in episodes) item.toJson()],
     }, accountScoped: true);
   }
 

@@ -33,6 +33,7 @@ class _HomeShellState extends ConsumerState<HomeShell> {
   bool _discoverOpened = false;
   bool _communityOpened = false;
   bool _profileOpened = false;
+  late final AppLifecycleListener _lifecycleListener;
 
   static const _destinations = [
     (
@@ -75,7 +76,20 @@ class _HomeShellState extends ConsumerState<HomeShell> {
   @override
   void initState() {
     super.initState();
+    _lifecycleListener = AppLifecycleListener(
+      onResume: () {
+        if (mounted) {
+          unawaited(ref.read(sessionProvider.notifier).syncPendingChanges());
+        }
+      },
+    );
     WidgetsBinding.instance.addPostFrameCallback((_) => _consumeShortcut());
+  }
+
+  @override
+  void dispose() {
+    _lifecycleListener.dispose();
+    super.dispose();
   }
 
   void _openSchedule() {

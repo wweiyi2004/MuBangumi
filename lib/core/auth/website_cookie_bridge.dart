@@ -16,6 +16,7 @@ class WebsiteCookieBridge {
 
   static const bgmOrigin = 'https://bgm.tv';
   static const bgmHost = 'bgm.tv';
+  static const _cookieOrigins = [bgmOrigin, 'https://bangumi.tv'];
 
   /// Best-effort wipe of Bangumi-related cookies from platform WebView jars.
   static Future<void> clearBgmCookies() async {
@@ -167,20 +168,23 @@ class WebsiteCookieBridge {
     windows.WebviewController controller,
   ) async {
     try {
-      final cookies = await controller.getCookies(bgmOrigin);
-      return [
-        for (final cookie in cookies)
-          if (cookie.name.isNotEmpty)
-            WebsiteCookie(
-              name: cookie.name,
-              value: cookie.value,
-              domain: cookie.domain.isEmpty ? '.bgm.tv' : cookie.domain,
-              path: cookie.path.isEmpty ? '/' : cookie.path,
-              expiresAt: cookie.expires,
-              isSecure: cookie.isSecure,
-              isHttpOnly: cookie.isHttpOnly,
-            ),
-      ];
+      final byName = <String, WebsiteCookie>{};
+      for (final origin in _cookieOrigins) {
+        final cookies = await controller.getCookies(origin);
+        for (final cookie in cookies) {
+          if (cookie.name.isEmpty) continue;
+          byName[cookie.name] = WebsiteCookie(
+            name: cookie.name,
+            value: cookie.value,
+            domain: cookie.domain.isEmpty ? '.bgm.tv' : cookie.domain,
+            path: cookie.path.isEmpty ? '/' : cookie.path,
+            expiresAt: cookie.expires,
+            isSecure: cookie.isSecure,
+            isHttpOnly: cookie.isHttpOnly,
+          );
+        }
+      }
+      return byName.values.toList();
     } catch (error, stack) {
       debugPrint('WebsiteCookieBridge._captureWindows failed: $error\n$stack');
       return const [];

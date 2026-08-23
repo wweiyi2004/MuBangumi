@@ -398,17 +398,19 @@ void main() {
     });
 
     expect(
-      (await service.loadAllFriends('wweiyi', pageSize: 2)).map(
-        (user) => user.username,
-      ),
+      (await service.loadAllFriends(
+        'wweiyi',
+        pageSize: 2,
+      )).map((user) => user.username),
       ['alice', 'bob', 'carol', 'dave'],
     );
 
     generation = 1;
     expect(
-      (await service.loadAllFriends('wweiyi', pageSize: 2)).map(
-        (user) => user.username,
-      ),
+      (await service.loadAllFriends(
+        'wweiyi',
+        pageSize: 2,
+      )).map((user) => user.username),
       ['alice', 'bob', 'carol', 'dave'],
     );
     expect(
@@ -694,6 +696,287 @@ void main() {
     expect(formPost?.data, containsPair('related', '456'));
   });
 
+  test(
+    'private-group reply reads formhash from the homepage when the topic page omits it',
+    () async {
+      final p1 = _privateGroupP1();
+      RequestOptions? formPost;
+      final html = Dio(BaseOptions(baseUrl: 'https://bgm.tv'));
+      html.interceptors.add(
+        InterceptorsWrapper(
+          onRequest: (options, handler) {
+            if (options.method == 'GET') {
+              final path = options.uri.path;
+              handler.resolve(
+                Response<String>(
+                  requestOptions: options,
+                  statusCode: 200,
+                  data: path == '/' || path.isEmpty
+                      ? '<html><body><a href="/logout/41ed512d">登出</a></body></html>'
+                      : '<html><body><h1>呜咕，出错了</h1>'
+                            '<p>抱歉，当前操作需要您登录后才能继续进行</p></body></html>',
+                ),
+              );
+              return;
+            }
+            formPost = options;
+            handler.resolve(
+              Response<String>(
+                requestOptions: options,
+                statusCode: 200,
+                data: '{"posts":{"main":{"9":{}}}}',
+              ),
+            );
+          },
+        ),
+      );
+      final service = CommunityService.test(
+        p1Dio: p1,
+        htmlDio: html,
+        sessionStore: _memorySessionStore(),
+      );
+      service.setAccessToken('oauth-token');
+
+      await service.replyToTopic(
+        topic: _groupTopic,
+        content: '测试回复',
+        turnstileToken: 'turnstile-token',
+      );
+
+      expect(formPost?.path, contains('/group/topic/123/new_reply'));
+      expect(formPost?.data, containsPair('formhash', '41ed512d'));
+      expect(formPost?.data, containsPair('content', '测试回复'));
+    },
+  );
+
+  test(
+    'private-group reply explains a logged-out website page instead of a formhash miss',
+    () async {
+      final p1 = _privateGroupP1();
+      final html = Dio(BaseOptions(baseUrl: 'https://bgm.tv'));
+      html.interceptors.add(
+        InterceptorsWrapper(
+          onRequest: (options, handler) {
+            if (options.method != 'GET') {
+              fail('No website POST should be sent without a formhash');
+            }
+            handler.resolve(
+              Response<String>(
+                requestOptions: options,
+                statusCode: 200,
+                data:
+                    '<html><body><a href="https://bgm.tv/login">登录</a>'
+                    '<a href="https://bgm.tv/signup">注册</a>'
+                    '<input id="search_text" name="search_text"></body></html>',
+              ),
+            );
+          },
+        ),
+      );
+      final service = CommunityService.test(
+        p1Dio: p1,
+        htmlDio: html,
+        sessionStore: _memorySessionStore(),
+      );
+      service.setAccessToken('oauth-token');
+
+      await expectLater(
+        service.replyToTopic(
+          topic: _groupTopic,
+          content: '测试回复',
+          turnstileToken: 'turnstile-token',
+        ),
+        throwsA(
+          isA<FormatException>().having(
+            (error) => error.message,
+            'message',
+            contains('同步网站登录'),
+          ),
+        ),
+      );
+    },
+  );
+
+  test(
+    'createGroupTopic sends the official P1 create-topic contract',
+    () async {
+      RequestOptions? seen;
+      final service = _service((options) {
+        seen = options;
+        return Response<Map<String, dynamic>>(
+          requestOptions: options,
+          statusCode: 200,
+          data: const {'id': 999},
+        );
+      });
+      service.setAccessToken('oauth-token');
+      final token = '0.${'a' * 80}';
+
+      await service.createGroupTopic(
+        slug: 'fillgrids',
+        title: '测试标题',
+        content: '测试正文',
+        turnstileToken: token,
+      );
+
+      expect(seen?.method, 'POST');
+      expect(seen?.path, '/p1/groups/fillgrids/topics');
+      expect(seen?.headers['Authorization'], 'Bearer oauth-token');
+      expect(seen?.data, {
+        'title': '测试标题',
+        'content': '测试正文',
+        'turnstileToken': token,
+      });
+    },
+  );
+
+  test(
+    'private-group create topic falls back to the classic website form',
+    () async {
+      var p1Requests = 0;
+      final p1 = Dio(BaseOptions(baseUrl: 'https://next.bgm.tv'));
+      p1.interceptors.add(
+        InterceptorsWrapper(
+          onRequest: (options, handler) {
+            p1Requests++;
+            handler.reject(
+              DioException(
+                requestOptions: options,
+                type: DioExceptionType.badResponse,
+                response: Response<Map<String, dynamic>>(
+                  requestOptions: options,
+                  statusCode: 401,
+                  data: const {
+                    'statusCode': 401,
+                    'code': 'NOT_JOIN_PRIVATE_GROUP_ERROR',
+                    'error': 'Unauthorized',
+                    'message':
+                        "you need to join private group '测试小组' before you create a post or reply",
+                  },
+                ),
+              ),
+            );
+          },
+        ),
+      );
+      RequestOptions? formGet;
+      RequestOptions? formPost;
+      final html = Dio(BaseOptions(baseUrl: 'https://bgm.tv'));
+      html.interceptors.add(
+        InterceptorsWrapper(
+          onRequest: (options, handler) {
+            if (options.method == 'GET') {
+              formGet = options;
+              handler.resolve(
+                Response<String>(
+                  requestOptions: options,
+                  statusCode: 200,
+                  data:
+                      '<html><body><form method="post" '
+                      'action="/group/fillgrids/new_topic">'
+                      '<input type="hidden" name="formhash" value="abc12345">'
+                      '<input type="text" name="title">'
+                      '<textarea name="content"></textarea>'
+                      '</form></body></html>',
+                ),
+              );
+              return;
+            }
+            formPost = options;
+            handler.resolve(
+              Response<String>(
+                requestOptions: options,
+                statusCode: 302,
+                data: '',
+                headers: Headers.fromMap({
+                  'location': ['https://bgm.tv/group/topic/999'],
+                }),
+              ),
+            );
+          },
+        ),
+      );
+      final service = CommunityService.test(
+        p1Dio: p1,
+        htmlDio: html,
+        sessionStore: _memorySessionStore(),
+      );
+      service.setAccessToken('oauth-token');
+
+      await service.createGroupTopic(
+        slug: 'fillgrids',
+        title: '测试标题',
+        content: '测试正文',
+        turnstileToken: 'turnstile-token',
+      );
+
+      expect(p1Requests, 1);
+      expect(formGet?.path, contains('/group/fillgrids/new_topic'));
+      expect(formPost?.path, contains('/group/fillgrids/new_topic'));
+      expect(formPost?.data, containsPair('formhash', 'abc12345'));
+      expect(formPost?.data, containsPair('title', '测试标题'));
+      expect(formPost?.data, containsPair('content', '测试正文'));
+      expect(formPost?.data, containsPair('submit', 'submit'));
+    },
+  );
+
+  test(
+    'private-group create topic explains the missing website session',
+    () async {
+      final p1 = Dio(BaseOptions(baseUrl: 'https://next.bgm.tv'));
+      p1.interceptors.add(
+        InterceptorsWrapper(
+          onRequest: (options, handler) => handler.reject(
+            DioException(
+              requestOptions: options,
+              type: DioExceptionType.badResponse,
+              response: Response<Map<String, dynamic>>(
+                requestOptions: options,
+                statusCode: 401,
+                data: const {
+                  'statusCode': 401,
+                  'code': 'NOT_JOIN_PRIVATE_GROUP_ERROR',
+                  'error': 'Unauthorized',
+                  'message':
+                      "you need to join private group '测试小组' before you create a post or reply",
+                },
+              ),
+            ),
+          ),
+        ),
+      );
+      final html = Dio(BaseOptions(baseUrl: 'https://bgm.tv'));
+      html.interceptors.add(
+        InterceptorsWrapper(
+          onRequest: (options, handler) =>
+              fail('No website request should be sent without a session'),
+        ),
+      );
+      final service = CommunityService.test(
+        p1Dio: p1,
+        htmlDio: html,
+        sessionStore: _MemoryWebsiteSessionStore(),
+      );
+      service.setAccessToken('oauth-token');
+
+      await expectLater(
+        service.createGroupTopic(
+          slug: 'fillgrids',
+          title: '测试标题',
+          content: '测试正文',
+          turnstileToken: 'turnstile-token',
+        ),
+        throwsA(
+          isA<FormatException>().having(
+            (error) => error.message,
+            'message',
+            contains('同步网站登录'),
+          ),
+        ),
+      );
+    },
+  );
+
   test('private-group fallback explains the missing website session', () async {
     final p1 = Dio(BaseOptions(baseUrl: 'https://next.bgm.tv'));
     p1.interceptors.add(
@@ -809,6 +1092,32 @@ const _groupTopic = CommunityTopic(
   url: 'https://bgm.tv/rakuen/topic/group/123',
   webUrl: 'https://bgm.tv/group/topic/123',
 );
+
+Dio _privateGroupP1() {
+  final p1 = Dio(BaseOptions(baseUrl: 'https://next.bgm.tv'));
+  p1.interceptors.add(
+    InterceptorsWrapper(
+      onRequest: (options, handler) => handler.reject(
+        DioException(
+          requestOptions: options,
+          type: DioExceptionType.badResponse,
+          response: Response<Map<String, dynamic>>(
+            requestOptions: options,
+            statusCode: 401,
+            data: const {
+              'statusCode': 401,
+              'code': 'NOT_JOIN_PRIVATE_GROUP_ERROR',
+              'error': 'Unauthorized',
+              'message':
+                  "you need to join private group '测试小组' before you create a post or reply",
+            },
+          ),
+        ),
+      ),
+    ),
+  );
+  return p1;
+}
 
 CommunityService _errorService({
   required int statusCode,

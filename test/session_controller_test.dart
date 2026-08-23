@@ -5,6 +5,7 @@ import 'package:mubangumi/core/auth/bangumi_oauth.dart';
 import 'package:mubangumi/core/auth/website_session.dart';
 import 'package:mubangumi/core/network/bangumi_api.dart';
 import 'package:mubangumi/core/network/bangumi_endpoints.dart';
+import 'package:mubangumi/core/storage/bangumi_sync_store.dart';
 import 'package:mubangumi/core/storage/snapshot_cache.dart';
 import 'package:mubangumi/core/storage/token_store.dart';
 import 'package:mubangumi/models/bangumi_models.dart';
@@ -18,11 +19,13 @@ void main() {
     required BangumiOAuth oauth,
     BangumiApi? api,
     SnapshotCache? snapshotCache,
+    BangumiSyncStore? syncStore,
   }) => SessionController(
     api ?? _FakeBangumiApi(),
     oauth,
     store,
     snapshotCache: snapshotCache ?? _MemorySnapshotCache(),
+    syncStore: syncStore ?? _MemorySyncStore(),
     websiteSessionStore: _MemoryWebsiteSessionStore(),
   );
 
@@ -84,42 +87,44 @@ void main() {
     expect(store.config, config);
   });
 
-  test('OAuth authorize keeps signedOut so the auth UI can host launchers',
-      () async {
-    final store = _MemoryTokenStore(config: null)
-      ..accessToken = null
-      ..refreshToken = null
-      ..expiresAt = null;
-    final oauth = _PhaseObservingOAuth();
-    final controller = buildController(store: store, oauth: oauth);
-    addTearDown(controller.dispose);
+  test(
+    'OAuth authorize keeps signedOut so the auth UI can host launchers',
+    () async {
+      final store = _MemoryTokenStore(config: null)
+        ..accessToken = null
+        ..refreshToken = null
+        ..expiresAt = null;
+      final oauth = _PhaseObservingOAuth();
+      final controller = buildController(store: store, oauth: oauth);
+      addTearDown(controller.dispose);
 
-    await _waitFor(() => controller.state.phase == SessionPhase.signedOut);
+      await _waitFor(() => controller.state.phase == SessionPhase.signedOut);
 
-    late SessionPhase phaseDuringAuthorize;
-    late bool refreshingDuringAuthorize;
-    oauth.onAuthorize = () {
-      phaseDuringAuthorize = controller.state.phase;
-      refreshingDuringAuthorize = controller.state.isRefreshing;
-    };
+      late SessionPhase phaseDuringAuthorize;
+      late bool refreshingDuringAuthorize;
+      oauth.onAuthorize = () {
+        phaseDuringAuthorize = controller.state.phase;
+        refreshingDuringAuthorize = controller.state.isRefreshing;
+      };
 
-    var launcherCalled = false;
-    final signedIn = await controller.signInWithOAuth(
-      config,
-      launchAuthorization: (uri, callback) async {
-        launcherCalled = true;
-        // AuthScreen must still be the host route (signedOut, not booting).
-        expect(controller.state.phase, SessionPhase.signedOut);
-        return false;
-      },
-    );
+      var launcherCalled = false;
+      final signedIn = await controller.signInWithOAuth(
+        config,
+        launchAuthorization: (uri, callback) async {
+          launcherCalled = true;
+          // AuthScreen must still be the host route (signedOut, not booting).
+          expect(controller.state.phase, SessionPhase.signedOut);
+          return false;
+        },
+      );
 
-    expect(signedIn, isFalse);
-    expect(launcherCalled, isTrue);
-    expect(phaseDuringAuthorize, SessionPhase.signedOut);
-    expect(refreshingDuringAuthorize, isTrue);
-    expect(controller.state.phase, SessionPhase.signedOut);
-  });
+      expect(signedIn, isFalse);
+      expect(launcherCalled, isTrue);
+      expect(phaseDuringAuthorize, SessionPhase.signedOut);
+      expect(refreshingDuringAuthorize, isTrue);
+      expect(controller.state.phase, SessionPhase.signedOut);
+    },
+  );
 
   test(
     'late collection refresh cannot repopulate a signed-out session',
@@ -180,38 +185,40 @@ void main() {
     },
   );
 
-  test('network-route persistence failure does not strand busy flags',
-      () async {
-    final api = _DelayedRefreshBangumiApi();
-    final controller = buildController(
-      store: _MemoryTokenStore(config: config)..failWriteNetworkRoute = true,
-      oauth: _FailingOAuth(const BangumiOAuthException('网络暂时不可用')),
-      api: api,
-    );
-    addTearDown(controller.dispose);
+  test(
+    'network-route persistence failure does not strand busy flags',
+    () async {
+      final api = _DelayedRefreshBangumiApi();
+      final controller = buildController(
+        store: _MemoryTokenStore(config: config)..failWriteNetworkRoute = true,
+        oauth: _FailingOAuth(const BangumiOAuthException('网络暂时不可用')),
+        api: api,
+      );
+      addTearDown(controller.dispose);
 
-    await _waitFor(
-      () =>
-          controller.state.phase == SessionPhase.signedIn &&
-          !controller.state.isLoadingCollections,
-    );
-    api.delayNextAnimeLoad = true;
-    final refresh = controller.refresh();
-    await _waitFor(() => api.pendingAnimeLoad != null);
-    expect(controller.state.isRefreshing, isTrue);
+      await _waitFor(
+        () =>
+            controller.state.phase == SessionPhase.signedIn &&
+            !controller.state.isLoadingCollections,
+      );
+      api.delayNextAnimeLoad = true;
+      final refresh = controller.refresh();
+      await _waitFor(() => api.pendingAnimeLoad != null);
+      expect(controller.state.isRefreshing, isTrue);
 
-    final error = await controller.setNetworkRoute(
-      BangumiNetworkRoute.reverseProxy,
-    );
-    api.pendingAnimeLoad!.complete(const [_testCollection]);
-    await refresh;
+      final error = await controller.setNetworkRoute(
+        BangumiNetworkRoute.reverseProxy,
+      );
+      api.pendingAnimeLoad!.complete(const [_testCollection]);
+      await refresh;
 
-    expect(error, isNotNull);
-    expect(error, contains('未能保存到本机'));
-    expect(controller.state.networkRoute, BangumiNetworkRoute.reverseProxy);
-    expect(controller.state.isRefreshing, isFalse);
-    expect(controller.state.isLoadingCollections, isFalse);
-  });
+      expect(error, isNotNull);
+      expect(error, contains('未能保存到本机'));
+      expect(controller.state.networkRoute, BangumiNetworkRoute.reverseProxy);
+      expect(controller.state.isRefreshing, isFalse);
+      expect(controller.state.isLoadingCollections, isFalse);
+    },
+  );
 
   test('bootstrap shows cached collections before /me returns', () async {
     final api = _DelayedMeApi();
@@ -357,6 +364,281 @@ void main() {
     );
     expect(await signIn, isFalse);
   });
+
+  test(
+    'offline collection edits stay local and coalesce until reconnect',
+    () async {
+      final api = _OfflineReplayApi();
+      final syncStore = _MemorySyncStore();
+      final snapshot = _MemorySnapshotCache();
+      final controller = buildController(
+        store: _MemoryTokenStore(config: config),
+        oauth: _FailingOAuth(const BangumiOAuthException('网络暂时不可用')),
+        api: api,
+        snapshotCache: snapshot,
+        syncStore: syncStore,
+      );
+      addTearDown(controller.dispose);
+
+      await _waitFor(() => controller.state.phase == SessionPhase.signedIn);
+      expect(
+        await controller.changeCollection(
+          _testSubject,
+          CollectionType.wish,
+          completeEpisodesWhenDone: false,
+        ),
+        isNull,
+      );
+      expect(
+        await controller.changeCollection(
+          _testSubject,
+          CollectionType.done,
+          completeEpisodesWhenDone: false,
+        ),
+        isNull,
+      );
+      await _waitFor(() => controller.state.pendingSyncCount == 1);
+      await _waitFor(() => !controller.state.isSyncing);
+
+      expect(
+        controller.state.collectionFor(_testSubject.id)?.type,
+        CollectionType.done,
+      );
+      expect(snapshot.collections['tester']?.single.type, CollectionType.done);
+      final queued = await syncStore.pendingFor('tester');
+      expect(queued, hasLength(1));
+      expect(
+        queued.single.payload['collection_type'],
+        CollectionType.done.value,
+      );
+
+      await controller.refresh();
+      expect(
+        controller.state.collectionFor(_testSubject.id)?.type,
+        CollectionType.done,
+      );
+      await _waitFor(() => !controller.state.isSyncing);
+
+      api.offline = false;
+      await controller.syncPendingChanges();
+
+      expect(controller.state.pendingSyncCount, 0);
+      expect(api.replayed, hasLength(1));
+      expect(api.replayed.single['collection_type'], CollectionType.done.value);
+    },
+  );
+
+  test(
+    'mark next episode revalidates a stale snapshot before choosing',
+    () async {
+      final api = _FreshEpisodeApi();
+      final snapshot = _MemorySnapshotCache()
+        ..episodeCollections[_testSubject.id] = [
+          _testEpisodeCollection(7, 1),
+          _testEpisodeCollection(8, 2),
+        ];
+      final controller = buildController(
+        store: _MemoryTokenStore(config: config),
+        oauth: _FailingOAuth(const BangumiOAuthException('网络暂时不可用')),
+        api: api,
+        snapshotCache: snapshot,
+      );
+      addTearDown(controller.dispose);
+
+      await _waitFor(() => controller.state.phase == SessionPhase.signedIn);
+      final collection = controller.state.collectionFor(_testSubject.id)!;
+
+      expect(await controller.markNextEpisode(collection), isNull);
+      await _waitFor(() => api.replayed.isNotEmpty);
+
+      expect(api.episodeCollectionCalls, 1);
+      expect(api.replayed.single['episode_id'], 8);
+      expect(
+        snapshot.episodeCollections[_testSubject.id]!.map((item) => item.type),
+        [2, 2],
+      );
+    },
+  );
+
+  test('newer local edit survives an older in-flight upload', () async {
+    final api = _ControlledReplayApi();
+    final syncStore = _MemorySyncStore();
+    final controller = buildController(
+      store: _MemoryTokenStore(config: config),
+      oauth: _FailingOAuth(const BangumiOAuthException('网络暂时不可用')),
+      api: api,
+      syncStore: syncStore,
+    );
+    addTearDown(controller.dispose);
+
+    await _waitFor(() => controller.state.phase == SessionPhase.signedIn);
+    await controller.changeCollection(
+      _testSubject,
+      CollectionType.wish,
+      completeEpisodesWhenDone: false,
+    );
+    await api.firstUploadStarted.future;
+    await controller.changeCollection(
+      _testSubject,
+      CollectionType.done,
+      completeEpisodesWhenDone: false,
+    );
+    api.releaseFirstUpload.complete();
+
+    await _waitFor(
+      () => api.replayed.length == 2 && controller.state.pendingSyncCount == 0,
+    );
+    expect(api.replayed.map((item) => item['collection_type']), [
+      CollectionType.wish.value,
+      CollectionType.done.value,
+    ]);
+  });
+
+  test(
+    'episode snapshot keeps the local edit after its upload lands',
+    () async {
+      final api = _ControlledReplayApi();
+      final snapshot = _MemorySnapshotCache();
+      final controller = buildController(
+        store: _MemoryTokenStore(config: config),
+        oauth: _FailingOAuth(const BangumiOAuthException('网络暂时不可用')),
+        api: api,
+        snapshotCache: snapshot,
+      );
+      addTearDown(controller.dispose);
+
+      await _waitFor(() => controller.state.phase == SessionPhase.signedIn);
+      snapshot.episodeCollections[_testSubject.id] = [
+        _testEpisodeCollection(7, 1),
+      ];
+
+      expect(
+        await controller.setEpisode(
+          subjectId: _testSubject.id,
+          episodeId: 7,
+          type: 2,
+          previousType: 0,
+          trackGlobalBusy: false,
+        ),
+        isNull,
+      );
+
+      // Let the in-flight upload finish and remove the queue entry; the
+      // snapshot must still carry the watch mark for a later offline read.
+      api.releaseFirstUpload.complete();
+      await _waitFor(() => controller.state.pendingSyncCount == 0);
+
+      final cached = snapshot.episodeCollections[_testSubject.id];
+      expect(cached, isNotNull);
+      expect(cached!.single.type, 2);
+    },
+  );
+
+  test(
+    'edits enqueued during a drain upload without another trigger',
+    () async {
+      final api = _ControlledReplayApi();
+      final snapshot = _MemorySnapshotCache();
+      final controller = buildController(
+        store: _MemoryTokenStore(config: config),
+        oauth: _FailingOAuth(const BangumiOAuthException('网络暂时不可用')),
+        api: api,
+        snapshotCache: snapshot,
+      );
+      addTearDown(controller.dispose);
+
+      await _waitFor(() => controller.state.phase == SessionPhase.signedIn);
+      snapshot.episodeCollections[_testSubject.id] = [
+        _testEpisodeCollection(7, 1),
+        _testEpisodeCollection(8, 2),
+      ];
+
+      expect(
+        await controller.setEpisode(
+          subjectId: _testSubject.id,
+          episodeId: 7,
+          type: 2,
+          previousType: 0,
+          trackGlobalBusy: false,
+        ),
+        isNull,
+      );
+      await api.firstUploadStarted.future;
+      // A different key enqueued mid-drain is outside the snapshot the running
+      // drain already fetched; it must still upload without any new trigger.
+      expect(
+        await controller.setEpisode(
+          subjectId: _testSubject.id,
+          episodeId: 8,
+          type: 2,
+          previousType: 0,
+          trackGlobalBusy: false,
+        ),
+        isNull,
+      );
+      api.releaseFirstUpload.complete();
+
+      await _waitFor(
+        () =>
+            api.replayed.length == 2 && controller.state.pendingSyncCount == 0,
+      );
+      expect(api.replayed.map((item) => item['episode_id']), [7, 8]);
+    },
+  );
+
+  test('manual retry runs even while a drain is already in flight', () async {
+    final api = _ControlledReplayApi();
+    final syncStore = _MemorySyncStore();
+    // Seed a blocked entry left over from an earlier non-retryable failure.
+    await syncStore.enqueue(
+      username: 'tester',
+      kind: BangumiMutationKind.episode,
+      mutationKey: 'episode:99',
+      payload: {'subject_id': _testSubject.id, 'episode_id': 99, 'type': 2},
+    );
+    final seeded = (await syncStore.pendingFor(
+      'tester',
+      includeBlocked: true,
+    )).single;
+    expect(
+      await syncStore.markFailure(seeded, 'HTTP 400', blocked: true),
+      isTrue,
+    );
+
+    final controller = buildController(
+      store: _MemoryTokenStore(config: config),
+      oauth: _FailingOAuth(const BangumiOAuthException('网络暂时不可用')),
+      api: api,
+      syncStore: syncStore,
+    );
+    addTearDown(controller.dispose);
+
+    await _waitFor(() => controller.state.phase == SessionPhase.signedIn);
+    await _waitFor(() => controller.state.blockedSyncCount == 1);
+    await _waitFor(() => !controller.state.isSyncing);
+
+    expect(
+      await controller.setEpisode(
+        subjectId: _testSubject.id,
+        episodeId: 7,
+        type: 2,
+        previousType: 0,
+        trackGlobalBusy: false,
+      ),
+      isNull,
+    );
+    await api.firstUploadStarted.future;
+
+    // The manual retry must chain past the hanging drain instead of joining
+    // it and returning without ever unblocking the seeded entry.
+    final manualRetry = controller.syncPendingChanges(retryBlocked: true);
+    api.releaseFirstUpload.complete();
+    await manualRetry;
+
+    expect(controller.state.pendingSyncCount, 0);
+    expect(controller.state.blockedSyncCount, 0);
+    expect(api.replayed.map((item) => item['episode_id']), [7, 99]);
+  });
 }
 
 const _testSubject = Subject(
@@ -379,6 +661,22 @@ const _testCollection = UserCollection(
   updatedAt: null,
   subject: _testSubject,
 );
+
+UserEpisodeCollection _testEpisodeCollection(int id, int number) =>
+    UserEpisodeCollection(
+      episode: Episode(
+        id: id,
+        type: 0,
+        number: number.toDouble(),
+        sort: number.toDouble(),
+        name: 'Episode $number',
+        nameCn: '第$number话',
+        airDate: '',
+        description: '',
+      ),
+      type: 0,
+      updatedAt: 0,
+    );
 
 Future<void> _waitFor(bool Function() condition) async {
   for (var attempt = 0; attempt < 100; attempt++) {
@@ -466,6 +764,7 @@ class _FailingMeApi extends _FakeBangumiApi {
 class _MemorySnapshotCache extends SnapshotCache {
   BangumiUser? lastUser;
   final Map<String, List<UserCollection>> collections = {};
+  final Map<int, List<UserEpisodeCollection>> episodeCollections = {};
 
   @override
   Future<BangumiUser?> readLastUser() async => lastUser;
@@ -491,6 +790,140 @@ class _MemorySnapshotCache extends SnapshotCache {
   ) async {
     collections[username.trim().toLowerCase()] = items;
   }
+
+  @override
+  Future<List<UserEpisodeCollection>?> readEpisodeCollections(
+    int subjectId,
+  ) async => episodeCollections[subjectId];
+
+  @override
+  Future<void> writeEpisodeCollections(
+    int subjectId,
+    List<UserEpisodeCollection> episodes,
+  ) async {
+    episodeCollections[subjectId] = episodes;
+  }
+}
+
+class _MemorySyncStore extends BangumiSyncStore {
+  final List<PendingBangumiMutation> mutations = [];
+  var _nextId = 1;
+
+  @override
+  Future<void> enqueue({
+    required String username,
+    required BangumiMutationKind kind,
+    required String mutationKey,
+    required Map<String, dynamic> payload,
+  }) async {
+    final index = mutations.indexWhere(
+      (item) => item.username == username && item.mutationKey == mutationKey,
+    );
+    if (index < 0) {
+      mutations.add(
+        PendingBangumiMutation(
+          id: _nextId++,
+          username: username,
+          kind: kind,
+          mutationKey: mutationKey,
+          payload: Map<String, dynamic>.from(payload),
+          createdAt: DateTime.now(),
+          updatedAt: DateTime.now(),
+          revision: 1,
+          attempts: 0,
+          blocked: false,
+        ),
+      );
+      return;
+    }
+    final existing = mutations[index];
+    mutations[index] = PendingBangumiMutation(
+      id: existing.id,
+      username: username,
+      kind: kind,
+      mutationKey: mutationKey,
+      payload: Map<String, dynamic>.from(payload),
+      createdAt: existing.createdAt,
+      updatedAt: DateTime.now(),
+      revision: existing.revision + 1,
+      attempts: 0,
+      blocked: false,
+    );
+  }
+
+  @override
+  Future<List<PendingBangumiMutation>> pendingFor(
+    String username, {
+    bool includeBlocked = false,
+  }) async => [
+    for (final item in mutations)
+      if (item.username == username && (includeBlocked || !item.blocked)) item,
+  ];
+
+  @override
+  Future<int> countFor(String username) async =>
+      mutations.where((item) => item.username == username).length;
+
+  @override
+  Future<int> blockedCountFor(String username) async => mutations
+      .where((item) => item.username == username && item.blocked)
+      .length;
+
+  @override
+  Future<bool> removeIfUnchanged(PendingBangumiMutation mutation) async {
+    final before = mutations.length;
+    mutations.removeWhere(
+      (item) => item.id == mutation.id && item.revision == mutation.revision,
+    );
+    return mutations.length < before;
+  }
+
+  @override
+  Future<bool> markFailure(
+    PendingBangumiMutation mutation,
+    String message, {
+    required bool blocked,
+  }) async {
+    final index = mutations.indexWhere(
+      (item) => item.id == mutation.id && item.revision == mutation.revision,
+    );
+    if (index < 0) return false;
+    final item = mutations[index];
+    mutations[index] = PendingBangumiMutation(
+      id: item.id,
+      username: item.username,
+      kind: item.kind,
+      mutationKey: item.mutationKey,
+      payload: item.payload,
+      createdAt: item.createdAt,
+      updatedAt: DateTime.now(),
+      revision: item.revision,
+      attempts: item.attempts + 1,
+      blocked: blocked,
+      lastError: message,
+    );
+    return true;
+  }
+
+  @override
+  Future<void> retryBlocked(String username) async {
+    for (var index = 0; index < mutations.length; index++) {
+      final item = mutations[index];
+      if (item.username != username || !item.blocked) continue;
+      mutations[index] = PendingBangumiMutation(
+        id: item.id,
+        username: item.username,
+        kind: item.kind,
+        mutationKey: item.mutationKey,
+        payload: item.payload,
+        createdAt: item.createdAt,
+        updatedAt: DateTime.now(),
+        revision: item.revision,
+        attempts: 0,
+        blocked: false,
+      );
+    }
+  }
 }
 
 class _FakeBangumiApi extends BangumiApi {
@@ -509,6 +942,72 @@ class _FakeBangumiApi extends BangumiApi {
     CollectionType? collectionType,
     int? maxItems,
   }) async => const [];
+}
+
+class _OfflineReplayApi extends _FakeBangumiApi {
+  bool offline = true;
+  final List<Map<String, dynamic>> replayed = [];
+
+  @override
+  Future<List<UserCollection>> getUserCollections(
+    String username, {
+    SubjectType? subjectType,
+    CollectionType? collectionType,
+    int? maxItems,
+  }) async =>
+      subjectType == SubjectType.anime ? const [_testCollection] : const [];
+
+  @override
+  Future<void> replayPendingMutation(
+    BangumiMutationKind kind,
+    Map<String, dynamic> payload,
+  ) async {
+    if (offline) {
+      throw const BangumiApiException('没有网络', retryable: true);
+    }
+    replayed.add(Map<String, dynamic>.from(payload));
+  }
+}
+
+class _FreshEpisodeApi extends _OfflineReplayApi {
+  _FreshEpisodeApi() {
+    offline = false;
+  }
+
+  int episodeCollectionCalls = 0;
+
+  @override
+  Future<List<UserEpisodeCollection>> getEpisodeCollections(
+    int subjectId, {
+    int? episodeType = 0,
+  }) async {
+    episodeCollectionCalls++;
+    return [
+      _testEpisodeCollection(7, 1).copyWith(type: 2),
+      _testEpisodeCollection(8, 2),
+    ];
+  }
+}
+
+class _ControlledReplayApi extends _OfflineReplayApi {
+  _ControlledReplayApi() {
+    offline = false;
+  }
+
+  final firstUploadStarted = Completer<void>();
+  final releaseFirstUpload = Completer<void>();
+
+  @override
+  Future<void> replayPendingMutation(
+    BangumiMutationKind kind,
+    Map<String, dynamic> payload,
+  ) async {
+    replayed.add(Map<String, dynamic>.from(payload));
+    if (replayed.length == 1) {
+      firstUploadStarted.complete();
+      await releaseFirstUpload.future;
+    }
+  }
 }
 
 class _DelayedRefreshBangumiApi extends _FakeBangumiApi {

@@ -493,6 +493,17 @@ class Episode {
     airDate: _string(json['airdate']),
     description: _string(json['desc']),
   );
+
+  Map<String, dynamic> toJson() => {
+    'id': id,
+    'type': type,
+    'ep': number,
+    'sort': sort,
+    'name': name,
+    'name_cn': nameCn,
+    'airdate': airDate,
+    'desc': description,
+  };
 }
 
 class UserEpisodeCollection {
@@ -514,6 +525,12 @@ class UserEpisodeCollection {
         type: _int(json['type']),
         updatedAt: _int(json['updated_at']),
       );
+
+  Map<String, dynamic> toJson() => {
+    'episode': episode.toJson(),
+    'type': type,
+    'updated_at': updatedAt,
+  };
 
   UserEpisodeCollection copyWith({int? type}) => UserEpisodeCollection(
     episode: episode,

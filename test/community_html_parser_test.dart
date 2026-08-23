@@ -92,4 +92,47 @@ void main() {
     expect(detail.posts[2].author, 'Carol');
     expect(detail.posts[2].isNested, isTrue);
   });
+
+  test('parseFormhash reads hidden inputs regardless of attribute order', () {
+    expect(
+      parser.parseFormhash(
+        '<input type="hidden" name="formhash" value="41ed512d">',
+      ),
+      '41ed512d',
+    );
+    expect(
+      parser.parseFormhash(
+        '<input type="hidden" name="formhash" id="formhash" value="abc12345">',
+      ),
+      'abc12345',
+    );
+    expect(
+      parser.parseFormhash(
+        "<input type='hidden' value='deadbeef' name='formhash'>",
+      ),
+      'deadbeef',
+    );
+  });
+
+  test('parseFormhash falls back to the logout link', () {
+    expect(
+      parser.parseFormhash('<a href="/logout/41ed512d">登出</a>'),
+      '41ed512d',
+    );
+    expect(
+      parser.parseFormhash('<a href="https://bgm.tv/logout/cafebabe99">退出</a>'),
+      'cafebabe99',
+    );
+  });
+
+  test('parseFormhash is null on a logged-out topic page', () {
+    expect(
+      parser.parseFormhash(
+        '<a href="https://bgm.tv/login">登录</a>'
+        '<a href="https://bgm.tv/signup">注册</a>'
+        '<input id="search_text" name="search_text" type="text">',
+      ),
+      isNull,
+    );
+  });
 }

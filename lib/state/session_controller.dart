@@ -9,6 +9,7 @@ import '../core/network/bangumi_support.dart';
 import '../core/network/community_service.dart';
 import '../core/auth/website_cookie_bridge.dart';
 import '../core/auth/website_session.dart';
+import '../core/storage/bangumi_sync_store.dart';
 import '../core/storage/snapshot_cache.dart';
 import '../core/storage/token_store.dart';
 import '../models/bangumi_models.dart';
@@ -29,6 +30,9 @@ class SessionState {
     this.isLoadingCollections = false,
     this.updatingSubjects = const {},
     this.networkRoute = BangumiNetworkRoute.official,
+    this.pendingSyncCount = 0,
+    this.blockedSyncCount = 0,
+    this.isSyncing = false,
     this.message,
   });
 
@@ -41,6 +45,9 @@ class SessionState {
   final bool isLoadingCollections;
   final Set<int> updatingSubjects;
   final BangumiNetworkRoute networkRoute;
+  final int pendingSyncCount;
+  final int blockedSyncCount;
+  final bool isSyncing;
   final String? message;
 
   UserCollection? collectionFor(int subjectId) {
@@ -58,6 +65,9 @@ class SessionState {
     bool? isLoadingCollections,
     Set<int>? updatingSubjects,
     BangumiNetworkRoute? networkRoute,
+    int? pendingSyncCount,
+    int? blockedSyncCount,
+    bool? isSyncing,
     String? message,
     bool clearMessage = false,
     bool clearUser = false,
@@ -69,6 +79,9 @@ class SessionState {
     isLoadingCollections: isLoadingCollections ?? this.isLoadingCollections,
     updatingSubjects: updatingSubjects ?? this.updatingSubjects,
     networkRoute: networkRoute ?? this.networkRoute,
+    pendingSyncCount: pendingSyncCount ?? this.pendingSyncCount,
+    blockedSyncCount: blockedSyncCount ?? this.blockedSyncCount,
+    isSyncing: isSyncing ?? this.isSyncing,
     message: clearMessage ? null : message ?? this.message,
   );
 }
@@ -79,9 +92,11 @@ class SessionController extends StateNotifier<SessionState> {
     this._oauth,
     this._tokenStore, {
     SnapshotCache? snapshotCache,
+    BangumiSyncStore? syncStore,
     WebsiteSessionStore? websiteSessionStore,
     this.onWebsiteSessionCleared,
   }) : _snapshotCache = snapshotCache ?? SnapshotCache.shared,
+       _syncStore = syncStore ?? BangumiSyncStore.shared,
        _websiteSessionStore = websiteSessionStore ?? WebsiteSessionStore(),
        super(const SessionState()) {
     _api.ensureFreshToken = _ensureFreshToken;
@@ -94,6 +109,7 @@ class SessionController extends StateNotifier<SessionState> {
   final BangumiOAuth _oauth;
   final TokenStore _tokenStore;
   final SnapshotCache _snapshotCache;
+  final BangumiSyncStore _syncStore;
   final WebsiteSessionStore _websiteSessionStore;
 
   /// Optional UI hook so Riverpod website-session state stays in sync.
@@ -106,6 +122,11 @@ class SessionController extends StateNotifier<SessionState> {
   DateTime? _cachedExpiresAt;
   OAuthConfig? _cachedOAuthConfig;
   int _collectionsGeneration = 0;
+  int _localMutationRevision = 0;
+  final Map<int, int> _subjectMutationRevisions = {};
+  Future<void>? _syncInFlight;
+  Timer? _syncRetryTimer;
+  var _syncRetryStep = 0;
 
   Future<void> _bootstrap() async {
     // Parallel secure-storage reads: sequential waits were a cold-start tax.
@@ -180,8 +201,12 @@ class SessionController extends StateNotifier<SessionState> {
   Future<bool> _restoreSignedInSnapshot(String token) async {
     final lastUser = await _snapshotCache.readLastUser();
     if (lastUser == null) return false;
-    final cached = await _snapshotCache.readCollections(lastUser.username);
-    if (cached == null || cached.isEmpty) return false;
+    final snapshot = await _snapshotCache.readCollections(lastUser.username);
+    if (snapshot == null || snapshot.isEmpty) return false;
+    final cached = await _overlayPendingCollections(
+      lastUser.username,
+      snapshot,
+    );
     _api.setAccessToken(token);
     CommunityService.shared.setAccessToken(token);
     CommunityService.shared.setCurrentUsername(
@@ -197,6 +222,7 @@ class SessionController extends StateNotifier<SessionState> {
       isLoadingCollections: true,
       isRefreshing: false,
     );
+    unawaited(_refreshPendingCount(lastUser.username));
     return true;
   }
 
@@ -277,19 +303,28 @@ class SessionController extends StateNotifier<SessionState> {
       await _snapshotCache.writeLastUser(user);
       final switchedAccount =
           alreadyRestored && state.user?.username != user.username;
-      final cached = switchedAccount || !alreadyRestored
+      if (switchedAccount) {
+        _subjectMutationRevisions.clear();
+        _localMutationRevision = 0;
+      }
+      final snapshot = switchedAccount || !alreadyRestored
           ? await _snapshotCache.readCollections(user.username)
           : state.collections;
-      final hasCache = cached != null && cached.isNotEmpty;
+      final cached = await _overlayPendingCollections(
+        user.username,
+        snapshot ?? const [],
+      );
+      final hasCache = cached.isNotEmpty;
       state = SessionState(
         phase: SessionPhase.signedIn,
         user: user,
-        collections: cached ?? const [],
+        collections: cached,
         networkRoute: _networkRoute,
         isLoadingCollections: true,
         isRefreshing: !hasCache,
       );
-      unawaited(_loadCollectionsAfterSignIn(user.username));
+      unawaited(_refreshPendingCount(user.username));
+      unawaited(_syncThenLoadCollections(user.username));
       return true;
     } catch (error) {
       if (alreadyRestored && !_invalidatesSession(error)) {
@@ -297,6 +332,8 @@ class SessionController extends StateNotifier<SessionState> {
           isRefreshing: false,
           message: '收藏同步失败，已显示本地缓存：${_messageFor(error)}',
         );
+        unawaited(_refreshPendingCount(state.user?.username));
+        unawaited(syncPendingChanges());
         return true;
       }
       if (!persist && _invalidatesSession(error)) {
@@ -317,6 +354,7 @@ class SessionController extends StateNotifier<SessionState> {
 
   Future<void> _loadCollectionsAfterSignIn(String username) async {
     final generation = ++_collectionsGeneration;
+    final requestMutationRevision = _localMutationRevision;
     try {
       final anime = await _api.getUserCollections(
         username,
@@ -328,7 +366,12 @@ class SessionController extends StateNotifier<SessionState> {
         return;
       }
       // Replace only anime bucket; keep other types from snapshot until refreshed.
-      final merged = _replaceType(state.collections, SubjectType.anime, anime);
+      var merged = _replaceType(state.collections, SubjectType.anime, anime);
+      merged = await _overlayPendingCollections(username, merged);
+      merged = _preserveCollectionsChangedAfter(
+        merged,
+        requestMutationRevision,
+      );
       _sortCollections(merged);
       state = state.copyWith(
         collections: merged,
@@ -369,6 +412,7 @@ class SessionController extends StateNotifier<SessionState> {
             state.user?.username != username) {
           return;
         }
+        final requestMutationRevision = _localMutationRevision;
         final page = await _api.getUserCollections(username, subjectType: type);
         // The loop-head guard can be invalidated while this request is in
         // flight (e.g. sign-out). Re-check before merging so a late response
@@ -379,6 +423,11 @@ class SessionController extends StateNotifier<SessionState> {
           return;
         }
         merged = _replaceType(merged, type, page);
+        merged = await _overlayPendingCollections(username, merged);
+        merged = _preserveCollectionsChangedAfter(
+          merged,
+          requestMutationRevision,
+        );
         _sortCollections(merged);
         // Incremental UI update keeps library usable while sync continues.
         state = state.copyWith(
@@ -414,14 +463,166 @@ class SessionController extends StateNotifier<SessionState> {
     List<UserCollection> page,
   ) => [...current.where((item) => item.subject.type != type), ...page];
 
+  /// A collection response may have started before a local edit and finish
+  /// after the corresponding queue entry has already uploaded and been
+  /// removed. Preserve the newer in-memory value for exactly those subjects;
+  /// requests started after the edit remain server-authoritative.
+  List<UserCollection> _preserveCollectionsChangedAfter(
+    List<UserCollection> source,
+    int requestMutationRevision,
+  ) {
+    final merged = List<UserCollection>.from(source);
+    for (final entry in _subjectMutationRevisions.entries) {
+      if (entry.value <= requestMutationRevision) continue;
+      final local = state.collectionFor(entry.key);
+      if (local == null) continue;
+      final index = merged.indexWhere(
+        (item) => item.subjectId == local.subjectId,
+      );
+      if (index < 0) {
+        merged.add(local);
+      } else {
+        merged[index] = local;
+      }
+    }
+    return merged;
+  }
+
+  Future<List<UserCollection>> _overlayPendingCollections(
+    String username,
+    List<UserCollection> source,
+  ) async {
+    final merged = List<UserCollection>.from(source);
+    try {
+      final pending = await _syncStore.pendingFor(
+        username,
+        includeBlocked: true,
+      );
+      for (final mutation in pending) {
+        final payload = mutation.payload;
+        final subjectId = (payload['subject_id'] as num?)?.toInt();
+        if (subjectId == null || subjectId <= 0) continue;
+        final index = merged.indexWhere((item) => item.subjectId == subjectId);
+        final previous = index < 0 ? null : merged[index];
+        final localEpisodeStatus = (payload['local_episode_status'] as num?)
+            ?.toInt();
+        if (mutation.kind != BangumiMutationKind.collection) {
+          if (previous != null && localEpisodeStatus != null) {
+            merged[index] = previous.copyWith(
+              episodeStatus: localEpisodeStatus,
+            );
+          }
+          continue;
+        }
+        Subject? subject = previous?.subject;
+        final subjectJson = payload['subject'];
+        if (subject == null && subjectJson is Map) {
+          subject = Subject.fromJson(Map<String, dynamic>.from(subjectJson));
+        }
+        if (subject == null || subject.id <= 0) continue;
+        final collection = UserCollection(
+          subjectId: subjectId,
+          type: CollectionType.fromValue(
+            (payload['collection_type'] as num).toInt(),
+          ),
+          rate: (payload['rate'] as num?)?.toInt() ?? previous?.rate ?? 0,
+          episodeStatus:
+              localEpisodeStatus ??
+              (payload['episode_status'] as num?)?.toInt() ??
+              previous?.episodeStatus ??
+              0,
+          volumeStatus:
+              (payload['volume_status'] as num?)?.toInt() ??
+              previous?.volumeStatus ??
+              0,
+          updatedAt:
+              DateTime.tryParse(
+                payload['local_updated_at']?.toString() ?? '',
+              ) ??
+              mutation.updatedAt,
+          subject: subject,
+          comment: payload['comment']?.toString() ?? previous?.comment ?? '',
+          tags: [
+            for (final value
+                in payload['tags'] as List? ?? previous?.tags ?? const [])
+              value.toString(),
+          ],
+          private: payload['private'] == true,
+        );
+        if (index < 0) {
+          merged.add(collection);
+        } else {
+          merged[index] = collection;
+        }
+      }
+    } catch (_) {}
+    _sortCollections(merged);
+    return merged;
+  }
+
+  Future<void> _syncThenLoadCollections(String username) async {
+    await syncPendingChanges();
+    if (state.phase == SessionPhase.signedIn &&
+        state.user?.username == username) {
+      await _loadCollectionsAfterSignIn(username);
+    }
+  }
+
+  Future<List<UserEpisodeCollection>> applyPendingEpisodeChanges(
+    int subjectId,
+    List<UserEpisodeCollection> source,
+  ) async {
+    final username = state.user?.username;
+    if (username == null || username.isEmpty) return source;
+    final merged = List<UserEpisodeCollection>.from(source);
+    try {
+      final pending = await _syncStore.pendingFor(
+        username,
+        includeBlocked: true,
+      );
+      for (final mutation in pending) {
+        final payload = mutation.payload;
+        if ((payload['subject_id'] as num?)?.toInt() != subjectId) continue;
+        if (mutation.kind == BangumiMutationKind.episode) {
+          final episodeId = (payload['episode_id'] as num).toInt();
+          final type = (payload['type'] as num).toInt();
+          final index = merged.indexWhere(
+            (item) => item.episode.id == episodeId,
+          );
+          if (index >= 0) merged[index] = merged[index].copyWith(type: type);
+        } else if (mutation.kind == BangumiMutationKind.episodesBatch) {
+          final episodeIds = {
+            for (final value in payload['episode_ids'] as List? ?? const [])
+              (value as num).toInt(),
+          };
+          final type = (payload['type'] as num).toInt();
+          for (var index = 0; index < merged.length; index++) {
+            if (episodeIds.contains(merged[index].episode.id)) {
+              merged[index] = merged[index].copyWith(type: type);
+            }
+          }
+        } else if (mutation.kind == BangumiMutationKind.collection &&
+            payload['complete_episodes'] == true) {
+          for (var index = 0; index < merged.length; index++) {
+            if (merged[index].episode.type == 0) {
+              merged[index] = merged[index].copyWith(type: 2);
+            }
+          }
+        }
+      }
+    } catch (_) {}
+    return merged;
+  }
+
   Future<List<UserCollection>> _loadAllCollections(String username) async {
+    final requestMutationRevision = _localMutationRevision;
     final pages = await Future.wait([
       for (final type in SubjectType.values)
         _api.getUserCollections(username, subjectType: type),
     ]);
     final merged = [for (final page in pages) ...page];
-    _sortCollections(merged);
-    return merged;
+    final overlaid = await _overlayPendingCollections(username, merged);
+    return _preserveCollectionsChangedAfter(overlaid, requestMutationRevision);
   }
 
   void _sortCollections(List<UserCollection> items) {
@@ -490,11 +691,223 @@ class SessionController extends StateNotifier<SessionState> {
     }
   }
 
+  Future<void> syncPendingChanges({bool retryBlocked = false}) {
+    final active = _syncInFlight;
+    if (active == null) return _startDrain(retryBlocked: retryBlocked);
+    if (!retryBlocked) return active;
+    // A manual retry must not be swallowed by a drain that is already
+    // running: chain one more pass so blocked entries actually retry. The
+    // chained future stays registered so concurrent callers join it instead
+    // of starting a parallel drain.
+    final future = () async {
+      try {
+        await active;
+      } catch (_) {}
+      await _startDrain(retryBlocked: true);
+    }();
+    _syncInFlight = future;
+    return future;
+  }
+
+  Future<void> _startDrain({required bool retryBlocked}) {
+    final future = _drainPendingChanges(retryBlocked: retryBlocked);
+    _syncInFlight = future;
+    return future.whenComplete(() {
+      if (identical(_syncInFlight, future)) _syncInFlight = null;
+    });
+  }
+
+  Future<void> _drainPendingChanges({required bool retryBlocked}) async {
+    final username = state.user?.username;
+    if (username == null || username.isEmpty) return;
+    _syncRetryTimer?.cancel();
+    _syncRetryTimer = null;
+    if (retryBlocked) {
+      try {
+        await _syncStore.retryBlocked(username);
+      } catch (_) {
+        return;
+      }
+    }
+    if (state.user?.username != username) return;
+    state = state.copyWith(isSyncing: true);
+    var retryLater = false;
+    var changedWhileSyncing = false;
+    try {
+      final pending = await _syncStore.pendingFor(username);
+      for (final mutation in pending) {
+        if (state.user?.username != username) return;
+        try {
+          await _replayMutation(mutation);
+          final removed = await _syncStore.removeIfUnchanged(mutation);
+          if (!removed) {
+            changedWhileSyncing = true;
+            break;
+          }
+          _syncRetryStep = 0;
+        } catch (error) {
+          retryLater = _isRetryableSyncError(error);
+          final marked = await _syncStore.markFailure(
+            mutation,
+            _messageFor(error),
+            blocked: !retryLater,
+          );
+          if (!marked) changedWhileSyncing = true;
+          break;
+        }
+      }
+    } catch (_) {
+      retryLater = true;
+    } finally {
+      final remaining = await _refreshPendingCount(username);
+      if (state.user?.username == username) {
+        state = state.copyWith(isSyncing: false);
+      }
+      // Entries enqueued while this drain was running are outside the
+      // snapshot it processed; follow up immediately instead of waiting
+      // for the next external trigger. Blocked entries never count here:
+      // they only leave through a manual retry, so looping on them would
+      // spin the timer forever.
+      if (!retryLater && remaining > 0) changedWhileSyncing = true;
+      if (state.user?.username == username) {
+        if (changedWhileSyncing) {
+          _scheduleSyncRetry(immediate: true);
+        } else if (retryLater) {
+          _scheduleSyncRetry();
+        }
+      }
+    }
+  }
+
+  Future<void> _replayMutation(PendingBangumiMutation mutation) async {
+    await _api.replayPendingMutation(mutation.kind, mutation.payload);
+    if (mutation.kind != BangumiMutationKind.collection ||
+        mutation.payload['complete_episodes'] != true ||
+        mutation.payload['collection_type'] != CollectionType.done.value) {
+      return;
+    }
+    final subjectId = (mutation.payload['subject_id'] as num).toInt();
+    final episodes = await _api.getEpisodeCollections(subjectId);
+    final unfinished = BangumiSupport.unfinishedMainEpisodeIds(episodes);
+    if (unfinished.isNotEmpty) {
+      await _api.updateEpisodesBatch(
+        subjectId,
+        episodeIds: unfinished,
+        type: 2,
+      );
+    }
+  }
+
+  /// Keeps the episode snapshot in step with a just-enqueued edit, so a
+  /// later offline read still shows it after the queue entry that carried
+  /// it has been uploaded and removed. The direct edit covers the entry
+  /// that may already be gone; the queue fold overlays any newer local
+  /// state for the same subject.
+  Future<void> _persistEpisodeSnapshot(
+    int subjectId, {
+    int? episodeId,
+    int? type,
+  }) async {
+    try {
+      final cached = await _snapshotCache.readEpisodeCollections(subjectId);
+      if (cached == null || cached.isEmpty) return;
+      final edited = [
+        for (final item in cached)
+          if (episodeId != null && item.episode.id == episodeId)
+            item.copyWith(type: type ?? item.type)
+          else
+            item,
+      ];
+      final merged = await applyPendingEpisodeChanges(subjectId, edited);
+      await _snapshotCache.writeEpisodeCollections(subjectId, merged);
+    } catch (_) {
+      // The queue entry is durable on its own; a snapshot hiccup must not
+      // surface as a failed edit.
+    }
+  }
+
+  bool _isRetryableSyncError(Object error) =>
+      (error is BangumiApiException && error.retryable) ||
+      (error is BangumiOAuthException && !error.invalidatesSession);
+
+  void _scheduleSyncRetry({bool immediate = false}) {
+    if (_syncRetryTimer != null || state.user == null) return;
+    const delays = [
+      Duration(seconds: 20),
+      Duration(minutes: 1),
+      Duration(minutes: 2),
+      Duration(minutes: 5),
+    ];
+    final index = _syncRetryStep.clamp(0, delays.length - 1);
+    if (!immediate) _syncRetryStep++;
+    _syncRetryTimer = Timer(immediate ? Duration.zero : delays[index], () {
+      _syncRetryTimer = null;
+      unawaited(syncPendingChanges());
+    });
+  }
+
+  /// Refreshes the queue counters in state and returns how many unblocked
+  /// entries are still waiting to upload.
+  Future<int> _refreshPendingCount([String? expectedUsername]) async {
+    final username = expectedUsername ?? state.user?.username;
+    if (username == null || username.isEmpty) return 0;
+    try {
+      final counts = await Future.wait([
+        _syncStore.countFor(username),
+        _syncStore.blockedCountFor(username),
+      ]);
+      final pending = counts[0] - counts[1];
+      if (state.user?.username == username) {
+        state = state.copyWith(
+          pendingSyncCount: counts[0],
+          blockedSyncCount: counts[1],
+        );
+      }
+      return pending;
+    } catch (_) {
+      return 0;
+    }
+  }
+
+  Future<String> _enqueueMutation({
+    required BangumiMutationKind kind,
+    required String mutationKey,
+    required Map<String, dynamic> payload,
+  }) async {
+    final username = state.user?.username;
+    if (username == null || username.isEmpty) {
+      throw const BangumiApiException('请先登录后再修改');
+    }
+    await _syncStore.enqueue(
+      username: username,
+      kind: kind,
+      mutationKey: mutationKey,
+      payload: payload,
+    );
+    if (state.user?.username != username) {
+      throw const BangumiApiException('登录状态已变化，修改已保存在原账号的本地队列中');
+    }
+    final subjectId = (payload['subject_id'] as num?)?.toInt();
+    if (subjectId != null && subjectId > 0) {
+      _localMutationRevision++;
+      _subjectMutationRevisions[subjectId] = _localMutationRevision;
+    }
+    await _refreshPendingCount(username);
+    if (state.user?.username != username) {
+      throw const BangumiApiException('登录状态已变化，修改已保存在原账号的本地队列中');
+    }
+    unawaited(syncPendingChanges());
+    return username;
+  }
+
   Future<void> refresh({bool showIndicator = true}) async {
     final user = state.user;
     if (user == null) return;
     final username = user.username;
+    await syncPendingChanges();
+    if (state.user?.username != username) return;
     final generation = ++_collectionsGeneration;
+    final requestMutationRevision = _localMutationRevision;
     if (showIndicator) {
       state = state.copyWith(
         isRefreshing: true,
@@ -513,7 +926,12 @@ class SessionController extends StateNotifier<SessionState> {
           state.user?.username != username) {
         return;
       }
-      final merged = _replaceType(state.collections, SubjectType.anime, anime);
+      var merged = _replaceType(state.collections, SubjectType.anime, anime);
+      merged = await _overlayPendingCollections(username, merged);
+      merged = _preserveCollectionsChangedAfter(
+        merged,
+        requestMutationRevision,
+      );
       _sortCollections(merged);
       state = state.copyWith(
         collections: merged,
@@ -568,6 +986,8 @@ class SessionController extends StateNotifier<SessionState> {
     );
     if (user == null) return persistError;
     final username = user.username;
+    await syncPendingChanges();
+    if (state.user?.username != username) return persistError;
     final generation = ++_collectionsGeneration;
     try {
       final collections = await _loadAllCollections(username);
@@ -604,16 +1024,49 @@ class SessionController extends StateNotifier<SessionState> {
     if (state.updatingSubjects.contains(collection.subjectId)) return null;
     _setUpdating(collection.subjectId, true);
     try {
-      // Default episodeType=0: only 本篇 for progress tooling.
-      final episodes = await _api.getEpisodeCollections(collection.subjectId);
+      List<UserEpisodeCollection> episodes;
+      try {
+        episodes = await _api.getEpisodeCollections(collection.subjectId);
+      } catch (_) {
+        episodes =
+            await _snapshotCache.readEpisodeCollections(collection.subjectId) ??
+            const [];
+        if (episodes.isEmpty) rethrow;
+      }
+      episodes = await applyPendingEpisodeChanges(
+        collection.subjectId,
+        episodes,
+      );
+      await _snapshotCache.writeEpisodeCollections(
+        collection.subjectId,
+        episodes,
+      );
       final target = BangumiSupport.nextUnwatchedMain(episodes);
       if (target == null) return '已经没有下一集了';
-      await _api.updateEpisode(target.episode.id, type: 2);
       final watchedCount = BangumiSupport.watchedMainCountAfterMark(
         episodes,
         target.episode.id,
       );
+      final username = await _enqueueMutation(
+        kind: BangumiMutationKind.episode,
+        mutationKey: 'episode:${target.episode.id}',
+        payload: {
+          'subject_id': collection.subjectId,
+          'episode_id': target.episode.id,
+          'type': 2,
+          'local_episode_status': watchedCount,
+        },
+      );
+      await _persistEpisodeSnapshot(
+        collection.subjectId,
+        episodeId: target.episode.id,
+        type: 2,
+      );
+      if (state.user?.username != username) {
+        return '登录状态已变化，修改已保存在原账号的本地队列中';
+      }
       _replaceCollection(collection.copyWith(episodeStatus: watchedCount));
+      await _snapshotCache.writeCollections(username, state.collections);
       return null;
     } catch (error) {
       return _messageFor(error);
@@ -626,16 +1079,37 @@ class SessionController extends StateNotifier<SessionState> {
     required int subjectId,
     required int episodeId,
     required int type,
-    bool refreshCollection = true,
+    int? previousType,
     bool trackGlobalBusy = true,
   }) async {
     if (trackGlobalBusy) {
       _setUpdating(subjectId, true);
     }
     try {
-      await _api.updateEpisode(episodeId, type: type);
-      if (refreshCollection) {
-        await refresh(showIndicator: false);
+      final collection = state.collectionFor(subjectId);
+      int? nextCount;
+      if (collection != null && previousType != null && previousType != type) {
+        final delta = (type == 2 ? 1 : 0) - (previousType == 2 ? 1 : 0);
+        nextCount = (collection.episodeStatus + delta).clamp(0, 1 << 30);
+      }
+      final username = await _enqueueMutation(
+        kind: BangumiMutationKind.episode,
+        mutationKey: 'episode:$episodeId',
+        payload: {
+          'subject_id': subjectId,
+          'episode_id': episodeId,
+          'type': type,
+          'local_episode_status': ?nextCount,
+        },
+      );
+      await _persistEpisodeSnapshot(
+        subjectId,
+        episodeId: episodeId,
+        type: type,
+      );
+      if (collection != null && nextCount != null) {
+        _replaceCollection(collection.copyWith(episodeStatus: nextCount));
+        await _snapshotCache.writeCollections(username, state.collections);
       }
       return null;
     } catch (error) {
@@ -672,41 +1146,50 @@ class SessionController extends StateNotifier<SessionState> {
       final nextVolumeStatus = subject.type.hasVolumes
           ? (volumeStatus ?? old?.volumeStatus ?? 0)
           : (old?.volumeStatus ?? 0);
-      await _api.updateCollection(
-        subject.id,
-        type,
-        rate: nextRate,
-        comment: nextComment,
-        tags: nextTags,
-        private: nextPrivate,
-        episodeStatus: subject.type.hasVolumes ? nextEpisodeStatus : null,
-        volumeStatus: subject.type.hasVolumes ? nextVolumeStatus : null,
-      );
-      var resolvedEpisodeStatus = nextEpisodeStatus;
-      String? progressWarning;
-      // Garage #461: marking as "done" auto-completes regular episode progress.
-      if (completeEpisodesWhenDone &&
+      final shouldCompleteEpisodes =
+          completeEpisodesWhenDone &&
           type == CollectionType.done &&
-          subject.type.hasEpisodes) {
-        try {
-          // Default episodeType=0: only auto-complete 本篇, never SP/OP/ED.
-          final episodes = await _api.getEpisodeCollections(subject.id);
-          final unfinished = BangumiSupport.unfinishedMainEpisodeIds(episodes);
-          if (unfinished.isNotEmpty) {
-            await _api.updateEpisodesBatch(
-              subject.id,
-              episodeIds: unfinished,
-              type: 2,
-            );
-          }
+          subject.type.hasEpisodes;
+      var resolvedEpisodeStatus = nextEpisodeStatus;
+      List<UserEpisodeCollection>? cachedEpisodes;
+      if (shouldCompleteEpisodes) {
+        cachedEpisodes = await _snapshotCache.readEpisodeCollections(
+          subject.id,
+        );
+        if (cachedEpisodes != null && cachedEpisodes.isNotEmpty) {
           resolvedEpisodeStatus = BangumiSupport.mainEpisodeCollections(
-            episodes,
+            cachedEpisodes,
           ).length;
-        } catch (error) {
-          // Collection type is already updated; progress fill is best-effort
-          // but the user deserves to know the progress did not fully sync.
-          progressWarning = '已标记看过，但章节进度补完失败：${_messageFor(error)}';
+        } else if (subject.episodeCount > 0) {
+          resolvedEpisodeStatus = subject.episodeCount;
         }
+      }
+      final username = await _enqueueMutation(
+        kind: BangumiMutationKind.collection,
+        mutationKey: 'collection:${subject.id}',
+        payload: {
+          'subject_id': subject.id,
+          'subject': subject.toJson(),
+          'collection_type': type.value,
+          'rate': nextRate,
+          'comment': nextComment,
+          'tags': nextTags,
+          'private': nextPrivate,
+          'episode_status': subject.type.hasVolumes ? nextEpisodeStatus : null,
+          'local_episode_status': resolvedEpisodeStatus,
+          'volume_status': subject.type.hasVolumes ? nextVolumeStatus : null,
+          'complete_episodes': shouldCompleteEpisodes,
+          'local_updated_at': DateTime.now().toIso8601String(),
+        },
+      );
+      if (shouldCompleteEpisodes && cachedEpisodes != null) {
+        await _snapshotCache.writeEpisodeCollections(subject.id, [
+          for (final item in cachedEpisodes)
+            if (item.episode.type == 0) item.copyWith(type: 2) else item,
+        ]);
+      }
+      if (state.user?.username != username) {
+        return '登录状态已变化，修改已保存在原账号的本地队列中';
       }
       if (old != null) {
         _replaceCollection(
@@ -739,7 +1222,8 @@ class SessionController extends StateNotifier<SessionState> {
           ],
         );
       }
-      return progressWarning;
+      await _snapshotCache.writeCollections(username, state.collections);
+      return null;
     } catch (error) {
       return _messageFor(error);
     } finally {
@@ -751,6 +1235,10 @@ class SessionController extends StateNotifier<SessionState> {
 
   Future<void> _forceSignOut({String? message}) async {
     _collectionsGeneration++;
+    _subjectMutationRevisions.clear();
+    _localMutationRevision = 0;
+    _syncRetryTimer?.cancel();
+    _syncRetryTimer = null;
     _cachedRefreshToken = null;
     _cachedExpiresAt = null;
     _cachedOAuthConfig = null;
@@ -806,6 +1294,12 @@ class SessionController extends StateNotifier<SessionState> {
       (error is BangumiApiException &&
           error.statusCode == 401 &&
           (_cachedRefreshToken == null || _cachedRefreshToken!.isEmpty));
+
+  @override
+  void dispose() {
+    _syncRetryTimer?.cancel();
+    super.dispose();
+  }
 }
 
 final sessionProvider = StateNotifierProvider<SessionController, SessionState>((

@@ -280,11 +280,36 @@ class ProfilePage extends ConsumerWidget {
               Column(
                 children: [
                   ListTile(
-                    leading: const Icon(Icons.sync_rounded),
+                    leading: Icon(
+                      session.pendingSyncCount > 0
+                          ? Icons.cloud_upload_outlined
+                          : Icons.sync_rounded,
+                    ),
                     title: const Text('立即同步'),
-                    subtitle: const Text('重新获取全部类型的 Bangumi 收藏'),
-                    trailing: const Icon(Icons.chevron_right_rounded),
-                    onTap: () => ref.read(sessionProvider.notifier).refresh(),
+                    subtitle: Text(
+                      session.pendingSyncCount > 0
+                          ? session.blockedSyncCount > 0
+                                ? '${session.blockedSyncCount} 条本地修改需要重试，点击立即同步'
+                                : '${session.pendingSyncCount} 条本地修改等待上传，联网后会自动同步'
+                          : '本地修改已上传 · 重新获取全部类型收藏',
+                    ),
+                    trailing: session.isSyncing || session.isRefreshing
+                        ? const SizedBox.square(
+                            dimension: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.chevron_right_rounded),
+                    onTap: session.isSyncing || session.isRefreshing
+                        ? null
+                        : () async {
+                            final controller = ref.read(
+                              sessionProvider.notifier,
+                            );
+                            await controller.syncPendingChanges(
+                              retryBlocked: true,
+                            );
+                            await controller.refresh();
+                          },
                   ),
                   const Divider(height: 1, indent: 56),
                   ListTile(
@@ -531,8 +556,7 @@ class _UpdateSettingsTile extends ConsumerWidget {
             AppUpdatePhase.upToDate => '已是最新 · ${snapshot.versionLabel}',
             AppUpdatePhase.outdated => '发现可用热更新',
             AppUpdatePhase.restartRequired => '热更新已就绪，重启后生效',
-            AppUpdatePhase.unavailable =>
-              '热更新不可用 · ${snapshot.versionLabel}',
+            AppUpdatePhase.unavailable => '热更新不可用 · ${snapshot.versionLabel}',
             AppUpdatePhase.error => snapshot.message ?? '检查失败',
           };
 

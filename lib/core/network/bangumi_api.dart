@@ -1,15 +1,21 @@
 import 'package:dio/dio.dart';
 
 import '../../models/bangumi_models.dart';
+import '../storage/bangumi_sync_store.dart';
 import 'bangumi_endpoints.dart';
 import 'bangumi_support.dart';
 import 'bangumi_user_agent.dart';
 
 class BangumiApiException implements Exception {
-  const BangumiApiException(this.message, {this.statusCode});
+  const BangumiApiException(
+    this.message, {
+    this.statusCode,
+    this.retryable = false,
+  });
 
   final String message;
   final int? statusCode;
+  final bool retryable;
 
   @override
   String toString() => message;
@@ -52,6 +58,15 @@ class BangumiApi {
           // actually reachable; a JSON error body must not shadow them.
           final data = error.response?.data;
           final status = error.response?.statusCode;
+          final retryable =
+              status == 429 ||
+              (status != null && status >= 500) ||
+              const {
+                DioExceptionType.connectionTimeout,
+                DioExceptionType.sendTimeout,
+                DioExceptionType.receiveTimeout,
+                DioExceptionType.connectionError,
+              }.contains(error.type);
           final usingProxy =
               error.requestOptions.baseUrl ==
               BangumiNetworkRoute.reverseProxy.apiBaseUrl;
@@ -81,6 +96,7 @@ class BangumiApi {
               error: BangumiApiException(
                 message,
                 statusCode: error.response?.statusCode,
+                retryable: retryable,
               ),
             ),
           );
@@ -112,6 +128,46 @@ class BangumiApi {
       _dio.options.headers.remove('Authorization');
     } else {
       _dio.options.headers['Authorization'] = 'Bearer $token';
+    }
+  }
+
+  /// Replays a mutation previously persisted by the offline queue.
+  Future<void> replayPendingMutation(
+    BangumiMutationKind kind,
+    Map<String, dynamic> payload,
+  ) async {
+    switch (kind) {
+      case BangumiMutationKind.episode:
+        await updateEpisode(
+          (payload['episode_id'] as num).toInt(),
+          type: (payload['type'] as num).toInt(),
+        );
+        return;
+      case BangumiMutationKind.collection:
+        await updateCollection(
+          (payload['subject_id'] as num).toInt(),
+          CollectionType.fromValue((payload['collection_type'] as num).toInt()),
+          rate: (payload['rate'] as num?)?.toInt() ?? 0,
+          comment: payload['comment']?.toString() ?? '',
+          tags: [
+            for (final value in payload['tags'] as List? ?? const [])
+              value.toString(),
+          ],
+          private: payload['private'] == true,
+          episodeStatus: (payload['episode_status'] as num?)?.toInt(),
+          volumeStatus: (payload['volume_status'] as num?)?.toInt(),
+        );
+        return;
+      case BangumiMutationKind.episodesBatch:
+        await updateEpisodesBatch(
+          (payload['subject_id'] as num).toInt(),
+          episodeIds: [
+            for (final value in payload['episode_ids'] as List? ?? const [])
+              (value as num).toInt(),
+          ],
+          type: (payload['type'] as num).toInt(),
+        );
+        return;
     }
   }
 

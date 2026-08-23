@@ -18,10 +18,8 @@ Future<bool> showCollectionEditorSheet(
     useSafeArea: true,
     showDragHandle: true,
     constraints: const BoxConstraints(maxWidth: 560),
-    builder: (_) => _CollectionEditorSheet(
-      subject: subject,
-      collection: collection,
-    ),
+    builder: (_) =>
+        _CollectionEditorSheet(subject: subject, collection: collection),
   );
   return result == true;
 }
@@ -100,7 +98,8 @@ class _CollectionEditorSheetState
       showAppMessage(context, error);
       return;
     }
-    showAppMessage(context, '收藏已保存');
+    final pending = ref.read(sessionProvider).pendingSyncCount;
+    showAppMessage(context, pending > 0 ? '收藏已保存在本机，联网后自动同步' : '收藏已保存');
     Navigator.pop(context, true);
   }
 
@@ -240,9 +239,7 @@ class _CollectionEditorSheetState
               const SizedBox(height: 8),
               TextButton.icon(
                 onPressed: () => launchUrl(
-                  Uri.parse(
-                    'https://bgm.tv/subject/${subject.id}',
-                  ),
+                  Uri.parse('https://bgm.tv/subject/${subject.id}'),
                   mode: LaunchMode.externalApplication,
                 ),
                 icon: const Icon(Icons.open_in_new_rounded, size: 18),

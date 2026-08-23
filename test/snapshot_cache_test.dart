@@ -61,6 +61,29 @@ void main() {
     expect(restored.sign, 'hello');
   });
 
+  test('episode collection snapshot round-trips through JSON', () {
+    const episode = UserEpisodeCollection(
+      episode: Episode(
+        id: 42,
+        type: 0,
+        number: 3,
+        sort: 3,
+        name: 'Episode 3',
+        nameCn: '第三话',
+        airDate: '2026-08-18',
+        description: '简介',
+      ),
+      type: 2,
+      updatedAt: 1770000000,
+    );
+
+    final restored = UserEpisodeCollection.fromJson(episode.toJson());
+    expect(restored.episode.id, 42);
+    expect(restored.episode.displayName, '第三话');
+    expect(restored.type, 2);
+    expect(restored.updatedAt, 1770000000);
+  });
+
   test('discover browse cache keys are stable per filter', () {
     final a = SnapshotCache.discoverBrowseKey(
       type: SubjectType.anime,
