@@ -1,5 +1,7 @@
 # MuBangumi Native Android
 
+> ⚠️ **本模块已冻结**：这是停留在 1.7.0 时代的功能原型，不再随 Flutter 主线更新。代码保留供参考，请勿基于它发布或继续开发；如需原生版本应重新立项。已知未解决问题：Token 明文存储、手写图片加载无磁盘缓存、API 行为与 Flutter 版存在漂移。
+
 MuBangumi 的原生 Android **原型**，使用 Kotlin、Jetpack Compose 和 Material 3。它是独立 Gradle 工程，不依赖 Flutter 运行时，并保留原应用的粉色品牌主题、卡片布局与五栏主导航。
 
 当前 Access Token 以明文写入 `SharedPreferences`，登录方式也只是粘贴 Token。这不是正式发布包：不要把它当作 `com.wweiyi.mubangumi` 的替代品分发，也不要把它附到 Flutter 版的 GitHub Release。对外发布前需要改用 EncryptedSharedPreferences / Android Keystore。

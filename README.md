@@ -10,7 +10,7 @@ MuBangumi 是一个使用 Flutter 编写的第三方 Bangumi 追番客户端，�
 
 ## 原生 Android 版本
 
-仓库的 `native-android/` 包含独立的 Kotlin + Jetpack Compose 原生实现，不依赖 Flutter 运行时。构建方法、已迁移功能和工程结构见 [`native-android/README.md`](native-android/README.md)。
+仓库的 `native-android/` 包含独立的 Kotlin + Jetpack Compose 原生实现，不依赖 Flutter 运行时。构建方法、已迁移功能和工程结构见 [`native-android/README.md`](native-android/README.md)。注意：该模块为**已冻结的原型**，停留在 1.7.0 时代，不随主线维护。
 
 ## 已实现
 
