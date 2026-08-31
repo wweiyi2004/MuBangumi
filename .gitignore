@@ -4,6 +4,7 @@
 *.pyc
 *.swp
 .DS_Store
+.pytest_cache/
 .tmp-shaft/
 .atom/
 .build/
