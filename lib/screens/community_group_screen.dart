@@ -6,13 +6,15 @@ import '../core/network/community_service.dart';
 import '../models/community_models.dart';
 import '../widgets/community_composer.dart';
 import '../widgets/community_widgets.dart';
+import '../widgets/community_loading.dart';
 import 'community_page.dart';
 import 'community_topic_screen.dart';
 import 'user_profile_page.dart';
 import 'website_login_screen.dart';
 
 class CommunityGroupScreen extends StatefulWidget {
-  const CommunityGroupScreen({super.key, required this.group});
+  const CommunityGroupScreen({super.key, required this.group, this.service});
+  final CommunityService? service;
 
   final CommunityGroup group;
 
@@ -21,10 +23,13 @@ class CommunityGroupScreen extends StatefulWidget {
 }
 
 class _CommunityGroupScreenState extends State<CommunityGroupScreen> {
-  final _service = CommunityService.shared;
+  late final _service = widget.service ?? CommunityService.shared;
   CommunityGroupDetail? _detail;
   bool _loading = true;
+  int _requestId = 0;
+  int _lastSuccessfulRequest = -1;
   String? _error;
+  final _drafts = <String, CommunityDraft>{};
 
   String get _slug => widget.group.slug.isNotEmpty
       ? widget.group.slug
@@ -37,17 +42,28 @@ class _CommunityGroupScreenState extends State<CommunityGroupScreen> {
   }
 
   Future<void> _loadCacheThenRefresh() async {
-    final cached = await _service.readCachedGroupDetail(_slug);
-    if (cached != null && mounted) {
-      setState(() {
-        _detail = cached;
-        _loading = false;
-      });
+    final requestId = ++_requestId;
+    final network = _load(requestId: requestId);
+    Future<void> restore() async {
+      try {
+        final cached = await _service.readCachedGroupDetail(_slug);
+        if (!mounted ||
+            requestId != _requestId ||
+            _lastSuccessfulRequest == requestId ||
+            cached == null) {
+          return;
+        }
+        setState(() => _detail = cached);
+      } catch (_) {}
     }
-    await _load(refresh: true);
+
+    unawaited(restore());
+    await network;
   }
 
-  Future<void> _load({bool refresh = false}) async {
+  Future<void> _load({bool refresh = false, int? requestId}) async {
+    if (!mounted) return;
+    final activeRequest = requestId ?? ++_requestId;
     if (_slug.isEmpty) {
       setState(() {
         _loading = false;
@@ -61,13 +77,14 @@ class _CommunityGroupScreenState extends State<CommunityGroupScreen> {
     });
     try {
       final detail = await _service.loadGroupDetail(_slug, refresh: refresh);
-      if (!mounted) return;
+      if (!mounted || activeRequest != _requestId) return;
       setState(() {
         _detail = detail;
+        _lastSuccessfulRequest = activeRequest;
         _loading = false;
       });
     } catch (error) {
-      if (!mounted) return;
+      if (!mounted || activeRequest != _requestId) return;
       setState(() {
         _loading = false;
         _error = error.toString().replaceFirst('Exception: ', '');
@@ -87,9 +104,7 @@ class _CommunityGroupScreenState extends State<CommunityGroupScreen> {
           title: _detail?.isJoined == true ? '退出小组' : '加入小组',
           showSectionSwitcher: false,
           seedCookies: cookies,
-          loginHint: cookies.isEmpty
-              ? '加入/退出小组使用官网会话。请先到「我的 → 同步网站登录」，或在此页登录。'
-              : '已注入同步的网站会话。若仍提示登录，请重新同步网站登录。',
+          loginHint: cookies.isEmpty ? '请在此登录后加入或退出小组。' : '若页面提示登录，请重新登录后继续。',
         ),
       ),
     );
@@ -102,6 +117,10 @@ class _CommunityGroupScreenState extends State<CommunityGroupScreen> {
       context,
       heading: '在「${_detail?.group.name ?? widget.group.name}」发帖',
       requireTitle: true,
+      draft: _drafts.putIfAbsent(
+        '${_service.currentUsername}',
+        CommunityDraft.new,
+      ),
       onSubmit: (title, content, token) => _service.createGroupTopic(
         slug: _slug,
         title: title,
@@ -119,7 +138,7 @@ class _CommunityGroupScreenState extends State<CommunityGroupScreen> {
   void _openTopic(CommunityTopic topic) {
     Navigator.of(context).push(
       MaterialPageRoute<void>(
-        builder: (_) => CommunityTopicScreen(topic: topic),
+        builder: (_) => CommunityTopicScreen(topic: topic, service: _service),
       ),
     );
   }
@@ -160,7 +179,19 @@ class _CommunityGroupScreenState extends State<CommunityGroupScreen> {
               label: const Text('发帖'),
             )
           : null,
-      body: SafeArea(child: _buildBody()),
+      body: SafeArea(
+        child: Column(
+          children: [
+            if (_detail != null)
+              CommunityRefreshStatus(
+                loading: _loading,
+                error: _error,
+                onRetry: () => _load(refresh: true),
+              ),
+            Expanded(child: _buildBody()),
+          ],
+        ),
+      ),
     );
   }
 
@@ -233,17 +264,6 @@ class _CommunityGroupScreenState extends State<CommunityGroupScreen> {
                         topic: topic,
                         onTap: () => _openTopic(topic),
                       ),
-                  if (_loading) const LinearProgressIndicator(),
-                  if (_error != null) ...[
-                    const SizedBox(height: 10),
-                    Text(
-                      _error!,
-                      textAlign: TextAlign.center,
-                      style: TextStyle(
-                        color: Theme.of(context).colorScheme.error,
-                      ),
-                    ),
-                  ],
                 ],
               ),
             ),

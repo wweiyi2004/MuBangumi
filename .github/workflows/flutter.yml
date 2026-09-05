@@ -9,6 +9,11 @@ on:
       - "pubspec.yaml"
       - "pubspec.lock"
       - "analysis_options.yaml"
+      - "shorebird.yaml"
+      - "android/**"
+      - "ios/**"
+      - "windows/**"
+      - "tool/build_release.ps1"
       - ".github/workflows/flutter.yml"
   pull_request:
     paths:
@@ -17,6 +22,11 @@ on:
       - "pubspec.yaml"
       - "pubspec.lock"
       - "analysis_options.yaml"
+      - "shorebird.yaml"
+      - "android/**"
+      - "ios/**"
+      - "windows/**"
+      - "tool/build_release.ps1"
       - ".github/workflows/flutter.yml"
   workflow_dispatch:
 
@@ -30,7 +40,7 @@ jobs:
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: 3.44.0
+          flutter-version: 3.44.7
           channel: stable
           cache: true
 

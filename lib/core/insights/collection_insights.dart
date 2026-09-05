@@ -182,7 +182,7 @@ class CollectionStatistics {
 
   List<UserCollection> forYear(List<UserCollection> collections, int year) {
     final result = collections
-        .where((item) => item.updatedAt?.year == year)
+        .where((item) => item.updatedAt?.toLocal().year == year)
         .toList();
     result.sort((a, b) {
       final rate = b.rate.compareTo(a.rate);
@@ -202,7 +202,7 @@ class CollectionStatistics {
   static List<int> _years(List<UserCollection> collections) {
     final values = {
       for (final item in collections)
-        if (item.updatedAt != null) item.updatedAt!.year,
+        if (item.updatedAt != null) item.updatedAt!.toLocal().year,
     }.toList()..sort((a, b) => b.compareTo(a));
     return values;
   }
@@ -210,8 +210,7 @@ class CollectionStatistics {
   static Map<String, int> _tagCounts(List<UserCollection> collections) {
     final counts = <String, int>{};
     for (final item in collections) {
-      for (final raw in item.tags) {
-        final tag = raw.trim();
+      for (final tag in item.tags.map((value) => value.trim()).toSet()) {
         if (tag.isNotEmpty) counts[tag] = (counts[tag] ?? 0) + 1;
       }
     }

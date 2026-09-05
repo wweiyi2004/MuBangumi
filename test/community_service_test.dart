@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mubangumi/core/auth/website_session.dart';
@@ -5,6 +6,61 @@ import 'package:mubangumi/core/network/community_service.dart';
 import 'package:mubangumi/models/community_models.dart';
 
 void main() {
+  test(
+    'identical notices merge requests but manual refresh bypasses stored data',
+    () async {
+      var calls = 0;
+      final service = _service((options) {
+        calls++;
+        return Response(
+          requestOptions: options,
+          data: {'data': <dynamic>[], 'total': calls},
+        );
+      })..setAccessToken('token');
+      await Future.wait([service.loadNotices(), service.loadNotices()]);
+      expect(calls, 1);
+      await service.loadNotices();
+      expect(calls, 1);
+      await service.loadNotices(refresh: true);
+      expect(calls, 2);
+    },
+  );
+
+  test(
+    'late response from previous token cannot repopulate community cache',
+    () async {
+      final gate = Completer<void>();
+      final started = Completer<void>();
+      var calls = 0;
+      final dio = Dio(BaseOptions(baseUrl: 'https://next.bgm.tv'));
+      dio.interceptors.add(
+        InterceptorsWrapper(
+          onRequest: (options, handler) async {
+            final current = ++calls;
+            if (current == 1) {
+              started.complete();
+              await gate.future;
+            }
+            handler.resolve(
+              Response(
+                requestOptions: options,
+                data: {'data': <dynamic>[], 'total': current},
+              ),
+            );
+          },
+        ),
+      );
+      final service = CommunityService.test(p1Dio: dio)..setAccessToken('old');
+      final old = service.loadNotices();
+      await started.future;
+      service.setAccessToken('new');
+      expect((await service.loadNotices()).total, 2);
+      gate.complete();
+      await old;
+      expect((await service.loadNotices()).total, 2);
+      expect(calls, 2);
+    },
+  );
   test(
     'me timeline keeps items whose user object is omitted by the API',
     () async {

@@ -9,17 +9,22 @@ import '../models/community_models.dart';
 import '../state/user_preferences_controller.dart';
 import '../widgets/community_composer.dart';
 import '../widgets/community_widgets.dart';
+import '../widgets/community_loading.dart';
 import 'subject_detail_screen.dart';
 import 'user_profile_page.dart';
 
 class CommunityTimelinePage extends ConsumerStatefulWidget {
   const CommunityTimelinePage({
     super.key,
+    this.service,
+    this.tokenProvider,
     this.initialMode = CommunityTimelineMode.friends,
     this.initialTimelineId,
     this.username,
   });
 
+  final CommunityService? service;
+  final CommunityTokenProvider? tokenProvider;
   final CommunityTimelineMode initialMode;
   final int? initialTimelineId;
   final String? username;
@@ -30,7 +35,7 @@ class CommunityTimelinePage extends ConsumerStatefulWidget {
 }
 
 class _CommunityTimelinePageState extends ConsumerState<CommunityTimelinePage> {
-  final _service = CommunityService.shared;
+  late final _service = widget.service ?? CommunityService.shared;
   final _scrollController = ScrollController();
   final _initialTimelineKey = GlobalKey();
   late CommunityTimelineMode _mode;
@@ -40,12 +45,18 @@ class _CommunityTimelinePageState extends ConsumerState<CommunityTimelinePage> {
   bool _hasMore = true;
   String? _error;
   int _requestId = 0;
+  int _lastSuccessfulRequest = -1;
+  String? _loadMoreError;
+  int? _nextUntil;
   final Map<int, List<CommunityTimelineReply>> _replies = {};
   final Set<int> _expandedReplies = {};
   final Set<int> _loadingReplies = {};
   final Map<int, String> _replyErrors = {};
+  final Map<int, int> _replyRequestIds = {};
+  int _replyGeneration = 0;
   bool _initialTargetRevealed = false;
   bool _initialTargetFailed = false;
+  final _drafts = <String, CommunityDraft>{};
 
   bool get _isUserTimeline => widget.username?.trim().isNotEmpty == true;
 
@@ -68,7 +79,8 @@ class _CommunityTimelinePageState extends ConsumerState<CommunityTimelinePage> {
   }
 
   void _onScroll() {
-    if (_scrollController.position.extentAfter < 500) {
+    if (_loadMoreError == null &&
+        _scrollController.position.extentAfter < 500) {
       unawaited(_loadMore());
     }
   }
@@ -76,20 +88,29 @@ class _CommunityTimelinePageState extends ConsumerState<CommunityTimelinePage> {
   Future<void> _loadCacheThenRefresh() async {
     final mode = _mode;
     final requestId = ++_requestId;
-    if (!_isUserTimeline && _anchorUntil == null) {
-      final cached = await _service.readCachedTimeline(mode);
-      if (cached != null &&
-          cached.isNotEmpty &&
-          mounted &&
-          requestId == _requestId &&
-          mode == _mode) {
+    final restoreAllowed = !_isUserTimeline && _anchorUntil == null;
+    final network = _load(requestId: requestId);
+    Future<void> restore() async {
+      if (!restoreAllowed) return;
+      try {
+        final cached = await _service.readCachedTimeline(mode);
+        if (!mounted ||
+            requestId != _requestId ||
+            _lastSuccessfulRequest == requestId ||
+            cached == null ||
+            cached.isEmpty) {
+          return;
+        }
         setState(() {
           _items = cached;
-          _loading = false;
+          _nextUntil = cached.last.id;
+          _hasMore = cached.length >= 20;
         });
-      }
+      } catch (_) {}
     }
-    await _load(refresh: true, requestId: requestId);
+
+    unawaited(restore());
+    await network;
   }
 
   Future<List<CommunityTimelineItem>> _fetchTimeline({
@@ -112,7 +133,10 @@ class _CommunityTimelinePageState extends ConsumerState<CommunityTimelinePage> {
   Future<void> _load({bool refresh = false, int? requestId}) async {
     final mode = _mode;
     final activeRequest = requestId ?? ++_requestId;
+    if (!mounted || activeRequest != _requestId) return;
     setState(() {
+      _loadingMore = false;
+      _loadMoreError = null;
       _loading = true;
       _error = null;
     });
@@ -125,6 +149,8 @@ class _CommunityTimelinePageState extends ConsumerState<CommunityTimelinePage> {
       if (!mounted || activeRequest != _requestId || mode != _mode) return;
       setState(() {
         _items = items;
+        _lastSuccessfulRequest = activeRequest;
+        _nextUntil = items.lastOrNull?.id;
         _hasMore = items.length >= 20;
         _loading = false;
       });
@@ -182,22 +208,31 @@ class _CommunityTimelinePageState extends ConsumerState<CommunityTimelinePage> {
     if (_loading || _loadingMore || !_hasMore || _items.isEmpty) return;
     final mode = _mode;
     final requestId = _requestId;
-    setState(() => _loadingMore = true);
+    setState(() {
+      _loadingMore = true;
+      _loadMoreError = null;
+    });
     try {
-      final next = await _fetchTimeline(mode: mode, until: _items.last.id);
+      final cursor = _nextUntil;
+      final next = await _fetchTimeline(mode: mode, until: cursor);
       if (!mounted || mode != _mode || requestId != _requestId) return;
       final known = _items.map((item) => item.id).toSet();
       setState(() {
-        _items = [..._items, ...next.where((item) => known.add(item.id))];
-        _hasMore = next.length >= 20;
+        final added = next.where((item) => known.add(item.id)).toList();
+        _items = [..._items, ...added];
+        _nextUntil = next.lastOrNull?.id;
+        _hasMore =
+            added.isNotEmpty && next.length >= 20 && _nextUntil != cursor;
       });
     } catch (error) {
       if (!mounted || mode != _mode || requestId != _requestId) return;
       setState(() {
-        _error = error.toString().replaceFirst('Exception: ', '');
+        _loadMoreError = error.toString().replaceFirst('Exception: ', '');
       });
     } finally {
-      if (mounted) setState(() => _loadingMore = false);
+      if (mounted && requestId == _requestId) {
+        setState(() => _loadingMore = false);
+      }
     }
   }
 
@@ -207,6 +242,8 @@ class _CommunityTimelinePageState extends ConsumerState<CommunityTimelinePage> {
       _mode = mode;
       _items = const [];
       _hasMore = true;
+      _loadMoreError = null;
+      _nextUntil = null;
       _error = null;
       _loadingMore = false;
       _initialTargetFailed = true;
@@ -214,7 +251,9 @@ class _CommunityTimelinePageState extends ConsumerState<CommunityTimelinePage> {
       _expandedReplies.clear();
       _loadingReplies.clear();
       _replyErrors.clear();
+      _replyRequestIds.clear();
     });
+    if (_scrollController.hasClients) _scrollController.jumpTo(0);
     unawaited(_loadCacheThenRefresh());
   }
 
@@ -222,6 +261,11 @@ class _CommunityTimelinePageState extends ConsumerState<CommunityTimelinePage> {
     final sent = await showCommunityComposer(
       context,
       heading: '发布动态',
+      tokenProvider: widget.tokenProvider,
+      draft: _drafts.putIfAbsent(
+        '${_service.currentUsername}:post',
+        CommunityDraft.new,
+      ),
       contentLabel: '今天有什么新鲜事？',
       maxLength: 380,
       onSubmit: (_, content, token) =>
@@ -243,6 +287,11 @@ class _CommunityTimelinePageState extends ConsumerState<CommunityTimelinePage> {
     final sent = await showCommunityComposer(
       context,
       heading: '回复 $target',
+      tokenProvider: widget.tokenProvider,
+      draft: _drafts.putIfAbsent(
+        '${_service.currentUsername}:${item.id}:${reply?.id ?? 0}',
+        CommunityDraft.new,
+      ),
       onSubmit: (_, content, token) => _service.replyToTimeline(
         timelineId: item.id,
         content: content,
@@ -256,7 +305,20 @@ class _CommunityTimelinePageState extends ConsumerState<CommunityTimelinePage> {
     ).showSnackBar(const SnackBar(content: Text('回复已发送')));
     setState(() => _expandedReplies.add(item.id));
     await _loadReplies(item, refresh: true);
-    await _load(refresh: true);
+    if (!mounted) return;
+    setState(() {
+      _items = [
+        for (final current in _items)
+          if (current.id == item.id)
+            current.copyWith(
+              replyCount: current.replyCount > item.replyCount
+                  ? current.replyCount
+                  : item.replyCount + 1,
+            )
+          else
+            current,
+      ];
+    });
   }
 
   void _toggleReplies(CommunityTimelineItem item) {
@@ -274,7 +336,10 @@ class _CommunityTimelinePageState extends ConsumerState<CommunityTimelinePage> {
     CommunityTimelineItem item, {
     bool refresh = false,
   }) async {
-    if (_loadingReplies.contains(item.id)) return;
+    if (_loadingReplies.contains(item.id) && !refresh) return;
+    final mode = _mode;
+    final requestId = ++_replyGeneration;
+    _replyRequestIds[item.id] = requestId;
     setState(() {
       _loadingReplies.add(item.id);
       _replyErrors.remove(item.id);
@@ -284,13 +349,17 @@ class _CommunityTimelinePageState extends ConsumerState<CommunityTimelinePage> {
         item.id,
         refresh: refresh,
       );
-      if (!mounted) return;
+      if (!mounted || mode != _mode || _replyRequestIds[item.id] != requestId) {
+        return;
+      }
       setState(() {
         _replies[item.id] = replies;
         _loadingReplies.remove(item.id);
       });
     } catch (error) {
-      if (!mounted) return;
+      if (!mounted || mode != _mode || _replyRequestIds[item.id] != requestId) {
+        return;
+      }
       setState(() {
         _loadingReplies.remove(item.id);
         _replyErrors[item.id] = error.toString().replaceFirst(
@@ -351,6 +420,11 @@ class _CommunityTimelinePageState extends ConsumerState<CommunityTimelinePage> {
               ),
             ),
             const SizedBox(width: 10),
+            IconButton(
+              tooltip: '刷新动态',
+              onPressed: _loading ? null : () => _load(refresh: true),
+              icon: const Icon(Icons.refresh_rounded),
+            ),
             FilledButton.icon(
               onPressed: _service.isAuthenticated ? _post : null,
               icon: const Icon(Icons.edit_rounded, size: 18),
@@ -360,6 +434,12 @@ class _CommunityTimelinePageState extends ConsumerState<CommunityTimelinePage> {
         ),
         const SizedBox(height: 12),
       ],
+      if (_items.isNotEmpty)
+        CommunityRefreshStatus(
+          loading: _loading,
+          error: _error,
+          onRetry: () => _load(refresh: true),
+        ),
       Expanded(child: _buildBody()),
     ],
   );
@@ -396,13 +476,11 @@ class _CommunityTimelinePageState extends ConsumerState<CommunityTimelinePage> {
         itemCount: _items.length + 1,
         itemBuilder: (context, index) {
           if (index == _items.length) {
-            return Padding(
-              padding: const EdgeInsets.all(18),
-              child: Center(
-                child: _loadingMore
-                    ? const CircularProgressIndicator()
-                    : Text(_hasMore ? '继续向下浏览' : '已经到底了'),
-              ),
+            return CommunityLoadMoreFooter(
+              loading: _loadingMore,
+              hasMore: _hasMore,
+              error: _loadMoreError,
+              onLoad: _loading ? null : () => _loadMore(),
             );
           }
           final item = _items[index];

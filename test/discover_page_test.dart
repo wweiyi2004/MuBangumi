@@ -1,7 +1,10 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mubangumi/core/network/bangumi_api.dart';
+import 'package:mubangumi/core/storage/snapshot_cache.dart';
 import 'package:mubangumi/models/bangumi_models.dart';
 import 'package:mubangumi/screens/discover_page.dart';
 import 'package:mubangumi/state/session_controller.dart';
@@ -59,6 +62,61 @@ Future<void> _pumpDiscoverReady(WidgetTester tester) async {
 }
 
 void main() {
+  for (final startsSearch in [false, true]) {
+    testWidgets(
+      'late browse cache cannot replace ${startsSearch ? "a search" : "an empty network result"}',
+      (tester) async {
+        final cache = _DelayedBrowseCache();
+        await tester.pumpWidget(
+          ProviderScope(
+            overrides: [
+              ..._overrides(),
+              snapshotCacheProvider.overrideWithValue(cache),
+            ],
+            child: const MaterialApp(home: Scaffold(body: DiscoverPage())),
+          ),
+        );
+        await tester.pump();
+        if (startsSearch) {
+          await tester.enterText(find.byType(TextField).first, 'new query');
+          await tester.pump(const Duration(milliseconds: 500));
+        }
+        cache.result.complete([_cachedSubject]);
+        await tester.pump();
+        expect(find.text('旧缓存动画'), findsNothing);
+        expect(find.byType(LinearProgressIndicator), findsNothing);
+        expect(cache.saved, isEmpty);
+      },
+    );
+  }
+
+  testWidgets(
+    'phone search precedes recommendations and hides them during search',
+    (tester) async {
+      tester.view.physicalSize = const Size(320, 740);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: _overrides(),
+          child: const MaterialApp(home: Scaffold(body: DiscoverPage())),
+        ),
+      );
+      await _pumpDiscoverReady(tester);
+      final search = find.byType(TextField).first;
+      expect(tester.getTopLeft(search).dy, lessThan(120));
+      expect(
+        tester.getTopLeft(search).dy,
+        lessThan(tester.getTopLeft(find.text('评分趋势')).dy),
+      );
+      await tester.enterText(search, '测试');
+      await tester.pump(const Duration(milliseconds: 800));
+      await tester.pump();
+      expect(find.text('评分趋势'), findsNothing);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
   test('resolves each discover query mode without mixing browse results', () {
     expect(
       resolveDiscoverQueryMode(
@@ -210,9 +268,7 @@ void main() {
     await tester.enterText(yearInput, '${discoverEarliestAnimeYear - 1}');
     await tester.pump();
     expect(
-      find.text(
-        '请输入 $discoverEarliestAnimeYear—${DateTime.now().year + 1} 年',
-      ),
+      find.text('请输入 $discoverEarliestAnimeYear—${DateTime.now().year + 1} 年'),
       findsOneWidget,
     );
     expect(
@@ -291,4 +347,27 @@ void main() {
 
     expect(api.lastStartYear, discoverEarliestAnimeYear);
   });
+}
+
+const _cachedSubject = Subject(
+  id: 987,
+  name: '旧缓存动画',
+  nameCn: '',
+  imageUrl: '',
+  summary: '',
+  episodeCount: 12,
+  score: 0,
+  rank: 0,
+  date: '',
+);
+
+class _DelayedBrowseCache extends SnapshotCache {
+  final result = Completer<List<Subject>?>();
+  List<Subject>? saved;
+  @override
+  Future<List<Subject>?> readDiscoverBrowse(String key) => result.future;
+  @override
+  Future<void> writeDiscoverBrowse(String key, List<Subject> subjects) async {
+    saved = subjects;
+  }
 }

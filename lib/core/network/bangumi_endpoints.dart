@@ -1,13 +1,8 @@
 enum BangumiNetworkRoute {
-  official(
-    '正常线路',
-    'api.bgm.tv + lain.bgm.tv',
-    'https://api.bgm.tv/v0',
-    'lain.bgm.tv',
-  ),
+  official('官方线路', '直接连接 Bangumi', 'https://api.bgm.tv/v0', 'lain.bgm.tv'),
   reverseProxy(
-    'Bangumi 反代',
-    'bgmapi.anibt.net + bgmimg.anibt.net',
+    '第三方线路',
+    '通过第三方服务连接',
     'https://bgmapi.anibt.net/v0',
     'bgmimg.anibt.net',
   );

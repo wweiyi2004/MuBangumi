@@ -52,27 +52,33 @@ class WebsiteCookie {
       name.toLowerCase().contains('sid') ||
       name.toLowerCase().contains('session') ||
       name.toLowerCase().contains('token');
+
+  bool get isExpired =>
+      expiresAt != null && !expiresAt!.isAfter(DateTime.now());
 }
 
 /// Persisted website login snapshot (supplemental to OAuth).
 class WebsiteSessionSnapshot {
-  const WebsiteSessionSnapshot({
-    required this.cookies,
-    required this.syncedAt,
-  });
+  const WebsiteSessionSnapshot({required this.cookies, required this.syncedAt});
 
   final List<WebsiteCookie> cookies;
   final DateTime syncedAt;
 
-  bool get hasSessionCookies =>
-      cookies.any((cookie) => cookie.name.isNotEmpty && cookie.looksLikeSession);
+  bool get hasSessionCookies => cookies.any(
+    (cookie) =>
+        cookie.name.isNotEmpty &&
+        cookie.value.isNotEmpty &&
+        !cookie.isExpired &&
+        cookie.looksLikeSession,
+  );
 
   bool get isEmpty => cookies.isEmpty;
 
   /// Cookie header for future Dio / HTML requests.
   String get cookieHeader => [
     for (final cookie in cookies)
-      if (cookie.name.isNotEmpty) '${cookie.name}=${cookie.value}',
+      if (cookie.name.isNotEmpty && !cookie.isExpired)
+        '${cookie.name}=${cookie.value}',
   ].join('; ');
 
   Map<String, dynamic> toJson() => {

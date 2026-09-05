@@ -105,6 +105,17 @@ class BangumiSyncStore {
     return [for (final row in rows) _decode(row)];
   }
 
+  Future<List<PendingBangumiMutation>> blockedFor(String username) async {
+    final database = await _open();
+    final rows = await database.query(
+      'bangumi_sync_queue',
+      where: 'username = ? AND blocked = 1',
+      whereArgs: [username],
+      orderBy: 'updated_at DESC, id DESC',
+    );
+    return [for (final row in rows) _decode(row)];
+  }
+
   Future<int> countFor(String username) async {
     final database = await _open();
     final rows = await database.rawQuery(
@@ -160,9 +171,35 @@ class BangumiSyncStore {
     await database.update(
       'bangumi_sync_queue',
       const {'blocked': 0, 'last_error': null, 'attempts': 0},
-      where: 'username = ?',
+      where: 'username = ? AND blocked = 1',
       whereArgs: [username],
     );
+  }
+
+  Future<bool> retryIfUnchanged(PendingBangumiMutation mutation) async {
+    final database = await _open();
+    final updated = await database.update(
+      'bangumi_sync_queue',
+      {
+        'blocked': 0,
+        'last_error': null,
+        'attempts': 0,
+        'updated_at': DateTime.now().millisecondsSinceEpoch,
+      },
+      where: 'id = ? AND username = ? AND revision = ? AND blocked = 1',
+      whereArgs: [mutation.id, mutation.username, mutation.revision],
+    );
+    return updated > 0;
+  }
+
+  Future<bool> discardIfUnchanged(PendingBangumiMutation mutation) async {
+    final database = await _open();
+    final removed = await database.delete(
+      'bangumi_sync_queue',
+      where: 'id = ? AND username = ? AND revision = ? AND blocked = 1',
+      whereArgs: [mutation.id, mutation.username, mutation.revision],
+    );
+    return removed > 0;
   }
 
   Future<void> close() async {

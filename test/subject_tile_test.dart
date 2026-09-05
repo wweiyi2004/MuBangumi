@@ -1,9 +1,45 @@
 import 'package:flutter/material.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mubangumi/models/bangumi_models.dart';
 import 'package:mubangumi/widgets/subject_widgets.dart';
 
 void main() {
+  testWidgets('poster cover decodes at constrained physical pixel size', (
+    tester,
+  ) async {
+    tester.view.devicePixelRatio = 2;
+    addTearDown(tester.view.resetDevicePixelRatio);
+    const subject = Subject(
+      id: 99,
+      name: 'cover',
+      nameCn: '',
+      imageUrl: 'https://example.test/cover.jpg',
+      summary: '',
+      episodeCount: 0,
+      score: 0,
+      rank: 0,
+      date: '',
+    );
+    await tester.pumpWidget(
+      const MaterialApp(
+        home: Center(
+          child: SizedBox(
+            width: 140,
+            height: 200,
+            child: SubjectCover(subject: subject),
+          ),
+        ),
+      ),
+    );
+    final cover = tester.widget<CachedNetworkImage>(
+      find.byType(CachedNetworkImage),
+    );
+    expect(cover.memCacheWidth, 280);
+    expect(cover.memCacheHeight, 400);
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
   testWidgets('collected subject still shows public Bangumi score', (
     tester,
   ) async {

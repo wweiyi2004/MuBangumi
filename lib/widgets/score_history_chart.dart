@@ -110,23 +110,23 @@ class ScoreHistoryChart extends StatelessWidget {
           children: [
             Text(
               _formatDate(first.at),
-              style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                color: scheme.onSurfaceVariant,
-              ),
+              style: Theme.of(
+                context,
+              ).textTheme.labelSmall?.copyWith(color: scheme.onSurfaceVariant),
             ),
             const Spacer(),
             Text(
               '${label(minV)} – ${label(maxV)}',
-              style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                color: scheme.onSurfaceVariant,
-              ),
+              style: Theme.of(
+                context,
+              ).textTheme.labelSmall?.copyWith(color: scheme.onSurfaceVariant),
             ),
             const Spacer(),
             Text(
               _formatDate(last.at),
-              style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                color: scheme.onSurfaceVariant,
-              ),
+              style: Theme.of(
+                context,
+              ).textTheme.labelSmall?.copyWith(color: scheme.onSurfaceVariant),
             ),
           ],
         ),
@@ -169,7 +169,8 @@ class _ScoreHistoryPanelState extends State<ScoreHistoryPanel> {
     final history = widget.history;
     final delta = history?.delta(days: 30);
     final compact = widget.compact;
-    final hasBody = widget.error != null ||
+    final hasBody =
+        widget.error != null ||
         (widget.loading && history == null) ||
         (history != null && history.history.isNotEmpty) ||
         (!widget.loading && (history == null || history.history.isEmpty));
@@ -227,10 +228,10 @@ class _ScoreHistoryPanelState extends State<ScoreHistoryPanel> {
             ),
             if (!compact)
               Text(
-                '数据来自 netaba.re · Bangumi 评分/排名/收藏快照',
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  color: scheme.onSurfaceVariant,
-                ),
+                '数据来源：netaba.re',
+                style: Theme.of(
+                  context,
+                ).textTheme.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
               )
             else if (!_expanded && delta != null)
               Padding(
@@ -339,8 +340,8 @@ class _ScoreHistoryPanelState extends State<ScoreHistoryPanel> {
                   valueLabel: _metric == NetabaHistoryMetric.score
                       ? (v) => v.toStringAsFixed(2)
                       : (v) => v >= 1000
-                          ? '${(v / 1000).toStringAsFixed(1)}k'
-                          : v.toStringAsFixed(0),
+                            ? '${(v / 1000).toStringAsFixed(1)}k'
+                            : v.toStringAsFixed(0),
                   emptyLabel: '该维度暂无足够历史点',
                 ),
                 if (compact && widget.subjectId != null)
@@ -394,8 +395,7 @@ class _MetricSummary extends StatelessWidget {
     switch (metric) {
       case NetabaHistoryMetric.score:
         currentText = latest.toStringAsFixed(2);
-        changeText =
-            '${change >= 0 ? '+' : ''}${change.toStringAsFixed(2)} 全期';
+        changeText = '${change >= 0 ? '+' : ''}${change.toStringAsFixed(2)} 全期';
       case NetabaHistoryMetric.rank:
         currentText = '#${latest.round()}';
         // rank down is better
@@ -403,27 +403,27 @@ class _MetricSummary extends StatelessWidget {
         changeText = rankDelta == 0
             ? '全期持平'
             : rankDelta < 0
-                ? '↑ 上升 ${-rankDelta}'
-                : '↓ 下降 $rankDelta';
+            ? '↑ 上升 ${-rankDelta}'
+            : '↓ 下降 $rankDelta';
       case NetabaHistoryMetric.watching:
       case NetabaHistoryMetric.collect:
       case NetabaHistoryMetric.rated:
         currentText = latest.round().toString();
-        changeText =
-            '${change >= 0 ? '+' : ''}${change.round()} 全期';
+        changeText = '${change >= 0 ? '+' : ''}${change.round()} 全期';
     }
 
     return Row(
       children: [
         Text(
           currentText,
-          style: (compact
-                  ? Theme.of(context).textTheme.headlineSmall
-                  : Theme.of(context).textTheme.headlineMedium)
-              ?.copyWith(
-            color: _metricColor(metric),
-            fontWeight: FontWeight.w800,
-          ),
+          style:
+              (compact
+                      ? Theme.of(context).textTheme.headlineSmall
+                      : Theme.of(context).textTheme.headlineMedium)
+                  ?.copyWith(
+                    color: _metricColor(metric),
+                    fontWeight: FontWeight.w800,
+                  ),
         ),
         const SizedBox(width: 12),
         Expanded(
@@ -440,9 +440,9 @@ class _MetricSummary extends StatelessWidget {
         if (!compact)
           Text(
             '${points.length} 个采样点',
-            style: Theme.of(context).textTheme.labelSmall?.copyWith(
-              color: scheme.onSurfaceVariant,
-            ),
+            style: Theme.of(
+              context,
+            ).textTheme.labelSmall?.copyWith(color: scheme.onSurfaceVariant),
           ),
       ],
     );
@@ -474,17 +474,18 @@ class _DeltaChip extends StatelessWidget {
     final color = neutral
         ? Theme.of(context).colorScheme.onSurfaceVariant
         : good
-            ? const Color(0xFF2E9E6B)
-            : const Color(0xFFE05A5A);
-    final text = displayOverride ??
+        ? const Color(0xFF2E9E6B)
+        : const Color(0xFFE05A5A);
+    final text =
+        displayOverride ??
         '$label ${value > 0 ? '+' : ''}${value.toStringAsFixed(precision)}$suffix';
     return Chip(
       avatar: Icon(
         neutral
             ? Icons.remove_rounded
             : positive
-                ? Icons.trending_up_rounded
-                : Icons.trending_down_rounded,
+            ? Icons.trending_up_rounded
+            : Icons.trending_down_rounded,
         size: 16,
         color: color,
       ),
@@ -554,7 +555,9 @@ class _LineChartPainter extends CustomPainter {
     final tSpan = (maxT - minT).abs() < 1 ? 1.0 : (maxT - minT);
 
     Offset mapPoint(NetabaChartPoint p) {
-      final x = chart.left + (p.at.millisecondsSinceEpoch - minT) / tSpan * chart.width;
+      final x =
+          chart.left +
+          (p.at.millisecondsSinceEpoch - minT) / tSpan * chart.width;
       final norm = (p.value - minV) / (maxV - minV);
       final y = reverseY
           ? chart.top + norm * chart.height
@@ -568,7 +571,11 @@ class _LineChartPainter extends CustomPainter {
         ..strokeWidth = 1;
       for (var i = 0; i <= 3; i++) {
         final y = chart.top + chart.height * i / 3;
-        canvas.drawLine(Offset(chart.left, y), Offset(chart.right, y), gridPaint);
+        canvas.drawLine(
+          Offset(chart.left, y),
+          Offset(chart.right, y),
+          gridPaint,
+        );
       }
     }
 
@@ -585,7 +592,8 @@ class _LineChartPainter extends CustomPainter {
           style: TextStyle(color: labelColor, fontSize: 10),
         );
         tp.layout(maxWidth: leftPad - 4);
-        final y = chart.top + chart.height * i / (labels.length - 1) - tp.height / 2;
+        final y =
+            chart.top + chart.height * i / (labels.length - 1) - tp.height / 2;
         tp.paint(canvas, Offset(0, y.clamp(0, size.height - tp.height)));
       }
     }

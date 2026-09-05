@@ -128,7 +128,7 @@ class _OAuthAuthorizationDialogState extends State<_OAuthAuthorizationDialog> {
             if (!mounted || _finished) return;
             setState(() {
               _loading = false;
-              _error = '授权页面加载失败（$error）';
+              _error = '授权页面加载失败，请重试或改用系统浏览器';
             });
           }),
         ]);
@@ -143,8 +143,7 @@ class _OAuthAuthorizationDialogState extends State<_OAuthAuthorizationDialog> {
         if (!mounted || _finished) return;
         setState(() {
           _loading = false;
-          _error =
-              '无法启动应用内授权窗口。请确认已安装 Microsoft Edge WebView2 Runtime。\n$error';
+          _error = '无法打开授权窗口，请安装 Microsoft Edge WebView2 Runtime，或改用系统浏览器。';
         });
       }
     } finally {

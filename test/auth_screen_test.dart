@@ -11,6 +11,58 @@ import 'package:mubangumi/screens/auth_screen.dart';
 import 'package:mubangumi/state/session_controller.dart';
 
 void main() {
+  testWidgets(
+    'account verification has distinct status and saved-login retry is reachable',
+    (tester) async {
+      final controller = _StubSessionController();
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            sessionProvider.overrideWith((ref) => controller),
+            tokenStoreProvider.overrideWithValue(_EmptyTokenStore()),
+          ],
+          child: MaterialApp(theme: AppTheme.light, home: const AuthScreen()),
+        ),
+      );
+      await tester.pumpAndSettle();
+      controller.setSessionState(
+        const SessionState(
+          phase: SessionPhase.signedOut,
+          authActivity: AuthActivity.verifying,
+        ),
+      );
+      await tester.pump();
+      expect(find.text('正在验证账号…'), findsOneWidget);
+      expect(find.text('取消授权'), findsNothing);
+      expect(
+        tester
+            .widget<FilledButton>(find.byKey(const Key('primary-login-button')))
+            .onPressed,
+        isNull,
+      );
+      controller.setSessionState(
+        const SessionState(
+          phase: SessionPhase.signedOut,
+          canRetrySignIn: true,
+          message: '暂时无法连接',
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('retry-saved-login-button')));
+      expect(controller.retryCalls, 1);
+      controller.setSessionState(
+        const SessionState(
+          phase: SessionPhase.signedOut,
+          canRetrySignOut: true,
+          message: '清理失败',
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('retry-sign-out-button')));
+      expect(controller.signOutCalls, 1);
+    },
+  );
+
   testWidgets('keeps advanced login choices out of the primary screen', (
     tester,
   ) async {
@@ -65,7 +117,10 @@ void main() {
     await tester.pumpAndSettle();
 
     controller.setSessionState(
-      const SessionState(phase: SessionPhase.signedOut, isRefreshing: true),
+      const SessionState(
+        phase: SessionPhase.signedOut,
+        authActivity: AuthActivity.authorizing,
+      ),
     );
     await tester.pump();
 
@@ -99,6 +154,17 @@ class _StubSessionController extends SessionController {
     : super(BangumiApi(), BangumiOAuth(), _EmptyTokenStore());
 
   void setSessionState(SessionState value) => state = value;
+  int retryCalls = 0;
+  int signOutCalls = 0;
+  @override
+  Future<void> signOut() async {
+    signOutCalls++;
+  }
+
+  @override
+  Future<void> retrySavedSignIn() async {
+    retryCalls++;
+  }
 }
 
 class _EmptyTokenStore extends TokenStore {

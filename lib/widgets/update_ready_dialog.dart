@@ -56,9 +56,7 @@ class UpdateReadyDialog extends StatelessWidget {
         borderRadius: BorderRadius.circular(10),
       ),
       horizontalRuleDecoration: BoxDecoration(
-        border: Border(
-          top: BorderSide(color: scheme.outlineVariant, width: 1),
-        ),
+        border: Border(top: BorderSide(color: scheme.outlineVariant, width: 1)),
       ),
     );
 
@@ -67,7 +65,7 @@ class UpdateReadyDialog extends StatelessWidget {
         children: [
           Icon(Icons.system_update_alt_rounded),
           SizedBox(width: 10),
-          Expanded(child: Text('发现热更新')),
+          Expanded(child: Text('发现更新')),
         ],
       ),
       content: SizedBox(

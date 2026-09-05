@@ -41,6 +41,41 @@ void main() {
     expect(restored.unscheduled, hasLength(1));
     expect(restored.containsSubject(12), isTrue);
   });
+
+  test('per-subject reminder settings round-trip with old-data defaults', () {
+    const item = ScheduleItem(
+      subjectId: 7,
+      name: 'Reminder',
+      nameCn: '提醒测试',
+      imageUrl: '',
+      weekday: DateTime.friday,
+      reminderEnabled: true,
+      reminderHour: 21,
+      reminderMinute: 35,
+    );
+
+    final restored = ScheduleItem.fromJson(item.toJson());
+    expect(restored.reminderEnabled, isTrue);
+    expect(restored.reminderHour, 21);
+    expect(restored.reminderMinute, 35);
+
+    final legacy = ScheduleItem.fromJson({
+      'subjectId': 8,
+      'name': 'Legacy',
+      'weekday': DateTime.saturday,
+    });
+    expect(legacy.reminderEnabled, isFalse);
+    expect(legacy.reminderHour, 20);
+    expect(legacy.reminderMinute, 0);
+
+    final corrupt = ScheduleItem.fromJson({
+      'subjectId': 9,
+      'reminderHour': 99,
+      'reminderMinute': -2,
+    });
+    expect(corrupt.reminderHour, 23);
+    expect(corrupt.reminderMinute, 0);
+  });
 }
 
 extension on Subject {

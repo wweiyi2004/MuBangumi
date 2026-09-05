@@ -38,19 +38,21 @@ bool shouldRetryBangumiProxyRequest(DioException error) {
 }
 
 class BangumiApi {
-  BangumiApi()
-    : _dio = Dio(
-        BaseOptions(
-          baseUrl: BangumiNetworkRoute.official.apiBaseUrl,
-          connectTimeout: const Duration(seconds: 15),
-          receiveTimeout: const Duration(seconds: 25),
-          headers: const {
-            'Accept': 'application/json',
-            'Content-Type': 'application/json',
-            'User-Agent': muBangumiUserAgent,
-          },
-        ),
-      ) {
+  BangumiApi({Dio? dio})
+    : _dio =
+          dio ??
+          Dio(
+            BaseOptions(
+              baseUrl: BangumiNetworkRoute.official.apiBaseUrl,
+              connectTimeout: const Duration(seconds: 15),
+              receiveTimeout: const Duration(seconds: 25),
+              headers: const {
+                'Accept': 'application/json',
+                'Content-Type': 'application/json',
+                'User-Agent': muBangumiUserAgent,
+              },
+            ),
+          ) {
     _dio.interceptors.add(
       InterceptorsWrapper(
         onError: (error, handler) {
@@ -233,6 +235,7 @@ class BangumiApi {
     SubjectType? subjectType,
     CollectionType? collectionType,
     int? maxItems,
+    Future<bool> Function(List<UserCollection> items)? onPage,
   }) async {
     // Larger pages cut request count for big libraries.
     const limit = 100;
@@ -269,6 +272,12 @@ class BangumiApi {
       offset += page.length;
       if (page.isEmpty) break;
       if (maxItems != null && result.length >= maxItems) {
+        break;
+      }
+      // Provisional cumulative results; false stops a no-longer-needed load.
+      if (offset < total &&
+          onPage != null &&
+          !await onPage(List<UserCollection>.unmodifiable(result))) {
         break;
       }
     } while (offset < total);

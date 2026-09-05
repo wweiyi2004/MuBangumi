@@ -65,8 +65,7 @@ class MoegirlDetailScreen extends StatelessWidget {
                                   ),
                                   const SizedBox(height: 4),
                                   Text(
-                                    '${entry.sections.length} 个可读章节 · '
-                                    '文本已转换为 MuBangumi 原生界面',
+                                    '${entry.sections.length} 个章节',
                                     style: theme.textTheme.bodyMedium?.copyWith(
                                       color: scheme.onSecondaryContainer,
                                     ),

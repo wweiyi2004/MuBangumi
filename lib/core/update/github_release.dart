@@ -26,9 +26,7 @@ bool isNewerAppVersion(String current, String latest) =>
 
 List<int> _versionParts(String raw) {
   final version = parseReleaseVersion(raw) ?? raw.trim();
-  return [
-    for (final part in version.split('.')) int.tryParse(part) ?? 0,
-  ];
+  return [for (final part in version.split('.')) int.tryParse(part) ?? 0];
 }
 
 class GithubRelease {
@@ -83,7 +81,7 @@ String buildGithubReleaseMarkdown({
     ..writeln()
     ..writeln('最新版本：**${release.version}**')
     ..writeln()
-    ..writeln('需要下载并安装新的安装包。热更新无法覆盖这次整包升级。');
+    ..writeln('请下载并安装新版本。');
 
   final notes = release.body?.trim();
   if (notes != null && notes.isNotEmpty) {

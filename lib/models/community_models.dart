@@ -438,6 +438,21 @@ class CommunityTimelineItem {
   final String sourceUrl;
   final bool isStatus;
   final CommunityTimelineProgress? progress;
+
+  CommunityTimelineItem copyWith({int? replyCount}) => CommunityTimelineItem(
+    id: id,
+    user: user,
+    description: description,
+    createdAt: createdAt,
+    content: content,
+    rawContent: rawContent,
+    imageUrls: imageUrls,
+    replyCount: replyCount ?? this.replyCount,
+    sourceName: sourceName,
+    sourceUrl: sourceUrl,
+    isStatus: isStatus,
+    progress: progress,
+  );
 }
 
 class CommunityTimelineProgress {

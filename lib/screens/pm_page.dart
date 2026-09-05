@@ -159,7 +159,7 @@ class _PmPageState extends ConsumerState<PmPage> {
           title: '站内短信（网页）',
           showSectionSwitcher: false,
           seedCookies: cookies,
-          loginHint: '原生接口失败时的网页兜底。',
+          loginHint: '可在官网查看和发送私信。',
         ),
       ),
     );
@@ -185,7 +185,7 @@ class _PmPageState extends ConsumerState<PmPage> {
             const Text('站内短信'),
             Text(
               website.isSynced
-                  ? (unread > 0 ? '$unread 条未读 · 网站会话已同步' : '网站会话已同步')
+                  ? (unread > 0 ? '$unread 条未读' : '暂无未读短信')
                   : '需同步网站登录后使用',
               style: Theme.of(context).textTheme.labelMedium?.copyWith(
                 color: scheme.onSurfaceVariant,
@@ -411,7 +411,7 @@ class _PmListBody extends StatelessWidget {
       return _PmStateCard(
         icon: Icons.lock_person_rounded,
         title: '需要网站登录',
-        message: error ?? '站内短信使用官网会话，与 OAuth 登录相互独立。',
+        message: error ?? '登录 Bangumi 官网后即可查看和发送私信。',
         primaryLabel: '同步网站登录',
         primaryIcon: Icons.login_rounded,
         onPrimary: onSyncLogin,

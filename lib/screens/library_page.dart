@@ -106,7 +106,7 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
               SliverPadding(
                 padding: EdgeInsets.fromLTRB(
                   pagePad,
-                  phone ? 16 : 24,
+                  AppLayout.pageTopPadding(context),
                   pagePad,
                   0,
                 ),
@@ -137,7 +137,7 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
                               fontSize: phone ? 13 : null,
                             ),
                           ),
-                          if (isLoadingCollections) ...[
+                          if (isLoadingCollections && collections.isEmpty) ...[
                             const SizedBox(height: 10),
                             const LinearProgressIndicator(minHeight: 3),
                           ],

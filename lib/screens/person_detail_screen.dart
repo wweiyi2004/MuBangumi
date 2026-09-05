@@ -813,7 +813,11 @@ class _CompanyWorkSection extends StatelessWidget {
         ),
         const SizedBox(height: 8),
         SizedBox(
-          height: subjectPosterItemHeight(166, 1),
+          height: subjectPosterItemHeight(
+            166,
+            1,
+            textScaler: MediaQuery.textScalerOf(context),
+          ),
           child: ListView.separated(
             scrollDirection: Axis.horizontal,
             itemCount: credits.length,

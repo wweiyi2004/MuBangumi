@@ -10,6 +10,7 @@ import '../state/rss_controller.dart';
 import '../state/schedule_controller.dart';
 import '../state/session_controller.dart';
 import '../widgets/schedule_export_poster.dart';
+import '../widgets/schedule_reminder_sheet.dart';
 import '../widgets/subject_widgets.dart';
 import 'rss_sheets.dart';
 import 'subject_detail_screen.dart';
@@ -322,12 +323,6 @@ Future<void> _createSeasonDialog(BuildContext context, WidgetRef ref) async {
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                Text(
-                  '每张表按「年份 + 季度」本地保存，互不影响。'
-                  '不只限于 2026，可建任意季度。',
-                  style: Theme.of(context).textTheme.bodySmall,
-                ),
-                const SizedBox(height: 16),
                 Row(
                   children: [
                     Expanded(
@@ -1307,7 +1302,7 @@ class _DaySlot extends StatelessWidget {
 
 enum _CellStyle { chip, grid, dense }
 
-class _CourseCell extends StatelessWidget {
+class _CourseCell extends ConsumerWidget {
   const _CourseCell({
     required this.item,
     required this.onOpen,
@@ -1337,7 +1332,7 @@ class _CourseCell extends StatelessWidget {
   final VoidCallback? onDragEnded;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final scheme = Theme.of(context).colorScheme;
     final subject = Subject(
       id: item.subjectId,
@@ -1397,7 +1392,7 @@ class _CourseCell extends StatelessWidget {
                 constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
                 tooltip: '更多',
                 icon: const Icon(Icons.more_vert_rounded, size: 16),
-                onPressed: () => _showActions(context),
+                onPressed: () => _showActions(context, ref),
               ),
             ),
           ],
@@ -1448,7 +1443,7 @@ class _CourseCell extends StatelessWidget {
                 size: 16,
                 color: scheme.onSurface.withValues(alpha: .75),
               ),
-              onPressed: () => _showActions(context),
+              onPressed: () => _showActions(context, ref),
             ),
           ),
         ],
@@ -1493,7 +1488,7 @@ class _CourseCell extends StatelessWidget {
                       ),
                       tooltip: '删除/改期',
                       icon: const Icon(Icons.more_horiz_rounded, size: 16),
-                      onPressed: () => _showActions(context),
+                      onPressed: () => _showActions(context, ref),
                     ),
                   ),
                 ],
@@ -1553,7 +1548,7 @@ class _CourseCell extends StatelessWidget {
                           ),
                           tooltip: '更多',
                           icon: const Icon(Icons.more_vert_rounded, size: 18),
-                          onPressed: () => _showActions(context),
+                          onPressed: () => _showActions(context, ref),
                         ),
                     ],
                   );
@@ -1596,6 +1591,25 @@ class _CourseCell extends StatelessWidget {
                       color: scheme.onError,
                       fontSize: 9,
                       fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ),
+              ),
+            if (item.reminderEnabled && item.isScheduled)
+              Positioned(
+                right: 3,
+                bottom: 3,
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    color: scheme.primaryContainer.withValues(alpha: .92),
+                    shape: BoxShape.circle,
+                  ),
+                  child: Padding(
+                    padding: const EdgeInsets.all(3),
+                    child: Icon(
+                      Icons.notifications_active_rounded,
+                      size: 12,
+                      color: scheme.onPrimaryContainer,
                     ),
                   ),
                 ),
@@ -1657,7 +1671,7 @@ class _CourseCell extends StatelessWidget {
     );
   }
 
-  Future<void> _showActions(BuildContext context) async {
+  Future<void> _showActions(BuildContext context, WidgetRef ref) async {
     final value = await showModalBottomSheet<String>(
       context: context,
       showDragHandle: true,
@@ -1685,6 +1699,24 @@ class _CourseCell extends StatelessWidget {
                 leading: const Icon(Icons.open_in_new_rounded),
                 title: const Text('打开条目'),
                 onTap: () => Navigator.pop(context, 'open'),
+              ),
+              ListTile(
+                leading: Icon(
+                  item.reminderEnabled
+                      ? Icons.notifications_active_rounded
+                      : Icons.notifications_none_rounded,
+                ),
+                title: const Text('系统更新提醒'),
+                subtitle: Text(
+                  item.reminderEnabled && item.isScheduled
+                      ? '${weekdayLabel(item.weekday!)} '
+                            '${item.reminderHour.toString().padLeft(2, '0')}:'
+                            '${item.reminderMinute.toString().padLeft(2, '0')}'
+                      : item.isScheduled
+                      ? '已关闭 · 可独立设置'
+                      : '先安排到具体星期',
+                ),
+                onTap: () => Navigator.pop(context, 'reminder'),
               ),
               ListTile(
                 leading: const Icon(Icons.rss_feed_rounded),
@@ -1737,6 +1769,11 @@ class _CourseCell extends StatelessWidget {
     if (value == 'rss_bind') {
       if (!context.mounted) return;
       await showRssBindSheet(context, item: item, season: season);
+      return;
+    }
+    if (value == 'reminder') {
+      if (!context.mounted) return;
+      await showScheduleReminderSheet(context, item: item);
       return;
     }
     if (value == 'rss_updates') {

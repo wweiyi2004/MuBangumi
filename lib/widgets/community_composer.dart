@@ -6,6 +6,16 @@ typedef CommunitySubmit =
     Future<void> Function(String title, String content, String token);
 typedef CommunityTokenProvider = Future<String?> Function(BuildContext context);
 
+/// A draft owned by the surrounding page, kept only in memory.
+class CommunityDraft {
+  String title = '';
+  String content = '';
+  void clear() {
+    title = '';
+    content = '';
+  }
+}
+
 Future<bool> showCommunityComposer(
   BuildContext context, {
   required String heading,
@@ -14,7 +24,8 @@ Future<bool> showCommunityComposer(
   String contentLabel = '内容',
   String? warning,
   int? maxLength,
-  CommunityTokenProvider tokenProvider = showTurnstileDialog,
+  CommunityDraft? draft,
+  CommunityTokenProvider? tokenProvider,
 }) async =>
     await showDialog<bool>(
       context: context,
@@ -26,7 +37,8 @@ Future<bool> showCommunityComposer(
         contentLabel: contentLabel,
         warning: warning,
         maxLength: maxLength,
-        tokenProvider: tokenProvider,
+        tokenProvider: tokenProvider ?? showTurnstileDialog,
+        draft: draft,
       ),
     ) ??
     false;
@@ -40,6 +52,7 @@ class _CommunityComposerDialog extends StatefulWidget {
     required this.tokenProvider,
     this.warning,
     this.maxLength,
+    this.draft,
   });
 
   final String heading;
@@ -49,6 +62,7 @@ class _CommunityComposerDialog extends StatefulWidget {
   final CommunityTokenProvider tokenProvider;
   final String? warning;
   final int? maxLength;
+  final CommunityDraft? draft;
 
   @override
   State<_CommunityComposerDialog> createState() =>
@@ -56,8 +70,13 @@ class _CommunityComposerDialog extends StatefulWidget {
 }
 
 class _CommunityComposerDialogState extends State<_CommunityComposerDialog> {
-  final _titleController = TextEditingController();
-  final _contentController = TextEditingController();
+  late final _titleController = TextEditingController(
+    text: widget.draft?.title,
+  );
+  late final _contentController = TextEditingController(
+    text: widget.draft?.content,
+  );
+  bool _sent = false;
   bool _submitting = false;
   String? _error;
 
@@ -93,7 +112,11 @@ class _CommunityComposerDialogState extends State<_CommunityComposerDialog> {
         _contentController.text.trim(),
         token.trim(),
       );
-      if (mounted) Navigator.of(context).pop(true);
+      if (mounted) {
+        _sent = true;
+        widget.draft?.clear();
+        Navigator.of(context).pop(true);
+      }
     } catch (error) {
       if (!mounted) return;
       setState(() {
@@ -108,6 +131,10 @@ class _CommunityComposerDialogState extends State<_CommunityComposerDialog> {
 
   @override
   void dispose() {
+    if (!_sent) {
+      widget.draft?.title = _titleController.text;
+      widget.draft?.content = _contentController.text;
+    }
     _titleController.dispose();
     _contentController.dispose();
     super.dispose();
@@ -193,7 +220,13 @@ class _CommunityComposerDialogState extends State<_CommunityComposerDialog> {
           onPressed: _submitting
               ? null
               : () => Navigator.of(context).pop(false),
-          child: const Text('取消'),
+          child: Text(
+            widget.draft != null &&
+                    (_titleController.text.isNotEmpty ||
+                        _contentController.text.isNotEmpty)
+                ? '稍后再写'
+                : '取消',
+          ),
         ),
         FilledButton.icon(
           onPressed: _canSubmit && !_submitting ? _submit : null,

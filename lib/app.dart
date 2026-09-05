@@ -4,19 +4,25 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'core/theme/app_theme.dart';
 import 'screens/auth_screen.dart';
 import 'screens/home_shell.dart';
+import 'screens/login_preparation_screen.dart';
 import 'state/background_controller.dart';
 import 'state/session_controller.dart';
 import 'state/theme_controller.dart';
 import 'widgets/app_background.dart';
 import 'widgets/app_shortcut_host.dart';
+import 'widgets/login_progress.dart';
+import 'widgets/update_check_host.dart';
 
 class MuBangumiApp extends ConsumerWidget {
   const MuBangumiApp({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    // Only rebuild the root shell when auth phase changes.
+    // Collection updates do not rebuild the root; only entry state does.
     final phase = ref.watch(sessionProvider.select((state) => state.phase));
+    final preparing = ref.watch(
+      sessionProvider.select((state) => state.isPreparingHome),
+    );
     final themeMode = ref.watch(themeModeProvider);
     final background = ref.watch(backgroundSettingsProvider);
     return AppShortcutHost(
@@ -29,37 +35,28 @@ class MuBangumiApp extends ConsumerWidget {
         builder: (context, child) {
           return AppBackgroundHost(child: child ?? const SizedBox.shrink());
         },
-        home: switch (phase) {
-          SessionPhase.booting => const _LaunchScreen(),
-          SessionPhase.signedOut => const AuthScreen(),
-          SessionPhase.signedIn => const HomeShell(),
-        },
+        home: UpdateCheckHost(
+          child: switch (phase) {
+            SessionPhase.booting => const LoginPreparationScreen(
+              key: ValueKey('restore-login'),
+            ),
+            SessionPhase.signedOut => const AuthScreen(),
+            SessionPhase.signedIn =>
+              preparing
+                  ? LoginPreparationScreen(
+                      key: const ValueKey('prepare-home'),
+                      nickname: ref.read(sessionProvider).user?.nickname,
+                      onEnter: ref.read(sessionProvider.notifier).enterHomeNow,
+                    )
+                  : const LoginEntrance(
+                      key: ValueKey('home-entrance'),
+                      child: HomeShell(),
+                    ),
+          },
+        ),
       ),
     );
   }
-}
-
-class _LaunchScreen extends StatelessWidget {
-  const _LaunchScreen();
-
-  @override
-  Widget build(BuildContext context) => Scaffold(
-    body: Center(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          const BrandMark(size: 76),
-          const SizedBox(height: 22),
-          Text('MuBangumi', style: Theme.of(context).textTheme.headlineMedium),
-          const SizedBox(height: 28),
-          const SizedBox.square(
-            dimension: 24,
-            child: CircularProgressIndicator(strokeWidth: 2.5),
-          ),
-        ],
-      ),
-    ),
-  );
 }
 
 class BrandMark extends StatelessWidget {

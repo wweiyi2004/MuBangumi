@@ -6,7 +6,7 @@ MuBangumi 是一个使用 Flutter 编写的第三方 Bangumi 追番客户端，�
 
 > 本项目是非官方客户端，与 Bangumi 番组计划官方无隶属关系。条目、收藏和章节数据来自 [Bangumi API](https://github.com/bangumi/api)。
 
-当前版本：**v2.0.0**
+当前版本：**v2.1.0**
 
 ## 原生 Android 版本
 
@@ -55,6 +55,7 @@ MuBangumi 是一个使用 Flutter 编写的第三方 Bangumi 追番客户端，�
 - 自定义背景图 + 分层毛玻璃（壁纸 / 压暗 / 磨砂强度 / 玻璃不透明度）
 - 借鉴超合金组件：评分详情与争议度、好友看？、看过自动补进度、楼主/好友高亮
 - 本地「新番表」：用 Bangumi 条目信息，自己按周几安排本季追番（本地存储）
+- 新番表中每部番可独立开启每周系统更新提醒并自选时间（Android / iOS / Windows）
 - 新番表导出为 PNG 海报（浅色 / 深色），桌面保存到下载目录并可打开位置
 - 原生浏览超展开、小组最新话题、所有小组、主题正文与嵌套回复
 - 超展开支持按全部、小组、条目、章节和人物分类筛选
@@ -109,13 +110,20 @@ flutter run -d windows --dart-define-from-file=config/oauth.local.json
 - 登录页「其他登录方式与设置」可填写自己的 App ID / Secret。
 - 同一面板也提供 Access Token 备用登录，可使用 [Bangumi 个人令牌](https://next.bgm.tv/demo/access-token)。
 
-Token 与 Secret 由 `flutter_secure_storage` 保存在系统安全存储中，到期会自动刷新。
+OAuth 的 Token、刷新凭据与应用配置会在账号验证成功后整组写入系统安全存储；个人 Access Token 不会继承旧账号的刷新凭据，需要到期后手动更换。
+
+登录页分别显示等待授权、验证账号和退出清理状态。等待授权时可取消或切换备用 Token 登录；取消和退出后的旧请求不会覆盖新登录。网络暂时不可用时保留已保存凭据和可用缓存；无法进入主界面时，可点「重新连接已保存的登录」重试。
+
+授权和账号验证提供阶段进度。没有首页缓存时，登录成功后先准备动画收藏，再平滑进入主界面；其他类型和离线修改在后台同步。准备页可点「先进入，后台加载」，也会在等待 8 秒后自动进入，不额外等待全部收藏或封面下载。首页加载失败可直接重试。
+
+「我的 → 同步网站登录」是私信等网页功能的补充会话，请使用与应用登录相同的 Bangumi 账号。保存 Cookie 只表示捕获到未过期的会话 Cookie，不代表网站已验证账号或会话一直有效。退出应用账号时会一并清理网站会话。
 
 ## 热更新（Shorebird）
 
 应用使用 [Shorebird](https://shorebird.dev) 做 **Dart 代码热更新**（Android / Windows 等）。
 
-- 登录后进入主界面会延迟检查：有 Shorebird patch 时下载并弹窗展示 **Markdown 更新说明**（含 GitHub Release body），可「退出并生效 / 稍后」。
+- 启动后延迟 2 秒在后台检查（登录界面也可接收修复）；回到前台时检查，30 分钟内不重复请求。有 Shorebird patch 时下载并提示重启，可选择稍后应用。
+- 启动与手动检查合并执行，避免重复下载和重复弹窗。补丁仅在下次完整启动时生效，不会中断当前操作。
 - 若没有可应用的热更新，但 GitHub 上有更新的正式版，会再弹 **Markdown 公告**，可「前往下载 / 稍后 / 跳过此版本」。跳过只作用于该 tag，下一个版本仍会提示。
 - 「我的」→「检查更新」可手动检查；手动检查仍会展示已跳过的版本。
 - 必须用 Shorebird 打的包用户才能收到 patch；普通 `flutter run` / `flutter build` **不会**启用 updater。
@@ -130,11 +138,15 @@ Token 与 Secret 由 `flutter_secure_storage` 保存在系统安全存储中，�
 .\tool\build_release.ps1 -Target appbundle -Shorebird
 
 # 只改了 Dart → 推送热更新
-shorebird patch windows '--' --dart-define-from-file=config/oauth.local.json
-shorebird patch android '--' --dart-define-from-file=config/oauth.local.json
+.\tool\build_release.ps1 -Target windows -Patch -ReleaseVersion '2.1.0+10'
+.\tool\build_release.ps1 -Target apk -Patch -ReleaseVersion '2.1.0+10'
 ```
 
 `shorebird.yaml` 中 `auto_update: false`，由应用内控制检查与下载，以便展示重启弹窗。
+
+发布脚本固定使用 Shorebird Flutter `3.44.7` 创建基线，补丁自动使用服务端记录的对应引擎版本。补丁必须明确指定完整基线版本，避免误发到其他版本。可加 `-DryRun` 只验证构建；不要在补丁中混入原生插件、权限或资源变更。
+
+需要补丁专属公告时，可创建标为预发布的 GitHub Release，tag 使用 `v2.1.0+10-patch.1`（末尾为实际补丁编号），body 填写该补丁说明。应用只读取匹配基线和补丁的公告；公告不存在或网络不可达时仍可应用更新。完整版本公告继续通过正式 GitHub Release 提供。
 
 ## 构建
 

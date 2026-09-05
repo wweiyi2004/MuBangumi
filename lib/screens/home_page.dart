@@ -36,6 +36,9 @@ class HomePage extends ConsumerWidget {
       sessionProvider.select((state) => state.isLoadingCollections),
     );
     final user = ref.watch(sessionProvider.select((state) => state.user));
+    final sessionMessage = ref.watch(
+      sessionProvider.select((state) => state.message),
+    );
     final nickname = user?.nickname ?? '';
     final updating = ref.watch(
       sessionProvider.select((state) => state.updatingSubjects),
@@ -70,6 +73,7 @@ class HomePage extends ConsumerWidget {
       nickname: nickname,
       user: user,
       isRefreshing: isRefreshing,
+      showRefreshProgress: isRefreshing && collections.isNotEmpty,
       phone: phone,
     );
     return Column(
@@ -77,7 +81,12 @@ class HomePage extends ConsumerWidget {
       children: [
         if (desktop)
           Padding(
-            padding: AppLayout.pageInsets(context, top: 24, bottom: 0),
+            padding: EdgeInsets.fromLTRB(
+              AppLayout.pagePadding(context),
+              AppLayout.pageTopPadding(context),
+              AppLayout.pagePadding(context),
+              0,
+            ),
             child: header,
           ),
         Expanded(
@@ -85,10 +94,11 @@ class HomePage extends ConsumerWidget {
             onRefresh: () => ref.read(sessionProvider.notifier).refresh(),
             child: SingleChildScrollView(
               physics: const AlwaysScrollableScrollPhysics(),
-              padding: AppLayout.pageInsets(
-                context,
-                top: desktop ? 0 : 24,
-                bottom: 60,
+              padding: EdgeInsets.fromLTRB(
+                AppLayout.pagePadding(context),
+                desktop ? 0 : AppLayout.pageTopPadding(context),
+                AppLayout.pagePadding(context),
+                60,
               ),
               child: Center(
                 child: ConstrainedBox(
@@ -97,45 +107,24 @@ class HomePage extends ConsumerWidget {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       if (!desktop) header,
-                      SizedBox(height: AppLayout.blockGap(context)),
-                      _HomeStats(
-                        watching: watchingAll.length,
-                        completed: completed,
-                        total: collections.length,
-                      ),
-                      SizedBox(height: AppLayout.sectionGap(context)),
-                      _HomeQuickActions(
-                        onSchedule: onSchedule,
-                        onCalendar: () => Navigator.of(context).push(
-                          MaterialPageRoute<void>(
-                            builder: (_) => const CalendarPage(),
-                          ),
-                        ),
-                        onRecommend: () => Navigator.of(context).push(
-                          MaterialPageRoute<void>(
-                            builder: (_) => const FanRecommendPage(),
-                          ),
-                        ),
-                        onDiscover: onDiscover,
-                      ),
-                      if (isLoadingCollections) ...[
+                      if (sessionMessage != null) ...[
                         const SizedBox(height: 12),
-                        Row(
-                          children: [
-                            const SizedBox.square(
-                              dimension: 14,
-                              child: CircularProgressIndicator(strokeWidth: 2),
+                        MaterialBanner(
+                          content: Text(sessionMessage),
+                          actions: [
+                            TextButton(
+                              onPressed: isRefreshing
+                                  ? null
+                                  : () => ref
+                                        .read(sessionProvider.notifier)
+                                        .refresh(),
+                              child: const Text('重新加载'),
                             ),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              child: Text(
-                                '正在同步其他类型收藏…',
-                                style: TextStyle(
-                                  color: Theme.of(
-                                    context,
-                                  ).colorScheme.onSurfaceVariant,
-                                ),
-                              ),
+                            TextButton(
+                              onPressed: ref
+                                  .read(sessionProvider.notifier)
+                                  .clearMessage,
+                              child: const Text('关闭'),
                             ),
                           ],
                         ),
@@ -202,6 +191,29 @@ class HomePage extends ConsumerWidget {
                             );
                           },
                         ),
+                      SizedBox(height: AppLayout.blockGap(context)),
+                      _HomeQuickActions(
+                        onSchedule: onSchedule,
+                        onCalendar: () => Navigator.of(context).push(
+                          MaterialPageRoute<void>(
+                            builder: (_) => const CalendarPage(),
+                          ),
+                        ),
+                        onRecommend: () => Navigator.of(context).push(
+                          MaterialPageRoute<void>(
+                            builder: (_) => const FanRecommendPage(),
+                          ),
+                        ),
+                        onDiscover: onDiscover,
+                      ),
+                      SizedBox(height: AppLayout.sectionGap(context)),
+                      Text(
+                        '进行中 ${watchingAll.length} · 已完成 $completed · 总收藏 ${collections.length}',
+                        key: const Key('home-collection-summary'),
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: Theme.of(context).colorScheme.onSurfaceVariant,
+                        ),
+                      ),
                     ],
                   ),
                 ),
@@ -238,6 +250,7 @@ class HomePage extends ConsumerWidget {
     required String nickname,
     required BangumiUser? user,
     required bool isRefreshing,
+    required bool showRefreshProgress,
     required bool phone,
   }) {
     return Row(
@@ -248,14 +261,16 @@ class HomePage extends ConsumerWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                phone ? '$greeting\n$nickname' : '$greeting，$nickname',
-                maxLines: phone ? 2 : 1,
+                phone ? greeting : '$greeting，$nickname',
+                maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: AppLayout.pageTitleStyle(context),
               ),
               const SizedBox(height: 5),
               Text(
                 _todayLabel(),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
                 style: TextStyle(
                   color: Theme.of(context).colorScheme.onSurfaceVariant,
                   fontSize: phone ? 13 : null,
@@ -301,14 +316,29 @@ class HomePage extends ConsumerWidget {
               onPressed: isRefreshing
                   ? null
                   : () => ref.read(sessionProvider.notifier).refresh(),
-              icon: isRefreshing
+              icon: showRefreshProgress
                   ? const SizedBox.square(
                       dimension: 18,
                       child: CircularProgressIndicator(strokeWidth: 2),
                     )
                   : const Icon(Icons.sync_rounded),
             ),
-            if (user != null) ...[
+            if (user != null && phone)
+              PopupMenuButton<String>(
+                tooltip: '更多操作',
+                onSelected: (value) {
+                  if (value == 'qr') {
+                    showMyFriendQr(context, user);
+                  } else {
+                    scanAndAddFriend(context, myUsername: user.username);
+                  }
+                },
+                itemBuilder: (_) => const [
+                  PopupMenuItem(value: 'qr', child: Text('我的二维码')),
+                  PopupMenuItem(value: 'scan', child: Text('扫一扫')),
+                ],
+              ),
+            if (user != null && !phone) ...[
               IconButton(
                 visualDensity: phone
                     ? VisualDensity.compact
@@ -512,63 +542,5 @@ class _QuickActionCard extends StatelessWidget {
         ),
       ),
     ),
-  );
-}
-
-class _HomeStats extends StatelessWidget {
-  const _HomeStats({
-    required this.watching,
-    required this.completed,
-    required this.total,
-  });
-
-  final int watching;
-  final int completed;
-  final int total;
-  @override
-  Widget build(BuildContext context) => Container(
-    padding: const EdgeInsets.symmetric(vertical: 16),
-    decoration: BoxDecoration(
-      border: Border.symmetric(
-        horizontal: BorderSide(
-          color: Theme.of(context).colorScheme.outlineVariant,
-        ),
-      ),
-    ),
-    child: Row(
-      children: [
-        Expanded(
-          child: _StatItem(value: '$watching', label: '进行中'),
-        ),
-        const SizedBox(height: 30, child: VerticalDivider()),
-        Expanded(
-          child: _StatItem(value: '$completed', label: '已完成'),
-        ),
-        const SizedBox(height: 30, child: VerticalDivider()),
-        Expanded(
-          child: _StatItem(value: '$total', label: '总收藏'),
-        ),
-      ],
-    ),
-  );
-}
-
-class _StatItem extends StatelessWidget {
-  const _StatItem({required this.value, required this.label});
-
-  final String value;
-  final String label;
-  @override
-  Widget build(BuildContext context) => Column(
-    children: [
-      Text(value, style: Theme.of(context).textTheme.titleLarge),
-      const SizedBox(height: 2),
-      Text(
-        label,
-        style: Theme.of(context).textTheme.labelMedium?.copyWith(
-          color: Theme.of(context).colorScheme.onSurfaceVariant,
-        ),
-      ),
-    ],
   );
 }

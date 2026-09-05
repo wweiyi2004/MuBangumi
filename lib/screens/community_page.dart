@@ -32,7 +32,7 @@ class CommunityWebScreen extends StatefulWidget {
     this.initialUrl = 'https://bgm.tv/rakuen',
     this.title = 'Bangumi 社区',
     this.showSectionSwitcher = true,
-    this.loginHint = '社区使用 Bangumi 官方网页。可在「我的 → 同步网站登录」保存会话，减少重复登录。',
+    this.loginHint = '可在「我的 → 同步网站登录」保存登录，减少重复登录。',
     this.seedCookies = const [],
     this.enableCookieCapture = false,
     this.onCookiesCaptured,
@@ -96,14 +96,14 @@ class _CommunityWebScreenState extends State<CommunityWebScreen> {
     if (cookies.isEmpty) {
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(const SnackBar(content: Text('未读取到 Cookie，请确认已在页面中登录')));
+      ).showSnackBar(const SnackBar(content: Text('未检测到登录，请登录后再保存')));
       return;
     }
     widget.onCookiesCaptured?.call(cookies);
     if (widget.onCookiesCaptured == null) {
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(SnackBar(content: Text('已捕获 ${cookies.length} 条 Cookie')));
+      ).showSnackBar(SnackBar(content: Text('已读取网站登录信息')));
     }
   }
 
@@ -403,7 +403,7 @@ class _CommunityBrowserState extends State<_CommunityBrowser> {
         }),
         controller.onLoadError.listen((error) {
           if (!mounted) return;
-          setState(() => _error = '页面加载失败（$error）');
+          setState(() => _error = '页面加载失败，请检查网络后重试');
         }),
       ]);
       await controller.setPopupWindowPolicy(
@@ -418,7 +418,7 @@ class _CommunityBrowserState extends State<_CommunityBrowser> {
       if (!mounted) return;
       setState(() {
         _loading = false;
-        _error = '无法启动内嵌浏览器。请确认系统已安装 Microsoft Edge WebView2 Runtime。\n$error';
+        _error = '无法打开页面，请安装 Microsoft Edge WebView2 Runtime，或使用外部浏览器。';
       });
       _notify();
     }
@@ -491,7 +491,7 @@ class _CommunityBrowserState extends State<_CommunityBrowser> {
             if (!mounted) return;
             setState(() {
               _loading = false;
-              _error = '页面加载失败：${error.description}';
+              _error = '页面加载失败，请检查网络后重试';
             });
             _notify();
           },

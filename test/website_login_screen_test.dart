@@ -21,7 +21,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.textContaining('secure storage unavailable'), findsOneWidget);
+    expect(find.text('无法读取网站登录，请重试'), findsOneWidget);
     expect(find.text('重试'), findsOneWidget);
     expect(find.byType(CircularProgressIndicator), findsNothing);
 

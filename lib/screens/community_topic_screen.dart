@@ -8,11 +8,13 @@ import '../models/community_models.dart';
 import '../state/user_preferences_controller.dart';
 import '../widgets/community_composer.dart';
 import '../widgets/community_widgets.dart';
+import '../widgets/community_loading.dart';
 import 'user_profile_page.dart';
 import 'website_login_screen.dart';
 
 class CommunityTopicScreen extends ConsumerStatefulWidget {
-  const CommunityTopicScreen({super.key, required this.topic});
+  const CommunityTopicScreen({super.key, required this.topic, this.service});
+  final CommunityService? service;
 
   final CommunityTopic topic;
 
@@ -22,12 +24,14 @@ class CommunityTopicScreen extends ConsumerStatefulWidget {
 }
 
 class _CommunityTopicScreenState extends ConsumerState<CommunityTopicScreen> {
-  final _service = CommunityService.shared;
+  late final _service = widget.service ?? CommunityService.shared;
   CommunityTopicDetail? _detail;
   bool _loading = true;
+  int _requestId = 0;
   String? _error;
   Set<String> _friendUsernames = const {};
   final Set<String> _reactionBusyPostIds = {};
+  final _drafts = <String, CommunityDraft>{};
 
   @override
   void initState() {
@@ -55,7 +59,9 @@ class _CommunityTopicScreenState extends ConsumerState<CommunityTopicScreen> {
     }
   }
 
-  Future<void> _load({bool refresh = false}) async {
+  Future<void> _load({bool refresh = false, int? requestId}) async {
+    if (!mounted) return;
+    final activeRequest = requestId ?? ++_requestId;
     if (mounted) {
       setState(() {
         _loading = true;
@@ -64,13 +70,13 @@ class _CommunityTopicScreenState extends ConsumerState<CommunityTopicScreen> {
     }
     try {
       final detail = await _service.loadTopic(widget.topic, refresh: refresh);
-      if (!mounted) return;
+      if (!mounted || activeRequest != _requestId) return;
       setState(() {
         _detail = detail;
         _loading = false;
       });
     } catch (error) {
-      if (!mounted) return;
+      if (!mounted || activeRequest != _requestId) return;
       setState(() {
         _loading = false;
         _error = error.toString().replaceFirst('Exception: ', '');
@@ -100,6 +106,10 @@ class _CommunityTopicScreenState extends ConsumerState<CommunityTopicScreen> {
     final sent = await showCommunityComposer(
       context,
       heading: post == null ? '回复话题' : '回复 ${post.author}',
+      draft: _drafts.putIfAbsent(
+        '${_service.currentUsername}:${post?.id ?? 'topic'}',
+        CommunityDraft.new,
+      ),
       warning: _oldTopicWarning,
       onSubmit: (_, content, token) => _service.replyToTopic(
         topic: widget.topic,
@@ -199,7 +209,19 @@ class _CommunityTopicScreenState extends ConsumerState<CommunityTopicScreen> {
               label: const Text('回复'),
             )
           : null,
-      body: SafeArea(child: _buildBody()),
+      body: SafeArea(
+        child: Column(
+          children: [
+            if (_detail != null)
+              CommunityRefreshStatus(
+                loading: _loading,
+                error: _error,
+                onRetry: () => _load(refresh: true),
+              ),
+            Expanded(child: _buildBody()),
+          ],
+        ),
+      ),
     );
   }
 
@@ -219,7 +241,7 @@ class _CommunityTopicScreenState extends ConsumerState<CommunityTopicScreen> {
       child: ListView.builder(
         physics: const AlwaysScrollableScrollPhysics(),
         padding: EdgeInsets.fromLTRB(wide ? 80 : 14, 16, wide ? 80 : 14, 96),
-        itemCount: detail.posts.length + 2,
+        itemCount: detail.posts.length + 1,
         itemBuilder: (context, index) {
           if (index == 0) {
             return Center(
@@ -248,28 +270,6 @@ class _CommunityTopicScreenState extends ConsumerState<CommunityTopicScreen> {
                         padding: EdgeInsets.all(28),
                         child: Center(child: Text('还没有可显示的回复')),
                       ),
-                  ],
-                ),
-              ),
-            );
-          }
-          if (index == detail.posts.length + 1) {
-            return Center(
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 920),
-                child: Column(
-                  children: [
-                    if (_loading) const LinearProgressIndicator(),
-                    if (_error != null) ...[
-                      const SizedBox(height: 10),
-                      Text(
-                        _error!,
-                        textAlign: TextAlign.center,
-                        style: TextStyle(
-                          color: Theme.of(context).colorScheme.error,
-                        ),
-                      ),
-                    ],
                   ],
                 ),
               ),

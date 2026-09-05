@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter/widgets.dart';
 
 import '../core/network/community_service.dart';
 import '../models/community_models.dart';
@@ -35,6 +36,8 @@ class NotifyBadgeController extends StateNotifier<NotifyBadgeState> {
   NotifyBadgeController({
     NoticeLoader? noticeLoader,
     bool Function()? isAuthenticated,
+    DateTime Function()? now,
+    bool initiallyForeground = true,
   }) : _noticeLoader =
            noticeLoader ??
            (() => CommunityService.shared.loadNotices(
@@ -44,10 +47,16 @@ class NotifyBadgeController extends StateNotifier<NotifyBadgeState> {
            )),
        _isAuthenticated =
            isAuthenticated ?? (() => CommunityService.shared.isAuthenticated),
+       _now = now ?? DateTime.now,
+       _foreground = initiallyForeground,
        super(const NotifyBadgeState());
 
   final NoticeLoader _noticeLoader;
   final bool Function() _isAuthenticated;
+  final DateTime Function() _now;
+  bool _foreground;
+  DateTime? _lastRefresh;
+  static const pollInterval = Duration(minutes: 3);
   Timer? _pollTimer;
   Future<void>? _inFlight;
   SessionPhase _phase = SessionPhase.booting;
@@ -56,8 +65,10 @@ class NotifyBadgeController extends StateNotifier<NotifyBadgeState> {
 
   void updateSession(SessionPhase phase) {
     _sessionGeneration++;
+    _inFlight = null;
+    _lastRefresh = null;
     _phase = phase;
-    if (phase == SessionPhase.signedIn) {
+    if (phase == SessionPhase.signedIn && _foreground) {
       unawaited(refresh());
       _startPolling();
     } else {
@@ -69,9 +80,21 @@ class NotifyBadgeController extends StateNotifier<NotifyBadgeState> {
   void _startPolling() {
     _pollTimer?.cancel();
     // Soft poll; P1 limit is modest and users expect a badge eventually.
-    _pollTimer = Timer.periodic(const Duration(minutes: 3), (_) {
+    _pollTimer = Timer.periodic(pollInterval, (_) {
       unawaited(refresh());
     });
+  }
+
+  void setForeground(bool foreground) {
+    if (_foreground == foreground) return;
+    _foreground = foreground;
+    _stopPolling();
+    if (!foreground || _phase != SessionPhase.signedIn) return;
+    final lastRefresh = _lastRefresh;
+    if (lastRefresh == null || _now().difference(lastRefresh) >= pollInterval) {
+      unawaited(refresh());
+    }
+    _startPolling();
   }
 
   void _stopPolling() {
@@ -80,6 +103,7 @@ class NotifyBadgeController extends StateNotifier<NotifyBadgeState> {
   }
 
   Future<void> refresh({bool force = false}) {
+    if (!_foreground || !mounted) return Future.value();
     final existing = _inFlight;
     if (!force && existing != null) return existing;
     final future = _refresh();
@@ -102,7 +126,8 @@ class NotifyBadgeController extends StateNotifier<NotifyBadgeState> {
     state = state.copyWith(isLoading: true, clearError: true);
     try {
       final page = await _noticeLoader();
-      if (sessionGeneration != _sessionGeneration ||
+      if (!mounted ||
+          sessionGeneration != _sessionGeneration ||
           refreshGeneration != _refreshGeneration ||
           _phase != SessionPhase.signedIn ||
           !_isAuthenticated()) {
@@ -110,9 +135,11 @@ class NotifyBadgeController extends StateNotifier<NotifyBadgeState> {
       }
       // API total is authoritative when present.
       final count = page.total > 0 ? page.total : page.data.length;
+      _lastRefresh = _now();
       state = NotifyBadgeState(unreadCount: count);
     } catch (error) {
-      if (sessionGeneration != _sessionGeneration ||
+      if (!mounted ||
+          sessionGeneration != _sessionGeneration ||
           refreshGeneration != _refreshGeneration ||
           _phase != SessionPhase.signedIn) {
         return;
@@ -150,7 +177,11 @@ class NotifyBadgeController extends StateNotifier<NotifyBadgeState> {
 
 final notifyBadgeProvider =
     StateNotifierProvider<NotifyBadgeController, NotifyBadgeState>((ref) {
-      final controller = NotifyBadgeController();
+      final lifecycle = WidgetsBinding.instance.lifecycleState;
+      final controller = NotifyBadgeController(
+        initiallyForeground:
+            lifecycle == null || lifecycle == AppLifecycleState.resumed,
+      );
       ref.listen<SessionPhase>(
         sessionProvider.select((state) => state.phase),
         (_, phase) => controller.updateSession(phase),

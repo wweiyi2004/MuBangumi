@@ -18,12 +18,22 @@ import 'website_session_controller.dart';
 final bangumiApiProvider = Provider<BangumiApi>((ref) => BangumiApi());
 final bangumiOAuthProvider = Provider<BangumiOAuth>((ref) => BangumiOAuth());
 final tokenStoreProvider = Provider<TokenStore>((ref) => TokenStore());
+final snapshotCacheProvider = Provider<SnapshotCache>(
+  (ref) => SnapshotCache.shared,
+);
 
 enum SessionPhase { booting, signedOut, signedIn }
+
+/// Login work is independent of collection refreshes and background uploads.
+enum AuthActivity { idle, authorizing, verifying, signingOut }
 
 class SessionState {
   const SessionState({
     this.phase = SessionPhase.booting,
+    this.authActivity = AuthActivity.idle,
+    this.canRetrySignIn = false,
+    this.canRetrySignOut = false,
+    this.isPreparingHome = false,
     this.user,
     this.collections = const [],
     this.isRefreshing = false,
@@ -37,6 +47,13 @@ class SessionState {
   });
 
   final SessionPhase phase;
+  final AuthActivity authActivity;
+  final bool canRetrySignIn;
+  final bool canRetrySignOut;
+  final bool isPreparingHome;
+  bool get isAuthenticating =>
+      authActivity == AuthActivity.authorizing ||
+      authActivity == AuthActivity.verifying;
   final BangumiUser? user;
   final List<UserCollection> collections;
   final bool isRefreshing;
@@ -59,6 +76,10 @@ class SessionState {
 
   SessionState copyWith({
     SessionPhase? phase,
+    AuthActivity? authActivity,
+    bool? canRetrySignIn,
+    bool? canRetrySignOut,
+    bool? isPreparingHome,
     BangumiUser? user,
     List<UserCollection>? collections,
     bool? isRefreshing,
@@ -73,6 +94,10 @@ class SessionState {
     bool clearUser = false,
   }) => SessionState(
     phase: phase ?? this.phase,
+    authActivity: authActivity ?? this.authActivity,
+    canRetrySignIn: canRetrySignIn ?? this.canRetrySignIn,
+    canRetrySignOut: canRetrySignOut ?? this.canRetrySignOut,
+    isPreparingHome: isPreparingHome ?? this.isPreparingHome,
     user: clearUser ? null : user ?? this.user,
     collections: collections ?? this.collections,
     isRefreshing: isRefreshing ?? this.isRefreshing,
@@ -116,6 +141,27 @@ class SessionController extends StateNotifier<SessionState> {
   final void Function()? onWebsiteSessionCleared;
   BangumiNetworkRoute _networkRoute = BangumiNetworkRoute.official;
   Future<bool>? _refreshInFlight;
+  int _authGeneration = 0;
+  bool _hasStoredCredentials = false;
+  Future<void> _authWrites = Future<void>.value();
+
+  bool _isCurrentAuth(int generation) =>
+      mounted && generation == _authGeneration;
+
+  /// Serialize credential writes and logout cleanup. A write already running
+  /// at logout must finish before deletion, never after it.
+  Future<bool> _writeAuth(int generation, Future<void> Function() write) {
+    final future = _authWrites.then((_) async {
+      if (!_isCurrentAuth(generation)) return false;
+      await write();
+      return _isCurrentAuth(generation);
+    });
+    _authWrites = future.then<void>(
+      (_) {},
+      onError: (Object _, StackTrace _) {},
+    );
+    return future;
+  }
 
   /// In-memory OAuth cache so each API call does not hit secure storage.
   String? _cachedRefreshToken;
@@ -126,104 +172,147 @@ class SessionController extends StateNotifier<SessionState> {
   final Map<int, int> _subjectMutationRevisions = {};
   Future<void>? _syncInFlight;
   Timer? _syncRetryTimer;
+  Timer? _homePreparationTimer;
   var _syncRetryStep = 0;
 
   Future<void> _bootstrap() async {
-    // Parallel secure-storage reads: sequential waits were a cold-start tax.
-    final List<Object?> bootstrap;
+    final generation = ++_authGeneration;
+    state = SessionState(
+      phase: SessionPhase.booting,
+      networkRoute: _networkRoute,
+    );
     try {
-      bootstrap = await Future.wait([
+      final bootstrap = await Future.wait<Object?>([
         _tokenStore.readNetworkRoute(),
         _tokenStore.read(),
         _tokenStore.readRefreshToken(),
         _tokenStore.readExpiresAt(),
         _tokenStore.readOAuthConfig(),
       ]);
+      if (!_isCurrentAuth(generation)) return;
+      _networkRoute = bootstrap[0]! as BangumiNetworkRoute;
+      var token = bootstrap[1] as String?;
+      _cachedRefreshToken = bootstrap[2] as String?;
+      _cachedExpiresAt = bootstrap[3] as DateTime?;
+      _cachedOAuthConfig = bootstrap[4] as OAuthConfig?;
+      _hasStoredCredentials =
+          token?.isNotEmpty == true || _cachedRefreshToken?.isNotEmpty == true;
+      _api.setNetworkRoute(_networkRoute);
+      BangumiEndpoints.setRoute(_networkRoute);
+      state = state.copyWith(networkRoute: _networkRoute);
+
+      final refreshToken = _cachedRefreshToken;
+      final config = _cachedOAuthConfig;
+      final shouldRefresh =
+          refreshToken != null &&
+          refreshToken.isNotEmpty &&
+          config != null &&
+          config.isValid &&
+          (token == null ||
+              _cachedExpiresAt == null ||
+              _cachedExpiresAt!.isBefore(
+                DateTime.now().add(const Duration(minutes: 5)),
+              ));
+      if (shouldRefresh) {
+        try {
+          final tokens = await _oauth.refresh(config, refreshToken);
+          if (!await _persistTokens(tokens, generation)) return;
+          token = tokens.accessToken;
+        } catch (error) {
+          if (!_isCurrentAuth(generation)) return;
+          if (_invalidatesSession(error)) {
+            await _forceSignOut(message: '登录已过期，请重新授权：${_messageFor(error)}');
+            return;
+          }
+          // A transient refresh failure does not delete a usable saved login.
+          if (token == null || token.trim().isEmpty) rethrow;
+        }
+      }
+      if (!_isCurrentAuth(generation)) return;
+      if (token == null || token.trim().isEmpty) {
+        _api.setAccessToken(null);
+        CommunityService.shared.setAccessToken(null);
+        CommunityService.shared.setCurrentUsername(null);
+        state = SessionState(
+          phase: SessionPhase.signedOut,
+          networkRoute: _networkRoute,
+        );
+        return;
+      }
+      final restored = await _restoreSignedInSnapshot(token, generation);
+      if (!_isCurrentAuth(generation)) return;
+      await _authenticate(
+        token,
+        generation: generation,
+        persist: false,
+        alreadyRestored: restored,
+      );
     } catch (error) {
-      // Secure storage can fail on-device (locked Keychain, keystore error).
-      // Never strand the user on the boot screen: fall back to signed-out.
+      if (!_isCurrentAuth(generation)) return;
+      _api.setAccessToken(null);
+      CommunityService.shared.setAccessToken(null);
       state = SessionState(
         phase: SessionPhase.signedOut,
         networkRoute: _networkRoute,
-        message: '读取本地登录信息失败，请重新登录：${_messageFor(error)}',
+        canRetrySignIn: true,
+        message: '暂时无法恢复登录，可重试连接：${_messageFor(error)}',
       );
-      return;
     }
-    _networkRoute = bootstrap[0]! as BangumiNetworkRoute;
-    var token = bootstrap[1] as String?;
-    final refreshToken = bootstrap[2] as String?;
-    final expiresAt = bootstrap[3] as DateTime?;
-    final config = bootstrap[4] as OAuthConfig?;
-    _api.setNetworkRoute(_networkRoute);
-    BangumiEndpoints.setRoute(_networkRoute);
-    state = state.copyWith(networkRoute: _networkRoute);
-    _cachedRefreshToken = refreshToken;
-    _cachedExpiresAt = expiresAt;
-    _cachedOAuthConfig = config;
-
-    final shouldRefresh =
-        refreshToken != null &&
-        refreshToken.isNotEmpty &&
-        config != null &&
-        (token == null ||
-            expiresAt == null ||
-            expiresAt.isBefore(DateTime.now().add(const Duration(minutes: 5))));
-    if (shouldRefresh) {
-      try {
-        final tokens = await _oauth.refresh(config, refreshToken);
-        await _persistTokens(tokens);
-        token = tokens.accessToken;
-      } catch (error) {
-        if (_invalidatesSession(error)) {
-          await _forceSignOut(message: '登录已过期，请重新授权：${_messageFor(error)}');
-          return;
-        }
-        if (token == null || token.trim().isEmpty) {
-          state = SessionState(
-            phase: SessionPhase.signedOut,
-            networkRoute: _networkRoute,
-            message: '暂时无法刷新登录状态：${_messageFor(error)}',
-          );
-          return;
-        }
-      }
-    }
-    if (token == null || token.trim().isEmpty) {
-      await _forceSignOut();
-      return;
-    }
-    final restored = await _restoreSignedInSnapshot(token);
-    await _authenticate(token, persist: false, alreadyRestored: restored);
   }
 
-  /// Paint last user + collections before `/me`. Returns true when HomeShell
-  /// can open immediately; `/me` still runs in [_authenticate].
-  Future<bool> _restoreSignedInSnapshot(String token) async {
-    final lastUser = await _snapshotCache.readLastUser();
-    if (lastUser == null) return false;
-    final snapshot = await _snapshotCache.readCollections(lastUser.username);
-    if (snapshot == null || snapshot.isEmpty) return false;
-    final cached = await _overlayPendingCollections(
-      lastUser.username,
-      snapshot,
-    );
-    _api.setAccessToken(token);
-    CommunityService.shared.setAccessToken(token);
-    CommunityService.shared.setCurrentUsername(
-      lastUser.username,
-      nickname: lastUser.nickname,
-      avatarUrl: lastUser.avatarUrl,
-    );
+  /// Retry existing credentials without asking the user to authorize again.
+  Future<void> retrySavedSignIn() async {
+    if (state.phase != SessionPhase.signedOut ||
+        state.authActivity != AuthActivity.idle) {
+      return;
+    }
+    await _bootstrap();
+  }
+
+  Future<bool> _restoreSignedInSnapshot(String token, int generation) async {
+    try {
+      final lastUser = await _snapshotCache.readLastUser();
+      if (lastUser == null || !_isCurrentAuth(generation)) return false;
+      final snapshot = await _snapshotCache.readCollections(lastUser.username);
+      final cached = await _overlayPendingCollections(
+        lastUser.username,
+        snapshot ?? const [],
+      );
+      if (!_isCurrentAuth(generation)) return false;
+      _api.setAccessToken(token);
+      CommunityService.shared.setAccessToken(token);
+      CommunityService.shared.setCurrentUsername(
+        lastUser.username,
+        nickname: lastUser.nickname,
+        avatarUrl: lastUser.avatarUrl,
+      );
+      state = SessionState(
+        phase: SessionPhase.signedIn,
+        user: lastUser,
+        collections: cached,
+        networkRoute: _networkRoute,
+        isLoadingCollections: true,
+      );
+      unawaited(_refreshPendingCount(lastUser.username));
+      return true;
+    } catch (_) {
+      // A broken cache must not prevent validation of the saved token.
+      return false;
+    }
+  }
+
+  int _beginLogin(AuthActivity activity) {
+    final generation = ++_authGeneration;
+    _refreshInFlight = null;
+    _cachedRefreshToken = null;
+    _cachedExpiresAt = null;
+    _cachedOAuthConfig = null;
     state = SessionState(
-      phase: SessionPhase.signedIn,
-      user: lastUser,
-      collections: cached,
+      phase: SessionPhase.signedOut,
+      authActivity: activity,
       networkRoute: _networkRoute,
-      isLoadingCollections: true,
-      isRefreshing: false,
     );
-    unawaited(_refreshPendingCount(lastUser.username));
-    return true;
+    return generation;
   }
 
   Future<bool> signIn(String rawToken) async {
@@ -235,33 +324,52 @@ class SessionController extends StateNotifier<SessionState> {
       state = state.copyWith(message: '请粘贴 Access Token');
       return false;
     }
-    return _authenticate(token, persist: true);
+    if (state.phase != SessionPhase.signedOut ||
+        state.authActivity == AuthActivity.verifying ||
+        state.authActivity == AuthActivity.signingOut) {
+      return false;
+    }
+    if (state.authActivity == AuthActivity.authorizing) {
+      await cancelOAuthAuthorization();
+      if (!mounted || state.authActivity != AuthActivity.idle) return false;
+    }
+    final generation = _beginLogin(AuthActivity.verifying);
+    return _authenticate(token, generation: generation, persist: true);
   }
 
   Future<bool> signInWithOAuth(
     OAuthConfig config, {
     OAuthAuthorizationLauncher? launchAuthorization,
   }) async {
-    // Defense-in-depth against double-tap races from the auth screen: the
-    // authorize flow is single-instance (loopback port + shared state).
-    if (state.isRefreshing) return false;
-    // Stay signedOut while authorizing so AuthScreen (and the Windows WebView
-    // dialog that needs its navigator) remains mounted. Booting starts only
-    // after tokens exist, inside _authenticate.
-    state = state.copyWith(isRefreshing: true, clearMessage: true);
+    if (state.phase != SessionPhase.signedOut ||
+        state.authActivity != AuthActivity.idle) {
+      return false;
+    }
+    if (!config.isValid) {
+      state = state.copyWith(message: 'OAuth 配置不完整');
+      return false;
+    }
+    final generation = _beginLogin(AuthActivity.authorizing);
     try {
-      await _tokenStore.writeOAuthConfig(config);
-      _cachedOAuthConfig = config;
       final tokens = await _oauth.authorize(
         config,
         launchAuthorization: launchAuthorization,
       );
-      await _persistTokens(tokens);
-      return _authenticate(tokens.accessToken, persist: false);
+      if (!_isCurrentAuth(generation)) return false;
+      // Validate identity before replacing saved credentials or configuration.
+      return await _authenticate(
+        tokens.accessToken,
+        generation: generation,
+        persist: true,
+        tokens: tokens,
+        config: config,
+      );
     } catch (error) {
+      if (!_isCurrentAuth(generation)) return false;
       state = SessionState(
         phase: SessionPhase.signedOut,
         networkRoute: _networkRoute,
+        canRetrySignIn: _hasStoredCredentials,
         message: error is BangumiOAuthException && error.isCancelled
             ? null
             : _messageFor(error),
@@ -270,19 +378,41 @@ class SessionController extends StateNotifier<SessionState> {
     }
   }
 
-  /// Abort an in-flight OAuth authorize (local callback wait / browser flow).
-  Future<void> cancelOAuthAuthorization() => _oauth.cancelAuthorization();
+  Future<void> cancelOAuthAuthorization() async {
+    if (state.authActivity != AuthActivity.authorizing) return;
+    final generation = ++_authGeneration;
+    String? message;
+    // Keep new flows disabled until the old local callback port is released.
+    try {
+      await _oauth.cancelAuthorization();
+    } catch (error) {
+      message = '取消授权时清理失败，可重试登录：${_messageFor(error)}';
+    } finally {
+      if (_isCurrentAuth(generation)) {
+        state = SessionState(
+          phase: SessionPhase.signedOut,
+          networkRoute: _networkRoute,
+          canRetrySignIn: _hasStoredCredentials,
+          message: message,
+        );
+      }
+    }
+  }
 
   Future<bool> _authenticate(
     String token, {
+    required int generation,
     required bool persist,
     bool alreadyRestored = false,
+    OAuthTokenBundle? tokens,
+    OAuthConfig? config,
   }) async {
-    if (!alreadyRestored) {
+    if (!_isCurrentAuth(generation)) return false;
+    if (persist) {
+      // Keep AuthScreen mounted while checking /me so inline errors and the
+      // token sheet remain attached to the same navigator.
       state = state.copyWith(
-        phase: SessionPhase.booting,
-        isRefreshing: true,
-        isLoadingCollections: true,
+        authActivity: AuthActivity.verifying,
         clearMessage: true,
       );
     }
@@ -290,54 +420,84 @@ class SessionController extends StateNotifier<SessionState> {
     CommunityService.shared.setAccessToken(token);
     try {
       final user = await _api.getMe();
+      if (!_isCurrentAuth(generation)) return false;
+      if (persist) {
+        if (tokens != null) {
+          if (!await _persistTokens(tokens, generation, config: config)) {
+            return false;
+          }
+        } else {
+          if (!await _writeAuth(generation, () => _tokenStore.write(token))) {
+            return false;
+          }
+          _hasStoredCredentials = true;
+        }
+      }
+
+      List<UserCollection>? snapshot;
+      try {
+        final previousUser = await _snapshotCache.readLastUser();
+        if (!_isCurrentAuth(generation)) return false;
+        if (previousUser != null && previousUser.username != user.username) {
+          if (!await _writeAuth(generation, () async {
+            await _websiteSessionStore.clear();
+            onWebsiteSessionCleared?.call();
+            await CommunityService.shared.clearAccountCache();
+          })) {
+            return false;
+          }
+          _subjectMutationRevisions.clear();
+          _localMutationRevision = 0;
+        }
+        snapshot = alreadyRestored && state.user?.username == user.username
+            ? state.collections
+            : await _snapshotCache.readCollections(user.username);
+        await _writeAuth(generation, () => _snapshotCache.writeLastUser(user));
+      } catch (_) {
+        // Authentication succeeded; optional list caches cannot turn it into
+        // a failed login. Collections are fetched independently below.
+      }
+      final cached = await _overlayPendingCollections(
+        user.username,
+        snapshot ?? const [],
+      );
+      if (!_isCurrentAuth(generation)) return false;
       CommunityService.shared.setCurrentUsername(
         user.username,
         nickname: user.nickname,
         avatarUrl: user.avatarUrl,
       );
-      if (persist) {
-        await _tokenStore.write(token);
-        _cachedRefreshToken = null;
-        _cachedExpiresAt = null;
-      }
-      await _snapshotCache.writeLastUser(user);
-      final switchedAccount =
-          alreadyRestored && state.user?.username != user.username;
-      if (switchedAccount) {
-        _subjectMutationRevisions.clear();
-        _localMutationRevision = 0;
-      }
-      final snapshot = switchedAccount || !alreadyRestored
-          ? await _snapshotCache.readCollections(user.username)
-          : state.collections;
-      final cached = await _overlayPendingCollections(
-        user.username,
-        snapshot ?? const [],
-      );
-      final hasCache = cached.isNotEmpty;
       state = SessionState(
         phase: SessionPhase.signedIn,
         user: user,
         collections: cached,
         networkRoute: _networkRoute,
         isLoadingCollections: true,
-        isRefreshing: !hasCache,
+        isRefreshing: cached.isEmpty,
+        isPreparingHome: !alreadyRestored && cached.isEmpty,
       );
+      _homePreparationTimer?.cancel();
+      if (state.isPreparingHome) {
+        _homePreparationTimer = Timer(const Duration(seconds: 8), () {
+          if (_isCurrentAuth(generation)) enterHomeNow();
+        });
+      }
       unawaited(_refreshPendingCount(user.username));
-      unawaited(_syncThenLoadCollections(user.username));
+      unawaited(_loadInitialCollections(user.username));
       return true;
     } catch (error) {
+      if (!_isCurrentAuth(generation)) return false;
       if (alreadyRestored && !_invalidatesSession(error)) {
         state = state.copyWith(
           isRefreshing: false,
-          message: '收藏同步失败，已显示本地缓存：${_messageFor(error)}',
+          isLoadingCollections: false,
+          message: '暂时无法连接 Bangumi，已保留登录和本地缓存：${_messageFor(error)}',
         );
         unawaited(_refreshPendingCount(state.user?.username));
-        unawaited(syncPendingChanges());
         return true;
       }
       if (!persist && _invalidatesSession(error)) {
-        await _forceSignOut(message: _messageFor(error));
+        await _forceSignOut(message: '登录已失效，请重新登录：${_messageFor(error)}');
       } else {
         _api.setAccessToken(null);
         CommunityService.shared.setAccessToken(null);
@@ -345,6 +505,7 @@ class SessionController extends StateNotifier<SessionState> {
         state = SessionState(
           phase: SessionPhase.signedOut,
           networkRoute: _networkRoute,
+          canRetrySignIn: _hasStoredCredentials,
           message: _messageFor(error),
         );
       }
@@ -359,6 +520,12 @@ class SessionController extends StateNotifier<SessionState> {
       final anime = await _api.getUserCollections(
         username,
         subjectType: SubjectType.anime,
+        onPage: (items) => _publishCollectionPage(
+          username,
+          generation,
+          requestMutationRevision,
+          items,
+        ),
       );
       if (generation != _collectionsGeneration ||
           state.phase != SessionPhase.signedIn ||
@@ -368,6 +535,7 @@ class SessionController extends StateNotifier<SessionState> {
       // Replace only anime bucket; keep other types from snapshot until refreshed.
       var merged = _replaceType(state.collections, SubjectType.anime, anime);
       merged = await _overlayPendingCollections(username, merged);
+      if (!mounted || generation != _collectionsGeneration) return;
       merged = _preserveCollectionsChangedAfter(
         merged,
         requestMutationRevision,
@@ -375,6 +543,7 @@ class SessionController extends StateNotifier<SessionState> {
       _sortCollections(merged);
       state = state.copyWith(
         collections: merged,
+        isPreparingHome: false,
         isRefreshing: false,
         isLoadingCollections: true,
       );
@@ -384,6 +553,7 @@ class SessionController extends StateNotifier<SessionState> {
       if (generation != _collectionsGeneration) return;
       final keepStale = state.collections.isNotEmpty;
       state = state.copyWith(
+        isPreparingHome: false,
         isRefreshing: false,
         isLoadingCollections: false,
         message: keepStale
@@ -413,7 +583,16 @@ class SessionController extends StateNotifier<SessionState> {
           return;
         }
         final requestMutationRevision = _localMutationRevision;
-        final page = await _api.getUserCollections(username, subjectType: type);
+        final page = await _api.getUserCollections(
+          username,
+          subjectType: type,
+          onPage: (items) => _publishCollectionPage(
+            username,
+            generation,
+            requestMutationRevision,
+            items,
+          ),
+        );
         // The loop-head guard can be invalidated while this request is in
         // flight (e.g. sign-out). Re-check before merging so a late response
         // never repopulates a session that was reset meanwhile.
@@ -424,6 +603,7 @@ class SessionController extends StateNotifier<SessionState> {
         }
         merged = _replaceType(merged, type, page);
         merged = await _overlayPendingCollections(username, merged);
+        if (!mounted || generation != _collectionsGeneration) return;
         merged = _preserveCollectionsChangedAfter(
           merged,
           requestMutationRevision,
@@ -455,6 +635,39 @@ class SessionController extends StateNotifier<SessionState> {
             : '部分收藏同步失败：${_messageFor(error)}',
       );
     }
+  }
+
+  Future<bool> _publishCollectionPage(
+    String username,
+    int generation,
+    int requestMutationRevision,
+    List<UserCollection> items,
+  ) async {
+    bool current() =>
+        mounted &&
+        generation == _collectionsGeneration &&
+        state.phase == SessionPhase.signedIn &&
+        state.user?.username == username;
+    if (!current()) return false;
+    if (items.isEmpty) return true;
+    final byId = {
+      for (final item in state.collections) item.subjectId: item,
+      for (final item in items) item.subjectId: item,
+    };
+    var merged = await _overlayPendingCollections(
+      username,
+      byId.values.toList(),
+    );
+    if (!current()) return false;
+    merged = _preserveCollectionsChangedAfter(merged, requestMutationRevision);
+    _sortCollections(merged);
+    state = state.copyWith(
+      collections: merged,
+      isPreparingHome: false,
+      isRefreshing: false,
+      isLoadingCollections: true,
+    );
+    return true;
   }
 
   List<UserCollection> _replaceType(
@@ -560,12 +773,19 @@ class SessionController extends StateNotifier<SessionState> {
     return merged;
   }
 
-  Future<void> _syncThenLoadCollections(String username) async {
-    await syncPendingChanges();
-    if (state.phase == SessionPhase.signedIn &&
-        state.user?.username == username) {
-      await _loadCollectionsAfterSignIn(username);
-    }
+  Future<void> _loadInitialCollections(String username) async {
+    // Pending edits are overlaid on fetched data. Uploading the queue must
+    // not block the first screen, particularly when a mutation is slow.
+    unawaited(syncPendingChanges());
+    await _loadCollectionsAfterSignIn(username);
+  }
+
+  /// Leave the bounded first-screen wait; collection loading continues.
+  void enterHomeNow() {
+    _homePreparationTimer?.cancel();
+    _homePreparationTimer = null;
+    if (!mounted || !state.isPreparingHome) return;
+    state = state.copyWith(isPreparingHome: false);
   }
 
   Future<List<UserEpisodeCollection>> applyPendingEpisodeChanges(
@@ -633,20 +853,33 @@ class SessionController extends StateNotifier<SessionState> {
     });
   }
 
-  Future<void> _persistTokens(OAuthTokenBundle tokens) async {
-    await _tokenStore.writeTokens(tokens);
-    _cachedRefreshToken = tokens.refreshToken.isNotEmpty
-        ? tokens.refreshToken
-        : _cachedRefreshToken;
+  Future<bool> _persistTokens(
+    OAuthTokenBundle tokens,
+    int generation, {
+    OAuthConfig? config,
+  }) async {
+    if (!await _writeAuth(generation, () async {
+      if (config != null) {
+        await _tokenStore.writeOAuthSession(config, tokens);
+      } else {
+        await _tokenStore.writeTokens(tokens);
+      }
+    })) {
+      return false;
+    }
+    _cachedOAuthConfig = config ?? _cachedOAuthConfig;
+    _cachedRefreshToken = tokens.refreshToken.isEmpty
+        ? null
+        : tokens.refreshToken;
     _cachedExpiresAt = tokens.expiresAt;
+    _hasStoredCredentials = true;
     _api.setAccessToken(tokens.accessToken);
     CommunityService.shared.setAccessToken(tokens.accessToken);
+    return true;
   }
 
-  /// Proactively refresh OAuth access tokens that are near expiry.
   Future<void> _ensureFreshToken() async {
-    final refreshToken = _cachedRefreshToken;
-    if (refreshToken == null || refreshToken.isEmpty) return;
+    if (!mounted || state.isAuthenticating) return;
     final expiresAt = _cachedExpiresAt;
     if (expiresAt != null &&
         expiresAt.isAfter(DateTime.now().add(const Duration(minutes: 5)))) {
@@ -655,33 +888,34 @@ class SessionController extends StateNotifier<SessionState> {
     await tryRefreshAccessToken();
   }
 
-  /// Single-flight OAuth refresh used for proactive and 401 recovery paths.
+  /// Only refresh the active credential generation. A late success or failure
+  /// from an account that was signed out must never modify its replacement.
   Future<bool> tryRefreshAccessToken() {
-    final inFlight = _refreshInFlight;
-    if (inFlight != null) return inFlight;
-    final future = _refreshAccessToken();
+    if (!mounted ||
+        state.isAuthenticating ||
+        state.authActivity == AuthActivity.signingOut ||
+        _cachedRefreshToken?.isNotEmpty != true ||
+        _cachedOAuthConfig == null) {
+      return Future.value(false);
+    }
+    final active = _refreshInFlight;
+    if (active != null) return active;
+    final future = _refreshAccessToken(_authGeneration);
     _refreshInFlight = future;
     return future.whenComplete(() {
-      if (identical(_refreshInFlight, future)) {
-        _refreshInFlight = null;
-      }
+      if (identical(_refreshInFlight, future)) _refreshInFlight = null;
     });
   }
 
-  Future<bool> _refreshAccessToken() async {
-    final refreshToken =
-        _cachedRefreshToken ?? await _tokenStore.readRefreshToken();
-    final config = _cachedOAuthConfig ?? await _tokenStore.readOAuthConfig();
-    if (refreshToken == null || refreshToken.isEmpty || config == null) {
-      return false;
-    }
-    _cachedRefreshToken = refreshToken;
-    _cachedOAuthConfig = config;
+  Future<bool> _refreshAccessToken(int generation) async {
+    final refreshToken = _cachedRefreshToken;
+    final config = _cachedOAuthConfig;
+    if (refreshToken == null || config == null) return false;
     try {
       final tokens = await _oauth.refresh(config, refreshToken);
-      await _persistTokens(tokens);
-      return true;
+      return await _persistTokens(tokens, generation);
     } catch (error) {
+      if (!_isCurrentAuth(generation)) return false;
       if (_invalidatesSession(error)) {
         await _forceSignOut(message: '登录已过期，请重新授权：${_messageFor(error)}');
       } else if (state.phase == SessionPhase.signedIn) {
@@ -718,6 +952,8 @@ class SessionController extends StateNotifier<SessionState> {
   }
 
   Future<void> _drainPendingChanges({required bool retryBlocked}) async {
+    if (!mounted) return;
+    final generation = _authGeneration;
     final username = state.user?.username;
     if (username == null || username.isEmpty) return;
     _syncRetryTimer?.cancel();
@@ -729,14 +965,16 @@ class SessionController extends StateNotifier<SessionState> {
         return;
       }
     }
-    if (state.user?.username != username) return;
+    if (!_isCurrentAuth(generation) || state.user?.username != username) return;
     state = state.copyWith(isSyncing: true);
     var retryLater = false;
     var changedWhileSyncing = false;
     try {
       final pending = await _syncStore.pendingFor(username);
       for (final mutation in pending) {
-        if (state.user?.username != username) return;
+        if (!_isCurrentAuth(generation) || state.user?.username != username) {
+          return;
+        }
         try {
           await _replayMutation(mutation);
           final removed = await _syncStore.removeIfUnchanged(mutation);
@@ -760,7 +998,7 @@ class SessionController extends StateNotifier<SessionState> {
       retryLater = true;
     } finally {
       final remaining = await _refreshPendingCount(username);
-      if (state.user?.username == username) {
+      if (_isCurrentAuth(generation) && state.user?.username == username) {
         state = state.copyWith(isSyncing: false);
       }
       // Entries enqueued while this drain was running are outside the
@@ -769,7 +1007,7 @@ class SessionController extends StateNotifier<SessionState> {
       // they only leave through a manual retry, so looping on them would
       // spin the timer forever.
       if (!retryLater && remaining > 0) changedWhileSyncing = true;
-      if (state.user?.username == username) {
+      if (_isCurrentAuth(generation) && state.user?.username == username) {
         if (changedWhileSyncing) {
           _scheduleSyncRetry(immediate: true);
         } else if (retryLater) {
@@ -849,6 +1087,8 @@ class SessionController extends StateNotifier<SessionState> {
   /// Refreshes the queue counters in state and returns how many unblocked
   /// entries are still waiting to upload.
   Future<int> _refreshPendingCount([String? expectedUsername]) async {
+    if (!mounted) return 0;
+    final generation = _authGeneration;
     final username = expectedUsername ?? state.user?.username;
     if (username == null || username.isEmpty) return 0;
     try {
@@ -857,7 +1097,7 @@ class SessionController extends StateNotifier<SessionState> {
         _syncStore.blockedCountFor(username),
       ]);
       final pending = counts[0] - counts[1];
-      if (state.user?.username == username) {
+      if (_isCurrentAuth(generation) && state.user?.username == username) {
         state = state.copyWith(
           pendingSyncCount: counts[0],
           blockedSyncCount: counts[1],
@@ -866,6 +1106,58 @@ class SessionController extends StateNotifier<SessionState> {
       return pending;
     } catch (_) {
       return 0;
+    }
+  }
+
+  Future<List<PendingBangumiMutation>> blockedSyncMutations() async {
+    final username = state.user?.username;
+    if (username == null || username.isEmpty) return const [];
+    final mutations = await _syncStore.blockedFor(username);
+    if (state.user?.username != username) return const [];
+    return mutations;
+  }
+
+  Future<String?> retryBlockedMutation(PendingBangumiMutation mutation) async {
+    final username = state.user?.username;
+    if (username == null || username.isEmpty) return '请先登录后再重试';
+    if (mutation.username != username) return '该同步记录不属于当前账号';
+    try {
+      final retried = await _syncStore.retryIfUnchanged(mutation);
+      await _refreshPendingCount(username);
+      if (!retried) return '同步记录已变化，请刷新列表后重试';
+      if (state.user?.username != username) return '登录状态已变化';
+      await syncPendingChanges();
+      return null;
+    } catch (error) {
+      return _messageFor(error);
+    }
+  }
+
+  Future<String?> discardBlockedMutation(
+    PendingBangumiMutation mutation,
+  ) async {
+    final username = state.user?.username;
+    if (username == null || username.isEmpty) return '请先登录后再处理';
+    if (mutation.username != username) return '该同步记录不属于当前账号';
+    try {
+      final discarded = await _syncStore.discardIfUnchanged(mutation);
+      await _refreshPendingCount(username);
+      if (!discarded) return '同步记录已变化，请刷新列表后重试';
+      try {
+        await _snapshotCache.clearCollections(username);
+        final subjectId = (mutation.payload['subject_id'] as num?)?.toInt();
+        if (subjectId != null &&
+            (mutation.kind != BangumiMutationKind.collection ||
+                mutation.payload['complete_episodes'] == true)) {
+          await _snapshotCache.clearEpisodeCollections(subjectId);
+        }
+      } catch (_) {
+        // The rejected queue entry is already gone. Snapshot cleanup is
+        // best-effort; the UI also triggers a server refresh immediately.
+      }
+      return null;
+    } catch (error) {
+      return _messageFor(error);
     }
   }
 
@@ -1234,35 +1526,57 @@ class SessionController extends StateNotifier<SessionState> {
   Future<void> signOut() => _forceSignOut();
 
   Future<void> _forceSignOut({String? message}) async {
+    _homePreparationTimer?.cancel();
+    final generation = ++_authGeneration;
     _collectionsGeneration++;
     _subjectMutationRevisions.clear();
     _localMutationRevision = 0;
     _syncRetryTimer?.cancel();
     _syncRetryTimer = null;
+    _refreshInFlight = null;
     _cachedRefreshToken = null;
     _cachedExpiresAt = null;
     _cachedOAuthConfig = null;
-    await _tokenStore.clear();
-    // Website cookie session is independent of OAuth, but clearing on sign-out
-    // avoids leaving another account's web session on the device.
-    try {
-      await _websiteSessionStore.clear();
-      await WebsiteCookieBridge.clearBgmCookies();
-    } catch (_) {
-      // Secure storage / platform jars may be unavailable in pure unit tests.
-    }
-    try {
-      onWebsiteSessionCleared?.call();
-    } catch (_) {}
+    _hasStoredCredentials = false;
     _api.setAccessToken(null);
     CommunityService.shared.setAccessToken(null);
     CommunityService.shared.setCurrentUsername(null);
-    await _snapshotCache.clearLastUser();
-    await CommunityService.shared.clearAccountCache();
+    state = SessionState(
+      phase: SessionPhase.signedOut,
+      authActivity: AuthActivity.signingOut,
+      networkRoute: _networkRoute,
+      message: message,
+    );
+    try {
+      onWebsiteSessionCleared?.call();
+    } catch (_) {}
+    String? cleanupError;
+    try {
+      await _oauth.cancelAuthorization();
+    } catch (_) {}
+    await _writeAuth(generation, () async {
+      // Each cleanup runs even if another backend is unavailable.
+      for (final cleanup in <Future<void> Function()>[
+        _tokenStore.clear,
+        _websiteSessionStore.clear,
+        _snapshotCache.clearLastUser,
+        CommunityService.shared.clearAccountCache,
+      ]) {
+        try {
+          await cleanup();
+        } catch (error) {
+          cleanupError ??= '清理本地登录数据失败，请重试退出：${_messageFor(error)}';
+        }
+      }
+    });
+    if (!_isCurrentAuth(generation)) return;
+    await WebsiteCookieBridge.clearBgmCookies();
+    if (!_isCurrentAuth(generation)) return;
     state = SessionState(
       phase: SessionPhase.signedOut,
       networkRoute: _networkRoute,
-      message: message,
+      message: cleanupError ?? message,
+      canRetrySignOut: cleanupError != null,
     );
   }
 
@@ -1297,6 +1611,9 @@ class SessionController extends StateNotifier<SessionState> {
 
   @override
   void dispose() {
+    _homePreparationTimer?.cancel();
+    _collectionsGeneration++;
+    _authGeneration++;
     _syncRetryTimer?.cancel();
     super.dispose();
   }

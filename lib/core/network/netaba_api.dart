@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../models/netaba_models.dart';
 import 'bangumi_user_agent.dart';
+import 'async_cache.dart';
 
 class NetabaApiException implements Exception {
   const NetabaApiException(this.message, {this.statusCode});
@@ -19,19 +20,26 @@ class NetabaApiException implements Exception {
 /// Data source: https://api.netaba.re — historical Bangumi score / rank /
 /// collection snapshots maintained by the Netabare project.
 class NetabaApi {
-  NetabaApi()
-    : _dio = Dio(
-        BaseOptions(
-          baseUrl: 'https://api.netaba.re',
-          connectTimeout: const Duration(seconds: 15),
-          receiveTimeout: const Duration(seconds: 30),
-          headers: const {
-            'Accept': 'application/json',
-            'User-Agent':
-                'MuBangumi/$muBangumiUaVersion (Flutter; personal Bangumi client; +https://netaba.re)',
-          },
-        ),
-      ) {
+  NetabaApi({Dio? dio, DateTime Function()? now})
+    : _cache = AsyncCache<Object>(
+        maxAge: const Duration(minutes: 10),
+        maxEntries: 64,
+        now: now,
+      ),
+      _dio =
+          dio ??
+          Dio(
+            BaseOptions(
+              baseUrl: 'https://api.netaba.re',
+              connectTimeout: const Duration(seconds: 15),
+              receiveTimeout: const Duration(seconds: 30),
+              headers: const {
+                'Accept': 'application/json',
+                'User-Agent':
+                    'MuBangumi/$muBangumiUaVersion (Flutter; personal Bangumi client; +https://netaba.re)',
+              },
+            ),
+          ) {
     _dio.interceptors.add(
       InterceptorsWrapper(
         onError: (error, handler) {
@@ -69,9 +77,26 @@ class NetabaApi {
   }
 
   final Dio _dio;
+  final AsyncCache<Object> _cache;
+
+  void clearCache() => _cache.clear();
+
+  Future<NetabaSubjectHistory> getSubjectHistory(int subjectId) async =>
+      await _cache.get(
+            'subject:$subjectId',
+            () => _fetchSubjectHistory(subjectId),
+          )
+          as NetabaSubjectHistory;
+
+  Future<NetabaTrending> getTrending() async =>
+      await _cache.get('trending', _fetchTrending) as NetabaTrending;
+
+  Future<List<NetabaTrendingItem>> getScoreIncreases() async =>
+      await _cache.get('score-increases', _fetchScoreIncreases)
+          as List<NetabaTrendingItem>;
 
   /// Full score / rank / collection history for a Bangumi subject.
-  Future<NetabaSubjectHistory> getSubjectHistory(int subjectId) async {
+  Future<NetabaSubjectHistory> _fetchSubjectHistory(int subjectId) async {
     final response = await _request(
       () => _dio.get<Map<String, dynamic>>('/subject/$subjectId'),
     );
@@ -79,7 +104,7 @@ class NetabaApi {
   }
 
   /// Recent score movers: rising / falling / finished.
-  Future<NetabaTrending> getTrending() async {
+  Future<NetabaTrending> _fetchTrending() async {
     final response = await _request(
       () => _dio.get<Map<String, dynamic>>('/trending'),
     );
@@ -87,7 +112,7 @@ class NetabaApi {
   }
 
   /// Long-term reputation gains ranking (开播以来评分提升).
-  Future<List<NetabaTrendingItem>> getScoreIncreases() async {
+  Future<List<NetabaTrendingItem>> _fetchScoreIncreases() async {
     final response = await _request(
       () => _dio.get<dynamic>('/score-increases'),
     );

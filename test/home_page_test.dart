@@ -14,6 +14,60 @@ import 'package:mubangumi/state/user_preferences_controller.dart';
 
 void main() {
   testWidgets(
+    'phone puts ongoing collections first and groups secondary actions',
+    (tester) async {
+      tester.view.physicalSize = const Size(320, 740);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      final controller = _StubSessionController();
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            sessionProvider.overrideWith((ref) => controller),
+            userPreferencesProvider.overrideWith(
+              (ref) => UserPreferencesController(_FakePrefRepository()),
+            ),
+          ],
+          child: MaterialApp(
+            theme: AppTheme.light,
+            home: Scaffold(
+              body: HomePage(onDiscover: () {}, onSchedule: () {}),
+            ),
+          ),
+        ),
+      );
+      controller.setSessionState(
+        const SessionState(
+          phase: SessionPhase.signedIn,
+          user: BangumiUser(
+            id: 1,
+            username: 'tester',
+            nickname: '小沐',
+            avatarUrl: '',
+          ),
+          isLoadingCollections: true,
+          isRefreshing: true,
+        ),
+      );
+      await tester.pump();
+      expect(tester.getTopLeft(find.text('继续追')).dy, lessThan(170));
+      expect(
+        tester
+            .getTopLeft(find.byKey(const ValueKey('home-collection-skeleton')))
+            .dy,
+        lessThan(tester.getTopLeft(find.text('新番表')).dy),
+      );
+      expect(find.byType(CircularProgressIndicator), findsNothing);
+      expect(find.byTooltip('我的二维码'), findsNothing);
+      await tester.tap(find.byTooltip('更多操作'));
+      await tester.pumpAndSettle();
+      expect(find.text('我的二维码'), findsOneWidget);
+      expect(find.text('扫一扫'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets(
     'desktop keeps notify and sync pinned at the window top-right while '
     'content scrolls',
     (tester) async {

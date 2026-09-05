@@ -54,19 +54,22 @@ class BangumiOAuthException implements Exception {
 
 class BangumiOAuth {
   BangumiOAuth({
+    Dio? dio,
     Future<void> Function()? closeInAppBrowser,
     bool? closeInAppBrowserOnCallback,
-  }) : _dio = Dio(
-         BaseOptions(
-           baseUrl: 'https://bgm.tv',
-           connectTimeout: const Duration(seconds: 15),
-           receiveTimeout: const Duration(seconds: 20),
-           headers: const {
-             'Accept': 'application/json',
-             'User-Agent': muBangumiUserAgent,
-           },
-         ),
-       ),
+  }) : _dio =
+           dio ??
+           Dio(
+             BaseOptions(
+               baseUrl: 'https://bgm.tv',
+               connectTimeout: const Duration(seconds: 15),
+               receiveTimeout: const Duration(seconds: 20),
+               headers: const {
+                 'Accept': 'application/json',
+                 'User-Agent': muBangumiUserAgent,
+               },
+             ),
+           ),
        _closeInAppBrowser = closeInAppBrowser ?? closeInAppWebView,
        _closeInAppBrowserOnCallback =
            closeInAppBrowserOnCallback ??
@@ -77,18 +80,30 @@ class BangumiOAuth {
   final bool _closeInAppBrowserOnCallback;
   Completer<Uri>? _authorizationCancel;
   HttpServer? _activeAuthServer;
+  Future<HttpServer>? _openingAuthServer;
+  CancelToken? _authorizationRequest;
+  int _cancelGeneration = 0;
 
   /// Abort an in-flight [authorize] wait (e.g. user closed the browser tab).
   Future<void> cancelAuthorization() async {
+    _cancelGeneration++;
+    _authorizationRequest?.cancel('authorization cancelled');
     final cancel = _authorizationCancel;
     if (cancel != null && !cancel.isCompleted) {
       cancel.completeError(
         const BangumiOAuthException('已取消 Bangumi 授权', isCancelled: true),
       );
     }
-    final server = _activeAuthServer;
+    final opening = _openingAuthServer;
+    HttpServer? server = _activeAuthServer;
+    if (server == null && opening != null) {
+      try {
+        server = await opening;
+      } catch (_) {}
+    }
     if (server != null) {
       await server.close(force: true);
+      if (identical(_activeAuthServer, server)) _activeAuthServer = null;
     }
   }
 
@@ -97,12 +112,24 @@ class BangumiOAuth {
     OAuthAuthorizationLauncher? launchAuthorization,
   }) async {
     if (!config.isValid) throw const BangumiOAuthException('OAuth 配置不完整');
+    if (_openingAuthServer != null || _activeAuthServer != null) {
+      throw const BangumiOAuthException('已有授权正在进行，请先取消再重试');
+    }
+    final generation = _cancelGeneration;
 
     HttpServer server;
+    final opening = HttpServer.bind(InternetAddress.loopbackIPv4, 43927);
+    _openingAuthServer = opening;
     try {
-      server = await HttpServer.bind(InternetAddress.loopbackIPv4, 43927);
+      server = await opening;
     } on SocketException {
       throw const BangumiOAuthException('无法启动本地授权回调，请关闭占用 43927 端口的程序后重试');
+    } finally {
+      if (identical(_openingAuthServer, opening)) _openingAuthServer = null;
+    }
+    if (generation != _cancelGeneration) {
+      await server.close(force: true);
+      throw const BangumiOAuthException('已取消 Bangumi 授权', isCancelled: true);
     }
 
     final state = _createState();
@@ -116,12 +143,19 @@ class BangumiOAuth {
     final cancel = Completer<Uri>();
     _authorizationCancel = cancel;
     _activeAuthServer = server;
+    final requestCancel = CancelToken();
+    _authorizationRequest = requestCancel;
     try {
       final callback = Future.any([_waitForCallback(server), cancel.future])
           .timeout(
             const Duration(minutes: 3),
             onTimeout: () => throw const BangumiOAuthException('授权等待超时，请重新登录'),
           );
+      // The launcher may wait for user interaction. Attach an error handler
+      // immediately so cancellation/timeouts never escape as unhandled errors.
+      unawaited(
+        callback.then<void>((_) {}, onError: (Object _, StackTrace _) {}),
+      );
       final opened = launchAuthorization == null
           ? await launchUrl(
               authorizeUri,
@@ -138,7 +172,7 @@ class BangumiOAuth {
             raced,
             expectedState: state,
           );
-          return _exchangeCode(config, code, state);
+          return await _exchangeCode(config, code, state, requestCancel);
         }
         unawaited(
           callback.then<void>((_) {}, onError: (Object _, StackTrace _) {}),
@@ -150,8 +184,11 @@ class BangumiOAuth {
         await callback,
         expectedState: state,
       );
-      return _exchangeCode(config, code, state);
+      return await _exchangeCode(config, code, state, requestCancel);
     } finally {
+      if (identical(_authorizationRequest, requestCancel)) {
+        _authorizationRequest = null;
+      }
       if (identical(_authorizationCancel, cancel)) {
         _authorizationCancel = null;
       }
@@ -208,6 +245,7 @@ class BangumiOAuth {
     OAuthConfig config,
     String code,
     String state,
+    CancelToken cancelToken,
   ) => _requestToken({
     'grant_type': 'authorization_code',
     'client_id': config.clientId.trim(),
@@ -215,9 +253,12 @@ class BangumiOAuth {
     'code': code,
     'redirect_uri': OAuthConfig.redirectUri,
     'state': state,
-  });
+  }, cancelToken: cancelToken);
 
-  Future<OAuthTokenBundle> _requestToken(Map<String, dynamic> data) async {
+  Future<OAuthTokenBundle> _requestToken(
+    Map<String, dynamic> data, {
+    CancelToken? cancelToken,
+  }) async {
     DioException? lastError;
     for (var attempt = 0; attempt < 2; attempt++) {
       try {
@@ -225,6 +266,7 @@ class BangumiOAuth {
           '/oauth/access_token',
           data: data,
           options: Options(contentType: Headers.formUrlEncodedContentType),
+          cancelToken: cancelToken,
         );
         final json = response.data ?? const <String, dynamic>{};
         final accessToken = json['access_token']?.toString() ?? '';
@@ -238,6 +280,12 @@ class BangumiOAuth {
           expiresAt: DateTime.now().add(Duration(seconds: seconds)),
         );
       } on DioException catch (error) {
+        if (CancelToken.isCancel(error)) {
+          throw const BangumiOAuthException(
+            '已取消 Bangumi 授权',
+            isCancelled: true,
+          );
+        }
         lastError = error;
         if ((error.response?.statusCode ?? 0) < 500 || attempt == 1) break;
         await Future<void>.delayed(const Duration(milliseconds: 450));

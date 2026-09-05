@@ -1,5 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../core/notifications/schedule_reminder_service.dart';
 import '../core/storage/schedule_store.dart';
 import '../models/bangumi_models.dart';
 import '../models/schedule_models.dart';
@@ -40,16 +41,18 @@ class ScheduleState {
 }
 
 class ScheduleController extends StateNotifier<ScheduleState> {
-  ScheduleController(this._store)
+  ScheduleController(this._store, [this._reminders])
     : super(ScheduleState(season: SeasonKey.current())) {
     load(SeasonKey.current());
   }
 
   final ScheduleStore _store;
+  final ScheduleReminderGateway? _reminders;
 
   /// Guards rapid season switches: stale loads are dropped instead of
   /// overwriting a newer season's table.
   int _loadGeneration = 0;
+  int _reminderSyncGeneration = 0;
 
   Future<bool> load(SeasonKey season) async {
     final generation = ++_loadGeneration;
@@ -79,6 +82,7 @@ class ScheduleController extends StateNotifier<ScheduleState> {
         knownSeasons: known,
         loading: false,
       );
+      await syncReminders(reportErrors: false);
       return true;
     } catch (error) {
       if (generation != _loadGeneration) return false;
@@ -227,14 +231,27 @@ class ScheduleController extends StateNotifier<ScheduleState> {
     final pool = bucket(null);
     if (weekday == null) {
       final at = (insertIndex ?? pool.length).clamp(0, pool.length);
-      pool.insert(at, moving.copyWith(clearWeekday: true, sortOrder: at));
+      pool.insert(
+        at,
+        moving.copyWith(
+          clearWeekday: true,
+          sortOrder: at,
+          reminderEnabled: false,
+        ),
+      );
     }
     for (var i = 0; i < pool.length; i++) {
       rebuilt.add(pool[i].copyWith(clearWeekday: true, sortOrder: i));
     }
 
     final place = weekday == null ? '待安排' : weekdayLabel(weekday);
-    await _persist(current.copyWith(items: rebuilt), message: '已改到$place');
+    final reminderSuffix = weekday == null && moving.reminderEnabled
+        ? '，系统提醒已关闭'
+        : '';
+    await _persist(
+      current.copyWith(items: rebuilt),
+      message: '已改到$place$reminderSuffix',
+    );
   }
 
   Future<void> reorderOnDay(int weekday, List<int> subjectIds) async {
@@ -252,9 +269,77 @@ class ScheduleController extends StateNotifier<ScheduleState> {
     await _persist(state.schedule.copyWith(items: items));
   }
 
+  Future<bool> setReminder(
+    int subjectId, {
+    required bool enabled,
+    required int hour,
+    required int minute,
+  }) async {
+    final item = state.schedule.items
+        .where((candidate) => candidate.subjectId == subjectId)
+        .firstOrNull;
+    if (item == null) {
+      state = state.copyWith(message: '这部番已不在当前新番表中');
+      return false;
+    }
+    if (enabled && !item.isScheduled) {
+      state = state.copyWith(message: '请先把这部番安排到具体星期');
+      return false;
+    }
+    if (enabled) {
+      final permission = await _reminders?.requestPermission();
+      if (permission != null && !permission.granted) {
+        state = state.copyWith(message: permission.message ?? '未获得系统通知权限');
+        return false;
+      }
+    }
+
+    final safeHour = hour.clamp(0, 23);
+    final safeMinute = minute.clamp(0, 59);
+    final items = [
+      for (final candidate in state.schedule.items)
+        if (candidate.subjectId == subjectId)
+          candidate.copyWith(
+            reminderEnabled: enabled,
+            reminderHour: safeHour,
+            reminderMinute: safeMinute,
+          )
+        else
+          candidate,
+    ];
+    final formatted =
+        '${safeHour.toString().padLeft(2, '0')}:'
+        '${safeMinute.toString().padLeft(2, '0')}';
+    return _persist(
+      state.schedule.copyWith(items: items),
+      message: enabled
+          ? '已开启${item.displayName}的每周更新提醒 · $formatted'
+          : '已关闭${item.displayName}的系统更新提醒',
+    );
+  }
+
+  /// Reconciles all saved quarters with native scheduled notifications.
+  Future<bool> syncReminders({bool reportErrors = true}) async {
+    final reminders = _reminders;
+    if (reminders == null) return true;
+    final generation = ++_reminderSyncGeneration;
+    try {
+      final schedules = await _store.loadAllSchedules();
+      // A slow database read must not submit stale settings after a newer read.
+      if (generation != _reminderSyncGeneration) return true;
+      await reminders.syncSchedules(schedules);
+      return true;
+    } catch (error) {
+      if (reportErrors && generation == _reminderSyncGeneration) {
+        state = state.copyWith(message: '同步系统更新提醒失败：${_errorText(error)}');
+      }
+      return false;
+    }
+  }
+
   void clearMessage() => state = state.copyWith(clearMessage: true);
 
-  Future<void> _persist(SeasonSchedule schedule, {String? message}) async {
+  Future<bool> _persist(SeasonSchedule schedule, {String? message}) async {
     final previous = state.schedule;
     state = state.copyWith(
       schedule: schedule,
@@ -268,7 +353,12 @@ class ScheduleController extends StateNotifier<ScheduleState> {
         schedule: identical(state.schedule, schedule) ? previous : null,
         message: '保存新番表失败：${_errorText(error)}',
       );
+      return false;
     }
+    if (!await syncReminders(reportErrors: false)) {
+      state = state.copyWith(message: '设置已保存，但系统更新提醒暂未同步；下次启动会重试');
+    }
+    return true;
   }
 
   String _errorText(Object error) => error
@@ -281,7 +371,14 @@ final scheduleStoreProvider = Provider<ScheduleStore>(
   (ref) => ScheduleStore.shared,
 );
 
+final scheduleReminderProvider = Provider<ScheduleReminderGateway>(
+  (ref) => ScheduleReminderService.shared,
+);
+
 final scheduleProvider =
     StateNotifierProvider<ScheduleController, ScheduleState>((ref) {
-      return ScheduleController(ref.watch(scheduleStoreProvider));
+      return ScheduleController(
+        ref.watch(scheduleStoreProvider),
+        ref.watch(scheduleReminderProvider),
+      );
     });

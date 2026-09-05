@@ -15,9 +15,9 @@ void main() {
         releaseNotesMarkdown: '## 修复\n\n- 登录崩溃\n- **进度同步**',
       );
 
-      expect(markdown, contains('## 热更新已就绪'));
+      expect(markdown, contains('## 更新已就绪'));
       expect(markdown, contains('**1.2.0+3**'));
-      expect(markdown, contains('**Patch #2**'));
+      expect(markdown, contains('**#2**'));
       expect(markdown, contains('### 更新说明'));
       expect(markdown, contains('## 修复'));
       expect(markdown, contains('- 登录崩溃'));
@@ -40,11 +40,11 @@ void main() {
     tester,
   ) async {
     const markdown = '''
-## 热更新已就绪
+## 更新已就绪
 
 当前版本：**1.2.0+3**
 
-即将应用：**Patch #2**
+更新编号：**#2**
 
 ### 更新说明
 
@@ -54,21 +54,19 @@ void main() {
 
     await tester.pumpWidget(
       const MaterialApp(
-        home: Scaffold(
-          body: UpdateReadyDialog(markdown: markdown),
-        ),
+        home: Scaffold(body: UpdateReadyDialog(markdown: markdown)),
       ),
     );
 
-    expect(find.text('发现热更新'), findsOneWidget);
+    expect(find.text('发现更新'), findsOneWidget);
     expect(find.text('退出并生效'), findsOneWidget);
     expect(find.text('稍后'), findsOneWidget);
     expect(find.byType(MarkdownBody), findsOneWidget);
 
     // Headings and strong text should be present in the rich text tree.
-    expect(find.textContaining('热更新已就绪'), findsWidgets);
+    expect(find.textContaining('更新已就绪'), findsWidgets);
     expect(find.textContaining('1.2.0+3'), findsWidgets);
-    expect(find.textContaining('Patch #2'), findsWidgets);
+    expect(find.textContaining('#2'), findsWidgets);
     expect(find.textContaining('修复登录'), findsWidgets);
     expect(find.textContaining('重要'), findsWidgets);
   });
@@ -103,21 +101,27 @@ void main() {
     expect(release?.body, contains('共同好友'));
   });
 
-  test('fetchLatestGithubRelease returns null when GitHub is unreachable', () async {
-    final dio = Dio();
-    dio.interceptors.add(
-      InterceptorsWrapper(
-        onRequest: (options, handler) {
-          handler.reject(
-            DioException(
-              requestOptions: options,
-              type: DioExceptionType.connectionError,
-            ),
-          );
-        },
-      ),
-    );
+  test(
+    'fetchLatestGithubRelease returns null when GitHub is unreachable',
+    () async {
+      final dio = Dio();
+      dio.interceptors.add(
+        InterceptorsWrapper(
+          onRequest: (options, handler) {
+            handler.reject(
+              DioException(
+                requestOptions: options,
+                type: DioExceptionType.connectionError,
+              ),
+            );
+          },
+        ),
+      );
 
-    expect(await AppUpdateService(dio: dio).fetchLatestGithubRelease(), isNull);
-  });
+      expect(
+        await AppUpdateService(dio: dio).fetchLatestGithubRelease(),
+        isNull,
+      );
+    },
+  );
 }

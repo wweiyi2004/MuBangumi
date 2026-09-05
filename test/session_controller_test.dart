@@ -29,6 +29,422 @@ void main() {
     websiteSessionStore: _MemoryWebsiteSessionStore(),
   );
 
+  testWidgets(
+    'initial home preparation is bounded and late data still arrives',
+    (tester) async {
+      final store = _MemoryTokenStore(config: null)
+        ..accessToken = null
+        ..refreshToken = null
+        ..expiresAt = null;
+      final api = _DelayedRefreshBangumiApi()..delayNextAnimeLoad = true;
+      final controller = buildController(
+        store: store,
+        oauth: BangumiOAuth(),
+        api: api,
+      );
+      await tester.pump();
+      expect(await controller.signIn('personal-token'), isTrue);
+      expect(controller.state.isPreparingHome, isTrue);
+      await tester.pump(const Duration(seconds: 7));
+      expect(controller.state.isPreparingHome, isTrue);
+      await tester.pump(const Duration(seconds: 1));
+      expect(controller.state.isPreparingHome, isFalse);
+      expect(controller.state.isLoadingCollections, isTrue);
+      api.pendingAnimeLoad!.complete(const [_testCollection]);
+      await tester.pump();
+      expect(controller.state.collections, contains(_testCollection));
+      controller.dispose();
+      await tester.pump(const Duration(seconds: 1));
+    },
+  );
+
+  test(
+    'first collection page releases home preparation before final page',
+    () async {
+      final api = _PagedCollectionsApi();
+      final controller = buildController(
+        store: _MemoryTokenStore(config: null)
+          ..accessToken = null
+          ..refreshToken = null,
+        oauth: BangumiOAuth(),
+        api: api,
+      );
+      addTearDown(controller.dispose);
+      await _waitFor(() => controller.state.phase == SessionPhase.signedOut);
+      expect(await controller.signIn('token'), isTrue);
+      await api.started.future;
+      expect(controller.state.collectionFor(99), isNotNull);
+      expect(controller.state.isPreparingHome, isFalse);
+      expect(controller.state.isLoadingCollections, isTrue);
+      expect(api.lastPage.isCompleted, isFalse);
+      api.lastPage.complete(const [_testCollection]);
+      await _waitFor(() => !controller.state.isLoadingCollections);
+    },
+  );
+
+  test(
+    'partial pages retain old items and logout rejects later pages',
+    () async {
+      final oldItem = UserCollection.fromJson({
+        ..._testCollection.toJson(),
+        'subject_id': 101,
+      });
+      final api = _PagedCollectionsApi();
+      final snapshot = _MemorySnapshotCache()
+        ..collections['tester'] = [oldItem];
+      final controller = buildController(
+        store: _MemoryTokenStore(config: null)..refreshToken = null,
+        oauth: BangumiOAuth(),
+        api: api,
+        snapshotCache: snapshot,
+      );
+      addTearDown(controller.dispose);
+      await api.started.future;
+      expect(controller.state.collectionFor(101), isNotNull);
+      expect(controller.state.collectionFor(99), isNotNull);
+      await controller.signOut();
+      expect(await api.publish!(const [_testCollection]), isFalse);
+      api.lastPage.complete(const [_testCollection]);
+      await Future<void>.delayed(Duration.zero);
+      expect(controller.state.collections, isEmpty);
+      expect(controller.state.phase, SessionPhase.signedOut);
+    },
+  );
+
+  test(
+    'later collection pages preserve edits and final result removes stale items',
+    () async {
+      final api = _PagedCollectionsApi();
+      final oldItem = UserCollection.fromJson({
+        ..._testCollection.toJson(),
+        'subject_id': 101,
+      });
+      final controller = buildController(
+        store: _MemoryTokenStore(config: null)..refreshToken = null,
+        oauth: BangumiOAuth(),
+        api: api,
+        snapshotCache: _MemorySnapshotCache()
+          ..collections['tester'] = [oldItem],
+      );
+      addTearDown(controller.dispose);
+      await api.started.future;
+      expect(
+        await controller.changeCollection(_testSubject, CollectionType.wish),
+        isNull,
+      );
+      expect(await api.publish!(const [_testCollection]), isTrue);
+      expect(controller.state.collectionFor(99)?.type, CollectionType.wish);
+      expect(controller.state.collectionFor(101), isNotNull);
+      api.lastPage.complete(const [_testCollection]);
+      await _waitFor(
+        () =>
+            !controller.state.isLoadingCollections &&
+            !controller.state.isSyncing,
+      );
+      expect(controller.state.collectionFor(99)?.type, CollectionType.wish);
+      expect(controller.state.collectionFor(101), isNull);
+    },
+  );
+
+  test('slow pending uploads do not block initial home collections', () async {
+    final queue = _MemorySyncStore();
+    await queue.enqueue(
+      username: 'tester',
+      kind: BangumiMutationKind.episode,
+      mutationKey: 'episode:7',
+      payload: {'subject_id': _testSubject.id, 'episode_id': 7, 'type': 2},
+    );
+    final api = _ControlledReplayApi();
+    final controller = buildController(
+      store: _MemoryTokenStore(config: null)..refreshToken = null,
+      oauth: BangumiOAuth(),
+      api: api,
+      syncStore: queue,
+    );
+    addTearDown(controller.dispose);
+    await api.firstUploadStarted.future;
+    await _waitFor(() => controller.state.collections.isNotEmpty);
+    expect(api.releaseFirstUpload.isCompleted, isFalse);
+    expect(controller.state.isPreparingHome, isFalse);
+    api.releaseFirstUpload.complete();
+    await _waitFor(() => !controller.state.isSyncing);
+  });
+
+  test(
+    'first screen is ready before slow non-anime collections finish',
+    () async {
+      final store = _MemoryTokenStore(config: null)
+        ..accessToken = null
+        ..refreshToken = null
+        ..expiresAt = null;
+      final api = _DelayedOtherTypeBangumiApi()..delayNextOtherTypeLoad = true;
+      final controller = buildController(
+        store: store,
+        oauth: BangumiOAuth(),
+        api: api,
+      );
+      addTearDown(controller.dispose);
+      await _waitFor(() => controller.state.phase == SessionPhase.signedOut);
+      expect(await controller.signIn('personal-token'), isTrue);
+      await _waitFor(() => api.pendingOtherTypeLoad != null);
+      expect(controller.state.isPreparingHome, isFalse);
+      expect(controller.state.isLoadingCollections, isTrue);
+      api.pendingOtherTypeLoad!.complete(const []);
+      await _waitFor(() => !controller.state.isLoadingCollections);
+    },
+  );
+
+  test(
+    'skip and logout cannot be undone by late initial collections',
+    () async {
+      final store = _MemoryTokenStore(config: null)
+        ..accessToken = null
+        ..refreshToken = null
+        ..expiresAt = null;
+      final api = _DelayedRefreshBangumiApi()..delayNextAnimeLoad = true;
+      final controller = buildController(
+        store: store,
+        oauth: BangumiOAuth(),
+        api: api,
+      );
+      addTearDown(controller.dispose);
+      await _waitFor(() => controller.state.phase == SessionPhase.signedOut);
+      await controller.signIn('personal-token');
+      expect(controller.state.isPreparingHome, isTrue);
+      controller.enterHomeNow();
+      expect(controller.state.isPreparingHome, isFalse);
+      await controller.signOut();
+      api.pendingAnimeLoad!.complete(const [_testCollection]);
+      await Future<void>.delayed(Duration.zero);
+      expect(controller.state.phase, SessionPhase.signedOut);
+      expect(controller.state.collections, isEmpty);
+      expect(controller.state.isPreparingHome, isFalse);
+    },
+  );
+
+  test(
+    'a cancelled OAuth result cannot replace a successful token login',
+    () async {
+      final store = _MemoryTokenStore(config: null)
+        ..accessToken = null
+        ..refreshToken = null
+        ..expiresAt = null;
+      final oauth = _HangingAuthorizeOAuth();
+      final controller = buildController(store: store, oauth: oauth);
+      addTearDown(controller.dispose);
+      await _waitFor(() => controller.state.phase == SessionPhase.signedOut);
+      final pending = controller.signInWithOAuth(config);
+      expect(await controller.signIn('Bearer manual-token'), isTrue);
+      oauth.completer.complete(
+        OAuthTokenBundle(
+          accessToken: 'stale-oauth-token',
+          refreshToken: 'stale-refresh',
+          expiresAt: DateTime.now().add(const Duration(days: 1)),
+        ),
+      );
+      expect(await pending, isFalse);
+      expect(store.accessToken, 'manual-token');
+      expect(store.refreshToken, isNull);
+      expect(store.config, isNull);
+      expect(controller.state.phase, SessionPhase.signedIn);
+    },
+  );
+
+  test(
+    'logout while /me is pending cannot restore or persist that login',
+    () async {
+      final store = _MemoryTokenStore(config: null)
+        ..accessToken = null
+        ..refreshToken = null
+        ..expiresAt = null;
+      final api = _DelayedMeApi();
+      final controller = buildController(
+        store: store,
+        oauth: BangumiOAuth(),
+        api: api,
+      );
+      addTearDown(controller.dispose);
+      await _waitFor(() => controller.state.phase == SessionPhase.signedOut);
+      final login = controller.signIn('manual-token');
+      expect(controller.state.phase, SessionPhase.signedOut);
+      expect(controller.state.authActivity, AuthActivity.verifying);
+      await controller.signOut();
+      api.completer.complete(
+        const BangumiUser(
+          id: 1,
+          username: 'tester',
+          nickname: 'Tester',
+          avatarUrl: '',
+        ),
+      );
+      expect(await login, isFalse);
+      expect(store.accessToken, isNull);
+      expect(controller.state.user, isNull);
+      expect(controller.state.phase, SessionPhase.signedOut);
+    },
+  );
+
+  for (final fails in [false, true]) {
+    test(
+      'late OAuth refresh cannot change a replacement login (failure: $fails)',
+      () async {
+        final store = _MemoryTokenStore(config: config)
+          ..expiresAt = DateTime.now().add(const Duration(days: 1));
+        final oauth = _DeferredRefreshOAuth();
+        final controller = buildController(store: store, oauth: oauth);
+        addTearDown(controller.dispose);
+        await _waitFor(() => controller.state.phase == SessionPhase.signedIn);
+        final refresh = controller.tryRefreshAccessToken();
+        await controller.signOut();
+        expect(await controller.signIn('replacement-token'), isTrue);
+        if (fails) {
+          oauth.result.completeError(
+            const BangumiOAuthException(
+              'invalid_grant',
+              invalidatesSession: true,
+            ),
+          );
+        } else {
+          oauth.result.complete(
+            OAuthTokenBundle(
+              accessToken: 'old-account-token',
+              refreshToken: 'old-refresh',
+              expiresAt: DateTime.now().add(const Duration(days: 1)),
+            ),
+          );
+        }
+        expect(await refresh, isFalse);
+        expect(store.accessToken, 'replacement-token');
+        expect(controller.state.phase, SessionPhase.signedIn);
+      },
+    );
+  }
+
+  test('logout is ordered after an already-running credential write', () async {
+    final store = _DelayedTokenWriteStore(config)
+      ..expiresAt = DateTime.now().add(const Duration(days: 1));
+    final oauth = _DeferredRefreshOAuth();
+    final controller = buildController(store: store, oauth: oauth);
+    addTearDown(controller.dispose);
+    await _waitFor(() => controller.state.phase == SessionPhase.signedIn);
+    final refresh = controller.tryRefreshAccessToken();
+    oauth.result.complete(
+      OAuthTokenBundle(
+        accessToken: 'rotated-token',
+        refreshToken: 'rotated-refresh',
+        expiresAt: DateTime.now().add(const Duration(days: 1)),
+      ),
+    );
+    await store.entered.future;
+    final logout = controller.signOut();
+    expect(controller.state.authActivity, AuthActivity.signingOut);
+    store.release.complete();
+    await logout;
+    expect(await refresh, isFalse);
+    expect(store.accessToken, isNull);
+    expect(store.refreshToken, isNull);
+    expect(controller.state.authActivity, AuthActivity.idle);
+  });
+
+  test(
+    'failed logout cleanup exposes a retry and clears it after success',
+    () async {
+      final store = _MemoryTokenStore(config: config)
+        ..expiresAt = DateTime.now().add(const Duration(days: 1));
+      final controller = buildController(store: store, oauth: BangumiOAuth());
+      addTearDown(controller.dispose);
+      await _waitFor(() => controller.state.phase == SessionPhase.signedIn);
+      store.failClear = true;
+      await controller.signOut();
+      expect(controller.state.phase, SessionPhase.signedOut);
+      expect(controller.state.authActivity, AuthActivity.idle);
+      expect(controller.state.canRetrySignOut, isTrue);
+      expect(store.accessToken, isNotNull);
+      store.failClear = false;
+      await controller.signOut();
+      expect(store.accessToken, isNull);
+      expect(controller.state.canRetrySignOut, isFalse);
+    },
+  );
+
+  test(
+    'transient startup failure retries saved credentials without authorizing',
+    () async {
+      final store = _MemoryTokenStore(config: config)
+        ..expiresAt = DateTime.now().add(const Duration(days: 1));
+      final api = _RecoverableMeApi();
+      final controller = buildController(
+        store: store,
+        oauth: BangumiOAuth(),
+        api: api,
+      );
+      addTearDown(controller.dispose);
+      await _waitFor(() => controller.state.phase == SessionPhase.signedOut);
+      expect(controller.state.canRetrySignIn, isTrue);
+      expect(store.accessToken, 'stored-access-token');
+      api.offline = false;
+      await controller.retrySavedSignIn();
+      expect(controller.state.phase, SessionPhase.signedIn);
+      expect(controller.state.canRetrySignIn, isFalse);
+    },
+  );
+
+  test('cache write failure cannot reject a verified token login', () async {
+    final store = _MemoryTokenStore(config: null)
+      ..accessToken = null
+      ..refreshToken = null
+      ..expiresAt = null;
+    final controller = buildController(
+      store: store,
+      oauth: BangumiOAuth(),
+      snapshotCache: _FailedSnapshotWrites(),
+    );
+    addTearDown(controller.dispose);
+    await _waitFor(() => controller.state.phase == SessionPhase.signedOut);
+    expect(await controller.signIn('verified-token'), isTrue);
+    expect(store.accessToken, 'verified-token');
+    expect(controller.state.phase, SessionPhase.signedIn);
+  });
+
+  test(
+    'OAuth credentials are committed only after identity verification',
+    () async {
+      final store = _MemoryTokenStore(config: null)
+        ..accessToken = null
+        ..refreshToken = null
+        ..expiresAt = null;
+      final oauth = _HangingAuthorizeOAuth();
+      final api = _DelayedMeApi();
+      final controller = buildController(store: store, oauth: oauth, api: api);
+      addTearDown(controller.dispose);
+      await _waitFor(() => controller.state.phase == SessionPhase.signedOut);
+      final login = controller.signInWithOAuth(config);
+      oauth.completer.complete(
+        OAuthTokenBundle(
+          accessToken: 'verified-oauth-token',
+          refreshToken: 'verified-refresh',
+          expiresAt: DateTime.now().add(const Duration(days: 1)),
+        ),
+      );
+      await _waitFor(() => api.meCalls == 1);
+      expect(controller.state.phase, SessionPhase.signedOut);
+      expect(controller.state.authActivity, AuthActivity.verifying);
+      expect(store.accessToken, isNull);
+      expect(store.config, isNull);
+      api.completer.complete(
+        const BangumiUser(
+          id: 1,
+          username: 'tester',
+          nickname: 'Tester',
+          avatarUrl: '',
+        ),
+      );
+      expect(await login, isTrue);
+      expect(store.accessToken, 'verified-oauth-token');
+      expect(store.config, config);
+    },
+  );
+
   test('transient OAuth refresh failure keeps stored credentials', () async {
     final store = _MemoryTokenStore(config: config);
     final controller = buildController(
@@ -84,7 +500,8 @@ void main() {
     expect(signedIn, isFalse);
     expect(controller.state.phase, SessionPhase.signedOut);
     expect(controller.state.message, isNull);
-    expect(store.config, config);
+    // A cancelled attempt must not replace the saved credential configuration.
+    expect(store.config, isNull);
   });
 
   test(
@@ -104,7 +521,7 @@ void main() {
       late bool refreshingDuringAuthorize;
       oauth.onAuthorize = () {
         phaseDuringAuthorize = controller.state.phase;
-        refreshingDuringAuthorize = controller.state.isRefreshing;
+        refreshingDuringAuthorize = controller.state.isAuthenticating;
       };
 
       var launcherCalled = false;
@@ -349,7 +766,7 @@ void main() {
 
     await _waitFor(() => controller.state.phase == SessionPhase.signedOut);
     final signIn = controller.signInWithOAuth(config);
-    await _waitFor(() => controller.state.isRefreshing);
+    await _waitFor(() => controller.state.isAuthenticating);
 
     final error = await controller.setNetworkRoute(
       BangumiNetworkRoute.reverseProxy,
@@ -357,7 +774,7 @@ void main() {
     expect(error, isNull);
     expect(controller.state.networkRoute, BangumiNetworkRoute.reverseProxy);
     // The OAuth wait UI (spinner + cancel) must survive the switch.
-    expect(controller.state.isRefreshing, isTrue);
+    expect(controller.state.authActivity, AuthActivity.authorizing);
 
     oauth.completer.completeError(
       const BangumiOAuthException('已取消 Bangumi 授权', isCancelled: true),
@@ -639,6 +1056,158 @@ void main() {
     expect(controller.state.blockedSyncCount, 0);
     expect(api.replayed.map((item) => item['episode_id']), [7, 99]);
   });
+
+  test('blocked sync issues expose errors and reject stale actions', () async {
+    final syncStore = _MemorySyncStore();
+    final snapshot = _MemorySnapshotCache()
+      ..collections['tester'] = const [_testCollection]
+      ..episodeCollections[_testSubject.id] = [
+        _testEpisodeCollection(99, 1).copyWith(type: 2),
+      ];
+    await syncStore.enqueue(
+      username: 'tester',
+      kind: BangumiMutationKind.episode,
+      mutationKey: 'episode:99',
+      payload: {'subject_id': _testSubject.id, 'episode_id': 99, 'type': 2},
+    );
+    final seeded = (await syncStore.pendingFor('tester')).single;
+    expect(
+      await syncStore.markFailure(seeded, '章节状态无效', blocked: true),
+      isTrue,
+    );
+    final controller = buildController(
+      store: _MemoryTokenStore(config: config),
+      oauth: _FailingOAuth(const BangumiOAuthException('网络暂时不可用')),
+      api: _OfflineReplayApi(),
+      snapshotCache: snapshot,
+      syncStore: syncStore,
+    );
+    addTearDown(controller.dispose);
+
+    await _waitFor(() => controller.state.phase == SessionPhase.signedIn);
+    await _waitFor(() => controller.state.blockedSyncCount == 1);
+    final issue = (await controller.blockedSyncMutations()).single;
+    expect(issue.lastError, '章节状态无效');
+
+    // A newer edit makes the old sheet row stale and therefore untouchable.
+    await syncStore.enqueue(
+      username: 'tester',
+      kind: BangumiMutationKind.episode,
+      mutationKey: 'episode:99',
+      payload: {'subject_id': _testSubject.id, 'episode_id': 99, 'type': 3},
+    );
+    expect(await controller.discardBlockedMutation(issue), '同步记录已变化，请刷新列表后重试');
+    expect(await syncStore.countFor('tester'), 1);
+
+    final latest = (await syncStore.pendingFor('tester')).single;
+    expect(await syncStore.markFailure(latest, '仍然无效', blocked: true), isTrue);
+    final current = (await controller.blockedSyncMutations()).single;
+    expect(await controller.discardBlockedMutation(current), isNull);
+    expect(controller.state.pendingSyncCount, 0);
+    expect(controller.state.blockedSyncCount, 0);
+    expect(snapshot.collections, isEmpty);
+    expect(snapshot.episodeCollections, isEmpty);
+  });
+
+  for (final completeEpisodes in [true, false]) {
+    test(
+      'discarded collection clears episode cache only when completing episodes: $completeEpisodes',
+      () async {
+        final syncStore = _MemorySyncStore();
+        final snapshot = _MemorySnapshotCache()
+          ..collections['tester'] = const [_testCollection]
+          ..episodeCollections[_testSubject.id] = [
+            _testEpisodeCollection(99, 1).copyWith(type: 2),
+          ];
+        await syncStore.enqueue(
+          username: 'tester',
+          kind: BangumiMutationKind.collection,
+          mutationKey: 'collection:99',
+          payload: {
+            'subject_id': 99,
+            'subject': _testSubject.toJson(),
+            'collection_type': CollectionType.done.value,
+            'complete_episodes': completeEpisodes,
+          },
+        );
+        final mutation = (await syncStore.pendingFor('tester')).single;
+        await syncStore.markFailure(mutation, '服务器拒绝上传', blocked: true);
+        final controller = buildController(
+          store: _MemoryTokenStore(config: config),
+          oauth: _FailingOAuth(const BangumiOAuthException('网络暂时不可用')),
+          api: _OfflineReplayApi(),
+          snapshotCache: snapshot,
+          syncStore: syncStore,
+        );
+        addTearDown(controller.dispose);
+        await _waitFor(() => controller.state.phase == SessionPhase.signedIn);
+        final issue = (await controller.blockedSyncMutations()).single;
+        expect(await controller.discardBlockedMutation(issue), isNull);
+        expect(await syncStore.countFor('tester'), 0);
+        expect(snapshot.collections, isEmpty);
+        expect(snapshot.episodeCollections.isEmpty, completeEpisodes);
+      },
+    );
+  }
+
+  test(
+    'single issue retry leaves other accounts and issues untouched',
+    () async {
+      final syncStore = _MemorySyncStore();
+      for (final episodeId in [91, 92]) {
+        await syncStore.enqueue(
+          username: 'tester',
+          kind: BangumiMutationKind.episode,
+          mutationKey: 'episode:$episodeId',
+          payload: {
+            'subject_id': _testSubject.id,
+            'episode_id': episodeId,
+            'type': 2,
+          },
+        );
+        final mutation = (await syncStore.pendingFor('tester')).last;
+        expect(
+          await syncStore.markFailure(
+            mutation,
+            '章节 $episodeId 上传失败',
+            blocked: true,
+          ),
+          isTrue,
+        );
+      }
+      await syncStore.enqueue(
+        username: 'another',
+        kind: BangumiMutationKind.collection,
+        mutationKey: 'collection:8',
+        payload: {'subject_id': 8, 'collection_type': 3},
+      );
+      final other = (await syncStore.pendingFor('another')).single;
+      expect(
+        await syncStore.markFailure(other, '其他账号失败', blocked: true),
+        isTrue,
+      );
+
+      final api = _OfflineReplayApi()..offline = false;
+      final controller = buildController(
+        store: _MemoryTokenStore(config: config),
+        oauth: _FailingOAuth(const BangumiOAuthException('网络暂时不可用')),
+        api: api,
+        syncStore: syncStore,
+      );
+      addTearDown(controller.dispose);
+
+      await _waitFor(() => controller.state.phase == SessionPhase.signedIn);
+      await _waitFor(() => controller.state.blockedSyncCount == 2);
+      final issues = await controller.blockedSyncMutations();
+
+      expect(await controller.retryBlockedMutation(issues.first), isNull);
+      expect(api.replayed, hasLength(1));
+      expect(controller.state.pendingSyncCount, 1);
+      expect(controller.state.blockedSyncCount, 1);
+      expect(await syncStore.blockedFor('tester'), hasLength(1));
+      expect(await syncStore.blockedFor('another'), hasLength(1));
+    },
+  );
 }
 
 const _testSubject = Subject(
@@ -792,6 +1361,11 @@ class _MemorySnapshotCache extends SnapshotCache {
   }
 
   @override
+  Future<void> clearCollections(String username) async {
+    collections.remove(username.trim().toLowerCase());
+  }
+
+  @override
   Future<List<UserEpisodeCollection>?> readEpisodeCollections(
     int subjectId,
   ) async => episodeCollections[subjectId];
@@ -802,6 +1376,11 @@ class _MemorySnapshotCache extends SnapshotCache {
     List<UserEpisodeCollection> episodes,
   ) async {
     episodeCollections[subjectId] = episodes;
+  }
+
+  @override
+  Future<void> clearEpisodeCollections(int subjectId) async {
+    episodeCollections.remove(subjectId);
   }
 }
 
@@ -858,6 +1437,12 @@ class _MemorySyncStore extends BangumiSyncStore {
   }) async => [
     for (final item in mutations)
       if (item.username == username && (includeBlocked || !item.blocked)) item,
+  ];
+
+  @override
+  Future<List<PendingBangumiMutation>> blockedFor(String username) async => [
+    for (final item in mutations.reversed)
+      if (item.username == username && item.blocked) item,
   ];
 
   @override
@@ -924,6 +1509,45 @@ class _MemorySyncStore extends BangumiSyncStore {
       );
     }
   }
+
+  @override
+  Future<bool> retryIfUnchanged(PendingBangumiMutation mutation) async {
+    final index = mutations.indexWhere(
+      (item) =>
+          item.id == mutation.id &&
+          item.username == mutation.username &&
+          item.revision == mutation.revision &&
+          item.blocked,
+    );
+    if (index < 0) return false;
+    final item = mutations[index];
+    mutations[index] = PendingBangumiMutation(
+      id: item.id,
+      username: item.username,
+      kind: item.kind,
+      mutationKey: item.mutationKey,
+      payload: item.payload,
+      createdAt: item.createdAt,
+      updatedAt: DateTime.now(),
+      revision: item.revision,
+      attempts: 0,
+      blocked: false,
+    );
+    return true;
+  }
+
+  @override
+  Future<bool> discardIfUnchanged(PendingBangumiMutation mutation) async {
+    final before = mutations.length;
+    mutations.removeWhere(
+      (item) =>
+          item.id == mutation.id &&
+          item.username == mutation.username &&
+          item.revision == mutation.revision &&
+          item.blocked,
+    );
+    return mutations.length < before;
+  }
 }
 
 class _FakeBangumiApi extends BangumiApi {
@@ -941,7 +1565,35 @@ class _FakeBangumiApi extends BangumiApi {
     SubjectType? subjectType,
     CollectionType? collectionType,
     int? maxItems,
+    Future<bool> Function(List<UserCollection> items)? onPage,
   }) async => const [];
+}
+
+class _PagedCollectionsApi extends _FakeBangumiApi {
+  final started = Completer<void>();
+  final lastPage = Completer<List<UserCollection>>();
+  Future<bool> Function(List<UserCollection>)? publish;
+
+  @override
+  Future<void> replayPendingMutation(
+    BangumiMutationKind kind,
+    Map<String, dynamic> payload,
+  ) async => throw const BangumiApiException('offline', retryable: true);
+
+  @override
+  Future<List<UserCollection>> getUserCollections(
+    String username, {
+    SubjectType? subjectType,
+    CollectionType? collectionType,
+    int? maxItems,
+    Future<bool> Function(List<UserCollection> items)? onPage,
+  }) async {
+    if (subjectType != SubjectType.anime) return const [];
+    publish = onPage;
+    await onPage?.call(const [_testCollection]);
+    started.complete();
+    return lastPage.future;
+  }
 }
 
 class _OfflineReplayApi extends _FakeBangumiApi {
@@ -954,6 +1606,7 @@ class _OfflineReplayApi extends _FakeBangumiApi {
     SubjectType? subjectType,
     CollectionType? collectionType,
     int? maxItems,
+    Future<bool> Function(List<UserCollection> items)? onPage,
   }) async =>
       subjectType == SubjectType.anime ? const [_testCollection] : const [];
 
@@ -1020,6 +1673,7 @@ class _DelayedRefreshBangumiApi extends _FakeBangumiApi {
     SubjectType? subjectType,
     CollectionType? collectionType,
     int? maxItems,
+    Future<bool> Function(List<UserCollection> items)? onPage,
   }) {
     if (delayNextAnimeLoad && subjectType == SubjectType.anime) {
       delayNextAnimeLoad = false;
@@ -1041,6 +1695,7 @@ class _DelayedOtherTypeBangumiApi extends _FakeBangumiApi {
     SubjectType? subjectType,
     CollectionType? collectionType,
     int? maxItems,
+    Future<bool> Function(List<UserCollection> items)? onPage,
   }) {
     if (delayNextOtherTypeLoad &&
         subjectType != null &&
@@ -1062,6 +1717,40 @@ class _HangingAuthorizeOAuth extends BangumiOAuth {
     OAuthConfig config, {
     OAuthAuthorizationLauncher? launchAuthorization,
   }) => completer.future;
+}
+
+class _DeferredRefreshOAuth extends BangumiOAuth {
+  final result = Completer<OAuthTokenBundle>();
+  @override
+  Future<OAuthTokenBundle> refresh(OAuthConfig config, String refreshToken) =>
+      result.future;
+}
+
+class _DelayedTokenWriteStore extends _MemoryTokenStore {
+  _DelayedTokenWriteStore(OAuthConfig config) : super(config: config);
+  final entered = Completer<void>();
+  final release = Completer<void>();
+  @override
+  Future<void> writeTokens(OAuthTokenBundle tokens) async {
+    entered.complete();
+    await release.future;
+    await super.writeTokens(tokens);
+  }
+}
+
+class _RecoverableMeApi extends _FakeBangumiApi {
+  bool offline = true;
+  @override
+  Future<BangumiUser> getMe() async {
+    if (offline) throw const BangumiApiException('offline', retryable: true);
+    return super.getMe();
+  }
+}
+
+class _FailedSnapshotWrites extends _MemorySnapshotCache {
+  @override
+  Future<void> writeLastUser(BangumiUser user) async =>
+      throw StateError('cache unavailable');
 }
 
 class _MemoryWebsiteSessionStore extends WebsiteSessionStore {
@@ -1089,6 +1778,23 @@ class _MemoryTokenStore extends TokenStore {
   DateTime? expiresAt = DateTime.now().subtract(const Duration(minutes: 1));
   OAuthConfig? config;
   int clearCalls = 0;
+  bool failClear = false;
+
+  @override
+  Future<void> write(String token) async {
+    accessToken = token;
+    refreshToken = null;
+    expiresAt = null;
+  }
+
+  @override
+  Future<void> writeOAuthSession(
+    OAuthConfig config,
+    OAuthTokenBundle tokens,
+  ) async {
+    await writeTokens(tokens);
+    this.config = config;
+  }
 
   @override
   Future<String?> read() async => accessToken;
@@ -1101,11 +1807,6 @@ class _MemoryTokenStore extends TokenStore {
 
   @override
   Future<OAuthConfig?> readOAuthConfig() async => config;
-
-  @override
-  Future<void> writeOAuthConfig(OAuthConfig config) async {
-    this.config = config;
-  }
 
   @override
   Future<BangumiNetworkRoute> readNetworkRoute() async =>
@@ -1132,6 +1833,7 @@ class _MemoryTokenStore extends TokenStore {
   @override
   Future<void> clear() async {
     clearCalls++;
+    if (failClear) throw StateError('storage unavailable');
     accessToken = null;
     refreshToken = null;
     expiresAt = null;

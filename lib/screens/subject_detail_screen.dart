@@ -59,6 +59,8 @@ class _SubjectDetailScreenState extends ConsumerState<SubjectDetailScreen> {
   bool _loadingMoreComments = false;
   bool _loadingTopics = false;
   bool _loadingHistory = false;
+  bool _loadingEpisodes = false;
+  String? _episodesError;
   String? _metaError;
   String? _topicsError;
   String? _commentsError;
@@ -84,102 +86,131 @@ class _SubjectDetailScreenState extends ConsumerState<SubjectDetailScreen> {
     Future.microtask(_load);
   }
 
+  int _loadGeneration = 0;
+  String? _loadUsername;
+
+  bool _isCurrentLoad(int generation) =>
+      mounted &&
+      generation == _loadGeneration &&
+      ref.read(sessionProvider).user?.username == _loadUsername;
+
   Future<void> _load() async {
+    if (!mounted) return;
+    final generation = ++_loadGeneration;
+    _loadUsername = ref.read(sessionProvider).user?.username;
     setState(() {
       _loading = _details == null;
       _error = null;
+      _friendsExpanded = false;
+      _friendsLoaded = false;
+      _friendStatuses = const [];
+      _loadingEpisodes = widget.subject.type.hasEpisodes;
+      _episodesError = null;
     });
+    // A slow episode request must not hold the synopsis or other sections.
+    final primary = Future.wait([
+      _loadSubjectInfo(generation),
+      _loadEpisodeInfo(generation),
+    ]);
+    unawaited(_loadMeta(widget.subject.id));
+    unawaited(_loadComments(widget.subject.id));
+    unawaited(_loadTopics(widget.subject.id));
+    unawaited(_loadScoreHistory(widget.subject.id));
+    await primary;
+  }
+
+  Future<void> _loadSubjectInfo(int generation) async {
     try {
-      final api = ref.read(bangumiApiProvider);
-      final hasCollection =
-          ref.read(sessionProvider).collectionFor(widget.subject.id) != null;
-      if (hasCollection) {
-        final cachedEpisodes = await SnapshotCache.shared
-            .readEpisodeCollections(widget.subject.id);
-        if (cachedEpisodes != null && cachedEpisodes.isNotEmpty) {
-          final localCachedEpisodes = await _sessionController
-              .applyPendingEpisodeChanges(widget.subject.id, cachedEpisodes);
-          if (!mounted) return;
-          setState(() {
-            _episodes = [for (final item in localCachedEpisodes) item.episode];
-            _episodeTypes = {
-              for (final item in localCachedEpisodes)
-                item.episode.id: item.type,
-            };
-          });
-        }
-      }
-      Subject details;
-      try {
-        details = await api.getSubject(widget.subject.id);
-      } catch (_) {
-        details = widget.subject;
-      }
-      List<Episode> episodes = const [];
-      Map<int, int> episodeTypes = {};
-      if (details.type.hasEpisodes || widget.subject.type.hasEpisodes) {
-        if (hasCollection) {
-          List<UserEpisodeCollection> episodeCollections;
-          var fetchedEpisodeCollections = false;
-          try {
-            episodeCollections = await api.getEpisodeCollections(
-              widget.subject.id,
-              episodeType: null,
-            );
-            fetchedEpisodeCollections = true;
-          } catch (_) {
-            episodeCollections =
-                await SnapshotCache.shared.readEpisodeCollections(
-                  widget.subject.id,
-                ) ??
-                const [];
-          }
-          episodeCollections = await _sessionController
-              .applyPendingEpisodeChanges(
-                widget.subject.id,
-                episodeCollections,
-              );
-          if (fetchedEpisodeCollections) {
-            await SnapshotCache.shared.writeEpisodeCollections(
-              widget.subject.id,
-              episodeCollections,
-            );
-          }
-          episodes = [for (final item in episodeCollections) item.episode];
-          episodeTypes = {
-            for (final item in episodeCollections) item.episode.id: item.type,
-          };
-        } else {
-          try {
-            episodes = await api.getEpisodes(
-              widget.subject.id,
-              episodeType: null,
-            );
-          } catch (_) {}
-        }
-      }
-      if (!mounted) return;
+      final details = await ref
+          .read(bangumiApiProvider)
+          .getSubject(widget.subject.id);
+      if (!_isCurrentLoad(generation)) return;
       setState(() {
         _details = details;
-        _episodes = episodes;
-        _episodeTypes = episodeTypes;
         _loading = false;
-        _friendsExpanded = false;
-        _friendsLoaded = false;
-        _friendStatuses = const [];
       });
-      unawaited(_loadMeta(widget.subject.id));
-      unawaited(_loadComments(widget.subject.id));
-      unawaited(_loadTopics(widget.subject.id));
-      unawaited(_loadScoreHistory(widget.subject.id));
-    } catch (error) {
-      if (!mounted) return;
-      setState(() {
-        _loading = false;
-        if (_details == null) {
-          _error = error.toString().replaceFirst('Exception: ', '');
+    } catch (_) {
+      if (!_isCurrentLoad(generation)) return;
+      // The list item's information stays usable if the full detail is offline.
+      setState(() => _loading = false);
+    }
+  }
+
+  Future<void> _loadEpisodeInfo(int generation) async {
+    if (!widget.subject.type.hasEpisodes) return;
+    final api = ref.read(bangumiApiProvider);
+    final cache = ref.read(snapshotCacheProvider);
+    final hasCollection =
+        ref.read(sessionProvider).collectionFor(widget.subject.id) != null;
+    var networkApplied = false;
+    Future<void> restoreCache() async {
+      if (!hasCollection) return;
+      try {
+        final cached = await cache.readEpisodeCollections(widget.subject.id);
+        if (cached == null || !_isCurrentLoad(generation) || networkApplied) {
+          return;
         }
-      });
+        final local = await _sessionController.applyPendingEpisodeChanges(
+          widget.subject.id,
+          cached,
+        );
+        if (!_isCurrentLoad(generation) || networkApplied) return;
+        setState(() {
+          _episodes = [for (final item in local) item.episode];
+          _episodeTypes = {
+            for (final item in local) item.episode.id: item.type,
+          };
+        });
+      } catch (_) {
+        // Failed optional storage must never prevent the network request.
+      }
+    }
+
+    unawaited(restoreCache());
+    try {
+      if (hasCollection) {
+        var items = await api.getEpisodeCollections(
+          widget.subject.id,
+          episodeType: null,
+        );
+        if (!_isCurrentLoad(generation)) return;
+        items = await _sessionController.applyPendingEpisodeChanges(
+          widget.subject.id,
+          items,
+        );
+        if (!_isCurrentLoad(generation)) return;
+        networkApplied = true;
+        setState(() {
+          _episodes = [for (final item in items) item.episode];
+          _episodeTypes = {
+            for (final item in items) item.episode.id: item.type,
+          };
+        });
+        unawaited(
+          cache
+              .writeEpisodeCollections(widget.subject.id, items)
+              .catchError((Object _) {}),
+        );
+      } else {
+        final episodes = await api.getEpisodes(
+          widget.subject.id,
+          episodeType: null,
+        );
+        if (!_isCurrentLoad(generation)) return;
+        setState(() {
+          _episodes = episodes;
+          _episodeTypes = const {};
+        });
+      }
+    } catch (_) {
+      // Keep any restored episode progress visible while offline.
+      if (_isCurrentLoad(generation)) {
+        setState(() => _episodesError = '章节加载失败，请重试');
+      }
+    } finally {
+      if (_isCurrentLoad(generation)) {
+        setState(() => _loadingEpisodes = false);
+      }
     }
   }
 
@@ -574,7 +605,28 @@ class _SubjectDetailScreenState extends ConsumerState<SubjectDetailScreen> {
                           ),
                         ),
                         const SizedBox(height: 14),
-                        if (_visibleEpisodes.isEmpty)
+                        if (_episodes.isEmpty && _loadingEpisodes)
+                          const Center(
+                            child: Padding(
+                              padding: EdgeInsets.all(24),
+                              child: CircularProgressIndicator(),
+                            ),
+                          )
+                        else if (_episodes.isEmpty && _episodesError != null)
+                          Center(
+                            child: TextButton.icon(
+                              onPressed: () {
+                                setState(() {
+                                  _loadingEpisodes = true;
+                                  _episodesError = null;
+                                });
+                                unawaited(_loadEpisodeInfo(_loadGeneration));
+                              },
+                              icon: const Icon(Icons.refresh_rounded),
+                              label: Text(_episodesError!),
+                            ),
+                          )
+                        else if (_visibleEpisodes.isEmpty)
                           const EmptyState(
                             icon: Icons.format_list_numbered_rounded,
                             title: '暂无章节数据',
@@ -1306,8 +1358,8 @@ class _MoegirlPanel extends StatelessWidget {
                             icon: const Icon(Icons.article_outlined),
                             label: Text(
                               entry!.sections.isEmpty
-                                  ? '原生阅读'
-                                  : '原生阅读 · ${entry!.sections.length} 章',
+                                  ? '阅读全文'
+                                  : '阅读全文 · ${entry!.sections.length} 章',
                             ),
                           ),
                           Text(
@@ -2301,7 +2353,11 @@ class _RelatedSubjectRail extends StatelessWidget {
   Widget build(BuildContext context) => _HorizontalCardRail(
     itemCount: subjects.length,
     itemWidth: 154,
-    height: subjectPosterItemHeight(154, 1),
+    height: subjectPosterItemHeight(
+      154,
+      1,
+      textScaler: MediaQuery.textScalerOf(context),
+    ),
     itemBuilder: (context, index) {
       final item = subjects[index];
       return SubjectPosterCard(

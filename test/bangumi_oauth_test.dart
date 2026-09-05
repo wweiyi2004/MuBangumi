@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:typed_data';
 
+import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mubangumi/core/auth/bangumi_oauth.dart';
 
@@ -71,6 +73,7 @@ void main() {
   test('closes the in-app browser after the local callback arrives', () async {
     var closed = 0;
     final oauth = BangumiOAuth(
+      dio: Dio()..httpClientAdapter = _TokenAdapter(),
       closeInAppBrowser: () async {
         closed += 1;
       },
@@ -78,24 +81,49 @@ void main() {
     );
     final authorize = oauth.authorize(
       const OAuthConfig(clientId: 'client', clientSecret: 'secret'),
-      launchAuthorization: (uri, callback) async {
-        final state = uri.queryParameters['state']!;
-        final client = HttpClient();
-        try {
-          final request = await client.getUrl(
-            Uri.parse('${OAuthConfig.redirectUri}?code=test-code&state=$state'),
-          );
-          final response = await request.close();
-          await response.drain<void>();
-        } finally {
-          client.close(force: true);
-        }
+      launchAuthorization: _sendCallback,
+    );
+
+    expect((await authorize).accessToken, 'verified-token');
+    expect(closed, 1);
+  });
+
+  test('cancelling during server bind releases the callback port', () async {
+    final oauth = BangumiOAuth();
+    var launched = false;
+    final authorize = oauth.authorize(
+      const OAuthConfig(clientId: 'client', clientSecret: 'secret'),
+      launchAuthorization: (_, _) async {
+        launched = true;
         return true;
       },
     );
+    final result = expectLater(authorize, throwsA(_cancelled));
+    await oauth.cancelAuthorization();
+    await result;
+    expect(launched, isFalse);
+    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 43927);
+    await server.close(force: true);
+  });
 
-    await expectLater(authorize, throwsA(isA<BangumiOAuthException>()));
-    expect(closed, 1);
+  test('cancelling token exchange permits a new authorization', () async {
+    final adapter = _TokenAdapter(blockFirst: true);
+    final oauth = BangumiOAuth(dio: Dio()..httpClientAdapter = adapter);
+    const config = OAuthConfig(clientId: 'client', clientSecret: 'secret');
+    final authorize = oauth.authorize(
+      config,
+      launchAuthorization: _sendCallback,
+    );
+    final result = expectLater(authorize, throwsA(_cancelled));
+    await adapter.started.future;
+    await oauth.cancelAuthorization();
+    await result;
+    final tokens = await oauth.authorize(
+      config,
+      launchAuthorization: _sendCallback,
+    );
+    expect(tokens.accessToken, 'verified-token');
+    expect(adapter.calls, 2);
   });
 
   test('cancelAuthorization aborts an in-flight authorize wait', () async {
@@ -124,4 +152,59 @@ void main() {
       ),
     );
   });
+}
+
+final _cancelled = isA<BangumiOAuthException>().having(
+  (error) => error.isCancelled,
+  'isCancelled',
+  isTrue,
+);
+
+Future<bool> _sendCallback(Uri uri, Future<Uri> callback) async {
+  final state = uri.queryParameters['state']!;
+  final client = HttpClient();
+  try {
+    final request = await client.getUrl(
+      Uri.parse('${OAuthConfig.redirectUri}?code=test-code&state=$state'),
+    );
+    final response = await request.close();
+    await response.drain<void>();
+  } finally {
+    client.close(force: true);
+  }
+  return true;
+}
+
+class _TokenAdapter implements HttpClientAdapter {
+  _TokenAdapter({this.blockFirst = false});
+  final bool blockFirst;
+  final started = Completer<void>();
+  var calls = 0;
+
+  @override
+  Future<ResponseBody> fetch(
+    RequestOptions options,
+    Stream<Uint8List>? requestStream,
+    Future<void>? cancelFuture,
+  ) async {
+    calls++;
+    if (!started.isCompleted) started.complete();
+    if (blockFirst && calls == 1) {
+      await cancelFuture;
+      throw DioException(
+        requestOptions: options,
+        type: DioExceptionType.cancel,
+      );
+    }
+    return ResponseBody.fromString(
+      '{"access_token":"verified-token","refresh_token":"refresh-token","expires_in":3600}',
+      200,
+      headers: {
+        Headers.contentTypeHeader: [Headers.jsonContentType],
+      },
+    );
+  }
+
+  @override
+  void close({bool force = false}) {}
 }

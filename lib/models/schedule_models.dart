@@ -67,6 +67,9 @@ class ScheduleItem {
     this.sortOrder = 0,
     this.note = '',
     this.episodeCount = 0,
+    this.reminderEnabled = false,
+    this.reminderHour = 20,
+    this.reminderMinute = 0,
   });
 
   final int subjectId;
@@ -78,6 +81,9 @@ class ScheduleItem {
   final int sortOrder;
   final String note;
   final int episodeCount;
+  final bool reminderEnabled;
+  final int reminderHour;
+  final int reminderMinute;
 
   String get displayName => nameCn.trim().isNotEmpty ? nameCn : name;
 
@@ -94,6 +100,9 @@ class ScheduleItem {
     int? sortOrder,
     String? note,
     int? episodeCount,
+    bool? reminderEnabled,
+    int? reminderHour,
+    int? reminderMinute,
   }) => ScheduleItem(
     subjectId: subjectId ?? this.subjectId,
     type: type ?? this.type,
@@ -104,6 +113,9 @@ class ScheduleItem {
     sortOrder: sortOrder ?? this.sortOrder,
     note: note ?? this.note,
     episodeCount: episodeCount ?? this.episodeCount,
+    reminderEnabled: reminderEnabled ?? this.reminderEnabled,
+    reminderHour: reminderHour ?? this.reminderHour,
+    reminderMinute: reminderMinute ?? this.reminderMinute,
   );
 
   factory ScheduleItem.fromSubject(
@@ -141,21 +153,34 @@ class ScheduleItem {
     'sortOrder': sortOrder,
     'note': note,
     'episodeCount': episodeCount,
+    'reminderEnabled': reminderEnabled,
+    'reminderHour': reminderHour,
+    'reminderMinute': reminderMinute,
   };
 
-  factory ScheduleItem.fromJson(Map<String, dynamic> json) => ScheduleItem(
-    subjectId: (json['subjectId'] as num?)?.toInt() ?? 0,
-    type: SubjectType.fromValue(
-      (json['type'] as num?)?.toInt() ?? SubjectType.anime.value,
-    ),
-    name: json['name']?.toString() ?? '',
-    nameCn: json['nameCn']?.toString() ?? '',
-    imageUrl: json['imageUrl']?.toString() ?? '',
-    weekday: (json['weekday'] as num?)?.toInt(),
-    sortOrder: (json['sortOrder'] as num?)?.toInt() ?? 0,
-    note: json['note']?.toString() ?? '',
-    episodeCount: (json['episodeCount'] as num?)?.toInt() ?? 0,
-  );
+  factory ScheduleItem.fromJson(Map<String, dynamic> json) {
+    final hour = ((json['reminderHour'] as num?)?.toInt() ?? 20).clamp(0, 23);
+    final minute = ((json['reminderMinute'] as num?)?.toInt() ?? 0).clamp(
+      0,
+      59,
+    );
+    return ScheduleItem(
+      subjectId: (json['subjectId'] as num?)?.toInt() ?? 0,
+      type: SubjectType.fromValue(
+        (json['type'] as num?)?.toInt() ?? SubjectType.anime.value,
+      ),
+      name: json['name']?.toString() ?? '',
+      nameCn: json['nameCn']?.toString() ?? '',
+      imageUrl: json['imageUrl']?.toString() ?? '',
+      weekday: (json['weekday'] as num?)?.toInt(),
+      sortOrder: (json['sortOrder'] as num?)?.toInt() ?? 0,
+      note: json['note']?.toString() ?? '',
+      episodeCount: (json['episodeCount'] as num?)?.toInt() ?? 0,
+      reminderEnabled: json['reminderEnabled'] == true,
+      reminderHour: hour,
+      reminderMinute: minute,
+    );
+  }
 }
 
 class SeasonSchedule {
@@ -192,7 +217,10 @@ class SeasonSchedule {
     final items = rawItems is List
         ? rawItems
               .whereType<Map>()
-              .map((item) => ScheduleItem.fromJson(Map<String, dynamic>.from(item)))
+              .map(
+                (item) =>
+                    ScheduleItem.fromJson(Map<String, dynamic>.from(item)),
+              )
               .where((item) => item.subjectId > 0)
               .toList()
         : const <ScheduleItem>[];

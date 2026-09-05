@@ -6,6 +6,9 @@ import 'github_release.dart';
 
 /// Result of a Shorebird update check / download cycle.
 enum AppUpdatePhase {
+  /// Version is known, but no network check has completed yet.
+  notChecked,
+
   /// Shorebird engine is not in this build (debug / non-shorebird release).
   unavailable,
 
@@ -58,17 +61,17 @@ String buildUpdateReadyMarkdown({
   String? releaseNotesMarkdown,
 }) {
   final buffer = StringBuffer()
-    ..writeln('## 热更新已就绪')
+    ..writeln('## 更新已就绪')
     ..writeln()
     ..writeln('当前版本：**$appVersion+$buildNumber**');
   if (nextPatch != null) {
     buffer
       ..writeln()
-      ..writeln('即将应用：**Patch #$nextPatch**');
+      ..writeln('更新编号：**#$nextPatch**');
   }
   buffer
     ..writeln()
-    ..writeln('重启应用后即可生效。本次为 **Shorebird 热更新**，无需重新安装安装包。');
+    ..writeln('重启应用即可完成更新，无需重新安装。');
 
   final notes = releaseNotesMarkdown?.trim();
   if (notes != null && notes.isNotEmpty) {
@@ -113,6 +116,21 @@ class AppUpdateService {
 
   bool get isAvailable => _updater.isAvailable;
 
+  Future<AppUpdateSnapshot> readInstalledVersion() async {
+    final info = await _packageInfoLoader();
+    final current = _updater.isAvailable
+        ? await _safeReadPatch(() => _updater.readCurrentPatch())
+        : null;
+    return AppUpdateSnapshot(
+      phase: _updater.isAvailable
+          ? AppUpdatePhase.notChecked
+          : AppUpdatePhase.unavailable,
+      appVersion: info.version,
+      buildNumber: info.buildNumber,
+      currentPatch: current?.number,
+    );
+  }
+
   Future<AppUpdateSnapshot> refresh({bool downloadIfOutdated = false}) async {
     final info = await _packageInfoLoader();
     final appVersion = info.version;
@@ -123,7 +141,7 @@ class AppUpdateService {
         phase: AppUpdatePhase.unavailable,
         appVersion: appVersion,
         buildNumber: buildNumber,
-        message: '当前构建未启用 Shorebird（Debug 或非 shorebird release 包）',
+        message: '此版本需下载安装包更新',
       );
     }
 
@@ -133,8 +151,21 @@ class AppUpdateService {
 
       if (status == UpdateStatus.outdated && downloadIfOutdated) {
         await _updater.update();
-        final next = await _safeReadPatch(() => _updater.readNextPatch());
-        final notes = await _fetchReleaseNotesMarkdown();
+        final next = await _updater.readNextPatch();
+        if (next?.number == current?.number) {
+          return AppUpdateSnapshot(
+            phase: AppUpdatePhase.upToDate,
+            appVersion: appVersion,
+            buildNumber: buildNumber,
+            currentPatch: current?.number,
+            message: '暂无可应用的更新',
+          );
+        }
+        final notes = await _fetchPatchNotes(
+          appVersion,
+          buildNumber,
+          next?.number,
+        );
         return AppUpdateSnapshot(
           phase: AppUpdatePhase.restartRequired,
           appVersion: appVersion,
@@ -142,7 +173,7 @@ class AppUpdateService {
           currentPatch: current?.number,
           nextPatch: next?.number,
           releaseNotesMarkdown: notes,
-          message: '热更新已下载，请重启应用',
+          message: '更新已下载，请重启应用',
         );
       }
 
@@ -153,7 +184,7 @@ class AppUpdateService {
             appVersion: appVersion,
             buildNumber: buildNumber,
             currentPatch: current?.number,
-            message: '已是最新热更新',
+            message: '已是最新更新',
           );
         case UpdateStatus.outdated:
           return AppUpdateSnapshot(
@@ -161,11 +192,15 @@ class AppUpdateService {
             appVersion: appVersion,
             buildNumber: buildNumber,
             currentPatch: current?.number,
-            message: '发现可用热更新',
+            message: '发现可用更新',
           );
         case UpdateStatus.restartRequired:
           final next = await _safeReadPatch(() => _updater.readNextPatch());
-          final notes = await _fetchReleaseNotesMarkdown();
+          final notes = await _fetchPatchNotes(
+            appVersion,
+            buildNumber,
+            next?.number,
+          );
           return AppUpdateSnapshot(
             phase: AppUpdatePhase.restartRequired,
             appVersion: appVersion,
@@ -173,7 +208,7 @@ class AppUpdateService {
             currentPatch: current?.number,
             nextPatch: next?.number,
             releaseNotesMarkdown: notes,
-            message: '热更新已就绪，请重启应用',
+            message: '更新已就绪，请重启应用',
           );
         case UpdateStatus.unavailable:
           return AppUpdateSnapshot(
@@ -181,7 +216,7 @@ class AppUpdateService {
             appVersion: appVersion,
             buildNumber: buildNumber,
             currentPatch: current?.number,
-            message: '热更新服务暂不可用',
+            message: '更新服务暂不可用',
           );
       }
     } on UpdateException catch (error) {
@@ -196,7 +231,7 @@ class AppUpdateService {
         phase: AppUpdatePhase.error,
         appVersion: appVersion,
         buildNumber: buildNumber,
-        message: '检查热更新失败：$error',
+        message: '检查更新失败：$error',
       );
     }
   }
@@ -226,11 +261,26 @@ class AppUpdateService {
     }
   }
 
-  /// Loads GitHub Release body (Markdown) for the latest published version.
-  Future<String?> _fetchReleaseNotesMarkdown() async {
-    final release = await fetchLatestGithubRelease();
-    final body = release?.body?.trim();
-    if (body == null || body.isEmpty) return null;
-    return body;
+  /// Optional notes must match this exact base build and patch. A newer full
+  /// release's changelog must never be presented as the downloaded OTA patch.
+  Future<String?> _fetchPatchNotes(
+    String version,
+    String build,
+    int? patch,
+  ) async {
+    if (patch == null) return null;
+    final tag = Uri.encodeComponent('v$version+$build-patch.$patch');
+    try {
+      final response = await _dio
+          .get<Map<String, dynamic>>(
+            'https://api.github.com/repos/wweiyi2004/MuBangumi/releases/tags/$tag',
+            options: Options(receiveTimeout: const Duration(seconds: 3)),
+          )
+          .timeout(const Duration(seconds: 3));
+      final body = response.data?['body']?.toString().trim();
+      return body == null || body.isEmpty ? null : body;
+    } catch (_) {
+      return null;
+    }
   }
 }

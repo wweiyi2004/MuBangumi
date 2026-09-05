@@ -29,11 +29,11 @@ Future<void> showNetworkRoutePicker(
       context: context,
       builder: (context) => AlertDialog(
         icon: const Icon(Icons.security_rounded),
-        title: const Text('启用第三方 Bangumi 反代？'),
+        title: const Text('启用第三方线路？'),
         content: const Text(
-          'API 请求和图片将通过 bgmapi.anibt.net 与 bgmimg.anibt.net。'
-          '同步收藏、点格子等鉴权请求的 Access Token 也会经过该第三方服务器。\n\n'
-          '反代不能解决 OAuth、超展开和官网页面的连接问题。请确认你信任该服务后再继续。',
+          '收藏、进度和图片将通过 bgmapi.anibt.net 与 bgmimg.anibt.net。'
+          '你的登录凭据也会发送给该服务，请仅在信任它时启用。\n\n'
+          '此线路不影响登录授权、社区和官网页面的连接。',
         ),
         actions: [
           TextButton.icon(
@@ -149,9 +149,7 @@ class _NetworkRouteDialogState extends State<_NetworkRouteDialog> {
       const Padding(
         padding: EdgeInsets.fromLTRB(24, 8, 24, 4),
         child: Text(
-          '测速仅检查 v0 API。反代 GET 请求遇到瞬时超时或网关错误会自动重试一次；'
-          '收藏和章节修改会先保存在本机，联网后自动补传；'
-          'OAuth 登录、社区 P1 和官网页面仍使用官方线路。',
+          '测速结果仅供参考。切换线路不影响登录授权、社区和官网页面。',
           style: TextStyle(fontSize: 12),
         ),
       ),

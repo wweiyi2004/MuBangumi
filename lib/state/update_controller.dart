@@ -75,29 +75,38 @@ class UpdateController extends StateNotifier<UpdateUiState> {
   final Set<int> _promptedPatches = <int>{};
   final Set<String> _promptedGithubTags = <String>{};
   bool _startupChecked = false;
+  DateTime? _lastCheckAt;
+  Future<AppUpdateSnapshot>? _inFlight;
+  bool _manualRequested = false;
 
   Future<void> _loadVersionOnly() async {
     // Populate footer version; may also report Shorebird availability.
-    final snapshot = await _service.refresh(downloadIfOutdated: false);
+    AppUpdateSnapshot snapshot;
+    try {
+      snapshot = await _service.readInstalledVersion();
+    } catch (_) {
+      return;
+    }
     if (!mounted) return;
     // Don't clobber a concurrent check that already finished.
     if (state.snapshot != null || state.busy) return;
     state = state.copyWith(snapshot: snapshot);
   }
 
-  /// Silent check after login shell is ready. Downloads when outdated, then
+  /// Silent check after the first frame or a throttled foreground resume. Downloads when outdated, then
   /// signals the UI to present the restart dialog at most once per patch.
   ///
-  /// Call once per [UpdateCheckHost] mount (re-login remounts the host).
+  /// [UpdateCheckHost] remains mounted across login changes.
   Future<void> runStartupCheck({bool force = false}) async {
-    if (_startupChecked && !force) return;
+    if (_startupChecked &&
+        !force &&
+        _lastCheckAt != null &&
+        DateTime.now().difference(_lastCheckAt!) <
+            const Duration(minutes: 30)) {
+      return;
+    }
     _startupChecked = true;
     await _run(downloadIfOutdated: true, presentDialog: true);
-  }
-
-  /// Allow the next signed-in shell to run a startup Shorebird check again.
-  void resetStartupCheckGate() {
-    _startupChecked = false;
   }
 
   /// Manual check from 我的. Caller owns any UI (dialog / snackbar).
@@ -114,15 +123,42 @@ class UpdateController extends StateNotifier<UpdateUiState> {
     required bool downloadIfOutdated,
     required bool presentDialog,
     bool ignoreGithubSkip = false,
+  }) {
+    if (ignoreGithubSkip) _manualRequested = true;
+    final pending = _inFlight;
+    if (pending != null) return pending;
+    _manualRequested = ignoreGithubSkip;
+    final operation = _performRun(
+      downloadIfOutdated: downloadIfOutdated,
+      presentDialog: presentDialog,
+    );
+    _inFlight = operation;
+    return operation.whenComplete(() {
+      _inFlight = null;
+      _manualRequested = false;
+    });
+  }
+
+  Future<AppUpdateSnapshot> _performRun({
+    required bool downloadIfOutdated,
+    required bool presentDialog,
   }) async {
-    state = state.copyWith(busy: true, clearError: true);
+    _lastCheckAt = DateTime.now();
+    state = state.copyWith(
+      busy: true,
+      clearError: true,
+      shouldPresentRestartDialog: false,
+      shouldPresentGithubDialog: false,
+    );
     try {
       final snapshot = await _service.refresh(
         downloadIfOutdated: downloadIfOutdated,
       );
+      if (!mounted) return snapshot;
       final patchKey = snapshot.nextPatch ?? snapshot.currentPatch ?? -1;
       final shouldPresent =
           presentDialog &&
+          !_manualRequested &&
           snapshot.isRestartReady &&
           !_promptedPatches.contains(patchKey);
 
@@ -134,16 +170,18 @@ class UpdateController extends StateNotifier<UpdateUiState> {
           ? null
           : await _loadGithubOffer(
               currentVersion: snapshot.appVersion,
-              ignoreSkip: ignoreGithubSkip,
+              ignoreSkip: _manualRequested,
             );
       final shouldPresentGithub =
           presentDialog &&
+          !_manualRequested &&
           github != null &&
           !_promptedGithubTags.contains(github.tagName);
       if (shouldPresentGithub) {
         _promptedGithubTags.add(github.tagName);
       }
 
+      if (!mounted) return snapshot;
       state = state.copyWith(
         busy: false,
         snapshot: snapshot,
@@ -159,10 +197,11 @@ class UpdateController extends StateNotifier<UpdateUiState> {
     } catch (error) {
       final fallback = AppUpdateSnapshot(
         phase: AppUpdatePhase.error,
-        appVersion: state.snapshot?.appVersion ?? '?',
-        buildNumber: state.snapshot?.buildNumber ?? '?',
+        appVersion: mounted ? state.snapshot?.appVersion ?? '?' : '?',
+        buildNumber: mounted ? state.snapshot?.buildNumber ?? '?' : '?',
         message: '检查更新失败：$error',
       );
+      if (!mounted) return fallback;
       state = state.copyWith(
         busy: false,
         snapshot: fallback,
@@ -181,11 +220,16 @@ class UpdateController extends StateNotifier<UpdateUiState> {
   }) async {
     final release = await _service.fetchLatestGithubRelease();
     if (release == null) return null;
-    final skipped = ignoreSkip ? null : await _skipStore.readSkippedTag();
+    String? skipped;
+    if (!ignoreSkip) {
+      try {
+        skipped = await _skipStore.readSkippedTag();
+      } catch (_) {}
+    }
     if (!shouldOfferGithubRelease(
       currentVersion: currentVersion,
       release: release,
-      skippedTag: skipped,
+      skippedTag: _manualRequested ? null : skipped,
     )) {
       return null;
     }
@@ -205,10 +249,7 @@ class UpdateController extends StateNotifier<UpdateUiState> {
   Future<void> skipGithubRelease(GithubRelease release) async {
     await _skipStore.skipTag(release.tagName);
     if (!mounted) return;
-    state = state.copyWith(
-      clearGithub: true,
-      shouldPresentGithubDialog: false,
-    );
+    state = state.copyWith(clearGithub: true, shouldPresentGithubDialog: false);
   }
 
   /// Fully exits so the next cold start loads the downloaded Shorebird patch.

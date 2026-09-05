@@ -12,6 +12,7 @@ import '../core/auth/oauth_builtin.dart';
 import '../state/session_controller.dart';
 import '../widgets/network_route_picker.dart';
 import '../widgets/oauth_authorization_dialog.dart';
+import '../widgets/login_progress.dart';
 
 class AuthScreen extends ConsumerStatefulWidget {
   const AuthScreen({super.key});
@@ -23,6 +24,7 @@ class AuthScreen extends ConsumerStatefulWidget {
 class _AuthScreenState extends ConsumerState<AuthScreen> {
   final _tokenController = TextEditingController();
   bool? _hasSavedOAuthConfig;
+  String? _configurationError;
 
   /// Synchronous reentry guard: set before any await in [_startOAuth] so a
   /// rapid double-tap cannot start two concurrent authorization flows
@@ -54,16 +56,24 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
 
   Future<void> _startOAuth({bool editConfiguration = false}) async {
     final session = ref.read(sessionProvider);
-    if (session.isRefreshing && session.phase == SessionPhase.signedOut) {
+    if (session.authActivity != AuthActivity.idle) {
       return;
     }
     if (_startingOAuth) return;
     _startingOAuth = true;
     try {
+      setState(() => _configurationError = null);
       ref.read(sessionProvider.notifier).clearMessage();
       // Prefer built-in app (one-tap), then saved custom app, then setup dialog.
       OAuthConfig? config = OAuthBuiltin.config;
-      final savedConfig = await ref.read(tokenStoreProvider).readOAuthConfig();
+      OAuthConfig? savedConfig;
+      if (config == null || editConfiguration) {
+        try {
+          savedConfig = await ref.read(tokenStoreProvider).readOAuthConfig();
+        } catch (_) {
+          // A damaged saved record must still allow entering a fresh config.
+        }
+      }
       config ??= savedConfig;
       if (config == null || editConfiguration) {
         if (!mounted) return;
@@ -72,13 +82,19 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
         );
       }
       if (config == null || !mounted) return;
-      final signedIn = await ref
+      final login = ref
           .read(sessionProvider.notifier)
           .signInWithOAuth(
             config,
             launchAuthorization: _launchOAuthAuthorization,
           );
+      _startingOAuth = false;
+      final signedIn = await login;
       if (!signedIn && mounted) await _refreshOAuthConfigurationState();
+    } catch (_) {
+      if (mounted) {
+        setState(() => _configurationError = '无法读取登录配置，请重试或使用令牌登录');
+      }
     } finally {
       _startingOAuth = false;
     }
@@ -88,24 +104,18 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
     await ref.read(sessionProvider.notifier).cancelOAuthAuthorization();
   }
 
-  String get _oauthHelperText {
-    if (!OAuthBuiltin.isConfigured && _hasSavedOAuthConfig == false) {
-      return '首次需要创建 Bangumi 开发者应用，配置后即可在软件内授权';
-    }
-    if (Platform.isWindows) {
-      return '将在 MuBangumi 内打开官方授权页，成功后自动关闭';
-    }
-    if (Platform.isAndroid) {
-      return '将在应用内安全标签页打开官方授权页，成功后自动返回';
-    }
-    // iOS / desktop fallbacks: in-app browser does not auto-deep-link back.
-    return '将在应用内安全标签页打开官方授权页，完成后请关闭标签页返回';
-  }
-
   Future<void> _refreshOAuthConfigurationState() async {
-    final config = await ref.read(tokenStoreProvider).readOAuthConfig();
-    if (!mounted) return;
-    setState(() => _hasSavedOAuthConfig = config?.isValid == true);
+    try {
+      final config = await ref.read(tokenStoreProvider).readOAuthConfig();
+      if (!mounted) return;
+      setState(() => _hasSavedOAuthConfig = config?.isValid == true);
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _hasSavedOAuthConfig = false;
+        _configurationError = '无法读取已保存配置，可重试或使用其他登录方式';
+      });
+    }
   }
 
   Future<bool> _launchOAuthAuthorization(
@@ -152,8 +162,8 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
                 children: [
                   Text(
                     OAuthBuiltin.isConfigured
-                        ? '应用已内置默认 OAuth。仅在需要使用自己的开发者应用时填写下方字段。'
-                        : 'Bangumi 官方目前要求每个第三方客户端提供 App ID 和 App Secret。请先在开发者平台创建应用，再把下面的地址原样填写为回调地址。这项配置只需完成一次。',
+                        ? '仅在使用自己的开发者应用时填写。'
+                        : '请先创建 Bangumi 开发者应用，填写 App ID、App Secret，并将回调地址设为下方地址。',
                   ),
                   const SizedBox(height: 16),
                   Container(
@@ -236,7 +246,7 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
                   ],
                   const SizedBox(height: 10),
                   Text(
-                    'App Secret 仅保存在当前设备的系统安全存储中，不会发送给 MuBangumi 以外的服务。',
+                    'App Secret 保存在当前设备的系统安全存储中，仅用于向 Bangumi 官方服务器申请和刷新登录凭据。',
                     style: Theme.of(context).textTheme.bodySmall,
                   ),
                 ],
@@ -330,13 +340,6 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
                         '其他登录方式与设置',
                         style: Theme.of(context).textTheme.titleLarge,
                       ),
-                      const SizedBox(height: 6),
-                      Text(
-                        '一般情况下无需调整；遇到网络问题或使用个人开发者配置时再进入。',
-                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                          color: colors.onSurfaceVariant,
-                        ),
-                      ),
                       const SizedBox(height: 16),
                       _LoginOptionTile(
                         icon: Icons.settings_outlined,
@@ -346,9 +349,14 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
                             ? '更换 OAuth 配置'
                             : '配置 Bangumi OAuth',
                         subtitle: '使用自己的 App ID 与 App Secret',
-                        onTap: () => openAfterClosing(
-                          () => _startOAuth(editConfiguration: true),
-                        ),
+                        onTap: () => openAfterClosing(() async {
+                          await ref
+                              .read(sessionProvider.notifier)
+                              .cancelOAuthAuthorization();
+                          if (mounted) {
+                            await _startOAuth(editConfiguration: true);
+                          }
+                        }),
                       ),
                       const SizedBox(height: 8),
                       _LoginOptionTile(
@@ -363,13 +371,6 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
                       Text(
                         'Access Token 备用登录',
                         style: Theme.of(context).textTheme.titleMedium,
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        '仅建议熟悉 Bangumi 开发者功能的用户使用。',
-                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color: colors.onSurfaceVariant,
-                        ),
                       ),
                       const SizedBox(height: 12),
                       TextField(
@@ -401,6 +402,10 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
                           tokenError!,
                           style: TextStyle(color: colors.error),
                         ),
+                      ],
+                      if (isSubmittingToken) ...[
+                        const SizedBox(height: 16),
+                        const LoginProgress(stage: 1, detail: ''),
                       ],
                       const SizedBox(height: 12),
                       Row(
@@ -447,6 +452,20 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
   @override
   Widget build(BuildContext context) {
     final session = ref.watch(sessionProvider);
+    final authBusy = session.authActivity != AuthActivity.idle;
+    final loginLabel = switch (session.authActivity) {
+      AuthActivity.authorizing => '正在等待 Bangumi 授权…',
+      AuthActivity.verifying => '正在验证账号…',
+      AuthActivity.signingOut => '正在退出登录…',
+      AuthActivity.idle =>
+        OAuthBuiltin.isConfigured
+            ? '使用 Bangumi 一键登录'
+            : _hasSavedOAuthConfig == true
+            ? '使用已保存配置登录'
+            : _hasSavedOAuthConfig == false
+            ? '配置 Bangumi 登录'
+            : '正在检查登录配置…',
+    };
     final width = MediaQuery.sizeOf(context).width;
     final wide = width >= 850;
     final phone = width < 600;
@@ -528,16 +547,8 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
                                   width: double.infinity,
                                   child: FilledButton.icon(
                                     key: const Key('primary-login-button'),
-                                    onPressed:
-                                        session.isRefreshing &&
-                                            session.phase ==
-                                                SessionPhase.signedOut
-                                        ? null
-                                        : _startOAuth,
-                                    icon:
-                                        session.isRefreshing &&
-                                            session.phase ==
-                                                SessionPhase.signedOut
+                                    onPressed: authBusy ? null : _startOAuth,
+                                    icon: authBusy
                                         ? const SizedBox.square(
                                             dimension: 18,
                                             child: CircularProgressIndicator(
@@ -547,24 +558,29 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
                                         : const Icon(
                                             Icons.account_circle_rounded,
                                           ),
-                                    label: Text(
-                                      session.isRefreshing &&
-                                              session.phase ==
-                                                  SessionPhase.signedOut
-                                          ? '正在等待 Bangumi 授权…'
-                                          : OAuthBuiltin.isConfigured
-                                          ? '使用 Bangumi 一键登录'
-                                          : _hasSavedOAuthConfig == true
-                                          ? '使用已保存配置登录'
-                                          : _hasSavedOAuthConfig == false
-                                          ? '配置 Bangumi 登录'
-                                          : '正在检查登录配置…',
-                                    ),
+                                    label: Text(loginLabel),
                                   ),
                                 ),
-                                if (session.isRefreshing &&
-                                    session.phase ==
-                                        SessionPhase.signedOut) ...[
+                                if (session.authActivity ==
+                                        AuthActivity.verifying ||
+                                    session.authActivity ==
+                                        AuthActivity.authorizing) ...[
+                                  const SizedBox(height: 20),
+                                  LoginProgress(
+                                    stage:
+                                        session.authActivity ==
+                                            AuthActivity.authorizing
+                                        ? 0
+                                        : 1,
+                                    detail:
+                                        session.authActivity ==
+                                            AuthActivity.authorizing
+                                        ? '请在 Bangumi 页面完成授权。'
+                                        : '',
+                                  ),
+                                ],
+                                if (session.authActivity ==
+                                    AuthActivity.authorizing) ...[
                                   const SizedBox(height: 8),
                                   SizedBox(
                                     width: double.infinity,
@@ -575,23 +591,42 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
                                     ),
                                   ),
                                 ],
-                                const SizedBox(height: 10),
-                                Text(
-                                  _oauthHelperText,
-                                  style: Theme.of(context).textTheme.bodySmall
-                                      ?.copyWith(
-                                        color: Theme.of(
-                                          context,
-                                        ).colorScheme.onSurfaceVariant,
-                                      ),
-                                ),
-                                if (session.message != null) ...[
+                                if (session.message != null ||
+                                    _configurationError != null) ...[
                                   const SizedBox(height: 16),
                                   _AuthErrorBanner(
-                                    message: session.message!,
-                                    onDismiss: () => ref
+                                    message:
+                                        session.message ?? _configurationError!,
+                                    onDismiss: () {
+                                      setState(
+                                        () => _configurationError = null,
+                                      );
+                                      ref
+                                          .read(sessionProvider.notifier)
+                                          .clearMessage();
+                                    },
+                                  ),
+                                ],
+                                if (session.canRetrySignIn && !authBusy) ...[
+                                  const SizedBox(height: 12),
+                                  OutlinedButton.icon(
+                                    key: const Key('retry-saved-login-button'),
+                                    onPressed: () => ref
                                         .read(sessionProvider.notifier)
-                                        .clearMessage(),
+                                        .retrySavedSignIn(),
+                                    icon: const Icon(Icons.refresh_rounded),
+                                    label: const Text('重新连接已保存的登录'),
+                                  ),
+                                ],
+                                if (session.canRetrySignOut && !authBusy) ...[
+                                  const SizedBox(height: 12),
+                                  OutlinedButton.icon(
+                                    key: const Key('retry-sign-out-button'),
+                                    onPressed: () => ref
+                                        .read(sessionProvider.notifier)
+                                        .signOut(),
+                                    icon: const Icon(Icons.delete_outline),
+                                    label: const Text('重试清理登录数据'),
                                   ),
                                 ],
                                 const SizedBox(height: 22),
@@ -604,7 +639,13 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
                                     // OAuth authorization is pending — the
                                     // in-app browser can wait for minutes and
                                     // users abandoning it still need a way in.
-                                    onPressed: _showLoginOptions,
+                                    onPressed:
+                                        session.authActivity ==
+                                                AuthActivity.verifying ||
+                                            session.authActivity ==
+                                                AuthActivity.signingOut
+                                        ? null
+                                        : _showLoginOptions,
                                     icon: const Icon(Icons.tune_rounded),
                                     label: const Text('其他登录方式与设置'),
                                   ),

@@ -10,12 +10,14 @@ import '../../models/schedule_models.dart';
 
 /// Persists user-arranged seasonal schedules locally.
 class ScheduleStore {
-  ScheduleStore._();
+  ScheduleStore._() : databasePath = null;
 
   @visibleForTesting
-  ScheduleStore.test();
+  ScheduleStore.test({this.databasePath});
 
   static final shared = ScheduleStore._();
+
+  final String? databasePath;
 
   Database? _database;
   Future<Database>? _opening;
@@ -71,6 +73,32 @@ class ScheduleStore {
     return result;
   }
 
+  /// All saved schedules, newest first. Corrupt rows are ignored.
+  Future<List<SeasonSchedule>> loadAllSchedules() async {
+    final database = await _open();
+    final rows = await database.query(
+      'season_schedule',
+      columns: const ['season_key', 'payload'],
+      orderBy: 'updated_at DESC',
+    );
+    final result = <SeasonSchedule>[];
+    for (final row in rows) {
+      try {
+        final rawKey = row['season_key']?.toString() ?? '';
+        final decoded = jsonDecode(row['payload']! as String);
+        if (rawKey.isEmpty || decoded is! Map) continue;
+        result.add(
+          SeasonSchedule.fromJson(
+            Map<String, dynamic>.from(decoded),
+          ).copyWith(season: SeasonKey.fromId(rawKey)),
+        );
+      } catch (_) {
+        // One broken quarter must not prevent reminders for the other quarters.
+      }
+    }
+    return result;
+  }
+
   Future<void> deleteSeason(SeasonKey season) async {
     final database = await _open();
     await database.delete(
@@ -78,6 +106,31 @@ class ScheduleStore {
       where: 'season_key = ?',
       whereArgs: [season.id],
     );
+  }
+
+  /// Notification ownership survives deleted seasons and application restarts.
+  /// Null identifies installations that predate notification ID tracking.
+  Future<Set<int>?> readReminderIds() async {
+    final database = await _open();
+    final rows = await database.query('schedule_reminder_state');
+    if (rows.isEmpty) return null;
+    final ids = jsonDecode(rows.single['ids_json']! as String) as List;
+    return {for (final id in ids) id as int};
+  }
+
+  Future<void> writeReminderIds(Set<int> ids) async {
+    final database = await _open();
+    await database.insert('schedule_reminder_state', {
+      'id': 1,
+      'ids_json': jsonEncode(ids.toList()),
+    }, conflictAlgorithm: ConflictAlgorithm.replace);
+  }
+
+  @visibleForTesting
+  Future<void> close() async {
+    final database = _database;
+    _database = null;
+    await database?.close();
   }
 
   Future<Database> _open() async {
@@ -104,11 +157,12 @@ class ScheduleStore {
         _ffiReady = true;
       }
     }
-    final root = await getDatabasesPath();
-    final databasePath = path.join(root, 'mubangumi_schedule.sqlite');
+    final resolvedPath =
+        databasePath ??
+        path.join(await getDatabasesPath(), 'mubangumi_schedule.sqlite');
     return openDatabase(
-      databasePath,
-      version: 1,
+      resolvedPath,
+      version: 2,
       onCreate: (database, _) async {
         await database.execute('''
           CREATE TABLE season_schedule (
@@ -117,7 +171,19 @@ class ScheduleStore {
             updated_at INTEGER NOT NULL
           )
         ''');
+        await _createReminderIdsTable(database);
+      },
+      onUpgrade: (database, oldVersion, _) async {
+        if (oldVersion < 2) await _createReminderIdsTable(database);
       },
     );
   }
+
+  Future<void> _createReminderIdsTable(Database database) =>
+      database.execute('''
+    CREATE TABLE schedule_reminder_state (
+      id INTEGER PRIMARY KEY NOT NULL CHECK (id = 1),
+      ids_json TEXT NOT NULL
+    )
+  ''');
 }

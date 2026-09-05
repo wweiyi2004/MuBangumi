@@ -158,6 +158,18 @@ class CommunityTopicCard extends StatelessWidget {
   }
 }
 
+double communityGroupCardHeight(BuildContext context) {
+  final theme = Theme.of(context).textTheme;
+  final scaler = MediaQuery.textScalerOf(context);
+  final title = theme.bodyMedium;
+  final meta = theme.bodySmall;
+  final height =
+      34 +
+      scaler.scale(title?.fontSize ?? 14) * (title?.height ?? 1.5) +
+      scaler.scale(meta?.fontSize ?? 12) * (meta?.height ?? 1.5);
+  return height < 82 ? 82 : height.ceilToDouble();
+}
+
 class CommunityGroupCard extends StatelessWidget {
   const CommunityGroupCard({
     super.key,
@@ -196,7 +208,8 @@ class CommunityGroupCard extends StatelessWidget {
                           group.name,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(fontWeight: FontWeight.w700),
+                          style: Theme.of(context).textTheme.bodyMedium
+                              ?.copyWith(fontWeight: FontWeight.w700),
                         ),
                       ),
                       if (group.nsfw) ...[
@@ -211,6 +224,8 @@ class CommunityGroupCard extends StatelessWidget {
                       if (group.memberCount > 0) '${group.memberCount} 成员',
                       if (group.topicCount > 0) '${group.topicCount} 话题',
                     ].join(' · '),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                     style: Theme.of(context).textTheme.bodySmall,
                   ),
                 ],

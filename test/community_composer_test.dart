@@ -3,6 +3,57 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:mubangumi/widgets/community_composer.dart';
 
 void main() {
+  testWidgets(
+    'draft survives closing and a failed send, then clears on success',
+    (tester) async {
+      final draft = CommunityDraft();
+      var fail = true;
+      var tokens = 0;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Builder(
+            builder: (context) => Scaffold(
+              body: TextButton(
+                onPressed: () => showCommunityComposer(
+                  context,
+                  heading: '写回复',
+                  draft: draft,
+                  requireTitle: true,
+                  tokenProvider: (_) async => 'token-${++tokens}',
+                  onSubmit: (_, _, _) async {
+                    if (fail) throw StateError('发送失败');
+                  },
+                ),
+                child: const Text('打开'),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.tap(find.text('打开'));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.widgetWithText(TextField, '标题'), '草稿标题');
+      await tester.enterText(find.widgetWithText(TextField, '内容'), '未写完的回复');
+      await tester.pump();
+      await tester.tap(find.text('稍后再写'));
+      await tester.pumpAndSettle();
+      expect(draft.title, '草稿标题');
+      expect(draft.content, '未写完的回复');
+      await tester.tap(find.text('打开'));
+      await tester.pumpAndSettle();
+      expect(find.text('未写完的回复'), findsOneWidget);
+      await tester.tap(find.text('发送'));
+      await tester.pumpAndSettle();
+      expect(find.text('未写完的回复'), findsOneWidget);
+      fail = false;
+      await tester.tap(find.text('发送'));
+      await tester.pumpAndSettle();
+      expect(tokens, 2);
+      expect(draft.title, isEmpty);
+      expect(draft.content, isEmpty);
+      expect(find.text('写回复'), findsNothing);
+    },
+  );
   testWidgets('submits an authenticated community reply with a fresh token', (
     tester,
   ) async {

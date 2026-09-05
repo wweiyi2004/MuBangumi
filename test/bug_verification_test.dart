@@ -223,11 +223,6 @@ class _MemoryTokenStore extends TokenStore {
   Future<OAuthConfig?> readOAuthConfig() async => config;
 
   @override
-  Future<void> writeOAuthConfig(OAuthConfig config) async {
-    this.config = config;
-  }
-
-  @override
   Future<BangumiNetworkRoute> readNetworkRoute() async =>
       BangumiNetworkRoute.official;
 
@@ -278,6 +273,7 @@ class _DelayedBookApi extends BangumiApi {
     SubjectType? subjectType,
     CollectionType? collectionType,
     int? maxItems,
+    Future<bool> Function(List<UserCollection> items)? onPage,
   }) {
     if (subjectType == SubjectType.anime) {
       return Future.value(const [_animeCollection]);
@@ -315,6 +311,7 @@ class _OfflineReplayApiForBug2 extends BangumiApi {
     SubjectType? subjectType,
     CollectionType? collectionType,
     int? maxItems,
+    Future<bool> Function(List<UserCollection> items)? onPage,
   }) async =>
       subjectType == SubjectType.anime ? const [_animeCollection] : const [];
 
@@ -375,6 +372,11 @@ class _MemorySnapshotCache extends SnapshotCache {
   }
 
   @override
+  Future<void> clearCollections(String username) async {
+    collections.remove(username.trim().toLowerCase());
+  }
+
+  @override
   Future<List<UserEpisodeCollection>?> readEpisodeCollections(
     int subjectId,
   ) async => episodeCollections[subjectId];
@@ -385,6 +387,11 @@ class _MemorySnapshotCache extends SnapshotCache {
     List<UserEpisodeCollection> episodes,
   ) async {
     episodeCollections[subjectId] = episodes;
+  }
+
+  @override
+  Future<void> clearEpisodeCollections(int subjectId) async {
+    episodeCollections.remove(subjectId);
   }
 }
 

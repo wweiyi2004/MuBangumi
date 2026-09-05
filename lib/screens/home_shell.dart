@@ -5,14 +5,15 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../app.dart';
 import '../core/layout/app_layout.dart';
+import '../core/notifications/schedule_reminder_service.dart';
 import '../core/shortcuts/app_shortcut.dart';
 import '../core/widget/home_widget_sync_host.dart';
 import '../state/app_shortcut_controller.dart';
 import '../state/background_controller.dart';
 import '../state/notify_controller.dart';
+import '../state/schedule_controller.dart';
 import '../state/session_controller.dart';
 import '../widgets/friend_qr_actions.dart';
-import '../widgets/update_check_host.dart';
 import 'community_hub_page.dart';
 import 'discover_page.dart';
 import 'home_page.dart';
@@ -34,6 +35,7 @@ class _HomeShellState extends ConsumerState<HomeShell> {
   bool _communityOpened = false;
   bool _profileOpened = false;
   late final AppLifecycleListener _lifecycleListener;
+  late final StreamSubscription<ScheduleReminderTarget> _reminderSubscription;
 
   static const _destinations = [
     (
@@ -77,17 +79,38 @@ class _HomeShellState extends ConsumerState<HomeShell> {
   void initState() {
     super.initState();
     _lifecycleListener = AppLifecycleListener(
+      onStateChange: (state) {
+        ref
+            .read(notifyBadgeProvider.notifier)
+            .setForeground(state == AppLifecycleState.resumed);
+      },
       onResume: () {
         if (mounted) {
           unawaited(ref.read(sessionProvider.notifier).syncPendingChanges());
+          unawaited(
+            ref
+                .read(scheduleProvider.notifier)
+                .syncReminders(reportErrors: false),
+          );
         }
       },
     );
-    WidgetsBinding.instance.addPostFrameCallback((_) => _consumeShortcut());
+    _reminderSubscription = ScheduleReminderService.shared.openedTargets.listen(
+      (target) => unawaited(_openReminderTarget(target)),
+    );
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _consumeShortcut();
+      final pending = ScheduleReminderService.shared.takePendingOpen();
+      if (pending != null) unawaited(_openReminderTarget(pending));
+      unawaited(
+        ref.read(scheduleProvider.notifier).syncReminders(reportErrors: false),
+      );
+    });
   }
 
   @override
   void dispose() {
+    _reminderSubscription.cancel();
     _lifecycleListener.dispose();
     super.dispose();
   }
@@ -96,6 +119,11 @@ class _HomeShellState extends ConsumerState<HomeShell> {
     Navigator.of(
       context,
     ).push(MaterialPageRoute<void>(builder: (_) => const SchedulePage()));
+  }
+
+  Future<void> _openReminderTarget(ScheduleReminderTarget target) async {
+    await ref.read(scheduleProvider.notifier).setSeason(target.season);
+    if (mounted) _openSchedule();
   }
 
   void _consumeShortcut() {
@@ -138,51 +166,49 @@ class _HomeShellState extends ConsumerState<HomeShell> {
     final glassBg = ref.watch(
       backgroundSettingsProvider.select((s) => s.isActive),
     );
-    return UpdateCheckHost(
-      child: HomeWidgetSyncHost(
-        onOpenSchedule: _openSchedule,
-        child: Scaffold(
-          backgroundColor: glassBg ? Colors.transparent : null,
-          body: SafeArea(
-            child: Row(
-              children: [
-                if (desktop)
-                  _DesktopNavigation(
-                    index: _index,
-                    onChanged: _selectPage,
-                    unreadCount: unread,
-                    glass: glassBg,
-                    onOpenSchedule: _openSchedule,
-                  ),
-                Expanded(
-                  child: IndexedStack(index: _index, children: pages),
+    return HomeWidgetSyncHost(
+      onOpenSchedule: _openSchedule,
+      child: Scaffold(
+        backgroundColor: glassBg ? Colors.transparent : null,
+        body: SafeArea(
+          child: Row(
+            children: [
+              if (desktop)
+                _DesktopNavigation(
+                  index: _index,
+                  onChanged: _selectPage,
+                  unreadCount: unread,
+                  glass: glassBg,
+                  onOpenSchedule: _openSchedule,
                 ),
-              ],
-            ),
+              Expanded(
+                child: IndexedStack(index: _index, children: pages),
+              ),
+            ],
           ),
-          bottomNavigationBar: desktop
-              ? null
-              : NavigationBar(
-                  height: navHeight,
-                  selectedIndex: _index,
-                  labelBehavior: AppLayout.navLabelBehavior(context),
-                  onDestinationSelected: _selectPage,
-                  destinations: [
-                    for (var i = 0; i < _destinations.length; i++)
-                      NavigationDestination(
-                        icon: _badgedIcon(
-                          Icon(_destinations[i].icon),
-                          count: i == 4 ? unread : 0,
-                        ),
-                        selectedIcon: _badgedIcon(
-                          Icon(_destinations[i].selected),
-                          count: i == 4 ? unread : 0,
-                        ),
-                        label: _destinations[i].label,
-                      ),
-                  ],
-                ),
         ),
+        bottomNavigationBar: desktop
+            ? null
+            : NavigationBar(
+                height: navHeight,
+                selectedIndex: _index,
+                labelBehavior: AppLayout.navLabelBehavior(context),
+                onDestinationSelected: _selectPage,
+                destinations: [
+                  for (var i = 0; i < _destinations.length; i++)
+                    NavigationDestination(
+                      icon: _badgedIcon(
+                        Icon(_destinations[i].icon),
+                        count: i == 4 ? unread : 0,
+                      ),
+                      selectedIcon: _badgedIcon(
+                        Icon(_destinations[i].selected),
+                        count: i == 4 ? unread : 0,
+                      ),
+                      label: _destinations[i].label,
+                    ),
+                ],
+              ),
       ),
     );
   }
@@ -301,7 +327,7 @@ class _DesktopNavigation extends StatelessWidget {
             Padding(
               padding: const EdgeInsets.fromLTRB(22, 16, 16, 20),
               child: Text(
-                'Powered by Bangumi API',
+                '数据来自 Bangumi',
                 style: Theme.of(context).textTheme.labelSmall?.copyWith(
                   color: scheme.onSurfaceVariant,
                 ),

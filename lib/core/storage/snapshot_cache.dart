@@ -101,6 +101,11 @@ class SnapshotCache {
     }, accountScoped: true);
   }
 
+  Future<void> clearCollections(String username) async {
+    if (username.trim().isEmpty) return;
+    await _cache.remove(collectionsKey(username));
+  }
+
   Future<List<UserEpisodeCollection>?> readEpisodeCollections(
     int subjectId,
   ) async {
@@ -135,6 +140,11 @@ class SnapshotCache {
     }, accountScoped: true);
   }
 
+  Future<void> clearEpisodeCollections(int subjectId) async {
+    if (subjectId <= 0) return;
+    await _cache.remove(episodeCollectionsKey(subjectId));
+  }
+
   Future<List<Subject>?> readDiscoverBrowse(String key) async {
     final json = await _cache.readJson(key);
     if (json == null) return null;
@@ -156,7 +166,6 @@ class SnapshotCache {
   }
 
   Future<void> writeDiscoverBrowse(String key, List<Subject> subjects) async {
-    if (subjects.isEmpty) return;
     await _cache.writeJson(key, {
       'saved_at': DateTime.now().toIso8601String(),
       'items': [for (final item in subjects.take(48)) item.toJson()],

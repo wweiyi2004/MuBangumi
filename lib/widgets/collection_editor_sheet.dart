@@ -246,7 +246,7 @@ class _CollectionEditorSheetState
                 label: const Text('在官网移出收藏'),
               ),
               Text(
-                'OpenAPI 暂不支持删除条目收藏，只能在官网操作。',
+                '如需删除收藏，请前往 Bangumi 官网。',
                 style: Theme.of(context).textTheme.bodySmall?.copyWith(
                   color: Theme.of(context).colorScheme.onSurfaceVariant,
                 ),

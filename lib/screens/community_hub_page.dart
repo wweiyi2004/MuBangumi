@@ -2,9 +2,12 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../core/layout/app_layout.dart';
+
 import '../core/network/community_service.dart';
 import '../models/community_models.dart';
 import '../widgets/community_widgets.dart';
+import '../widgets/community_loading.dart';
 import 'community_group_screen.dart';
 import 'community_timeline_page.dart';
 import 'community_topic_screen.dart';
@@ -23,7 +26,8 @@ enum _CommunityArea {
 }
 
 class CommunityPage extends StatefulWidget {
-  const CommunityPage({super.key});
+  const CommunityPage({super.key, this.service});
+  final CommunityService? service;
 
   @override
   State<CommunityPage> createState() => _CommunityPageState();
@@ -50,13 +54,12 @@ class _CommunityPageState extends State<CommunityPage> {
 
   @override
   Widget build(BuildContext context) {
-    final compact = MediaQuery.sizeOf(context).width < 620;
-    final phone = MediaQuery.sizeOf(context).width < 420;
+    final phone = AppLayout.isPhone(context);
     return Padding(
       padding: EdgeInsets.fromLTRB(
-        phone ? 12 : (compact ? 14 : 20),
-        phone ? 12 : 18,
-        phone ? 8 : (compact ? 14 : 20),
+        AppLayout.pagePadding(context),
+        AppLayout.pageTopPadding(context),
+        AppLayout.pagePadding(context),
         12,
       ),
       child: Column(
@@ -65,12 +68,7 @@ class _CommunityPageState extends State<CommunityPage> {
           Row(
             children: [
               Expanded(
-                child: Text(
-                  '社区',
-                  style: phone
-                      ? Theme.of(context).textTheme.headlineMedium
-                      : Theme.of(context).textTheme.headlineLarge,
-                ),
+                child: Text('社区', style: AppLayout.pageTitleStyle(context)),
               ),
               IconButton(
                 visualDensity: phone
@@ -104,12 +102,12 @@ class _CommunityPageState extends State<CommunityPage> {
             child: IndexedStack(
               index: _area.index,
               children: [
-                const _RakuenPage(),
+                _RakuenPage(service: widget.service),
                 _opened.contains(_CommunityArea.groups)
-                    ? const _GroupBrowser()
+                    ? _GroupBrowser(service: widget.service)
                     : const SizedBox.shrink(),
                 _opened.contains(_CommunityArea.timeline)
-                    ? const CommunityTimelinePage()
+                    ? CommunityTimelinePage(service: widget.service)
                     : const SizedBox.shrink(),
               ],
             ),
@@ -121,14 +119,15 @@ class _CommunityPageState extends State<CommunityPage> {
 }
 
 class _RakuenPage extends StatefulWidget {
-  const _RakuenPage();
+  const _RakuenPage({this.service});
+  final CommunityService? service;
 
   @override
   State<_RakuenPage> createState() => _RakuenPageState();
 }
 
 class _RakuenPageState extends State<_RakuenPage> {
-  final _service = CommunityService.shared;
+  late final _service = widget.service ?? CommunityService.shared;
   final _scrollController = ScrollController();
   RakuenMode _mode = RakuenMode.subjectTrending;
   List<CommunityTopic> _topics = const [];
@@ -138,6 +137,10 @@ class _RakuenPageState extends State<_RakuenPage> {
   bool _loadingMore = false;
   String? _error;
   int _requestId = 0;
+  int _lastSuccessfulRequest = -1;
+  int _nextOffset = 0;
+  bool _hasMore = true;
+  String? _loadMoreError;
 
   @override
   void initState() {
@@ -148,32 +151,49 @@ class _RakuenPageState extends State<_RakuenPage> {
   }
 
   void _onScroll() {
-    if (_scrollController.position.extentAfter < 500) {
+    if (_loadMoreError == null &&
+        _scrollController.position.extentAfter < 500) {
       unawaited(_loadMore());
     }
   }
 
   Future<void> _loadCacheThenRefresh() async {
-    final mode = _mode;
     final requestId = ++_requestId;
-    final cached = await _service.readCachedTopics(mode);
-    if (cached != null &&
-        cached.data.isNotEmpty &&
-        mounted &&
-        requestId == _requestId) {
-      setState(() {
-        _topics = cached.data;
-        _total = cached.total;
-        _loading = false;
-      });
+    final network = _load(requestId: requestId);
+    Future<void> restore() async {
+      try {
+        final cached = await _service.readCachedTopics(_mode);
+        if (!mounted ||
+            requestId != _requestId ||
+            _lastSuccessfulRequest == requestId ||
+            cached == null ||
+            cached.data.isEmpty) {
+          return;
+        }
+        setState(() {
+          _topics = cached.data;
+          _total = cached.total;
+          _nextOffset = cached.data.length;
+          _hasMore = _total > 0
+              ? _nextOffset < _total
+              : cached.data.length >= 20;
+        });
+      } catch (_) {
+        // Optional disk reads never block the network request.
+      }
     }
-    await _load(refresh: true, requestId: requestId);
+
+    unawaited(restore());
+    await network;
   }
 
   Future<void> _load({bool refresh = false, int? requestId}) async {
     final mode = _mode;
     final activeRequest = requestId ?? ++_requestId;
+    if (!mounted || activeRequest != _requestId) return;
     setState(() {
+      _loadingMore = false;
+      _loadMoreError = null;
       _loading = true;
       _error = null;
     });
@@ -182,6 +202,13 @@ class _RakuenPageState extends State<_RakuenPage> {
       if (!mounted || activeRequest != _requestId || mode != _mode) return;
       setState(() {
         _topics = page.data;
+        _lastSuccessfulRequest = activeRequest;
+        _nextOffset = page.data.length;
+        _hasMore =
+            page.data.isNotEmpty &&
+            (page.total > 0
+                ? _nextOffset < page.total
+                : page.data.length >= 20);
         _total = page.total;
         _loading = false;
       });
@@ -195,17 +222,17 @@ class _RakuenPageState extends State<_RakuenPage> {
   }
 
   Future<void> _loadMore() async {
-    if (_loading ||
-        _loadingMore ||
-        _topics.isEmpty ||
-        (_total > 0 && _topics.length >= _total)) {
+    if (_loading || _loadingMore || _topics.isEmpty || !_hasMore) {
       return;
     }
     final mode = _mode;
     final requestId = _requestId;
-    setState(() => _loadingMore = true);
+    setState(() {
+      _loadingMore = true;
+      _loadMoreError = null;
+    });
     try {
-      final page = await _service.loadTopicPage(mode, offset: _topics.length);
+      final page = await _service.loadTopicPage(mode, offset: _nextOffset);
       if (!mounted || mode != _mode || requestId != _requestId) return;
       final known = _topics
           .map((topic) => '${topic.kind.name}:${topic.id}')
@@ -217,15 +244,23 @@ class _RakuenPageState extends State<_RakuenPage> {
             (topic) => known.add('${topic.kind.name}:${topic.id}'),
           ),
         ];
+        _nextOffset += page.data.length;
+        _hasMore =
+            page.data.isNotEmpty &&
+            (page.total > 0
+                ? _nextOffset < page.total
+                : page.data.length >= 20);
         _total = page.total;
       });
     } catch (error) {
       if (!mounted || mode != _mode || requestId != _requestId) return;
       setState(() {
-        _error = error.toString().replaceFirst('Exception: ', '');
+        _loadMoreError = error.toString().replaceFirst('Exception: ', '');
       });
     } finally {
-      if (mounted) setState(() => _loadingMore = false);
+      if (mounted && requestId == _requestId) {
+        setState(() => _loadingMore = false);
+      }
     }
   }
 
@@ -251,16 +286,20 @@ class _RakuenPageState extends State<_RakuenPage> {
       _mode = mode;
       _topics = const [];
       _total = 0;
+      _hasMore = true;
+      _nextOffset = 0;
+      _loadMoreError = null;
       _error = null;
       _loadingMore = false;
     });
+    if (_scrollController.hasClients) _scrollController.jumpTo(0);
     unawaited(_loadCacheThenRefresh());
   }
 
   void _openTopic(CommunityTopic topic) {
     Navigator.of(context).push(
       MaterialPageRoute<void>(
-        builder: (_) => CommunityTopicScreen(topic: topic),
+        builder: (_) => CommunityTopicScreen(topic: topic, service: _service),
       ),
     );
   }
@@ -268,7 +307,7 @@ class _RakuenPageState extends State<_RakuenPage> {
   void _openGroup(CommunityGroup group) {
     Navigator.of(context).push(
       MaterialPageRoute<void>(
-        builder: (_) => CommunityGroupScreen(group: group),
+        builder: (_) => CommunityGroupScreen(group: group, service: _service),
       ),
     );
   }
@@ -285,12 +324,29 @@ class _RakuenPageState extends State<_RakuenPage> {
   Widget build(BuildContext context) => Column(
     crossAxisAlignment: CrossAxisAlignment.stretch,
     children: [
-      _RakuenModePicker(
-        mode: _mode,
-        authenticated: _service.isAuthenticated,
-        onChanged: _selectMode,
+      Row(
+        children: [
+          Expanded(
+            child: _RakuenModePicker(
+              mode: _mode,
+              authenticated: _service.isAuthenticated,
+              onChanged: _selectMode,
+            ),
+          ),
+          IconButton(
+            tooltip: '刷新话题',
+            onPressed: _loading ? null : () => _load(refresh: true),
+            icon: const Icon(Icons.refresh_rounded),
+          ),
+        ],
       ),
       const SizedBox(height: 10),
+      if (_topics.isNotEmpty)
+        CommunityRefreshStatus(
+          loading: _loading,
+          error: _error,
+          onRetry: () => _load(refresh: true),
+        ),
       Expanded(child: _buildBody()),
     ],
   );
@@ -307,7 +363,8 @@ class _RakuenPageState extends State<_RakuenPage> {
     }
     return RefreshIndicator(
       onRefresh: () async {
-        await Future.wait([_load(refresh: true), _loadHotGroups()]);
+        unawaited(_loadHotGroups());
+        await _load(refresh: true);
       },
       child: ListView.builder(
         controller: _scrollController,
@@ -328,17 +385,11 @@ class _RakuenPageState extends State<_RakuenPage> {
                 child: Center(child: Text('暂时没有话题')),
               );
             }
-            return Padding(
-              padding: const EdgeInsets.all(16),
-              child: Center(
-                child: _loadingMore
-                    ? const CircularProgressIndicator()
-                    : Text(
-                        _total > 0 && _topics.length >= _total
-                            ? '已经到底了'
-                            : '继续向下浏览',
-                      ),
-              ),
+            return CommunityLoadMoreFooter(
+              loading: _loadingMore,
+              hasMore: _hasMore,
+              error: _loadMoreError,
+              onLoad: _loading ? null : () => _loadMore(),
             );
           }
           final topic = _topics[index - 1];
@@ -417,7 +468,7 @@ class _HotGroups extends StatelessWidget {
           ),
         ),
         SizedBox(
-          height: 82,
+          height: communityGroupCardHeight(context),
           child: ListView.separated(
             scrollDirection: Axis.horizontal,
             itemCount: groups.length,
@@ -440,14 +491,15 @@ class _HotGroups extends StatelessWidget {
 }
 
 class _GroupBrowser extends StatefulWidget {
-  const _GroupBrowser();
+  const _GroupBrowser({this.service});
+  final CommunityService? service;
 
   @override
   State<_GroupBrowser> createState() => _GroupBrowserState();
 }
 
 class _GroupBrowserState extends State<_GroupBrowser> {
-  final _service = CommunityService.shared;
+  late final _service = widget.service ?? CommunityService.shared;
   final _scrollController = ScrollController();
   CommunityGroupMode _mode = CommunityGroupMode.all;
   CommunityGroupSort _sort = CommunityGroupSort.members;
@@ -457,6 +509,10 @@ class _GroupBrowserState extends State<_GroupBrowser> {
   bool _loadingMore = false;
   String? _error;
   int _requestId = 0;
+  int _lastSuccessfulRequest = -1;
+  int _nextOffset = 0;
+  bool _hasMore = true;
+  String? _loadMoreError;
 
   @override
   void initState() {
@@ -466,34 +522,50 @@ class _GroupBrowserState extends State<_GroupBrowser> {
   }
 
   void _onScroll() {
-    if (_scrollController.position.extentAfter < 500) {
+    if (_loadMoreError == null &&
+        _scrollController.position.extentAfter < 500) {
       unawaited(_loadMore());
     }
   }
 
   Future<void> _loadCacheThenRefresh() async {
-    final mode = _mode;
-    final sort = _sort;
     final requestId = ++_requestId;
-    final cached = await _service.readCachedGroups(mode, sort);
-    if (cached != null &&
-        cached.data.isNotEmpty &&
-        mounted &&
-        requestId == _requestId) {
-      setState(() {
-        _groups = cached.data;
-        _total = cached.total;
-        _loading = false;
-      });
+    final network = _load(requestId: requestId);
+    Future<void> restore() async {
+      try {
+        final cached = await _service.readCachedGroups(_mode, _sort);
+        if (!mounted ||
+            requestId != _requestId ||
+            _lastSuccessfulRequest == requestId ||
+            cached == null ||
+            cached.data.isEmpty) {
+          return;
+        }
+        setState(() {
+          _groups = cached.data;
+          _total = cached.total;
+          _nextOffset = cached.data.length;
+          _hasMore = _total > 0
+              ? _nextOffset < _total
+              : cached.data.length >= 20;
+        });
+      } catch (_) {
+        // Optional disk reads never block the network request.
+      }
     }
-    await _load(refresh: true, requestId: requestId);
+
+    unawaited(restore());
+    await network;
   }
 
   Future<void> _load({bool refresh = false, int? requestId}) async {
     final mode = _mode;
     final sort = _sort;
     final activeRequest = requestId ?? ++_requestId;
+    if (!mounted || activeRequest != _requestId) return;
     setState(() {
+      _loadingMore = false;
+      _loadMoreError = null;
       _loading = true;
       _error = null;
     });
@@ -511,6 +583,13 @@ class _GroupBrowserState extends State<_GroupBrowser> {
       }
       setState(() {
         _groups = page.data;
+        _lastSuccessfulRequest = activeRequest;
+        _nextOffset = page.data.length;
+        _hasMore =
+            page.data.isNotEmpty &&
+            (page.total > 0
+                ? _nextOffset < page.total
+                : page.data.length >= 20);
         _total = page.total;
         _loading = false;
       });
@@ -524,21 +603,21 @@ class _GroupBrowserState extends State<_GroupBrowser> {
   }
 
   Future<void> _loadMore() async {
-    if (_loading ||
-        _loadingMore ||
-        _groups.isEmpty ||
-        (_total > 0 && _groups.length >= _total)) {
+    if (_loading || _loadingMore || _groups.isEmpty || !_hasMore) {
       return;
     }
     final mode = _mode;
     final sort = _sort;
     final requestId = _requestId;
-    setState(() => _loadingMore = true);
+    setState(() {
+      _loadingMore = true;
+      _loadMoreError = null;
+    });
     try {
       final page = await _service.loadGroupPage(
         mode: mode,
         sort: sort,
-        offset: _groups.length,
+        offset: _nextOffset,
       );
       if (!mounted ||
           mode != _mode ||
@@ -552,6 +631,12 @@ class _GroupBrowserState extends State<_GroupBrowser> {
           ..._groups,
           ...page.data.where((group) => known.add(group.slug)),
         ];
+        _nextOffset += page.data.length;
+        _hasMore =
+            page.data.isNotEmpty &&
+            (page.total > 0
+                ? _nextOffset < page.total
+                : page.data.length >= 20);
         _total = page.total;
       });
     } catch (error) {
@@ -562,10 +647,12 @@ class _GroupBrowserState extends State<_GroupBrowser> {
         return;
       }
       setState(() {
-        _error = error.toString().replaceFirst('Exception: ', '');
+        _loadMoreError = error.toString().replaceFirst('Exception: ', '');
       });
     } finally {
-      if (mounted) setState(() => _loadingMore = false);
+      if (mounted && requestId == _requestId) {
+        setState(() => _loadingMore = false);
+      }
     }
   }
 
@@ -575,16 +662,20 @@ class _GroupBrowserState extends State<_GroupBrowser> {
       _sort = sort ?? _sort;
       _groups = const [];
       _total = 0;
+      _hasMore = true;
+      _nextOffset = 0;
+      _loadMoreError = null;
       _error = null;
       _loadingMore = false;
     });
+    if (_scrollController.hasClients) _scrollController.jumpTo(0);
     unawaited(_loadCacheThenRefresh());
   }
 
   void _openGroup(CommunityGroup group) {
     Navigator.of(context).push(
       MaterialPageRoute<void>(
-        builder: (_) => CommunityGroupScreen(group: group),
+        builder: (_) => CommunityGroupScreen(group: group, service: _service),
       ),
     );
   }
@@ -637,9 +728,20 @@ class _GroupBrowserState extends State<_GroupBrowser> {
               label: Text(_sort.label),
             ),
           ),
+          IconButton(
+            tooltip: '刷新小组',
+            onPressed: _loading ? null : () => _load(refresh: true),
+            icon: const Icon(Icons.refresh_rounded),
+          ),
         ],
       ),
       const SizedBox(height: 11),
+      if (_groups.isNotEmpty)
+        CommunityRefreshStatus(
+          loading: _loading,
+          error: _error,
+          onRetry: () => _load(refresh: true),
+        ),
       Expanded(child: _buildBody()),
     ],
   );
@@ -667,7 +769,7 @@ class _GroupBrowserState extends State<_GroupBrowser> {
                 : constraints.maxWidth >= 660
                 ? 2
                 : 1,
-            mainAxisExtent: 82,
+            mainAxisExtent: communityGroupCardHeight(context),
             crossAxisSpacing: 10,
             mainAxisSpacing: 10,
           ),
@@ -675,14 +777,11 @@ class _GroupBrowserState extends State<_GroupBrowser> {
           itemBuilder: (context, index) {
             if (index == _groups.length) {
               if (_groups.isEmpty) return const Center(child: Text('暂时没有小组'));
-              return Center(
-                child: _loadingMore
-                    ? const CircularProgressIndicator()
-                    : Text(
-                        _total > 0 && _groups.length >= _total
-                            ? '已经到底了'
-                            : '继续向下浏览',
-                      ),
+              return CommunityLoadMoreFooter(
+                loading: _loadingMore,
+                hasMore: _hasMore,
+                error: _loadMoreError,
+                onLoad: _loading ? null : () => _loadMore(),
               );
             }
             final group = _groups[index];

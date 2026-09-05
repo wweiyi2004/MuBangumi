@@ -14,6 +14,7 @@ import '../state/update_controller.dart';
 import '../state/website_session_controller.dart';
 import '../widgets/network_route_picker.dart';
 import '../widgets/github_release_dialog.dart';
+import '../widgets/sync_issues_sheet.dart';
 import '../widgets/update_ready_dialog.dart';
 import '../state/notify_controller.dart';
 import 'background_settings_sheet.dart';
@@ -45,7 +46,12 @@ class ProfilePage extends ConsumerWidget {
     final phone = AppLayout.isPhone(context);
     final background = ref.watch(backgroundSettingsProvider);
     return SingleChildScrollView(
-      padding: AppLayout.pageInsets(context, top: 24, bottom: 60),
+      padding: EdgeInsets.fromLTRB(
+        AppLayout.pagePadding(context),
+        AppLayout.pageTopPadding(context),
+        AppLayout.pagePadding(context),
+        60,
+      ),
       child: Center(
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 900),
@@ -202,9 +208,7 @@ class ProfilePage extends ConsumerWidget {
                         ),
                         title: const Text('电波提醒'),
                         subtitle: Text(
-                          unread > 0
-                              ? '$unread 条未读 · 原生通知列表'
-                              : '原生通知列表（OAuth / P1）',
+                          unread > 0 ? '$unread 条未读' : '查看回复、提及与好友提醒',
                         ),
                         trailing: const Icon(Icons.chevron_right_rounded),
                         onTap: () async {
@@ -224,7 +228,7 @@ class ProfilePage extends ConsumerWidget {
                   ListTile(
                     leading: const Icon(Icons.mail_outline_rounded),
                     title: const Text('站内短信'),
-                    subtitle: const Text('应用内打开官网收件箱（需网站登录）'),
+                    subtitle: const Text('查看和发送私信'),
                     trailing: const Icon(Icons.chevron_right_rounded),
                     onTap: () => openPmPage(context),
                   ),
@@ -241,7 +245,7 @@ class ProfilePage extends ConsumerWidget {
                     subtitle: Text(
                       session.isLoadingCollections
                           ? '正在同步全部类型收藏，请稍候'
-                          : '评分分布、年度记录与 JSON 数据导出',
+                          : '收藏偏好、年度记录与数据导出',
                     ),
                     trailing: session.isLoadingCollections
                         ? const SizedBox.square(
@@ -254,6 +258,7 @@ class ProfilePage extends ConsumerWidget {
                         : () => Navigator.of(context).push(
                             MaterialPageRoute<void>(
                               builder: (_) => CollectionStatsPage(
+                                displayName: user.displayName,
                                 username: user.username,
                                 collections: session.collections,
                               ),
@@ -264,7 +269,7 @@ class ProfilePage extends ConsumerWidget {
                   ListTile(
                     leading: const Icon(Icons.live_tv_outlined),
                     title: const Text('每日放送'),
-                    subtitle: const Text('官方放送日历（非本地新番表）'),
+                    subtitle: const Text('查看每日播出的动画'),
                     trailing: const Icon(Icons.chevron_right_rounded),
                     onTap: () => Navigator.of(context).push(
                       MaterialPageRoute<void>(
@@ -281,17 +286,22 @@ class ProfilePage extends ConsumerWidget {
                 children: [
                   ListTile(
                     leading: Icon(
-                      session.pendingSyncCount > 0
+                      session.blockedSyncCount > 0
+                          ? Icons.sync_problem_rounded
+                          : session.pendingSyncCount > 0
                           ? Icons.cloud_upload_outlined
                           : Icons.sync_rounded,
+                      color: session.blockedSyncCount > 0
+                          ? Theme.of(context).colorScheme.error
+                          : null,
                     ),
-                    title: const Text('立即同步'),
+                    title: Text(session.blockedSyncCount > 0 ? '同步问题' : '立即同步'),
                     subtitle: Text(
                       session.pendingSyncCount > 0
                           ? session.blockedSyncCount > 0
-                                ? '${session.blockedSyncCount} 条本地修改需要重试，点击立即同步'
+                                ? '${session.blockedSyncCount} 条修改同步失败，点击查看原因并处理'
                                 : '${session.pendingSyncCount} 条本地修改等待上传，联网后会自动同步'
-                          : '本地修改已上传 · 重新获取全部类型收藏',
+                          : '收藏已同步，点击刷新',
                     ),
                     trailing: session.isSyncing || session.isRefreshing
                         ? const SizedBox.square(
@@ -302,6 +312,10 @@ class ProfilePage extends ConsumerWidget {
                     onTap: session.isSyncing || session.isRefreshing
                         ? null
                         : () async {
+                            if (session.blockedSyncCount > 0) {
+                              await showSyncIssuesSheet(context);
+                              return;
+                            }
                             final controller = ref.read(
                               sessionProvider.notifier,
                             );
@@ -452,7 +466,7 @@ class ProfilePage extends ConsumerWidget {
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('退出登录？'),
-        content: const Text('本机保存的 Access Token 与网站登录会话都会被删除。'),
+        content: const Text('退出后需要重新登录，网站登录也会一并清除。'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
@@ -496,7 +510,7 @@ class _WebsiteSessionTile extends ConsumerWidget {
                 ListTile(
                   leading: const Icon(Icons.login_rounded),
                   title: Text(website.isSynced ? '重新同步网站登录' : '去官网登录并保存'),
-                  subtitle: const Text('用于加组、站内短信等网页能力'),
+                  subtitle: const Text('使用私信等功能时需要，请登录同一个 Bangumi 账号。'),
                   onTap: () => Navigator.pop(context, 'sync'),
                 ),
                 if (website.isSynced)
@@ -522,9 +536,13 @@ class _WebsiteSessionTile extends ConsumerWidget {
         if (action == 'clear') {
           await ref.read(websiteSessionProvider.notifier).clear();
           if (!context.mounted) return;
-          ScaffoldMessenger.of(
-            context,
-          ).showSnackBar(const SnackBar(content: Text('已清除网站登录会话')));
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                ref.read(websiteSessionProvider).message ?? '已清除网站登录会话',
+              ),
+            ),
+          );
           return;
         }
         final synced = await openWebsiteLoginScreen(context);
@@ -533,7 +551,7 @@ class _WebsiteSessionTile extends ConsumerWidget {
         if (synced == true && context.mounted) {
           ScaffoldMessenger.of(
             context,
-          ).showSnackBar(const SnackBar(content: Text('网站登录已可用')));
+          ).showSnackBar(const SnackBar(content: Text('网站登录已保存')));
         }
       },
     );
@@ -551,12 +569,13 @@ class _UpdateSettingsTile extends ConsumerWidget {
         : github != null
         ? '发现新版本 ${github.version}'
         : snapshot == null
-        ? '检查热更新与 GitHub 安装包'
+        ? '检查是否有新版本'
         : switch (snapshot.phase) {
+            AppUpdatePhase.notChecked => '当前版本 · ${snapshot.versionLabel}',
             AppUpdatePhase.upToDate => '已是最新 · ${snapshot.versionLabel}',
-            AppUpdatePhase.outdated => '发现可用热更新',
-            AppUpdatePhase.restartRequired => '热更新已就绪，重启后生效',
-            AppUpdatePhase.unavailable => '热更新不可用 · ${snapshot.versionLabel}',
+            AppUpdatePhase.outdated => '发现可用更新',
+            AppUpdatePhase.restartRequired => '更新已就绪，重启后生效',
+            AppUpdatePhase.unavailable => '当前版本 · ${snapshot.versionLabel}',
             AppUpdatePhase.error => snapshot.message ?? '检查失败',
           };
 
@@ -603,11 +622,13 @@ class _UpdateSettingsTile extends ConsumerWidget {
     }
 
     final text = switch (snapshot.phase) {
+      AppUpdatePhase.notChecked => '尚未完成更新检查',
       AppUpdatePhase.upToDate => '已是最新版本（${snapshot.versionLabel}）',
-      AppUpdatePhase.outdated => '发现可用热更新，请稍后再试或重启后重试',
-      AppUpdatePhase.unavailable => '已是最新版本（${snapshot.versionLabel}）',
+      AppUpdatePhase.outdated => '发现可用更新，请稍后再试或重启后重试',
+      AppUpdatePhase.unavailable =>
+        '当前版本 ${snapshot.versionLabel}，可前往 GitHub 查看安装包',
       AppUpdatePhase.error => snapshot.message ?? '检查更新失败',
-      AppUpdatePhase.restartRequired => '热更新已就绪，请重启应用',
+      AppUpdatePhase.restartRequired => '更新已就绪，请重启应用',
     };
     messenger.showSnackBar(SnackBar(content: Text(text)));
   }

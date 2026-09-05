@@ -95,9 +95,7 @@ class _CalendarPageState extends ConsumerState<CalendarPage> {
                     4,
                   ),
                   child: Text(
-                    MediaQuery.sizeOf(context).width < 420
-                        ? '官方放送日历 · 与本地新番表独立'
-                        : '官方放送日历 · 与本地「新番表」独立，不会覆盖你的排期',
+                    'Bangumi 每日放送',
                     style: Theme.of(context).textTheme.bodySmall?.copyWith(
                       color: Theme.of(context).colorScheme.onSurfaceVariant,
                     ),
@@ -142,9 +140,8 @@ class _CalendarPageState extends ConsumerState<CalendarPage> {
                               onTap: () {
                                 Navigator.of(context).push(
                                   MaterialPageRoute<void>(
-                                    builder: (_) => SubjectDetailScreen(
-                                      subject: subject,
-                                    ),
+                                    builder: (_) =>
+                                        SubjectDetailScreen(subject: subject),
                                   ),
                                 );
                               },

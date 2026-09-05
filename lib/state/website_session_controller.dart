@@ -10,18 +10,12 @@ final websiteSessionStoreProvider = Provider<WebsiteSessionStore>((ref) {
 });
 
 final websiteSessionProvider =
-    StateNotifierProvider<WebsiteSessionController, WebsiteSessionState>((
-      ref,
-    ) {
+    StateNotifierProvider<WebsiteSessionController, WebsiteSessionState>((ref) {
       return WebsiteSessionController(ref.watch(websiteSessionStoreProvider));
     });
 
 class WebsiteSessionState {
-  const WebsiteSessionState({
-    this.ready = false,
-    this.snapshot,
-    this.message,
-  });
+  const WebsiteSessionState({this.ready = false, this.snapshot, this.message});
 
   final bool ready;
   final WebsiteSessionSnapshot? snapshot;
@@ -31,14 +25,14 @@ class WebsiteSessionState {
 
   String get statusLabel {
     if (!ready) return '检查中…';
-    if (!isSynced) return '未同步 · 加组/私信需网站登录';
+    if (!isSynced) return '需要网站登录';
     final time = snapshot!.syncedAt;
     final stamp =
         '${time.month.toString().padLeft(2, '0')}-'
         '${time.day.toString().padLeft(2, '0')} '
         '${time.hour.toString().padLeft(2, '0')}:'
         '${time.minute.toString().padLeft(2, '0')}';
-    return '已同步 · $stamp';
+    return '登录已保存 · $stamp';
   }
 
   WebsiteSessionState copyWith({
@@ -61,29 +55,43 @@ class WebsiteSessionController extends StateNotifier<WebsiteSessionState> {
 
   final WebsiteSessionStore _store;
 
-  /// Bumped whenever the store is cleared (sign-out): in-flight saves that
-  /// started before the clear must not resurrect the previous session.
+  /// Each operation supersedes earlier reads and saves, including sign-out.
   int _generation = 0;
+  Future<void> _writes = Future<void>.value();
+
+  Future<void> _write(Future<void> Function() action) {
+    final future = _writes.then((_) => action());
+    _writes = future.then<void>((_) {}, onError: (Object _, StackTrace _) {});
+    return future;
+  }
 
   Future<void> reload() async {
-    final snapshot = await _store.read();
-    state = WebsiteSessionState(ready: true, snapshot: snapshot);
+    final generation = ++_generation;
+    try {
+      await _writes;
+      final snapshot = await _store.read();
+      if (!mounted || generation != _generation) return;
+      state = WebsiteSessionState(ready: true, snapshot: snapshot);
+    } catch (_) {
+      if (!mounted || generation != _generation) return;
+      state = const WebsiteSessionState(
+        ready: true,
+        message: '无法读取网站登录，请重新登录网站',
+      );
+    }
   }
 
   Future<bool> saveCookies(
     List<WebsiteCookie> cookies, {
     DateTime? syncedAt,
   }) async {
-    final generation = _generation;
+    final generation = ++_generation;
     final cleaned = [
       for (final cookie in cookies)
         if (cookie.name.trim().isNotEmpty && cookie.value.isNotEmpty) cookie,
     ];
     if (cleaned.isEmpty) {
-      state = state.copyWith(
-        ready: true,
-        message: '未捕获到网站 Cookie，请确认已在页面中登录成功',
-      );
+      state = state.copyWith(ready: true, message: '未检测到登录，请登录后再保存');
       return false;
     }
     final snapshot = WebsiteSessionSnapshot(
@@ -91,52 +99,47 @@ class WebsiteSessionController extends StateNotifier<WebsiteSessionState> {
       syncedAt: syncedAt ?? DateTime.now(),
     );
     if (!snapshot.hasSessionCookies) {
-      state = state.copyWith(
-        ready: true,
-        message: '已获取 Cookie，但未识别到登录会话。请登录后再点「保存」',
-      );
-      // Still persist — some environments only expose partial cookies.
+      state = state.copyWith(ready: true, message: '未检测到有效登录，请登录后再保存');
+      return false;
     }
-    await _store.write(snapshot);
-    if (generation != _generation) {
-      // The store was cleared (sign-out) while this save was in flight: the
-      // snapshot just written belongs to the previous session. Undo the
-      // write and keep the cleared in-memory state.
-      try {
-        await _store.clear();
-      } catch (_) {
-        // Best-effort: the generation check still prevents the stale write
-        // from being trusted as the current session.
+    try {
+      await _write(() async {
+        if (mounted && generation == _generation) await _store.write(snapshot);
+      });
+    } catch (_) {
+      if (mounted && generation == _generation) {
+        state = state.copyWith(ready: true, message: '保存网站会话失败，请重试');
       }
       return false;
     }
+    if (!mounted || generation != _generation) return false;
     state = WebsiteSessionState(
       ready: true,
       snapshot: snapshot,
-      message: snapshot.hasSessionCookies
-          ? '网站登录已同步，加组/私信将自动带上会话'
-          : '已保存 Cookie（会话特征较弱，若仍需登录请重试）',
+      message: '网站登录已保存',
     );
     return true;
   }
 
   Future<void> clear({String? message}) async {
-    _generation++;
-    await _store.clear();
-    await WebsiteCookieBridge.clearBgmCookies();
-    state = WebsiteSessionState(
-      ready: true,
-      message: message ?? '已清除网站登录会话',
-    );
+    final generation = ++_generation;
+    state = WebsiteSessionState(ready: true, message: message ?? '已清除网站登录会话');
+    try {
+      await _write(_store.clear);
+      await WebsiteCookieBridge.clearBgmCookies();
+    } catch (_) {
+      if (mounted && generation == _generation) {
+        state = state.copyWith(message: '清理网站会话失败，请重试');
+      }
+    }
   }
 
-  /// Reflect an external storage wipe (e.g. OAuth force sign-out) without
-  /// re-deleting secure storage.
+  /// Reflect sign-out immediately and clear storage after pending saves.
   void markCleared({String? message}) {
     _generation++;
-    state = WebsiteSessionState(
-      ready: true,
-      message: message,
-    );
+    state = WebsiteSessionState(ready: true, message: message);
+    // Complete any in-flight save before clearing it. A newer save then queues
+    // after this cleanup, so an old write cannot erase the new website session.
+    unawaited(_write(_store.clear).catchError((Object _) {}));
   }
 }

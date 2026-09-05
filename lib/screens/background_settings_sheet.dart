@@ -40,7 +40,7 @@ class _BackgroundSettingsSheet extends ConsumerWidget {
             ),
             const SizedBox(height: 6),
             Text(
-              '自选壁纸，再叠一层有层次的磨砂玻璃，卡片与导航会半透明浮在上面。',
+              '选择壁纸，调整背景的模糊与透明度。',
               style: Theme.of(
                 context,
               ).textTheme.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
@@ -106,7 +106,7 @@ class _BackgroundSettingsSheet extends ConsumerWidget {
             SwitchListTile(
               contentPadding: EdgeInsets.zero,
               title: const Text('启用自定义背景'),
-              subtitle: Text(settings.hasImage ? '壁纸 + 分层毛玻璃' : '请先选择一张图片'),
+              subtitle: settings.hasImage ? null : const Text('请先选择一张图片'),
               value: settings.isActive,
               onChanged: settings.hasImage
                   ? (value) => ref

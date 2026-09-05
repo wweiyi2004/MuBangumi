@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 
@@ -23,53 +25,66 @@ class SubjectCover extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final dpr = MediaQuery.devicePixelRatioOf(context);
-    final cacheWidth = width == null || !width!.isFinite
-        ? null
-        : (width! * dpr).round();
-    final cacheHeight = height == null || !height!.isFinite
-        ? null
-        : (height! * dpr).round();
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(borderRadius),
-      child: ColoredBox(
-        color: Theme.of(context).colorScheme.surfaceContainer,
-        child: subject.imageUrl.isEmpty
-            ? SizedBox(
-                width: width,
-                height: height,
-                child: const Center(
-                  child: Icon(Icons.movie_filter_outlined, size: 34),
-                ),
-              )
-            : CachedNetworkImage(
-                imageUrl: BangumiEndpoints.imageUrl(
-                  subject.imageUrl,
-                  size: size,
-                ),
-                width: width,
-                height: height,
-                fit: BoxFit.cover,
-                // Decode to display size only — full-res covers were a major jank source.
-                memCacheWidth: cacheWidth,
-                memCacheHeight: cacheHeight,
-                fadeInDuration: Duration.zero,
-                fadeOutDuration: Duration.zero,
-                placeholder: (_, _) => SizedBox(
-                  width: width,
-                  height: height,
-                  child: ColoredBox(
-                    color: Theme.of(
-                      context,
-                    ).colorScheme.surfaceContainerHighest,
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        // Poster cards provide dimensions through layout, not explicit fields.
+        final displayWidth =
+            width ??
+            (constraints.hasBoundedWidth ? constraints.maxWidth : null);
+        final displayHeight =
+            height ??
+            (constraints.hasBoundedHeight ? constraints.maxHeight : null);
+        int? pixels(double? logical) =>
+            logical != null && logical.isFinite && logical > 0
+            ? (logical * dpr).round().clamp(1, 4096)
+            : null;
+        final cacheWidth = pixels(displayWidth);
+        final cacheHeight = pixels(displayHeight);
+        return ClipRRect(
+          borderRadius: BorderRadius.circular(borderRadius),
+          child: ColoredBox(
+            color: Theme.of(context).colorScheme.surfaceContainer,
+            child: subject.imageUrl.isEmpty
+                ? SizedBox(
+                    width: width,
+                    height: height,
+                    child: const Center(
+                      child: Icon(Icons.movie_filter_outlined, size: 34),
+                    ),
+                  )
+                : CachedNetworkImage(
+                    imageUrl: BangumiEndpoints.imageUrl(
+                      subject.imageUrl,
+                      size: size,
+                    ),
+                    width: width,
+                    height: height,
+                    fit: BoxFit.cover,
+                    // Decode to display size only — full-res covers were a major jank source.
+                    memCacheWidth: cacheWidth,
+                    memCacheHeight: cacheHeight,
+                    fadeInDuration: Duration.zero,
+                    fadeOutDuration: Duration.zero,
+                    placeholder: (_, _) => SizedBox(
+                      width: width,
+                      height: height,
+                      child: ColoredBox(
+                        color: Theme.of(
+                          context,
+                        ).colorScheme.surfaceContainerHighest,
+                      ),
+                    ),
+                    errorWidget: (_, _, _) => SizedBox(
+                      width: width,
+                      height: height,
+                      child: const Center(
+                        child: Icon(Icons.broken_image_outlined),
+                      ),
+                    ),
                   ),
-                ),
-                errorWidget: (_, _, _) => SizedBox(
-                  width: width,
-                  height: height,
-                  child: const Center(child: Icon(Icons.broken_image_outlined)),
-                ),
-              ),
-      ),
+          ),
+        );
+      },
     );
   }
 }
@@ -126,10 +141,16 @@ double subjectPosterItemHeight(
   double width,
   int columns, {
   double spacing = 12,
+  TextScaler textScaler = TextScaler.noScaling,
 }) {
   final itemWidth = (width - spacing * (columns - 1)) / columns;
-  return itemWidth / .72 + 70;
+  return itemWidth / .72 + _posterFooterHeight(textScaler);
 }
+
+double _posterFooterHeight(TextScaler textScaler) =>
+    textScaler.scale(14) * 2 * 1.25 +
+    math.max(30, textScaler.scale(11) * 1.5) +
+    15;
 
 /// Image-first media card used by the home and discovery feeds.
 ///
@@ -214,7 +235,10 @@ class SubjectPosterCard extends StatelessWidget {
                       bottom: 11,
                       child: Text(
                         status,
-                        maxLines: 1,
+                        maxLines:
+                            MediaQuery.textScalerOf(context).scale(12) > 16
+                            ? 2
+                            : 1,
                         overflow: TextOverflow.ellipsis,
                         style: Theme.of(context).textTheme.labelMedium
                             ?.copyWith(
@@ -268,7 +292,7 @@ class SubjectPosterCard extends StatelessWidget {
               ),
             ),
             SizedBox(
-              height: 70,
+              height: _posterFooterHeight(MediaQuery.textScalerOf(context)),
               child: Padding(
                 padding: const EdgeInsets.fromLTRB(2, 9, 0, 6),
                 child: Column(
@@ -393,6 +417,7 @@ class SubjectPosterGrid extends StatelessWidget {
             constraints.maxWidth,
             columns,
             spacing: spacing,
+            textScaler: MediaQuery.textScalerOf(context),
           ),
           mainAxisSpacing: spacing,
           crossAxisSpacing: spacing,

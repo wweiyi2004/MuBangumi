@@ -218,22 +218,29 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
     supportsSeason: _supportsSeason,
   );
 
-  Future<void> _hydrateBrowseCacheIfNeeded() async {
+  int _lastSuccessfulBrowseRequest = -1;
+
+  Future<void> _hydrateBrowseCacheIfNeeded(int requestId) async {
     if (_queryMode != DiscoverQueryMode.browse) return;
     final key = _browseCacheKey;
     try {
-      final cached = await SnapshotCache.shared.readDiscoverBrowse(key);
+      final cached = await ref
+          .read(snapshotCacheProvider)
+          .readDiscoverBrowse(key);
       if (!mounted || cached == null || cached.isEmpty) return;
       if (_browseCacheKey != key) return;
-      // Don't overwrite a fresher network response that already finished.
-      if (!_loading && !_refreshing && _subjects.isNotEmpty) return;
-      if (_requestId > 1 && _subjects.isNotEmpty && !_loading) return;
+      if (_queryMode != DiscoverQueryMode.browse ||
+          requestId != _requestId ||
+          _lastSuccessfulBrowseRequest == requestId) {
+        return;
+      }
+      final refreshing = _loading || _refreshing;
       setState(() {
         _subjects = cached;
         _offset = cached.length;
         _hasMore = cached.length >= _pageSize;
         _loading = false;
-        _refreshing = true;
+        _refreshing = refreshing;
         _error = null;
       });
     } catch (_) {
@@ -252,7 +259,7 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
   }
 
   void _onScroll() {
-    if (!_hasMore || _loading || _loadingMore) return;
+    if (!_hasMore || _loading || _refreshing || _loadingMore) return;
     if (_scrollController.position.extentAfter < 480) {
       unawaited(_loadMore());
     }
@@ -292,10 +299,10 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
   }
 
   Future<void> _startCurrentQuery() async {
-    if (_queryMode == DiscoverQueryMode.browse) {
-      unawaited(_hydrateBrowseCacheIfNeeded());
-    }
     _runCurrentQuery();
+    if (_queryMode == DiscoverQueryMode.browse) {
+      unawaited(_hydrateBrowseCacheIfNeeded(_requestId));
+    }
   }
 
   void _selectSubjectType(SubjectType type) {
@@ -519,9 +526,13 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
         _loadingMore = false;
         _error = null;
       });
-      if (!append && subjects.isNotEmpty) {
+      _lastSuccessfulBrowseRequest = requestId;
+      if (!append) {
         unawaited(
-          SnapshotCache.shared.writeDiscoverBrowse(_browseCacheKey, subjects),
+          ref
+              .read(snapshotCacheProvider)
+              .writeDiscoverBrowse(_browseCacheKey, subjects)
+              .catchError((Object _) {}),
         );
       }
     } catch (error) {
@@ -600,7 +611,7 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
   }
 
   Future<void> _loadMore() async {
-    if (!_hasMore || _loadingMore || _loading) return;
+    if (!_hasMore || _loadingMore || _loading || _refreshing) return;
     final keyword = _searchController.text.trim();
     switch (_queryMode) {
       case DiscoverQueryMode.subjectSearch:
@@ -630,7 +641,12 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
       physics: const AlwaysScrollableScrollPhysics(),
       slivers: [
         SliverPadding(
-          padding: EdgeInsets.fromLTRB(pagePad, phone ? 16 : 24, pagePad, 0),
+          padding: EdgeInsets.fromLTRB(
+            pagePad,
+            AppLayout.pageTopPadding(context),
+            pagePad,
+            0,
+          ),
           sliver: SliverToBoxAdapter(
             child: Center(
               child: ConstrainedBox(
@@ -650,45 +666,6 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
     crossAxisAlignment: CrossAxisAlignment.start,
     children: [
       Text('发现', style: AppLayout.pageTitleStyle(context)),
-      const SizedBox(height: 6),
-      Text(
-        switch (_searchTarget) {
-          DiscoverSearchTarget.character => '搜索角色 · 点进角色详情',
-          DiscoverSearchTarget.person => '搜索人物 · 点进人物详情',
-          DiscoverSearchTarget.subject =>
-            phone
-                ? '浏览 / 搜索 · ${_subjectType.label}'
-                : '按类型浏览与搜索 · 当前：${_subjectType.label}',
-        },
-        style: TextStyle(
-          color: Theme.of(context).colorScheme.onSurfaceVariant,
-          fontSize: phone ? 13 : null,
-        ),
-      ),
-      const SizedBox(height: 14),
-      Material(
-        color: Colors.transparent,
-        child: ListTile(
-          contentPadding: EdgeInsets.zero,
-          leading: const Icon(
-            Icons.ssid_chart_rounded,
-            color: Color(0xFFF3A646),
-          ),
-          title: const Text(
-            '评分趋势',
-            style: TextStyle(fontWeight: FontWeight.w600),
-          ),
-          subtitle: Text(
-            phone ? '涨跌榜 · 口碑提升 · netaba.re' : '涨跌榜 · 口碑提升 · 历史曲线（netaba.re）',
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-          ),
-          trailing: const Icon(Icons.chevron_right_rounded),
-          onTap: () => Navigator.of(context).push(
-            MaterialPageRoute<void>(builder: (_) => const ScoreTrendsPage()),
-          ),
-        ),
-      ),
       SizedBox(height: AppLayout.sectionGap(context)),
       Row(
         children: [
@@ -779,6 +756,32 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
                 const SizedBox(width: 8),
               ],
             ],
+          ),
+        ),
+      ],
+      if (_queryMode == DiscoverQueryMode.browse) ...[
+        const SizedBox(height: 12),
+        Material(
+          color: Colors.transparent,
+          child: ListTile(
+            contentPadding: EdgeInsets.zero,
+            leading: const Icon(
+              Icons.ssid_chart_rounded,
+              color: Color(0xFFF3A646),
+            ),
+            title: const Text(
+              '评分趋势',
+              style: TextStyle(fontWeight: FontWeight.w600),
+            ),
+            subtitle: Text(
+              phone ? '涨跌榜 · 口碑提升 · netaba.re' : '涨跌榜 · 口碑提升 · 历史曲线（netaba.re）',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+            trailing: const Icon(Icons.chevron_right_rounded),
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(builder: (_) => const ScoreTrendsPage()),
+            ),
           ),
         ),
       ],
@@ -1038,6 +1041,7 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
                     contentWidth,
                     columns,
                     spacing: spacing,
+                    textScaler: MediaQuery.textScalerOf(context),
                   ),
                   mainAxisSpacing: spacing,
                   crossAxisSpacing: spacing,

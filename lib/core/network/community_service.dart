@@ -8,6 +8,7 @@ import '../../models/bangumi_models.dart';
 import '../../models/community_models.dart';
 import '../auth/website_session.dart';
 import 'bangumi_smiles.dart';
+import 'async_cache.dart';
 import 'bangumi_user_agent.dart';
 import 'community_html_parser.dart';
 import 'community_p1_parser.dart';
@@ -85,8 +86,14 @@ class CommunityService {
   final CommunityHtmlParser _htmlParser = CommunityHtmlParser();
   final CommunityP1Parser _p1Parser = CommunityP1Parser();
   final CommunityCache _persistentCache = CommunityCache.shared;
-  final Map<String, _CachedHtml> _htmlCache = {};
-  final Map<String, _CachedJson> _jsonCache = {};
+  final _htmlCache = AsyncCache<String>(
+    maxAge: const Duration(minutes: 2),
+    maxEntries: 400,
+  );
+  final _jsonCache = AsyncCache<Object>(
+    maxAge: const Duration(minutes: 2),
+    maxEntries: 400,
+  );
   final Map<String, _CachedFriends> _friendsCache = {};
   String? _currentUsername;
   String _currentNickname = '';
@@ -116,12 +123,19 @@ class CommunityService {
     String avatarUrl = '',
   }) {
     final value = username?.trim() ?? '';
+    if ((_currentUsername ?? '') != value) {
+      _jsonCache.clear();
+      _htmlCache.clear();
+      _friendsCache.clear();
+    }
     _currentUsername = value.isEmpty ? null : value;
     _currentNickname = value.isEmpty ? '' : nickname.trim();
     _currentAvatarUrl = value.isEmpty ? '' : avatarUrl.trim();
   }
 
   Future<void> clearAccountCache() async {
+    _jsonCache.clear();
+    _htmlCache.clear();
     await _persistentCache.clearAccountData();
     _friendsCache.clear();
   }
@@ -448,7 +462,7 @@ class CommunityService {
       );
     }
     _jsonCache.removeWhere(
-      (key, _) => key.contains('/groups/$encoded') || key.contains('/topics'),
+      (key) => key.contains('/groups/$encoded') || key.contains('/topics'),
     );
   }
 
@@ -489,9 +503,7 @@ class CommunityService {
     }
     final topicId = resolveTopicId(topic);
     if (topicId != null) {
-      _jsonCache.removeWhere(
-        (key, _) => key.contains('/$area/-/topics/$topicId'),
-      );
+      _jsonCache.removeWhere((key) => key.contains('/$area/-/topics/$topicId'));
     }
   }
 
@@ -537,9 +549,9 @@ class CommunityService {
       );
     }
     _jsonCache.removeWhere(
-      (key, _) => key.contains('/topics/$id') || key.contains('topic'),
+      (key) => key.contains('/topics/$id') || key.contains('topic'),
     );
-    _htmlCache.removeWhere((key, _) => key.contains('/group/topic/$id'));
+    _htmlCache.removeWhere((key) => key.contains('/group/topic/$id'));
   }
 
   /// Creates a group topic through the classic website form
@@ -982,25 +994,18 @@ class CommunityService {
     final uri = Uri.parse(
       path,
     ).replace(queryParameters: _stringQueryParameters(query));
-    final key = uri.toString();
-    final cached = _htmlCache[key];
-    if (!refresh &&
-        cached != null &&
-        DateTime.now().difference(cached.createdAt) <
-            const Duration(minutes: 2)) {
-      return cached.html;
-    }
+    return await _htmlCache.get(
+      '$uri',
+      () => _fetchHtml(path, query: query),
+      refresh: refresh,
+    );
+  }
+
+  Future<String> _fetchHtml(String path, {Map<String, dynamic>? query}) async {
     try {
       final response = await _htmlDio.get<String>(path, queryParameters: query);
       final html = response.data ?? '';
       if (html.isEmpty) throw const FormatException('Bangumi 返回了空页面');
-      _storeIn(
-        _htmlCache,
-        key,
-        _CachedHtml(html, DateTime.now()),
-        (value) => value.createdAt,
-        const Duration(minutes: 2),
-      );
       return html;
     } on DioException catch (error) {
       final status = error.response?.statusCode;
@@ -1014,19 +1019,23 @@ class CommunityService {
     String path, {
     Map<String, dynamic>? query,
     bool refresh = false,
-    bool retriedAuth = false,
   }) async {
     final uri = Uri.parse(
       path,
     ).replace(queryParameters: _stringQueryParameters(query));
-    final key = uri.toString();
-    final cached = _jsonCache[key];
-    if (!refresh &&
-        cached != null &&
-        DateTime.now().difference(cached.createdAt) <
-            const Duration(minutes: 2)) {
-      return cached.json;
-    }
+    return await _jsonCache.get(
+          '$uri',
+          () => _fetchJson(path, query: query),
+          refresh: refresh,
+        )
+        as Map<String, dynamic>;
+  }
+
+  Future<Map<String, dynamic>> _fetchJson(
+    String path, {
+    Map<String, dynamic>? query,
+    bool retriedAuth = false,
+  }) async {
     DioException? lastError;
     for (var attempt = 0; attempt < 3; attempt++) {
       try {
@@ -1036,13 +1045,6 @@ class CommunityService {
         );
         final json = response.data;
         if (json == null) throw const FormatException('Bangumi 返回了空数据');
-        _storeIn(
-          _jsonCache,
-          key,
-          _CachedJson(json, DateTime.now()),
-          (value) => value.createdAt,
-          const Duration(minutes: 2),
-        );
         return json;
       } on DioException catch (error) {
         lastError = error;
@@ -1050,7 +1052,7 @@ class CommunityService {
             _isRefreshableAuthFailure(error) &&
             onUnauthorizedRefresh != null &&
             await onUnauthorizedRefresh!()) {
-          return _getJson(path, query: query, refresh: true, retriedAuth: true);
+          return _fetchJson(path, query: query, retriedAuth: true);
         }
         if (!_shouldRetry(error, attempt)) break;
         await Future<void>.delayed(Duration(milliseconds: 250 * (attempt + 1)));
@@ -1064,20 +1066,23 @@ class CommunityService {
     String path, {
     Map<String, dynamic>? query,
     bool refresh = false,
-    bool retriedAuth = false,
   }) async {
     final uri = Uri.parse(
       path,
     ).replace(queryParameters: _stringQueryParameters(query));
-    final key = 'list:$uri';
-    final cached = _jsonCache[key];
-    if (!refresh &&
-        cached != null &&
-        DateTime.now().difference(cached.createdAt) <
-            const Duration(minutes: 2)) {
-      final data = cached.json['data'];
-      if (data is List) return data;
-    }
+    return await _jsonCache.get(
+          'list:$uri',
+          () => _fetchJsonList(path, query: query),
+          refresh: refresh,
+        )
+        as List<dynamic>;
+  }
+
+  Future<List<dynamic>> _fetchJsonList(
+    String path, {
+    Map<String, dynamic>? query,
+    bool retriedAuth = false,
+  }) async {
     DioException? lastError;
     for (var attempt = 0; attempt < 3; attempt++) {
       try {
@@ -1087,13 +1092,6 @@ class CommunityService {
         );
         final data = response.data;
         if (data == null) throw const FormatException('Bangumi 返回了空数据');
-        _storeIn(
-          _jsonCache,
-          key,
-          _CachedJson({'data': data}, DateTime.now()),
-          (value) => value.createdAt,
-          const Duration(minutes: 2),
-        );
         return data;
       } on DioException catch (error) {
         lastError = error;
@@ -1101,12 +1099,7 @@ class CommunityService {
             _isRefreshableAuthFailure(error) &&
             onUnauthorizedRefresh != null &&
             await onUnauthorizedRefresh!()) {
-          return _getJsonList(
-            path,
-            query: query,
-            refresh: true,
-            retriedAuth: true,
-          );
+          return _fetchJsonList(path, query: query, retriedAuth: true);
         }
         if (!_shouldRetry(error, attempt)) break;
         await Future<void>.delayed(Duration(milliseconds: 250 * (attempt + 1)));
@@ -1191,7 +1184,7 @@ class CommunityService {
   Future<void> clearNotices({List<int> ids = const []}) async {
     _requireAuthentication();
     await _postJson('/clear-notify', data: {if (ids.isNotEmpty) 'id': ids});
-    _jsonCache.removeWhere((key, _) => key.contains('/notify'));
+    _jsonCache.removeWhere((key) => key.contains('/notify'));
   }
 
   Future<void> addFriend(String username) async {
@@ -1202,7 +1195,7 @@ class CommunityService {
     await _putJson('/friends/$encoded', data: const {});
     _friendsCache.clear();
     _jsonCache.removeWhere(
-      (key, _) => key.contains('/users/$encoded') || key.contains('/notify'),
+      (key) => key.contains('/users/$encoded') || key.contains('/notify'),
     );
   }
 
@@ -1222,7 +1215,7 @@ class CommunityService {
     final encoded = Uri.encodeComponent(value);
     await _deleteJson('/friends/$encoded');
     _friendsCache.clear();
-    _jsonCache.removeWhere((key, _) => key.contains('/users/$encoded'));
+    _jsonCache.removeWhere((key) => key.contains('/users/$encoded'));
   }
 
   /// Returns whether [username] is already a friend.
@@ -1442,25 +1435,11 @@ class CommunityService {
   }
 }
 
-class _CachedHtml {
-  const _CachedHtml(this.html, this.createdAt);
-
-  final String html;
-  final DateTime createdAt;
-}
-
 class _NoticeTopicBatch {
   _NoticeTopicBatch({required this.topic, required this.notices});
 
   final CommunityTopic topic;
   final List<BangumiNotice> notices;
-}
-
-class _CachedJson {
-  const _CachedJson(this.json, this.createdAt);
-
-  final Map<String, dynamic> json;
-  final DateTime createdAt;
 }
 
 class _CachedFriends {

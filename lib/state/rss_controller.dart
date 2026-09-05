@@ -63,6 +63,7 @@ class RssController extends StateNotifier<RssState> {
       final bindings = await _store.listBindings();
       final unread = await _store.unreadCountsBySubject();
       final total = await _store.totalUnread();
+      if (!mounted) return false;
       state = state.copyWith(
         sources: sources,
         bindings: bindings,
@@ -73,6 +74,7 @@ class RssController extends StateNotifier<RssState> {
       );
       return true;
     } catch (error) {
+      if (!mounted) return false;
       state = state.copyWith(
         loaded: false,
         message: '读取更新源失败：${_errorText(error)}',
@@ -210,14 +212,33 @@ class RssController extends StateNotifier<RssState> {
     var newCount = 0;
     var errors = 0;
     try {
-      for (final source in sources) {
-        try {
-          newCount += await _refreshSource(source, force: force);
-        } catch (_) {
-          errors++;
+      var nextSource = 0;
+      var publish = Future<void>.value();
+      Future<void> worker() async {
+        while (mounted && nextSource < sources.length) {
+          final source = sources[nextSource++];
+          try {
+            // Await before incrementing: += across await can lose another worker's count.
+            final added = await _refreshSource(source, force: force);
+            newCount += added;
+          } catch (_) {
+            errors++;
+          }
+          // Serialize snapshots so an older disk read cannot replace a newer one.
+          publish = publish.then((_) async {
+            if (mounted) await reload();
+          });
+          await publish;
         }
       }
-      if (!await reload()) {
+
+      await Future.wait([
+        for (var i = 0; i < 3 && i < sources.length; i++) worker(),
+      ]);
+      if (!mounted) return;
+      final loaded = await reload();
+      if (!mounted) return;
+      if (!loaded) {
         state = state.copyWith(refreshing: false);
         return;
       }
@@ -226,6 +247,7 @@ class RssController extends StateNotifier<RssState> {
           : '检查完成：+$newCount 条，另有 $errors 个源失败';
       state = state.copyWith(refreshing: false, message: msg);
     } catch (error) {
+      if (!mounted) return;
       state = state.copyWith(
         refreshing: false,
         message: '刷新失败：${error.toString().replaceFirst('Exception: ', '')}',

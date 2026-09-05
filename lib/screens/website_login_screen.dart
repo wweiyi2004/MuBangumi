@@ -66,7 +66,7 @@ class _WebsiteLoginScreenState extends ConsumerState<WebsiteLoginScreen> {
               children: [
                 const Icon(Icons.error_outline_rounded, size: 48),
                 const SizedBox(height: 16),
-                Text('读取网站会话失败：$error', textAlign: TextAlign.center),
+                const Text('无法读取网站登录，请重试', textAlign: TextAlign.center),
                 const SizedBox(height: 16),
                 FilledButton.icon(
                   onPressed: _loadSeedCookies,
@@ -89,9 +89,7 @@ class _WebsiteLoginScreenState extends ConsumerState<WebsiteLoginScreen> {
       seedCookies: cookies,
       enableCookieCapture: true,
       captureActionLabel: '保存网站会话',
-      loginHint:
-          '在此登录 Bangumi 官网后点右上角「保存」。OAuth 与网站会话独立：'
-          '收藏走 Token，加组/私信等走网站 Cookie。',
+      loginHint: '请登录与应用相同的 Bangumi 账号，完成后点右上角「保存」。',
       onCookiesCaptured: (cookies) async {
         final ok = await ref
             .read(websiteSessionProvider.notifier)
@@ -143,8 +141,8 @@ Future<void> openSeededCommunityWeb(
         loginHint:
             loginHint ??
             (cookies.isEmpty
-                ? '官网页面可使用「我的 → 同步网站登录」保存会话，减少重复登录。'
-                : '已注入同步的网站会话。若仍提示登录，请重新同步。'),
+                ? '可在「我的 → 同步网站登录」保存登录，减少重复登录。'
+                : '若页面提示登录，请重新登录后保存。'),
       ),
     ),
   );

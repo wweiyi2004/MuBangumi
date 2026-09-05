@@ -41,11 +41,12 @@ class AppLayout {
     );
   }
 
-  static double sectionGap(BuildContext context) =>
-      isPhone(context) ? 14 : 18;
+  static double sectionGap(BuildContext context) => isPhone(context) ? 14 : 18;
 
-  static double blockGap(BuildContext context) =>
-      isPhone(context) ? 20 : 28;
+  static double pageTopPadding(BuildContext context) =>
+      isPhone(context) ? 16 : 24;
+
+  static double blockGap(BuildContext context) => isPhone(context) ? 20 : 28;
 
   static TextStyle? pageTitleStyle(BuildContext context) {
     final theme = Theme.of(context).textTheme;
@@ -57,25 +58,15 @@ class AppLayout {
     return isPhone(context) ? theme.titleLarge : theme.headlineMedium;
   }
 
-  /// Bottom navigation: hide labels when 6 destinations are too tight.
+  /// Five short labels stay visible so destinations are recognizable.
   static NavigationDestinationLabelBehavior navLabelBehavior(
     BuildContext context,
   ) {
-    final w = widthOf(context);
-    if (w < 380) {
-      return NavigationDestinationLabelBehavior.alwaysHide;
-    }
-    if (w < 520) {
-      return NavigationDestinationLabelBehavior.onlyShowSelected;
-    }
-    return NavigationDestinationLabelBehavior.onlyShowSelected;
+    return NavigationDestinationLabelBehavior.alwaysShow;
   }
 
   static double navHeight(BuildContext context) {
-    final w = widthOf(context);
-    if (w < 380) return 58;
-    if (w < phone) return 64;
-    return 72;
+    return MediaQuery.textScalerOf(context).scale(12) > 18 ? 88 : 72;
   }
 }
 

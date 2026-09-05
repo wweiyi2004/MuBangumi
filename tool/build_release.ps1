@@ -4,10 +4,22 @@ param(
 
     [switch]$Shorebird,
 
+    [switch]$Patch,
+
+    [string]$ReleaseVersion,
+
+    [string]$FlutterVersion = '3.44.7',
+
     [switch]$DryRun
 )
 
 $ErrorActionPreference = 'Stop'
+if ($Patch) {
+    $Shorebird = $true
+    if ($ReleaseVersion -notmatch '^\d+\.\d+\.\d+\+\d+$') {
+        throw '补丁必须指定完整基线版本，例如 -ReleaseVersion 2.1.0+10。'
+    }
+}
 $repositoryRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 $oauthConfigPath = Join-Path $repositoryRoot 'config\oauth.local.json'
 $expectedArtifact = switch ($Target) {
@@ -54,17 +66,21 @@ try {
             throw '未找到 Shorebird CLI，请先安装并完成 shorebird login。'
         }
         $platform = if ($Target -eq 'windows') { 'windows' } else { 'android' }
-        $arguments = @('release', $platform)
-        if ($Target -eq 'apk') {
+        $arguments = if ($Patch) {
+            @('patch', $platform, "--release-version=$ReleaseVersion")
+        } else {
+            @('release', $platform, "--flutter-version=$FlutterVersion")
+        }
+        if (-not $Patch -and $Target -eq 'apk') {
             $arguments += '--artifact=apk'
         }
         if ($DryRun) {
             $arguments += '--dry-run'
-        } elseif (Test-Path -LiteralPath $artifactPath -PathType Leaf) {
+        } elseif (-not $Patch -and (Test-Path -LiteralPath $artifactPath -PathType Leaf)) {
             Remove-Item -LiteralPath $artifactPath -Force
         }
         $arguments += @('--', "--dart-define-from-file=$oauthConfigPath")
-        Write-Host "使用本地 OAuth 配置构建 Shorebird $platform release（不会打印密钥）"
+        Write-Host "使用本地 OAuth 配置构建 Shorebird $platform（不会打印密钥）"
         & shorebird @arguments
     } else {
         if (-not (Get-Command flutter -ErrorAction SilentlyContinue)) {
@@ -86,6 +102,11 @@ try {
 
     if ($DryRun) {
         Write-Host 'Shorebird dry-run 校验通过。'
+        return
+    }
+
+    if ($Patch) {
+        Write-Host "Shorebird 补丁发布完成，基线：$ReleaseVersion。"
         return
     }
 
