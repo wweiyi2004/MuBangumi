@@ -26,10 +26,16 @@ if ($actualVersion -notmatch ('^' + [regex]::Escape($Version) + '(?:[.+]|$)')) {
 $stagingPath = Join-Path $repositoryRoot ('.dart_tool\windows-package-' + [guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path (Join-Path $stagingPath 'data') -Force | Out-Null
 Get-ChildItem -LiteralPath $releasePath -File |
-    Where-Object { $_.Name -in @('mubangumi.exe', 'native_assets.json') -or $_.Extension -eq '.dll' } |
+    Where-Object { $_.Name -eq 'mubangumi.exe' -or $_.Extension -eq '.dll' } |
     ForEach-Object { Copy-Item -LiteralPath $_.FullName -Destination $stagingPath }
 foreach ($relative in @('app.so', 'icudtl.dat', 'flutter_assets')) {
     Copy-Item -LiteralPath (Join-Path $releasePath "data\$relative") -Destination (Join-Path $stagingPath 'data') -Recurse
+}
+# A legacy root manifest may still contain absolute paths from a debug build.
+# Reuse the current release manifest, whose DLL names resolve in this bundle.
+$nativeManifest = Join-Path $releasePath 'data\flutter_assets\NativeAssetsManifest.json'
+if (Test-Path -LiteralPath $nativeManifest -PathType Leaf) {
+    Copy-Item -LiteralPath $nativeManifest -Destination (Join-Path $stagingPath 'native_assets.json')
 }
 $privateFiles = Get-ChildItem -LiteralPath $stagingPath -Recurse -File |
     Where-Object { $_.Name -match '\.(sqlite|sqlite3|db)(-|$)' -or $_.Name -eq 'oauth.local.json' }
