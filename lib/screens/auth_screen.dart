@@ -9,6 +9,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../app.dart';
 import '../core/auth/bangumi_oauth.dart';
 import '../core/auth/oauth_builtin.dart';
+import '../core/auth/website_session.dart';
 import '../state/session_controller.dart';
 import '../widgets/network_route_picker.dart';
 import '../widgets/oauth_authorization_dialog.dart';
@@ -82,11 +83,17 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
         );
       }
       if (config == null || !mounted) return;
+      List<WebsiteCookie> websiteCookies = const [];
       final login = ref
           .read(sessionProvider.notifier)
           .signInWithOAuth(
             config,
-            launchAuthorization: _launchOAuthAuthorization,
+            launchAuthorization: (uri, callback) => _launchOAuthAuthorization(
+              uri,
+              callback,
+              onCookiesCaptured: (cookies) => websiteCookies = cookies,
+            ),
+            websiteCookies: () => websiteCookies,
           );
       _startingOAuth = false;
       final signedIn = await login;
@@ -120,14 +127,19 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
 
   Future<bool> _launchOAuthAuthorization(
     Uri authorizationUri,
-    Future<Uri> callback,
-  ) async {
-    if (Platform.isWindows) {
+    Future<Uri> callback, {
+    ValueChanged<List<WebsiteCookie>>? onCookiesCaptured,
+  }) async {
+    if (Platform.isWindows || Platform.isAndroid || Platform.isIOS) {
       if (!mounted) return false;
       return showOAuthAuthorizationDialog(
         context,
         authorizationUri: authorizationUri,
         callback: callback,
+        onCookiesCaptured: onCookiesCaptured,
+        onAuthorizationRedirect: ref
+            .read(bangumiOAuthProvider)
+            .acceptEmbeddedRedirect,
       );
     }
     final opened = await launchUrl(

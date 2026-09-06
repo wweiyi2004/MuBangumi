@@ -983,18 +983,11 @@ class _SubjectHeader extends StatelessWidget {
         final titleBlock = Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              subject.displayName,
-              style: titleStyle,
-              maxLines: compact ? 3 : 4,
-              overflow: TextOverflow.ellipsis,
-            ),
+            Text(subject.displayName, style: titleStyle),
             if (subject.nameCn.isNotEmpty && subject.name.isNotEmpty) ...[
               const SizedBox(height: 4),
               Text(
                 subject.name,
-                maxLines: compact ? 2 : 3,
-                overflow: TextOverflow.ellipsis,
                 style: TextStyle(
                   color: Theme.of(context).colorScheme.onSurfaceVariant,
                   fontSize: compact ? 13 : null,

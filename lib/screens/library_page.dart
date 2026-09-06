@@ -294,7 +294,7 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
                           gridDelegate:
                               SliverGridDelegateWithFixedCrossAxisCount(
                                 crossAxisCount: columns,
-                                mainAxisExtent: 128,
+                                mainAxisExtent: subjectTileHeight(context),
                                 mainAxisSpacing: 14,
                                 crossAxisSpacing: 14,
                               ),

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../widgets/readable_subject_title.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/layout/app_layout.dart';
@@ -519,10 +520,9 @@ class _RecommendTile extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
+                    ReadableSubjectTitle(
                       subject.displayName,
                       maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
                       style: Theme.of(context).textTheme.titleMedium?.copyWith(
                         fontWeight: FontWeight.w800,
                       ),

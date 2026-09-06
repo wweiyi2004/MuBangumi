@@ -13,6 +13,7 @@ import '../state/theme_controller.dart';
 import '../state/update_controller.dart';
 import '../state/website_session_controller.dart';
 import '../widgets/network_route_picker.dart';
+import '../widgets/profile_collection_summary.dart';
 import '../widgets/github_release_dialog.dart';
 import '../widgets/sync_issues_sheet.dart';
 import '../widgets/update_ready_dialog.dart';
@@ -135,39 +136,10 @@ class ProfilePage extends ConsumerWidget {
                 ),
               ),
               const SizedBox(height: 18),
-              LayoutBuilder(
-                builder: (context, constraints) {
-                  // Avoid three razor-thin stat cards on phone-width panes.
-                  final columns = constraints.maxWidth < 340
-                      ? 1
-                      : constraints.maxWidth < 520
-                      ? 2
-                      : 3;
-                  final gap = 12.0;
-                  final width =
-                      (constraints.maxWidth - gap * (columns - 1)) / columns;
-                  return Wrap(
-                    spacing: gap,
-                    runSpacing: gap,
-                    children: [
-                      _CountCard(
-                        width: width,
-                        value: count(CollectionType.doing),
-                        label: '进行中',
-                      ),
-                      _CountCard(
-                        width: width,
-                        value: count(CollectionType.done),
-                        label: '已完成',
-                      ),
-                      _CountCard(
-                        width: width,
-                        value: session.collections.length,
-                        label: '总收藏',
-                      ),
-                    ],
-                  );
-                },
+              ProfileCollectionSummary(
+                doing: count(CollectionType.doing),
+                done: count(CollectionType.done),
+                total: session.collections.length,
               ),
               const SizedBox(height: 10),
               Text(
@@ -496,7 +468,7 @@ class _WebsiteSessionTile extends ConsumerWidget {
             ? Icons.verified_user_outlined
             : Icons.language_rounded,
       ),
-      title: const Text('同步网站登录'),
+      title: const Text('网站登录状态'),
       subtitle: Text(website.statusLabel),
       trailing: const Icon(Icons.chevron_right_rounded),
       onTap: () async {
@@ -509,8 +481,8 @@ class _WebsiteSessionTile extends ConsumerWidget {
               children: [
                 ListTile(
                   leading: const Icon(Icons.login_rounded),
-                  title: Text(website.isSynced ? '重新同步网站登录' : '去官网登录并保存'),
-                  subtitle: const Text('使用私信等功能时需要，请登录同一个 Bangumi 账号。'),
+                  title: Text(website.isSynced ? '管理网站登录' : '登录 Bangumi 网站'),
+                  subtitle: const Text('私信与小组共用此登录，登录成功后自动保存。'),
                   onTap: () => Navigator.pop(context, 'sync'),
                 ),
                 if (website.isSynced)
@@ -632,36 +604,4 @@ class _UpdateSettingsTile extends ConsumerWidget {
     };
     messenger.showSnackBar(SnackBar(content: Text(text)));
   }
-}
-
-class _CountCard extends StatelessWidget {
-  const _CountCard({
-    required this.width,
-    required this.value,
-    required this.label,
-  });
-
-  final double width;
-  final int value;
-  final String label;
-
-  @override
-  Widget build(BuildContext context) => SizedBox(
-    width: width,
-    child: Padding(
-      padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 10),
-      child: Column(
-        children: [
-          Text('$value', style: Theme.of(context).textTheme.headlineMedium),
-          const SizedBox(height: 3),
-          Text(
-            label,
-            style: TextStyle(
-              color: Theme.of(context).colorScheme.onSurfaceVariant,
-            ),
-          ),
-        ],
-      ),
-    ),
-  );
 }

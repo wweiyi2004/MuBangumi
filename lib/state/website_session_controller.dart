@@ -81,6 +81,42 @@ class WebsiteSessionController extends StateNotifier<WebsiteSessionState> {
     }
   }
 
+  /// Capture belongs to the session that requested it, even if the native
+  /// browser responds after logout. Unchanged cookies need no disk write.
+  Future<bool> captureCookies(
+    Future<List<WebsiteCookie>> Function() capture, {
+    bool automatic = false,
+  }) async {
+    final generation = _generation;
+    try {
+      final cookies = await capture();
+      if (!mounted || generation != _generation) return false;
+      final snapshot = WebsiteSessionSnapshot(
+        cookies: cookies,
+        syncedAt: DateTime.now(),
+      );
+      if (automatic &&
+          !cookies.any(
+            (cookie) =>
+                cookie.name.toLowerCase().endsWith('_auth') &&
+                cookie.value.isNotEmpty &&
+                !cookie.isExpired,
+          )) {
+        return false;
+      }
+      if (snapshot.hasSessionCookies &&
+          snapshot.cookieHeader == state.snapshot?.cookieHeader) {
+        return true;
+      }
+      return saveCookies(cookies);
+    } catch (_) {
+      if (mounted && generation == _generation && !automatic) {
+        state = state.copyWith(message: '无法保存登录，请重试');
+      }
+      return false;
+    }
+  }
+
   Future<bool> saveCookies(
     List<WebsiteCookie> cookies, {
     DateTime? syncedAt,
@@ -135,11 +171,11 @@ class WebsiteSessionController extends StateNotifier<WebsiteSessionState> {
   }
 
   /// Reflect sign-out immediately and clear storage after pending saves.
-  void markCleared({String? message}) {
+  Future<void> markCleared({String? message}) {
     _generation++;
     state = WebsiteSessionState(ready: true, message: message);
     // Complete any in-flight save before clearing it. A newer save then queues
     // after this cleanup, so an old write cannot erase the new website session.
-    unawaited(_write(_store.clear).catchError((Object _) {}));
+    return _write(_store.clear).catchError((Object _) {});
   }
 }

@@ -11,113 +11,93 @@ import '../core/network/pm_service.dart';
 import '../core/theme/app_theme.dart';
 import '../models/pm_models.dart';
 import '../state/website_session_controller.dart';
+import '../state/pm_mailbox_controller.dart';
+import '../widgets/community_loading.dart';
 import 'community_page.dart';
 import 'website_login_screen.dart';
 
 /// Native 站内短信：Cookie 会话 + HTML 解析；失败时回退官网 WebView。
 class PmPage extends ConsumerStatefulWidget {
-  const PmPage({super.key, this.composeTo});
+  const PmPage({super.key, this.composeTo, this.service});
 
   final String? composeTo;
+  final PmService? service;
 
   @override
   ConsumerState<PmPage> createState() => _PmPageState();
 }
 
 class _PmPageState extends ConsumerState<PmPage> {
-  final _service = PmService.shared;
+  late final _service = widget.service ?? PmService.shared;
+  late final _inbox = PmMailboxController(_service.loadInbox);
+  late final _outbox = PmMailboxController(_service.loadOutbox);
+  PmMailboxController get _mailbox => _tab == 0 ? _inbox : _outbox;
 
   int _tab = 0; // 0 inbox, 1 outbox
-  List<PmConversation> _inbox = const [];
-  List<PmConversation> _outbox = const [];
-  bool _loadingInbox = true;
-  bool _loadingOutbox = false;
-  String? _error;
-  bool _needAuth = false;
-  bool _outboxLoaded = false;
+  String? _pendingComposeTo;
 
   @override
   void initState() {
     super.initState();
+    _pendingComposeTo = widget.composeTo?.trim();
+    _inbox.addListener(_onMailboxChanged);
+    _outbox.addListener(_onMailboxChanged);
+    ref.listenManual(websiteSessionProvider, (previous, next) {
+      if (!next.ready ||
+          previous?.snapshot?.cookieHeader == next.snapshot?.cookieHeader) {
+        return;
+      }
+      _inbox.reset(requireAuth: !next.isSynced);
+      _outbox.reset(requireAuth: !next.isSynced);
+      if (next.isSynced) {
+        unawaited(_inbox.refresh());
+        if (_tab == 1) unawaited(_outbox.refresh());
+      }
+    });
     unawaited(_bootstrap());
   }
 
+  void _onMailboxChanged() {
+    if (mounted) setState(() {});
+  }
+
+  @override
+  void dispose() {
+    _inbox.dispose();
+    _outbox.dispose();
+    super.dispose();
+  }
+
   Future<void> _bootstrap() async {
-    await _loadInbox();
-    final target = widget.composeTo?.trim();
-    if (target != null && target.isNotEmpty && mounted && !_needAuth) {
-      await Navigator.of(context).push(
-        MaterialPageRoute<void>(
-          builder: (_) => PmComposeScreen(toUser: target),
+    await _inbox.refresh();
+    await _resumePendingCompose();
+  }
+
+  Future<void> _resumePendingCompose() async {
+    final target = _pendingComposeTo;
+    if (target != null && target.isNotEmpty && mounted && !_inbox.needAuth) {
+      _pendingComposeTo = null;
+      final sent = await Navigator.of(context).push<bool>(
+        MaterialPageRoute<bool>(
+          builder: (_) => PmComposeScreen(toUser: target, service: _service),
         ),
       );
-      if (mounted) await _loadInbox();
+      if (sent == true && mounted) await _refreshMailboxes();
     }
   }
 
-  Future<void> _loadInbox() async {
-    setState(() {
-      _loadingInbox = true;
-      _error = null;
-      _needAuth = false;
-    });
-    try {
-      final list = await _service.loadInbox();
-      if (!mounted) return;
-      setState(() {
-        _inbox = list;
-        _loadingInbox = false;
-      });
-    } on PmAuthException catch (error) {
-      if (!mounted) return;
-      setState(() {
-        _loadingInbox = false;
-        _needAuth = true;
-        _error = error.message;
-      });
-    } catch (error) {
-      if (!mounted) return;
-      setState(() {
-        _loadingInbox = false;
-        _error = error.toString().replaceFirst('Exception: ', '');
-      });
-    }
-  }
-
-  Future<void> _loadOutbox() async {
-    setState(() {
-      _loadingOutbox = true;
-      _error = null;
-    });
-    try {
-      final list = await _service.loadOutbox();
-      if (!mounted) return;
-      setState(() {
-        _outbox = list;
-        _loadingOutbox = false;
-        _outboxLoaded = true;
-      });
-    } on PmAuthException catch (error) {
-      if (!mounted) return;
-      setState(() {
-        _loadingOutbox = false;
-        _needAuth = true;
-        _error = error.message;
-      });
-    } catch (error) {
-      if (!mounted) return;
-      setState(() {
-        _loadingOutbox = false;
-        _error = error.toString().replaceFirst('Exception: ', '');
-      });
-    }
+  Future<void> _refreshMailboxes() async {
+    await Future.wait([
+      _inbox.refresh(supersede: true),
+      _outbox.refresh(supersede: true),
+    ]);
   }
 
   Future<void> _selectTab(int index) async {
     if (_tab == index) return;
     setState(() => _tab = index);
-    if (index == 1 && !_outboxLoaded && !_loadingOutbox) {
-      await _loadOutbox();
+    if (!_mailbox.loaded) {
+      await _mailbox.refresh();
     }
   }
 
@@ -125,6 +105,7 @@ class _PmPageState extends ConsumerState<PmPage> {
     await Navigator.of(context).push(
       MaterialPageRoute<void>(
         builder: (_) => PmConversationScreen(
+          service: _service,
           conversationId: item.id,
           title: item.title,
           peerName: item.peerName,
@@ -132,21 +113,22 @@ class _PmPageState extends ConsumerState<PmPage> {
         ),
       ),
     );
-    if (mounted) unawaited(_loadInbox());
+    if (mounted) await _refreshMailboxes();
   }
 
   Future<void> _openCompose() async {
-    final sent = await Navigator.of(
-      context,
-    ).push<bool>(MaterialPageRoute(builder: (_) => const PmComposeScreen()));
-    if (sent == true && mounted) unawaited(_loadInbox());
+    final sent = await Navigator.of(context).push<bool>(
+      MaterialPageRoute(builder: (_) => PmComposeScreen(service: _service)),
+    );
+    if (sent == true && mounted) await _refreshMailboxes();
   }
 
   Future<void> _syncWebsiteLogin() async {
-    await openWebsiteLoginScreen(context);
-    if (!mounted) return;
+    final saved = await openWebsiteLoginScreen(context);
+    if (!mounted || saved != true) return;
     await ref.read(websiteSessionProvider.notifier).reload();
-    await _loadInbox();
+    await _refreshMailboxes();
+    if (mounted) await _resumePendingCompose();
   }
 
   Future<void> _openWebFallback() async {
@@ -171,9 +153,8 @@ class _PmPageState extends ConsumerState<PmPage> {
     final website = ref.watch(websiteSessionProvider);
     final phone = AppLayout.isPhone(context);
     final pad = AppLayout.pagePadding(context);
-    final items = _tab == 0 ? _inbox : _outbox;
-    final loading = _tab == 0 ? _loadingInbox : _loadingOutbox;
-    final unread = _inbox.where((e) => e.isUnread).length;
+    final mailbox = _mailbox;
+    final unread = _inbox.items.where((e) => e.isUnread).length;
 
     return Scaffold(
       extendBodyBehindAppBar: false,
@@ -182,11 +163,13 @@ class _PmPageState extends ConsumerState<PmPage> {
         title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text('站内短信'),
+            const Text('站内短信', maxLines: 1, overflow: TextOverflow.ellipsis),
             Text(
               website.isSynced
-                  ? (unread > 0 ? '$unread 条未读' : '暂无未读短信')
+                  ? (unread > 0 ? '已加载会话中 $unread 条未读' : '已加载会话暂无未读')
                   : '需同步网站登录后使用',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
               style: Theme.of(context).textTheme.labelMedium?.copyWith(
                 color: scheme.onSurfaceVariant,
                 fontWeight: FontWeight.w500,
@@ -196,7 +179,12 @@ class _PmPageState extends ConsumerState<PmPage> {
         ),
         actions: [
           IconButton(
-            tooltip: website.isSynced ? '重新同步网站登录' : '同步网站登录',
+            tooltip: '刷新',
+            onPressed: mailbox.refreshing ? null : () => mailbox.refresh(),
+            icon: const Icon(Icons.refresh_rounded),
+          ),
+          IconButton(
+            tooltip: website.isSynced ? '网站登录状态' : '登录 Bangumi 网站',
             onPressed: _syncWebsiteLogin,
             icon: Icon(
               website.isSynced
@@ -213,7 +201,7 @@ class _PmPageState extends ConsumerState<PmPage> {
           const SizedBox(width: 4),
         ],
       ),
-      floatingActionButton: _needAuth
+      floatingActionButton: mailbox.needAuth
           ? null
           : FloatingActionButton(
               onPressed: _openCompose,
@@ -226,25 +214,23 @@ class _PmPageState extends ConsumerState<PmPage> {
             padding: EdgeInsets.fromLTRB(pad, 4, pad, 10),
             child: _PmSegmentedTabs(
               index: _tab,
-              inboxCount: _inbox.length,
-              outboxCount: _outbox.length,
+              inboxCount: _inbox.items.length,
+              outboxCount: _outbox.items.length,
               unread: unread,
               onChanged: _selectTab,
             ),
           ),
           Expanded(
             child: _PmListBody(
-              loading: loading,
-              error: _error,
-              needAuth: _needAuth,
-              items: items,
+              key: ValueKey(_tab),
+              mailbox: mailbox,
               emptyLabel: _tab == 0 ? '还没有收到短信' : '还没有发出的短信',
               emptyHint: _tab == 0 ? '和好友互相发送站内短信后会出现在这里' : '写一封新短信开始对话',
-              onRetry: _tab == 0 ? _loadInbox : _loadOutbox,
+              onRetry: () => mailbox.refresh(),
               onSyncLogin: _syncWebsiteLogin,
               onOpenWeb: _openWebFallback,
               onOpen: _openConversation,
-              onRefresh: _tab == 0 ? _loadInbox : _loadOutbox,
+              onRefresh: () => mailbox.refresh(),
             ),
           ),
         ],
@@ -377,10 +363,8 @@ class _PmSegmentedTabs extends StatelessWidget {
 
 class _PmListBody extends StatelessWidget {
   const _PmListBody({
-    required this.loading,
-    required this.error,
-    required this.needAuth,
-    required this.items,
+    super.key,
+    required this.mailbox,
     required this.emptyLabel,
     required this.emptyHint,
     required this.onRetry,
@@ -390,10 +374,7 @@ class _PmListBody extends StatelessWidget {
     required this.onRefresh,
   });
 
-  final bool loading;
-  final String? error;
-  final bool needAuth;
-  final List<PmConversation> items;
+  final PmMailboxController mailbox;
   final String emptyLabel;
   final String emptyHint;
   final Future<void> Function() onRetry;
@@ -404,6 +385,10 @@ class _PmListBody extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final items = mailbox.items;
+    final loading = mailbox.refreshing;
+    final error = mailbox.error;
+    final needAuth = mailbox.needAuth;
     if (loading && items.isEmpty) {
       return const Center(child: CircularProgressIndicator(strokeWidth: 2.4));
     }
@@ -412,7 +397,7 @@ class _PmListBody extends StatelessWidget {
         icon: Icons.lock_person_rounded,
         title: '需要网站登录',
         message: error ?? '登录 Bangumi 官网后即可查看和发送私信。',
-        primaryLabel: '同步网站登录',
+        primaryLabel: '登录后继续',
         primaryIcon: Icons.login_rounded,
         onPrimary: onSyncLogin,
         secondaryLabel: '改用网页版',
@@ -423,7 +408,7 @@ class _PmListBody extends StatelessWidget {
       return _PmStateCard(
         icon: Icons.cloud_off_rounded,
         title: '加载失败',
-        message: error!,
+        message: error,
         primaryLabel: '重试',
         primaryIcon: Icons.refresh_rounded,
         onPrimary: onRetry,
@@ -443,18 +428,41 @@ class _PmListBody extends StatelessWidget {
     }
 
     final pad = AppLayout.pagePadding(context);
-    return RefreshIndicator(
-      onRefresh: onRefresh,
-      child: ListView.separated(
-        physics: const AlwaysScrollableScrollPhysics(),
-        padding: EdgeInsets.fromLTRB(pad, 2, pad, 96),
-        itemCount: items.length,
-        separatorBuilder: (_, _) => const SizedBox(height: 8),
-        itemBuilder: (context, index) {
-          final item = items[index];
-          return _PmConversationTile(item: item, onTap: () => onOpen(item));
-        },
-      ),
+    return Column(
+      children: [
+        CommunityRefreshStatus(
+          loading: loading,
+          error: error,
+          onRetry: onRetry,
+        ),
+        Expanded(
+          child: RefreshIndicator(
+            onRefresh: onRefresh,
+            child: ListView.separated(
+              key: PageStorageKey(mailbox),
+              physics: const AlwaysScrollableScrollPhysics(),
+              padding: EdgeInsets.fromLTRB(pad, 2, pad, 96),
+              itemCount: items.length + 1,
+              separatorBuilder: (_, _) => const SizedBox(height: 8),
+              itemBuilder: (context, index) {
+                if (index == items.length) {
+                  return CommunityLoadMoreFooter(
+                    loading: mailbox.loadingMore,
+                    hasMore: mailbox.hasMore,
+                    error: mailbox.moreError,
+                    onLoad: loading ? null : mailbox.loadMore,
+                  );
+                }
+                final item = items[index];
+                return _PmConversationTile(
+                  item: item,
+                  onTap: () => onOpen(item),
+                );
+              },
+            ),
+          ),
+        ),
+      ],
     );
   }
 }
@@ -678,19 +686,21 @@ class PmConversationScreen extends StatefulWidget {
     required this.title,
     this.peerName = '',
     this.peerAvatar = '',
+    this.service,
   });
 
   final String conversationId;
   final String title;
   final String peerName;
   final String peerAvatar;
+  final PmService? service;
 
   @override
   State<PmConversationScreen> createState() => _PmConversationScreenState();
 }
 
 class _PmConversationScreenState extends State<PmConversationScreen> {
-  final _service = PmService.shared;
+  late final _service = widget.service ?? PmService.shared;
   final _input = TextEditingController();
   final _scroll = ScrollController();
   final _focus = FocusNode();
@@ -700,6 +710,7 @@ class _PmConversationScreenState extends State<PmConversationScreen> {
   bool _sending = false;
   String? _error;
   String? _threadId;
+  int _requestId = 0;
 
   @override
   void initState() {
@@ -716,6 +727,7 @@ class _PmConversationScreenState extends State<PmConversationScreen> {
   }
 
   Future<void> _load() async {
+    final requestId = ++_requestId;
     // Capture the requested thread up-front so a slow response for a
     // previously-selected thread cannot overwrite the current one (and so
     // _send can never reply through a stale thread's form).
@@ -729,7 +741,7 @@ class _PmConversationScreenState extends State<PmConversationScreen> {
         widget.conversationId,
         threadId: requestedThread,
       );
-      if (!mounted || requestedThread != _threadId) return;
+      if (!mounted || requestId != _requestId) return;
       setState(() {
         _detail = detail;
         _loading = false;
@@ -740,7 +752,7 @@ class _PmConversationScreenState extends State<PmConversationScreen> {
         }
       });
     } catch (error) {
-      if (!mounted || requestedThread != _threadId) return;
+      if (!mounted || requestId != _requestId) return;
       setState(() {
         _loading = false;
         _error = error.toString().replaceFirst('Exception: ', '');
@@ -1144,16 +1156,17 @@ class _ComposerBar extends StatelessWidget {
 }
 
 class PmComposeScreen extends StatefulWidget {
-  const PmComposeScreen({super.key, this.toUser});
+  const PmComposeScreen({super.key, this.toUser, this.service});
 
   final String? toUser;
+  final PmService? service;
 
   @override
   State<PmComposeScreen> createState() => _PmComposeScreenState();
 }
 
 class _PmComposeScreenState extends State<PmComposeScreen> {
-  final _service = PmService.shared;
+  late final _service = widget.service ?? PmService.shared;
   final _to = TextEditingController();
   final _title = TextEditingController();
   final _body = TextEditingController();

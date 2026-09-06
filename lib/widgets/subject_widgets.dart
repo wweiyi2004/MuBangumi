@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 
 import '../core/network/bangumi_endpoints.dart';
 import '../models/bangumi_models.dart';
+import 'readable_subject_title.dart';
 
 class SubjectCover extends StatelessWidget {
   const SubjectCover({
@@ -148,8 +149,8 @@ double subjectPosterItemHeight(
 }
 
 double _posterFooterHeight(TextScaler textScaler) =>
-    textScaler.scale(14) * 2 * 1.25 +
-    math.max(30, textScaler.scale(11) * 1.5) +
+    textScaler.scale(14) * 3 * 1.25 +
+    math.max(48, textScaler.scale(11) * 1.5) +
     15;
 
 /// Image-first media card used by the home and discovery feeds.
@@ -299,10 +300,8 @@ class SubjectPosterCard extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Expanded(
-                      child: Text(
+                      child: ReadableSubjectTitle(
                         subject.displayName,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
                         style: Theme.of(context).textTheme.titleSmall?.copyWith(
                           fontWeight: FontWeight.w600,
                           height: 1.25,
@@ -479,15 +478,14 @@ class SubjectTile extends StatelessWidget {
               ),
               SizedBox(width: narrow ? 8 : 12),
               Expanded(
-                child: SizedBox(
-                  height: coverHeight,
+                child: ConstrainedBox(
+                  constraints: BoxConstraints(minHeight: coverHeight),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(
+                      ReadableSubjectTitle(
                         subject.displayName,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
+                        maxLines: 2,
                         style: Theme.of(context).textTheme.titleMedium
                             ?.copyWith(fontSize: narrow ? 15 : null),
                       ),
@@ -524,7 +522,7 @@ class SubjectTile extends StatelessWidget {
                             ),
                         ],
                       ),
-                      const Spacer(),
+                      const SizedBox(height: 10),
                       if (collection != null) ...[
                         Row(
                           children: [
@@ -687,6 +685,10 @@ double? _progressValue(Subject subject, UserCollection? collection) {
   return null;
 }
 
+/// Space for two title lines, metadata and progress at the current text scale.
+double subjectTileHeight(BuildContext context) =>
+    math.max(128, 56 + MediaQuery.textScalerOf(context).scale(16) * 5);
+
 class SubjectGrid extends StatelessWidget {
   const SubjectGrid({
     super.key,
@@ -713,7 +715,7 @@ class SubjectGrid extends StatelessWidget {
         addRepaintBoundaries: true,
         gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
           crossAxisCount: columns,
-          mainAxisExtent: narrow ? 116 : 128,
+          mainAxisExtent: subjectTileHeight(context),
           mainAxisSpacing: narrow ? 10 : 14,
           crossAxisSpacing: narrow ? 10 : 14,
         ),

@@ -12,6 +12,7 @@ import '../state/session_controller.dart';
 import '../widgets/schedule_export_poster.dart';
 import '../widgets/schedule_reminder_sheet.dart';
 import '../widgets/subject_widgets.dart';
+import '../widgets/readable_subject_title.dart';
 import 'rss_sheets.dart';
 import 'subject_detail_screen.dart';
 
@@ -600,10 +601,9 @@ class _SearchAddSheetState extends ConsumerState<_SearchAddSheet> {
                           height: 62,
                           borderRadius: 8,
                         ),
-                        title: Text(
+                        title: ReadableSubjectTitle(
                           subject.displayName,
                           maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
                         ),
                         subtitle: Text(
                           [
@@ -1372,10 +1372,9 @@ class _CourseCell extends ConsumerWidget {
                   ),
                 ),
                 const SizedBox(height: 3),
-                Text(
+                ReadableSubjectTitle(
                   item.displayName,
                   maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
                   style: const TextStyle(
                     fontSize: 11,
                     fontWeight: FontWeight.w700,
@@ -1415,10 +1414,9 @@ class _CourseCell extends ConsumerWidget {
               const SizedBox(height: 2),
               SizedBox(
                 height: 22,
-                child: Text(
+                child: ReadableSubjectTitle(
                   item.displayName,
                   maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
                   textAlign: TextAlign.center,
                   style: TextStyle(
                     fontSize: 9,
@@ -1465,10 +1463,9 @@ class _CourseCell extends ConsumerWidget {
                         ),
                       ),
                       const SizedBox(height: 2),
-                      Text(
+                      ReadableSubjectTitle(
                         item.displayName,
                         maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
                         style: const TextStyle(
                           fontSize: 10,
                           fontWeight: FontWeight.w800,
@@ -1513,10 +1510,9 @@ class _CourseCell extends ConsumerWidget {
                           mainAxisAlignment: MainAxisAlignment.center,
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            Text(
+                            ReadableSubjectTitle(
                               item.displayName,
                               maxLines: tight ? 1 : 2,
-                              overflow: TextOverflow.ellipsis,
                               style: TextStyle(
                                 fontSize: tight ? 11 : 12,
                                 fontWeight: FontWeight.w800,
@@ -1651,10 +1647,9 @@ class _CourseCell extends ConsumerWidget {
                     horizontal: 4,
                     vertical: 2,
                   ),
-                  child: Text(
+                  child: ReadableSubjectTitle(
                     item.displayName,
                     maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
                     style: const TextStyle(
                       fontSize: 10,
                       fontWeight: FontWeight.w800,
@@ -1682,10 +1677,9 @@ class _CourseCell extends ConsumerWidget {
             mainAxisSize: MainAxisSize.min,
             children: [
               ListTile(
-                title: Text(
+                title: ReadableSubjectTitle(
                   item.displayName,
                   maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
                   style: const TextStyle(fontWeight: FontWeight.w800),
                 ),
                 subtitle: Text(

@@ -31,7 +31,6 @@ class _CommunityTopicScreenState extends ConsumerState<CommunityTopicScreen> {
   String? _error;
   Set<String> _friendUsernames = const {};
   final Set<String> _reactionBusyPostIds = {};
-  final _drafts = <String, CommunityDraft>{};
 
   @override
   void initState() {
@@ -103,13 +102,18 @@ class _CommunityTopicScreenState extends ConsumerState<CommunityTopicScreen> {
     final replyTo = post == null
         ? null
         : CommunityService.parseReplyId(post.id);
+    final draftAccount = _service.currentUsername;
     final sent = await showCommunityComposer(
       context,
       heading: post == null ? '回复话题' : '回复 ${post.author}',
-      draft: _drafts.putIfAbsent(
-        '${_service.currentUsername}:${post?.id ?? 'topic'}',
-        CommunityDraft.new,
-      ),
+      isAccountCurrent: () =>
+          _service.isAuthenticated && _service.currentUsername == draftAccount,
+      draftKey: communityDraftKey(draftAccount, [
+        'topic',
+        widget.topic.kind.name,
+        topicId,
+        post?.id ?? 'topic',
+      ]),
       warning: _oldTopicWarning,
       onSubmit: (_, content, token) => _service.replyToTopic(
         topic: widget.topic,

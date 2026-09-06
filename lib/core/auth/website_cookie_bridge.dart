@@ -16,7 +16,7 @@ class WebsiteCookieBridge {
 
   static const bgmOrigin = 'https://bgm.tv';
   static const bgmHost = 'bgm.tv';
-  static const _cookieOrigins = [bgmOrigin, 'https://bangumi.tv'];
+  static const _cookieOrigins = [bgmOrigin];
 
   /// Best-effort wipe of Bangumi-related cookies from platform WebView jars.
   static Future<void> clearBgmCookies() async {
@@ -92,7 +92,7 @@ class WebsiteCookieBridge {
     try {
       if (Platform.isAndroid) {
         final manager = _androidCookieManager();
-        for (final cookie in cookies) {
+        for (final cookie in cookies.where((cookie) => !cookie.isExpired)) {
           await manager.setCookie(
             WebViewCookie(
               name: cookie.name,
@@ -106,7 +106,7 @@ class WebsiteCookieBridge {
       }
       // iOS / macOS: common cookie manager setCookie (HttpOnly may be limited).
       final manager = mobile.WebViewCookieManager();
-      for (final cookie in cookies) {
+      for (final cookie in cookies.where((cookie) => !cookie.isExpired)) {
         await manager.setCookie(
           WebViewCookie(
             name: cookie.name,
@@ -128,7 +128,7 @@ class WebsiteCookieBridge {
   ) async {
     if (cookies.isEmpty) return;
     try {
-      for (final cookie in cookies) {
+      for (final cookie in cookies.where((cookie) => !cookie.isExpired)) {
         await controller.setCookie(
           windows.WebviewCookie(
             name: cookie.name,
@@ -157,6 +157,27 @@ class WebsiteCookieBridge {
     if (Platform.isAndroid) {
       final androidCookies = await _captureAndroid();
       if (androidCookies.isNotEmpty) return androidCookies;
+    }
+    if (Platform.isIOS || Platform.isMacOS) {
+      try {
+        // Read the native cookie store, including HttpOnly login cookies.
+        final cookies = await mobile.WebViewCookieManager().platform.getCookies(
+          Uri.parse(bgmOrigin),
+        );
+        if (cookies.isNotEmpty) {
+          return [
+            for (final cookie in cookies)
+              WebsiteCookie(
+                name: cookie.name,
+                value: cookie.value,
+                domain: cookie.domain,
+                path: cookie.path,
+              ),
+          ];
+        }
+      } catch (_) {
+        // Older platform implementations may only support document.cookie.
+      }
     }
     if (mobileController != null) {
       return _captureDocumentCookie(mobileController);

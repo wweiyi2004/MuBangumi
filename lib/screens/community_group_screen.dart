@@ -29,7 +29,6 @@ class _CommunityGroupScreenState extends State<CommunityGroupScreen> {
   int _requestId = 0;
   int _lastSuccessfulRequest = -1;
   String? _error;
-  final _drafts = <String, CommunityDraft>{};
 
   String get _slug => widget.group.slug.isNotEmpty
       ? widget.group.slug
@@ -113,14 +112,14 @@ class _CommunityGroupScreenState extends State<CommunityGroupScreen> {
   }
 
   Future<void> _createTopic() async {
+    final draftAccount = _service.currentUsername;
     final sent = await showCommunityComposer(
       context,
       heading: '在「${_detail?.group.name ?? widget.group.name}」发帖',
       requireTitle: true,
-      draft: _drafts.putIfAbsent(
-        '${_service.currentUsername}',
-        CommunityDraft.new,
-      ),
+      isAccountCurrent: () =>
+          _service.isAuthenticated && _service.currentUsername == draftAccount,
+      draftKey: communityDraftKey(draftAccount, ['group', _slug]),
       onSubmit: (title, content, token) => _service.createGroupTopic(
         slug: _slug,
         title: title,

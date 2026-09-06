@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'readable_subject_title.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../models/schedule_models.dart';
@@ -54,10 +55,9 @@ class _ScheduleReminderSheetState
           children: [
             Text('系统更新提醒', style: theme.textTheme.titleLarge),
             const SizedBox(height: 4),
-            Text(
+            ReadableSubjectTitle(
               widget.item.displayName,
               maxLines: 2,
-              overflow: TextOverflow.ellipsis,
               style: theme.textTheme.bodyMedium?.copyWith(
                 color: scheme.onSurfaceVariant,
               ),

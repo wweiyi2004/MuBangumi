@@ -5,6 +5,58 @@ import 'package:mubangumi/core/auth/website_session.dart';
 import 'package:mubangumi/state/website_session_controller.dart';
 
 void main() {
+  test(
+    'automatic capture ignores anonymous cookies and reuses unchanged login',
+    () async {
+      final store = _CountingWebsiteStore();
+      final controller = WebsiteSessionController(store);
+      addTearDown(controller.dispose);
+      await _waitFor(() => controller.state.ready);
+      expect(
+        await controller.captureCookies(
+          () async => const [
+            WebsiteCookie(name: 'chii_sid', value: 'anonymous'),
+            WebsiteCookie(name: 'cf_clearance', value: 'challenge'),
+          ],
+          automatic: true,
+        ),
+        isFalse,
+      );
+      expect(store.writes, 0);
+      const cookies = [WebsiteCookie(name: 'chii_auth', value: 'signed-in')];
+      expect(
+        await controller.captureCookies(() async => cookies, automatic: true),
+        isTrue,
+      );
+      expect(
+        await controller.captureCookies(() async => cookies, automatic: true),
+        isTrue,
+      );
+      expect(store.writes, 1);
+      expect(controller.state.isSynced, isTrue);
+    },
+  );
+
+  test(
+    'a native cookie capture arriving after logout cannot restore login',
+    () async {
+      final store = _CountingWebsiteStore();
+      final controller = WebsiteSessionController(store);
+      addTearDown(controller.dispose);
+      await _waitFor(() => controller.state.ready);
+      final pending = Completer<List<WebsiteCookie>>();
+      final capture = controller.captureCookies(
+        () => pending.future,
+        automatic: true,
+      );
+      await controller.markCleared();
+      pending.complete(const [WebsiteCookie(name: 'chii_auth', value: 'old')]);
+      expect(await capture, isFalse);
+      expect(store.writes, 0);
+      expect(controller.state.isSynced, isFalse);
+    },
+  );
+
   test('late website reload cannot restore a cleared session', () async {
     final store = _DelayedReadStore();
     final controller = WebsiteSessionController(store);
@@ -169,4 +221,21 @@ class _FailedReadStore extends WebsiteSessionStore {
   @override
   Future<WebsiteSessionSnapshot?> read() async =>
       throw StateError('storage unavailable');
+}
+
+class _CountingWebsiteStore extends WebsiteSessionStore {
+  WebsiteSessionSnapshot? snapshot;
+  int writes = 0;
+  @override
+  Future<WebsiteSessionSnapshot?> read() async => snapshot;
+  @override
+  Future<void> write(WebsiteSessionSnapshot next) async {
+    writes++;
+    snapshot = next;
+  }
+
+  @override
+  Future<void> clear() async {
+    snapshot = null;
+  }
 }

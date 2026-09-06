@@ -120,6 +120,7 @@ class SessionController extends StateNotifier<SessionState> {
     BangumiSyncStore? syncStore,
     WebsiteSessionStore? websiteSessionStore,
     this.onWebsiteSessionCleared,
+    this.onWebsiteSessionSaved,
   }) : _snapshotCache = snapshotCache ?? SnapshotCache.shared,
        _syncStore = syncStore ?? BangumiSyncStore.shared,
        _websiteSessionStore = websiteSessionStore ?? WebsiteSessionStore(),
@@ -138,7 +139,8 @@ class SessionController extends StateNotifier<SessionState> {
   final WebsiteSessionStore _websiteSessionStore;
 
   /// Optional UI hook so Riverpod website-session state stays in sync.
-  final void Function()? onWebsiteSessionCleared;
+  final FutureOr<void> Function()? onWebsiteSessionCleared;
+  final FutureOr<void> Function()? onWebsiteSessionSaved;
   BangumiNetworkRoute _networkRoute = BangumiNetworkRoute.official;
   Future<bool>? _refreshInFlight;
   int _authGeneration = 0;
@@ -340,6 +342,7 @@ class SessionController extends StateNotifier<SessionState> {
   Future<bool> signInWithOAuth(
     OAuthConfig config, {
     OAuthAuthorizationLauncher? launchAuthorization,
+    List<WebsiteCookie> Function()? websiteCookies,
   }) async {
     if (state.phase != SessionPhase.signedOut ||
         state.authActivity != AuthActivity.idle) {
@@ -363,6 +366,7 @@ class SessionController extends StateNotifier<SessionState> {
         persist: true,
         tokens: tokens,
         config: config,
+        websiteCookies: websiteCookies?.call(),
       );
     } catch (error) {
       if (!_isCurrentAuth(generation)) return false;
@@ -406,6 +410,7 @@ class SessionController extends StateNotifier<SessionState> {
     bool alreadyRestored = false,
     OAuthTokenBundle? tokens,
     OAuthConfig? config,
+    List<WebsiteCookie>? websiteCookies,
   }) async {
     if (!_isCurrentAuth(generation)) return false;
     if (persist) {
@@ -441,7 +446,7 @@ class SessionController extends StateNotifier<SessionState> {
         if (previousUser != null && previousUser.username != user.username) {
           if (!await _writeAuth(generation, () async {
             await _websiteSessionStore.clear();
-            onWebsiteSessionCleared?.call();
+            await onWebsiteSessionCleared?.call();
             await CommunityService.shared.clearAccountCache();
           })) {
             return false;
@@ -456,6 +461,24 @@ class SessionController extends StateNotifier<SessionState> {
       } catch (_) {
         // Authentication succeeded; optional list caches cannot turn it into
         // a failed login. Collections are fetched independently below.
+      }
+      if (websiteCookies != null && websiteCookies.isNotEmpty) {
+        final website = WebsiteSessionSnapshot(
+          cookies: websiteCookies,
+          syncedAt: DateTime.now(),
+        );
+        if (website.hasSessionCookies) {
+          try {
+            if (!await _writeAuth(generation, () async {
+              await _websiteSessionStore.write(website);
+              await onWebsiteSessionSaved?.call();
+            })) {
+              return false;
+            }
+          } catch (_) {
+            // A supplemental session must not invalidate a verified OAuth login.
+          }
+        }
       }
       final cached = await _overlayPendingCollections(
         user.username,
@@ -1548,7 +1571,7 @@ class SessionController extends StateNotifier<SessionState> {
       message: message,
     );
     try {
-      onWebsiteSessionCleared?.call();
+      await onWebsiteSessionCleared?.call();
     } catch (_) {}
     String? cleanupError;
     try {
@@ -1626,9 +1649,11 @@ final sessionProvider = StateNotifierProvider<SessionController, SessionState>((
     ref.watch(bangumiApiProvider),
     ref.watch(bangumiOAuthProvider),
     ref.watch(tokenStoreProvider),
-    onWebsiteSessionCleared: () {
+    onWebsiteSessionCleared: () async {
       // Keep in-memory website session UI state aligned with storage wipe.
-      ref.read(websiteSessionProvider.notifier).markCleared();
+      await ref.read(websiteSessionProvider.notifier).markCleared();
     },
+    onWebsiteSessionSaved: () =>
+        ref.read(websiteSessionProvider.notifier).reload(),
   );
 });

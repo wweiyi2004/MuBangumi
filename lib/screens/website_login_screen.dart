@@ -4,7 +4,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/auth/website_session.dart';
-import '../state/website_session_controller.dart';
 import 'community_page.dart';
 
 /// Lets the user log into bgm.tv once and persist WebView cookies for
@@ -84,26 +83,14 @@ class _WebsiteLoginScreenState extends ConsumerState<WebsiteLoginScreen> {
     }
     return CommunityWebScreen(
       initialUrl: WebsiteLoginScreen.loginUrl,
-      title: '同步网站登录',
+      title: '登录 Bangumi 网站',
       showSectionSwitcher: false,
       seedCookies: cookies,
       enableCookieCapture: true,
       captureActionLabel: '保存网站会话',
-      loginHint: '请登录与应用相同的 Bangumi 账号，完成后点右上角「保存」。',
-      onCookiesCaptured: (cookies) async {
-        final ok = await ref
-            .read(websiteSessionProvider.notifier)
-            .saveCookies(cookies);
-        if (!context.mounted) return;
-        final message =
-            ref.read(websiteSessionProvider).message ??
-            (ok ? '网站登录已同步' : '保存失败');
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text(message)));
-        if (ok && context.mounted) {
-          Navigator.of(context).maybePop(true);
-        }
+      loginHint: '使用与应用相同的 Bangumi 账号，登录成功后自动返回。',
+      onSessionSaved: () {
+        if (context.mounted) Navigator.of(context).maybePop(true);
       },
     );
   }
@@ -140,9 +127,7 @@ Future<void> openSeededCommunityWeb(
         seedCookies: cookies,
         loginHint:
             loginHint ??
-            (cookies.isEmpty
-                ? '可在「我的 → 同步网站登录」保存登录，减少重复登录。'
-                : '若页面提示登录，请重新登录后保存。'),
+            (cookies.isEmpty ? '登录一次，私信与小组等功能会自动共用。' : '已使用保存的登录，重新登录后也会自动保存。'),
       ),
     ),
   );

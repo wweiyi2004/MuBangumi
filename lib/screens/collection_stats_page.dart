@@ -1,10 +1,10 @@
 import 'dart:convert';
-import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:path/path.dart' as path;
-import 'package:path_provider/path_provider.dart';
+import '../widgets/readable_subject_title.dart';
+import 'package:file_picker/file_picker.dart';
+import 'package:share_plus/share_plus.dart';
 
 import '../core/insights/collection_insights.dart';
 import '../core/insights/collection_year_review.dart';
@@ -12,6 +12,8 @@ import '../widgets/insight_widgets.dart';
 import 'subject_detail_screen.dart';
 import '../models/bangumi_models.dart';
 import '../widgets/subject_widgets.dart';
+
+enum _ExportAction { save, share }
 
 class CollectionStatsPage extends StatefulWidget {
   const CollectionStatsPage({
@@ -38,6 +40,8 @@ class _CollectionStatsPageState extends State<CollectionStatsPage> {
   int? _month;
   int? _year;
   bool _exporting = false;
+  bool _choosingExport = false;
+  final _exportButtonKey = GlobalKey();
 
   @override
   void initState() {
@@ -73,11 +77,45 @@ class _CollectionStatsPageState extends State<CollectionStatsPage> {
   }
 
   Future<void> _exportJson() async {
-    if (_exporting) return;
-    setState(() => _exporting = true);
+    if (_exporting || _choosingExport) return;
+    setState(() => _choosingExport = true);
     try {
-      final root = await _exportDirectory();
-      await root.create(recursive: true);
+      final box =
+          _exportButtonKey.currentContext?.findRenderObject() as RenderBox?;
+      final origin = box == null
+          ? null
+          : box.localToGlobal(Offset.zero) & box.size;
+      final action = await showModalBottomSheet<_ExportAction>(
+        context: context,
+        showDragHandle: true,
+        builder: (context) => SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const ListTile(
+                title: Text('导出全部收藏'),
+                subtitle: Text('包含评分、短评、标签及隐私标记'),
+              ),
+              ListTile(
+                leading: const Icon(Icons.save_alt_rounded),
+                title: const Text('另存为 JSON'),
+                subtitle: const Text('选择保存位置'),
+                onTap: () => Navigator.pop(context, _ExportAction.save),
+              ),
+              ListTile(
+                leading: const Icon(Icons.share_rounded),
+                title: const Text('分享收藏文件'),
+                onTap: () => Navigator.pop(context, _ExportAction.share),
+              ),
+            ],
+          ),
+        ),
+      );
+      if (action == null || !mounted) return;
+      setState(() {
+        _choosingExport = false;
+        _exporting = true;
+      });
       final now = DateTime.now();
       final stamp =
           '${now.year}${now.month.toString().padLeft(2, '0')}'
@@ -85,9 +123,11 @@ class _CollectionStatsPageState extends State<CollectionStatsPage> {
           '${now.hour.toString().padLeft(2, '0')}'
           '${now.minute.toString().padLeft(2, '0')}'
           '${now.second.toString().padLeft(2, '0')}';
-      final file = File(
-        path.join(root.path, 'MuBangumi_${widget.username}_$stamp.json'),
+      final safeUsername = widget.username.replaceAll(
+        RegExp(r'[^a-zA-Z0-9_-]'),
+        '_',
       );
+      final filename = 'MuBangumi_${safeUsername}_$stamp.json';
       final payload = <String, Object?>{
         'schema_version': 1,
         'exported_at': now.toIso8601String(),
@@ -112,32 +152,42 @@ class _CollectionStatsPageState extends State<CollectionStatsPage> {
         ],
       };
       final encoded = await compute(_encodeCollectionExport, payload);
-      await file.writeAsString(encoded, flush: true);
       if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('已导出到 ${file.path}')));
+      final bytes = Uint8List.fromList(utf8.encode(encoded));
+      if (action == _ExportAction.share) {
+        await Share.shareXFiles(
+          [XFile.fromData(bytes, mimeType: 'application/json')],
+          fileNameOverrides: [filename],
+          subject: 'MuBangumi 收藏数据',
+          sharePositionOrigin: origin,
+        );
+      } else {
+        final destination = await FilePicker.platform.saveFile(
+          dialogTitle: '保存收藏数据',
+          fileName: filename,
+          type: FileType.custom,
+          allowedExtensions: ['json'],
+          bytes: bytes,
+          lockParentWindow: true,
+        );
+        if (destination == null || !mounted) return;
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('收藏数据已保存到所选位置')));
+      }
     } catch (error) {
       if (!mounted) return;
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text('导出失败：$error')));
     } finally {
-      if (mounted) setState(() => _exporting = false);
+      if (mounted) {
+        setState(() {
+          _exporting = false;
+          _choosingExport = false;
+        });
+      }
     }
-  }
-
-  Future<Directory> _exportDirectory() async {
-    if (Platform.isAndroid || Platform.isIOS) {
-      final documents = await getApplicationDocumentsDirectory();
-      return Directory(path.join(documents.path, 'exports'));
-    }
-    final downloads = await getDownloadsDirectory();
-    if (downloads != null) {
-      return Directory(path.join(downloads.path, 'MuBangumi'));
-    }
-    final documents = await getApplicationDocumentsDirectory();
-    return Directory(path.join(documents.path, 'MuBangumi', 'exports'));
   }
 
   @override
@@ -149,8 +199,9 @@ class _CollectionStatsPageState extends State<CollectionStatsPage> {
         title: const Text('收藏手账'),
         actions: [
           IconButton(
+            key: _exportButtonKey,
             tooltip: '导出收藏数据',
-            onPressed: _exporting ? null : _exportJson,
+            onPressed: _exporting || _choosingExport ? null : _exportJson,
             icon: _exporting
                 ? const SizedBox.square(
                     dimension: 18,
@@ -717,10 +768,9 @@ class _MemoryCard extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
+                  ReadableSubjectTitle(
                     item.subject.displayName,
                     maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
                     style: Theme.of(context).textTheme.titleSmall?.copyWith(
                       fontWeight: FontWeight.w800,
                     ),

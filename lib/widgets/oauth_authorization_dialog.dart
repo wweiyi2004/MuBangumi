@@ -1,12 +1,18 @@
 import 'dart:async';
+import 'dart:io';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:webview_flutter/webview_flutter.dart' as mobile;
 import 'package:webview_flutter_windows/webview_flutter_windows.dart'
     as windows;
 
-/// Hosts Bangumi authorize in an in-app WebView2 dialog on Windows.
+import '../core/auth/website_cookie_bridge.dart';
+import '../core/auth/website_session.dart';
+import '../core/auth/bangumi_oauth.dart';
+
+/// Official authorization shares the app WebView cookie jar on mobile and Windows.
 ///
 /// Returns `true` when the authorization UI was accepted long enough for the
 /// OAuth flow to continue (callback arrived, or user left the dialog open until
@@ -16,6 +22,8 @@ Future<bool> showOAuthAuthorizationDialog(
   BuildContext context, {
   required Uri authorizationUri,
   required Future<Uri> callback,
+  ValueChanged<List<WebsiteCookie>>? onCookiesCaptured,
+  bool Function(Uri)? onAuthorizationRedirect,
 }) async =>
     await showDialog<bool>(
       context: context,
@@ -23,6 +31,8 @@ Future<bool> showOAuthAuthorizationDialog(
       builder: (context) => _OAuthAuthorizationDialog(
         authorizationUri: authorizationUri,
         callback: callback,
+        onCookiesCaptured: onCookiesCaptured,
+        onAuthorizationRedirect: onAuthorizationRedirect,
       ),
     ) ??
     false;
@@ -31,10 +41,14 @@ class _OAuthAuthorizationDialog extends StatefulWidget {
   const _OAuthAuthorizationDialog({
     required this.authorizationUri,
     required this.callback,
+    this.onCookiesCaptured,
+    this.onAuthorizationRedirect,
   });
 
   final Uri authorizationUri;
   final Future<Uri> callback;
+  final ValueChanged<List<WebsiteCookie>>? onCookiesCaptured;
+  final bool Function(Uri)? onAuthorizationRedirect;
 
   @override
   State<_OAuthAuthorizationDialog> createState() =>
@@ -43,6 +57,9 @@ class _OAuthAuthorizationDialog extends StatefulWidget {
 
 class _OAuthAuthorizationDialogState extends State<_OAuthAuthorizationDialog> {
   windows.WebviewController? _controller;
+  mobile.WebViewController? _mobileController;
+  bool _usedExternalBrowser = false;
+  List<WebsiteCookie> _redirectCookies = const [];
   final List<StreamSubscription<dynamic>> _subscriptions = [];
 
   bool _ready = false;
@@ -58,11 +75,11 @@ class _OAuthAuthorizationDialogState extends State<_OAuthAuthorizationDialog> {
   void initState() {
     super.initState();
     widget.callback.then<void>(
-      (_) {
+      (_) async {
         _callbackSettled = true;
         // Callback success/failure both keep the launcher "opened" so
         // authorize() can observe the same Future and surface the real result.
-        _finish(accepted: true);
+        await _completeAuthorization();
       },
       onError: (Object _, StackTrace _) {
         _callbackSettled = true;
@@ -70,6 +87,108 @@ class _OAuthAuthorizationDialogState extends State<_OAuthAuthorizationDialog> {
       },
     );
     unawaited(_initialize());
+  }
+
+  Future<void> _completeAuthorization() async {
+    if (_finished || _disposed) return;
+    if (!_usedExternalBrowser) {
+      try {
+        final cookies = _redirectCookies.isNotEmpty
+            ? _redirectCookies
+            : await _captureCookies().timeout(const Duration(seconds: 3));
+        if (mounted && !_finished && !_disposed) {
+          widget.onCookiesCaptured?.call(cookies);
+        }
+      } catch (_) {
+        // Website-session capture is optional; never lose a valid OAuth callback.
+      }
+    }
+    _finish(accepted: true);
+  }
+
+  Future<List<WebsiteCookie>> _captureCookies() => WebsiteCookieBridge.capture(
+    windowsController: _controller,
+    mobileController: _mobileController,
+  );
+
+  Future<void> _initializeMobile() async {
+    try {
+      final saved = await WebsiteSessionStore().read();
+      await WebsiteCookieBridge.injectMobile(saved?.cookies ?? const []);
+      if (!mounted || _finished || _disposed) return;
+      final controller = mobile.WebViewController();
+      _mobileController = controller;
+      await controller.setJavaScriptMode(mobile.JavaScriptMode.unrestricted);
+      await controller.setNavigationDelegate(
+        mobile.NavigationDelegate(
+          onNavigationRequest: (request) async {
+            final uri = Uri.tryParse(request.url);
+            if (uri == null) return mobile.NavigationDecision.prevent;
+            final redirect = Uri.parse(OAuthConfig.redirectUri);
+            if (uri.scheme == redirect.scheme &&
+                uri.host == redirect.host &&
+                uri.port == redirect.port &&
+                uri.path == redirect.path &&
+                uri.queryParameters['state'] ==
+                    widget.authorizationUri.queryParameters['state']) {
+              try {
+                _redirectCookies = await _captureCookies().timeout(
+                  const Duration(seconds: 3),
+                );
+              } catch (_) {}
+              if (widget.onAuthorizationRedirect?.call(uri) == true) {
+                return mobile.NavigationDecision.prevent;
+              }
+              return mobile.NavigationDecision.navigate;
+            }
+            // The official OAuth pages and their login challenges stay in this view.
+            if (uri.scheme == 'https' &&
+                (uri.host == 'bgm.tv' ||
+                    uri.host == 'bangumi.tv' ||
+                    uri.host == 'chii.in' ||
+                    uri.host == 'challenges.cloudflare.com')) {
+              return mobile.NavigationDecision.navigate;
+            }
+            if (uri.scheme == 'about') {
+              return mobile.NavigationDecision.navigate;
+            }
+            return mobile.NavigationDecision.prevent;
+          },
+          onPageStarted: (_) {
+            if (mounted && !_finished) {
+              setState(() {
+                _loading = true;
+                _error = null;
+              });
+            }
+          },
+          onPageFinished: (_) {
+            if (mounted && !_finished) setState(() => _loading = false);
+          },
+          onWebResourceError: (error) {
+            if (error.isForMainFrame == true &&
+                mounted &&
+                !_finished &&
+                !_callbackSettled) {
+              setState(() {
+                _loading = false;
+                _error = '授权页面加载失败，请重试或改用系统浏览器';
+              });
+            }
+          },
+        ),
+      );
+      if (!mounted || _finished || _disposed) return;
+      setState(() => _ready = true);
+      await controller.loadRequest(widget.authorizationUri);
+    } catch (_) {
+      if (mounted && !_finished) {
+        setState(() {
+          _loading = false;
+          _error = '无法打开授权页面，请重试或改用系统浏览器';
+        });
+      }
+    }
   }
 
   /// Single-flight disposal: dispose() and _initialize() could previously
@@ -106,6 +225,10 @@ class _OAuthAuthorizationDialogState extends State<_OAuthAuthorizationDialog> {
     if (_initializing || _finished || _disposed) return;
     _initializing = true;
     try {
+      if (!Platform.isWindows) {
+        await _initializeMobile();
+        return;
+      }
       await _disposeController();
       if (!mounted || _finished || _disposed) return;
       final controller = windows.WebviewController();
@@ -132,6 +255,12 @@ class _OAuthAuthorizationDialogState extends State<_OAuthAuthorizationDialog> {
             });
           }),
         ]);
+        final saved = await WebsiteSessionStore().read();
+        await WebsiteCookieBridge.injectWindows(
+          controller,
+          saved?.cookies ?? const [],
+        );
+        if (!mounted || _finished || _disposed) return;
         await controller.setPopupWindowPolicy(
           windows.WebviewPopupWindowPolicy.sameWindow,
         );
@@ -168,14 +297,22 @@ class _OAuthAuthorizationDialogState extends State<_OAuthAuthorizationDialog> {
       _error = null;
       _loading = true;
     });
-    if (!_ready || _controller == null) {
+    if (!_ready ||
+        (Platform.isWindows
+            ? _controller == null
+            : _mobileController == null)) {
       await _initialize();
       return;
     }
-    await _controller!.loadUrl(widget.authorizationUri.toString());
+    if (Platform.isWindows) {
+      await _controller!.loadUrl(widget.authorizationUri.toString());
+    } else {
+      await _mobileController!.loadRequest(widget.authorizationUri);
+    }
   }
 
   Future<void> _openExternally() async {
+    _usedExternalBrowser = true;
     final opened = await launchUrl(
       widget.authorizationUri,
       mode: LaunchMode.externalApplication,
@@ -197,10 +334,12 @@ class _OAuthAuthorizationDialogState extends State<_OAuthAuthorizationDialog> {
   @override
   Widget build(BuildContext context) {
     final size = MediaQuery.sizeOf(context);
-    final width = math.min(980.0, math.max(560.0, size.width - 64));
-    final height = math.min(760.0, math.max(480.0, size.height - 64));
+    final phone = size.width < 600;
+    final width = math.min(980.0, size.width - (phone ? 16 : 64));
+    final height = math.min(760.0, size.height - (phone ? 32 : 64));
     final colors = Theme.of(context).colorScheme;
     return Dialog(
+      insetPadding: EdgeInsets.all(phone ? 8 : 32),
       clipBehavior: Clip.antiAlias,
       child: SizedBox(
         width: width,
@@ -222,7 +361,7 @@ class _OAuthAuthorizationDialogState extends State<_OAuthAuthorizationDialog> {
                           style: TextStyle(fontWeight: FontWeight.w700),
                         ),
                         Text(
-                          '官方 bgm.tv 授权页面 · MuBangumi 不会读取你的密码',
+                          '官方 bgm.tv · 登录后可直接使用私信与小组',
                           style: TextStyle(fontSize: 12),
                         ),
                       ],
@@ -245,8 +384,15 @@ class _OAuthAuthorizationDialogState extends State<_OAuthAuthorizationDialog> {
             Expanded(
               child: Stack(
                 children: [
-                  if (_ready && _error == null && _controller != null)
-                    Positioned.fill(child: windows.Webview(_controller!)),
+                  if (_ready && _error == null)
+                    if (Platform.isWindows && _controller != null)
+                      Positioned.fill(child: windows.Webview(_controller!))
+                    else if (_mobileController != null)
+                      Positioned.fill(
+                        child: mobile.WebViewWidget(
+                          controller: _mobileController!,
+                        ),
+                      ),
                   if (!_ready && _error == null)
                     const Center(child: CircularProgressIndicator()),
                   if (_error != null)

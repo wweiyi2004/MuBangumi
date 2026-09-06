@@ -20,13 +20,14 @@ void main() {
     BangumiApi? api,
     SnapshotCache? snapshotCache,
     BangumiSyncStore? syncStore,
+    WebsiteSessionStore? websiteSessionStore,
   }) => SessionController(
     api ?? _FakeBangumiApi(),
     oauth,
     store,
     snapshotCache: snapshotCache ?? _MemorySnapshotCache(),
     syncStore: syncStore ?? _MemorySyncStore(),
-    websiteSessionStore: _MemoryWebsiteSessionStore(),
+    websiteSessionStore: websiteSessionStore ?? _MemoryWebsiteSessionStore(),
   );
 
   testWidgets(
@@ -415,10 +416,21 @@ void main() {
         ..expiresAt = null;
       final oauth = _HangingAuthorizeOAuth();
       final api = _DelayedMeApi();
-      final controller = buildController(store: store, oauth: oauth, api: api);
+      final website = _MemoryWebsiteSessionStore();
+      final controller = buildController(
+        store: store,
+        oauth: oauth,
+        api: api,
+        websiteSessionStore: website,
+      );
       addTearDown(controller.dispose);
       await _waitFor(() => controller.state.phase == SessionPhase.signedOut);
-      final login = controller.signInWithOAuth(config);
+      final login = controller.signInWithOAuth(
+        config,
+        websiteCookies: () => const [
+          WebsiteCookie(name: 'chii_auth', value: 'website-login'),
+        ],
+      );
       oauth.completer.complete(
         OAuthTokenBundle(
           accessToken: 'verified-oauth-token',
@@ -431,6 +443,7 @@ void main() {
       expect(controller.state.authActivity, AuthActivity.verifying);
       expect(store.accessToken, isNull);
       expect(store.config, isNull);
+      expect(website.snapshot, isNull);
       api.completer.complete(
         const BangumiUser(
           id: 1,
@@ -442,8 +455,34 @@ void main() {
       expect(await login, isTrue);
       expect(store.accessToken, 'verified-oauth-token');
       expect(store.config, config);
+      expect(website.snapshot!.cookieHeader, 'chii_auth=website-login');
     },
   );
+
+  test('OAuth failure never persists captured website cookies', () async {
+    final website = _MemoryWebsiteSessionStore();
+    final controller = buildController(
+      store: _MemoryTokenStore(config: null)
+        ..accessToken = null
+        ..refreshToken = null,
+      oauth: _AuthorizeFailingOAuth(
+        const BangumiOAuthException('cancelled', isCancelled: true),
+      ),
+      websiteSessionStore: website,
+    );
+    addTearDown(controller.dispose);
+    await _waitFor(() => controller.state.phase == SessionPhase.signedOut);
+    expect(
+      await controller.signInWithOAuth(
+        config,
+        websiteCookies: () => const [
+          WebsiteCookie(name: 'chii_auth', value: 'unverified'),
+        ],
+      ),
+      isFalse,
+    );
+    expect(website.snapshot, isNull);
+  });
 
   test('transient OAuth refresh failure keeps stored credentials', () async {
     final store = _MemoryTokenStore(config: config);

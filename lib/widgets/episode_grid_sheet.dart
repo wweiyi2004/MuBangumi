@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'readable_subject_title.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/network/bangumi_support.dart';
@@ -144,10 +145,9 @@ class _EpisodeGridPanelState extends ConsumerState<_EpisodeGridPanel> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(
+                      ReadableSubjectTitle(
                         widget.collection.subject.displayName,
                         maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
                         style: Theme.of(context).textTheme.titleLarge,
                       ),
                       const SizedBox(height: 3),

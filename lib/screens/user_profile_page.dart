@@ -766,7 +766,7 @@ class _UserProfilePageState extends ConsumerState<UserProfilePage> {
                     return SliverGrid(
                       gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
                         crossAxisCount: columns,
-                        mainAxisExtent: 128,
+                        mainAxisExtent: subjectTileHeight(context),
                         mainAxisSpacing: 12,
                         crossAxisSpacing: 12,
                       ),

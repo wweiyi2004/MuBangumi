@@ -56,7 +56,6 @@ class _CommunityTimelinePageState extends ConsumerState<CommunityTimelinePage> {
   int _replyGeneration = 0;
   bool _initialTargetRevealed = false;
   bool _initialTargetFailed = false;
-  final _drafts = <String, CommunityDraft>{};
 
   bool get _isUserTimeline => widget.username?.trim().isNotEmpty == true;
 
@@ -258,14 +257,14 @@ class _CommunityTimelinePageState extends ConsumerState<CommunityTimelinePage> {
   }
 
   Future<void> _post() async {
+    final draftAccount = _service.currentUsername;
     final sent = await showCommunityComposer(
       context,
       heading: '发布动态',
       tokenProvider: widget.tokenProvider,
-      draft: _drafts.putIfAbsent(
-        '${_service.currentUsername}:post',
-        CommunityDraft.new,
-      ),
+      isAccountCurrent: () =>
+          _service.isAuthenticated && _service.currentUsername == draftAccount,
+      draftKey: communityDraftKey(draftAccount, ['timeline', 'post']),
       contentLabel: '今天有什么新鲜事？',
       maxLength: 380,
       onSubmit: (_, content, token) =>
@@ -284,14 +283,18 @@ class _CommunityTimelinePageState extends ConsumerState<CommunityTimelinePage> {
     CommunityTimelineReply? parent,
   }) async {
     final target = reply?.user.displayName ?? item.user.displayName;
+    final draftAccount = _service.currentUsername;
     final sent = await showCommunityComposer(
       context,
       heading: '回复 $target',
       tokenProvider: widget.tokenProvider,
-      draft: _drafts.putIfAbsent(
-        '${_service.currentUsername}:${item.id}:${reply?.id ?? 0}',
-        CommunityDraft.new,
-      ),
+      isAccountCurrent: () =>
+          _service.isAuthenticated && _service.currentUsername == draftAccount,
+      draftKey: communityDraftKey(draftAccount, [
+        'timeline',
+        item.id,
+        reply?.id ?? 0,
+      ]),
       onSubmit: (_, content, token) => _service.replyToTimeline(
         timelineId: item.id,
         content: content,

@@ -83,10 +83,33 @@ class BangumiOAuth {
   Future<HttpServer>? _openingAuthServer;
   CancelToken? _authorizationRequest;
   int _cancelGeneration = 0;
+  Completer<Uri>? _embeddedRedirect;
+  String? _embeddedState;
+
+  /// Deliver the official redirect directly from the embedded browser. Mobile
+  /// WebViews may block HTTP loopback navigation; no cleartext exception is needed.
+  bool acceptEmbeddedRedirect(Uri uri) {
+    final pending = _embeddedRedirect;
+    final expected = Uri.parse(OAuthConfig.redirectUri);
+    if (pending == null ||
+        pending.isCompleted ||
+        _embeddedState == null ||
+        _authorizationCancel?.isCompleted == true ||
+        uri.scheme != expected.scheme ||
+        uri.host != expected.host ||
+        uri.port != expected.port ||
+        uri.path != expected.path ||
+        uri.queryParameters['state'] != _embeddedState) {
+      return false;
+    }
+    pending.complete(uri);
+    return true;
+  }
 
   /// Abort an in-flight [authorize] wait (e.g. user closed the browser tab).
   Future<void> cancelAuthorization() async {
     _cancelGeneration++;
+    _embeddedState = null;
     _authorizationRequest?.cancel('authorization cancelled');
     final cancel = _authorizationCancel;
     if (cancel != null && !cancel.isCompleted) {
@@ -145,9 +168,16 @@ class BangumiOAuth {
     _activeAuthServer = server;
     final requestCancel = CancelToken();
     _authorizationRequest = requestCancel;
+    final embeddedRedirect = Completer<Uri>();
+    _embeddedRedirect = embeddedRedirect;
+    _embeddedState = state;
     try {
-      final callback = Future.any([_waitForCallback(server), cancel.future])
-          .timeout(
+      final callback =
+          Future.any([
+            _waitForCallback(server),
+            cancel.future,
+            embeddedRedirect.future,
+          ]).timeout(
             const Duration(minutes: 3),
             onTimeout: () => throw const BangumiOAuthException('授权等待超时，请重新登录'),
           );
@@ -186,6 +216,10 @@ class BangumiOAuth {
       );
       return await _exchangeCode(config, code, state, requestCancel);
     } finally {
+      if (identical(_embeddedRedirect, embeddedRedirect)) {
+        _embeddedRedirect = null;
+        _embeddedState = null;
+      }
       if (identical(_authorizationRequest, requestCancel)) {
         _authorizationRequest = null;
       }

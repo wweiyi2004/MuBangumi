@@ -59,6 +59,65 @@ void main() {
     });
   });
 
+  test(
+    'embedded redirect completes OAuth without loading HTTP in the WebView',
+    () async {
+      final oauth = BangumiOAuth(
+        dio: Dio()..httpClientAdapter = _TokenAdapter(),
+      );
+      Uri? accepted;
+      final tokens = await oauth.authorize(
+        const OAuthConfig(clientId: 'client', clientSecret: 'secret'),
+        launchAuthorization: (uri, callback) async {
+          final state = uri.queryParameters['state']!;
+          final valid = Uri.parse(
+            '${OAuthConfig.redirectUri}?code=embedded-code&state=$state',
+          );
+          expect(
+            oauth.acceptEmbeddedRedirect(valid.replace(host: 'example.com')),
+            isFalse,
+          );
+          expect(
+            oauth.acceptEmbeddedRedirect(valid.replace(path: '/unrelated')),
+            isFalse,
+          );
+          expect(
+            oauth.acceptEmbeddedRedirect(
+              valid.replace(query: 'code=x&state=old'),
+            ),
+            isFalse,
+          );
+          expect(oauth.acceptEmbeddedRedirect(valid), isTrue);
+          expect(oauth.acceptEmbeddedRedirect(valid), isFalse);
+          expect(await callback, valid);
+          accepted = valid;
+          return true;
+        },
+      );
+      expect(tokens.accessToken, 'verified-token');
+      expect(oauth.acceptEmbeddedRedirect(accepted!), isFalse);
+    },
+  );
+
+  test('cancelled authorization rejects a late embedded redirect', () async {
+    final oauth = BangumiOAuth();
+    final result = oauth.authorize(
+      const OAuthConfig(clientId: 'client', clientSecret: 'secret'),
+      launchAuthorization: (uri, callback) async {
+        final state = uri.queryParameters['state']!;
+        await oauth.cancelAuthorization();
+        expect(
+          oauth.acceptEmbeddedRedirect(
+            Uri.parse('${OAuthConfig.redirectUri}?code=late&state=$state'),
+          ),
+          isFalse,
+        );
+        return true;
+      },
+    );
+    await expectLater(result, throwsA(_cancelled));
+  });
+
   test('Android OAuth return URI matches the manifest route', () {
     expect(oauthAppReturnUri, 'mubangumi://oauth/complete');
     final manifest = File(

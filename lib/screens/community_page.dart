@@ -2,6 +2,10 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+
+import '../state/website_session_controller.dart';
+import '../state/session_controller.dart';
 import 'package:webview_flutter/webview_flutter.dart' as mobile;
 import 'package:webview_flutter_windows/webview_flutter_windows.dart'
     as windows;
@@ -26,16 +30,16 @@ enum _CommunitySection {
   final String url;
 }
 
-class CommunityWebScreen extends StatefulWidget {
+class CommunityWebScreen extends ConsumerStatefulWidget {
   const CommunityWebScreen({
     super.key,
     this.initialUrl = 'https://bgm.tv/rakuen',
     this.title = 'Bangumi 社区',
     this.showSectionSwitcher = true,
-    this.loginHint = '可在「我的 → 同步网站登录」保存登录，减少重复登录。',
+    this.loginHint = '登录后会自动保存，私信与小组等功能共用此登录。',
     this.seedCookies = const [],
     this.enableCookieCapture = false,
-    this.onCookiesCaptured,
+    this.onSessionSaved,
     this.captureActionLabel,
   });
 
@@ -51,22 +55,27 @@ class CommunityWebScreen extends StatefulWidget {
 
   /// Show a button to capture the current WebView cookies.
   final bool enableCookieCapture;
-  final ValueChanged<List<WebsiteCookie>>? onCookiesCaptured;
+  final VoidCallback? onSessionSaved;
   final String? captureActionLabel;
 
   @override
-  State<CommunityWebScreen> createState() => _CommunityWebScreenState();
+  ConsumerState<CommunityWebScreen> createState() => _CommunityWebScreenState();
 }
 
-class _CommunityWebScreenState extends State<CommunityWebScreen> {
+class _CommunityWebScreenState extends ConsumerState<CommunityWebScreen> {
   final _browserKey = GlobalKey<_CommunityBrowserState>();
   _CommunitySection _section = _CommunitySection.rakuen;
   _BrowserSnapshot _browser = const _BrowserSnapshot();
   bool _showLoginHint = true;
+  bool _capturing = false;
+  late final WebsiteSessionController _session;
+  int? _accountId;
 
   @override
   void initState() {
     super.initState();
+    _session = ref.read(websiteSessionProvider.notifier);
+    _accountId = ref.read(sessionProvider).user?.id;
     if (widget.initialUrl.contains('/group/discover')) {
       _section = _CommunitySection.discover;
     } else if (widget.initialUrl.endsWith('/group')) {
@@ -89,21 +98,39 @@ class _CommunityWebScreenState extends State<CommunityWebScreen> {
     }
   }
 
-  Future<void> _captureCookies() async {
-    final cookies =
-        await _browserKey.currentState?.captureCookies() ?? const [];
-    if (!mounted) return;
-    if (cookies.isEmpty) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('未检测到登录，请登录后再保存')));
+  Future<void> _captureCookies({bool automatic = false}) async {
+    bool sameAccount() =>
+        mounted &&
+        _accountId != null &&
+        ref.read(sessionProvider).user?.id == _accountId;
+    if (_capturing || !sameAccount()) return;
+    final browser = _browserKey.currentState;
+    if (browser == null) return;
+    final uri = Uri.tryParse(_browser.url ?? widget.initialUrl);
+    if (uri == null || uri.scheme != 'https' || uri.host != 'bgm.tv') return;
+    if (automatic && (uri.path == '/login' || uri.path.startsWith('/logout'))) {
       return;
     }
-    widget.onCookiesCaptured?.call(cookies);
-    if (widget.onCookiesCaptured == null) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('已读取网站登录信息')));
+    _capturing = true;
+    try {
+      final saved = await _session.captureCookies(() async {
+        final cookies = await browser.captureCookies();
+        return sameAccount() ? cookies : const [];
+      }, automatic: automatic);
+      if (!mounted || !sameAccount()) return;
+      if (saved) {
+        widget.onSessionSaved?.call();
+      } else if (!automatic) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              ref.read(websiteSessionProvider).message ?? '请完成登录后重试',
+            ),
+          ),
+        );
+      }
+    } finally {
+      _capturing = false;
     }
   }
 
@@ -173,7 +200,7 @@ class _CommunityWebScreenState extends State<CommunityWebScreen> {
                       _BrowserButton(
                         tooltip: widget.captureActionLabel ?? '保存网站会话',
                         icon: Icons.save_rounded,
-                        onPressed: _captureCookies,
+                        onPressed: () => _captureCookies(),
                       ),
                   ],
                 ),
@@ -251,6 +278,8 @@ class _CommunityWebScreenState extends State<CommunityWebScreen> {
                             key: _browserKey,
                             initialUrl: widget.initialUrl,
                             seedCookies: widget.seedCookies,
+                            onPageFinished: () =>
+                                unawaited(_captureCookies(automatic: true)),
                             onStateChanged: (value) {
                               if (mounted) setState(() => _browser = value);
                             },
@@ -340,11 +369,13 @@ class _CommunityBrowser extends StatefulWidget {
     super.key,
     required this.initialUrl,
     required this.onStateChanged,
+    this.onPageFinished,
     this.seedCookies = const [],
   });
 
   final String initialUrl;
   final ValueChanged<_BrowserSnapshot> onStateChanged;
+  final VoidCallback? onPageFinished;
   final List<WebsiteCookie> seedCookies;
 
   @override
@@ -395,6 +426,9 @@ class _CommunityBrowserState extends State<_CommunityBrowser> {
         controller.loadingState.listen((state) {
           _loading = state == windows.LoadingState.loading;
           _notify();
+          if (state == windows.LoadingState.navigationCompleted) {
+            widget.onPageFinished?.call();
+          }
         }),
         controller.historyChanged.listen((history) {
           _canGoBack = history.canGoBack;
@@ -485,6 +519,7 @@ class _CommunityBrowserState extends State<_CommunityBrowser> {
             _loading = false;
             await _updateMobileHistory();
             _notify();
+            if (mounted) widget.onPageFinished?.call();
           },
           onWebResourceError: (error) {
             if (error.isForMainFrame != true) return;
