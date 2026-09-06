@@ -26,7 +26,7 @@ if ($actualVersion -notmatch ('^' + [regex]::Escape($Version) + '(?:[.+]|$)')) {
 $stagingPath = Join-Path $repositoryRoot ('.dart_tool\windows-package-' + [guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path (Join-Path $stagingPath 'data') -Force | Out-Null
 Get-ChildItem -LiteralPath $releasePath -File |
-    Where-Object { $_.Name -eq 'mubangumi.exe' -or $_.Extension -eq '.dll' } |
+    Where-Object { $_.Name -in @('mubangumi.exe', 'native_assets.json') -or $_.Extension -eq '.dll' } |
     ForEach-Object { Copy-Item -LiteralPath $_.FullName -Destination $stagingPath }
 foreach ($relative in @('app.so', 'icudtl.dat', 'flutter_assets')) {
     Copy-Item -LiteralPath (Join-Path $releasePath "data\$relative") -Destination (Join-Path $stagingPath 'data') -Recurse
