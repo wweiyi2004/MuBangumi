@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 class AppTheme {
   static const seed = Color(0xFFE95383);
@@ -46,6 +47,7 @@ class AppTheme {
       fontFamilyFallback: _fontFallback,
       textTheme: _textTheme,
       appBarTheme: AppBarTheme(
+        systemOverlayStyle: SystemUiOverlayStyle.light,
         backgroundColor: Colors.transparent,
         foregroundColor: scheme.onSurface,
         elevation: 0,
@@ -118,6 +120,7 @@ class AppTheme {
       fontFamilyFallback: _fontFallback,
       textTheme: _textTheme,
       appBarTheme: const AppBarTheme(
+        systemOverlayStyle: SystemUiOverlayStyle.dark,
         backgroundColor: Colors.transparent,
         elevation: 0,
         scrolledUnderElevation: 0,

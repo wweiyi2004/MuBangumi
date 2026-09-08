@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 
 import '../widgets/friend_qr_scan_overlay.dart';
@@ -29,6 +30,7 @@ class _FriendQrScanPageState extends State<FriendQrScanPage> {
     return Scaffold(
       backgroundColor: Colors.black,
       appBar: AppBar(
+        systemOverlayStyle: SystemUiOverlayStyle.light,
         backgroundColor: Colors.black,
         foregroundColor: Colors.white,
         title: const Text('扫描好友二维码'),

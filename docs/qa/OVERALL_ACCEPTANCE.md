@@ -30,10 +30,10 @@
 
 | 产物 | 字节数 | SHA-256 |
 | --- | ---: | --- |
-| `dist/MuBangumi-2.2.0-android.apk` | 102823497 | `fd44043bf12d1758b82dd2aaa39968b69fd52a4cdf7856d3180813b7e641ea2d` |
-| `dist/MuBangumi-2.2.0-windows-x64.zip` | 19472628 | `35ead33cf564e6c0bd1d0d8fe57c09609ccda4c0c6480a5d0403a4feb54b18f0` |
+| `dist/MuBangumi-2.2.0-android.apk` | 102839881 | `6e009d6da5b476fb697e3122e318db4342ebe0be89d13fe4fe65dc06ec278efa` |
+| `dist/MuBangumi-2.2.0-windows-x64.zip` | 19472514 | `146acc2f9d1f1a1a831234262bce5f3856e6f25d899897833862d1793fb7fefa` |
 
-独立校验文件：`dist/SHA256SUMS-2.2.0-QA.txt`。构建日志：`.dart_tool/m6-build-android.log`、`.dart_tool/m6-build-windows.log`。产物检查 JSON：`.dart_tool/m6-artifacts.json`。
+独立校验文件：`dist/SHA256SUMS-2.2.0-QA.txt`。以上为包含状态栏修正后重新构建的产物；最新日志为 `.dart_tool/m6-final-build-android.log`、`.dart_tool/m6-final-build-windows.log`，检查 JSON 为 `.dart_tool/m6-artifacts-final.json`。额外以探针专用字符串校验 APK／Windows AOT 内容，确认正常产物没有误用探针入口。
 
 Android 包名 `com.wweiyi.mubangumi`，`versionName=2.2.0`、`versionCode=12`、`minSdk=24`、`targetSdk=36`。APK v2 签名验证通过，证书 SHA-256 为 `e08e8ae54c8ac1718bbbf2cd82e18fe7ab6362e42a3a0739941a5eda77222863`，与已发布 2.1.1 APK 一致。
 
@@ -52,6 +52,8 @@ Windows 可执行文件 ProductVersion 为 `2.2.0+12`。原有 ZIP 未附带可�
 这是一次模拟器 Activity 冷启动测量，不能代表真机性能、完成登录后的首页加载或分位数结果。尚未用真实账号登录，也未发送真实消息或修改真实收藏。
 
 ## 剩余验收
+
+原生备份已完成双向文件选择、保存和完整往返数据验证，详见 [原生互导记录](NATIVE_BACKUP_EXCHANGE.md)。该记录同时保留 Android 35 模拟器的 ART 崩溃及未完成的重启复核，不能将功能验证成功扩大为整体稳定性通过。
 
 - 在隔离的原生测试环境验证八类数据的 Windows → Android → Windows 互导、文件对话框和分享，并保留可复查的输入、结果摘要和截图。
 - 安装产物的 Windows 启动与插件组合；Android 包的升级安装、后台／进程重启及功能操作。
