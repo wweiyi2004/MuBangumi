@@ -47,7 +47,9 @@ class AppTheme {
       fontFamilyFallback: _fontFallback,
       textTheme: _textTheme,
       appBarTheme: AppBarTheme(
-        systemOverlayStyle: SystemUiOverlayStyle.light,
+        systemOverlayStyle: SystemUiOverlayStyle.light.copyWith(
+          statusBarColor: Colors.transparent,
+        ),
         backgroundColor: Colors.transparent,
         foregroundColor: scheme.onSurface,
         elevation: 0,
@@ -119,8 +121,10 @@ class AppTheme {
       scaffoldBackgroundColor: canvas,
       fontFamilyFallback: _fontFallback,
       textTheme: _textTheme,
-      appBarTheme: const AppBarTheme(
-        systemOverlayStyle: SystemUiOverlayStyle.dark,
+      appBarTheme: AppBarTheme(
+        systemOverlayStyle: SystemUiOverlayStyle.dark.copyWith(
+          statusBarColor: Colors.transparent,
+        ),
         backgroundColor: Colors.transparent,
         elevation: 0,
         scrolledUnderElevation: 0,

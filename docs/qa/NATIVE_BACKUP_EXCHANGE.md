@@ -47,6 +47,10 @@ Windows 原始数据与完整往返结果的规范化数据摘要均为 `0671c10
 
 ## 产物隔离
 
+补充复核：Android 34 Google APIs x86_64 镜像安装于项目的 `.dart_tool/m6-android-sdk`，专用设备为 `emulator-5558`。正常应用连续 5 次冷启动后各观察 7 秒，进程均存活；Activity 总耗时为 1460／1195／1182／1374／1160 ms。随后同版 release 探针完成八类原生恢复与进程重启恢复，退出记录只有测试主动停止和包更新。证据为 `.dart_tool/m6-api34-cold-starts.json`、`.dart_tool/m6-native/android34/report.json`、`restart-report.json` 和 `exit-info.log`。这些结果不能直接证明 Android 35 的崩溃已经解决。
+
+原生 `android34/backup-statusbar.png` 已确认深色状态栏文字可读；另外补充透明状态栏颜色，防止旧版 Android 使用默认半透明灰色背景，新的正常产物正在重建。
+
 `dist/MuBangumi-2.2.0-android.apk` 和 Windows ZIP 是正常应用入口的验收包。探针单独保存在 `.dart_tool/m6-native/MuBangumi-native-probe.apk`。构建探针会占用 Flutter 默认构建输出，分发前必须重新构建正常应用或使用已经核对过哈希的正常 `dist` 文件，不能把探针 APK 当作正式包。
 
 最终包已重新构建并包含状态栏修正，附件哈希见 [整体验收记录](OVERALL_ACCEPTANCE.md)。使用同一 Shorebird Flutter 3.44.7 再次运行全部 747 项测试通过，静态检查无问题；原生状态栏效果与稳定性继续复核。整个阶段未上传 GitHub Release 或 Shorebird 发布基线。
