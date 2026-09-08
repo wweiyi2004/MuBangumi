@@ -8,6 +8,7 @@ import '../state/session_controller.dart';
 import '../widgets/episode_grid_sheet.dart';
 import '../widgets/friend_qr_actions.dart';
 import '../widgets/subject_widgets.dart';
+import '../widgets/collection_sync_status.dart';
 import 'calendar_page.dart';
 import 'fan_recommend_page.dart';
 import 'notify_page.dart';
@@ -107,6 +108,7 @@ class HomePage extends ConsumerWidget {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       if (!desktop) header,
+                      const CollectionSyncStatus(),
                       if (sessionMessage != null) ...[
                         const SizedBox(height: 12),
                         MaterialBanner(

@@ -8,27 +8,61 @@ import '../models/bangumi_models.dart';
 import '../state/session_controller.dart';
 import '../widgets/episode_grid_sheet.dart';
 import '../widgets/subject_widgets.dart';
+import '../widgets/collection_sync_status.dart';
 import 'subject_detail_screen.dart';
 
 enum _ProgressFilter { all, notStarted, inProgress, completed }
 
 enum _LibrarySort { updated, title, rating, progress }
 
+/// Statistics count every subject type, so their destinations start untyped.
+Future<void> openCollectionLibrary(
+  BuildContext context, {
+  required CollectionType? collectionType,
+}) => Navigator.of(context).push<void>(
+  MaterialPageRoute<void>(
+    builder: (_) => Scaffold(
+      appBar: AppBar(title: const Text('我的收藏')),
+      body: LibraryPage(
+        initialSubjectType: null,
+        initialCollectionType: collectionType,
+        showTitle: false,
+      ),
+    ),
+  ),
+);
+
 class LibraryPage extends ConsumerStatefulWidget {
-  const LibraryPage({super.key});
+  const LibraryPage({
+    super.key,
+    this.initialSubjectType = SubjectType.anime,
+    this.initialCollectionType = CollectionType.doing,
+    this.showTitle = true,
+  });
+
+  final SubjectType? initialSubjectType;
+  final CollectionType? initialCollectionType;
+  final bool showTitle;
 
   @override
   ConsumerState<LibraryPage> createState() => _LibraryPageState();
 }
 
 class _LibraryPageState extends ConsumerState<LibraryPage> {
-  SubjectType? _subjectType = SubjectType.anime;
-  CollectionType? _type = CollectionType.doing;
+  late SubjectType? _subjectType;
+  late CollectionType? _type;
   _ProgressFilter _progress = _ProgressFilter.all;
   _LibrarySort _sort = _LibrarySort.updated;
   int _minimumRating = 0;
   String _query = '';
   Timer? _searchDebounce;
+
+  @override
+  void initState() {
+    super.initState();
+    _subjectType = widget.initialSubjectType;
+    _type = widget.initialCollectionType;
+  }
 
   @override
   void dispose() {
@@ -48,7 +82,15 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
       (_sort == _LibrarySort.updated ? 0 : 1) +
       (_minimumRating == 0 ? 0 : 1);
 
-  SubjectType get _labelType => _subjectType ?? SubjectType.anime;
+  String _statusLabel(CollectionType type) => _subjectType != null
+      ? type.labelFor(_subjectType!)
+      : switch (type) {
+          CollectionType.wish => '计划中',
+          CollectionType.doing => '进行中',
+          CollectionType.done => '已完成',
+          CollectionType.onHold => '搁置',
+          CollectionType.dropped => '抛弃',
+        };
 
   List<UserCollection> _filterItems(List<UserCollection> collections) {
     final keyword = _query.trim().toLowerCase();
@@ -117,11 +159,13 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text(
-                            '我的收藏',
-                            style: AppLayout.pageTitleStyle(context),
-                          ),
-                          const SizedBox(height: 6),
+                          if (widget.showTitle) ...[
+                            Text(
+                              '我的收藏',
+                              style: AppLayout.pageTitleStyle(context),
+                            ),
+                            const SizedBox(height: 6),
+                          ],
                           Text(
                             phone
                                 ? '找到 ${items.length} 部'
@@ -137,6 +181,7 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
                               fontSize: phone ? 13 : null,
                             ),
                           ),
+                          const CollectionSyncStatus(),
                           if (isLoadingCollections && collections.isEmpty) ...[
                             const SizedBox(height: 10),
                             const LinearProgressIndicator(minHeight: 3),
@@ -223,7 +268,7 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
                                 const SizedBox(width: 8),
                                 for (final type in CollectionType.values) ...[
                                   ChoiceChip(
-                                    label: Text(type.labelFor(_labelType)),
+                                    label: Text(_statusLabel(type)),
                                     selected: _type == type,
                                     onSelected: (_) =>
                                         setState(() => _type = type),

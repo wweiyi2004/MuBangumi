@@ -25,6 +25,7 @@ import 'friends_page.dart';
 import 'notify_page.dart';
 import 'pm_page.dart';
 import 'website_login_screen.dart';
+import 'library_page.dart';
 
 class ProfilePage extends ConsumerWidget {
   const ProfilePage({super.key});
@@ -140,6 +141,16 @@ class ProfilePage extends ConsumerWidget {
                 doing: count(CollectionType.doing),
                 done: count(CollectionType.done),
                 total: session.collections.length,
+                onDoingTap: () => openCollectionLibrary(
+                  context,
+                  collectionType: CollectionType.doing,
+                ),
+                onDoneTap: () => openCollectionLibrary(
+                  context,
+                  collectionType: CollectionType.done,
+                ),
+                onTotalTap: () =>
+                    openCollectionLibrary(context, collectionType: null),
               ),
               const SizedBox(height: 10),
               Text(

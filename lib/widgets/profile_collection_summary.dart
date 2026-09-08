@@ -6,11 +6,17 @@ class ProfileCollectionSummary extends StatelessWidget {
     required this.doing,
     required this.done,
     required this.total,
+    this.onDoingTap,
+    this.onDoneTap,
+    this.onTotalTap,
   });
 
   final int doing;
   final int done;
   final int total;
+  final VoidCallback? onDoingTap;
+  final VoidCallback? onDoneTap;
+  final VoidCallback? onTotalTap;
 
   @override
   Widget build(BuildContext context) {
@@ -25,15 +31,33 @@ class ProfileCollectionSummary extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            children: [
-              Text('总收藏', style: TextStyle(color: scheme.onSurfaceVariant)),
-              const Spacer(),
-              Icon(Icons.auto_stories_rounded, color: scheme.primary, size: 24),
-            ],
+          _SummaryAction(
+            onTap: onTotalTap,
+            label: '总收藏：$total 项，查看全部收藏',
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Text(
+                      '总收藏',
+                      style: TextStyle(color: scheme.onSurfaceVariant),
+                    ),
+                    const Spacer(),
+                    Icon(
+                      onTotalTap == null
+                          ? Icons.auto_stories_rounded
+                          : Icons.arrow_forward_rounded,
+                      color: scheme.primary,
+                      size: 24,
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 6),
+                _Number(total, size: 52, color: scheme.onSurface),
+              ],
+            ),
           ),
-          const SizedBox(height: 6),
-          _Number(total, size: 52, color: scheme.onSurface),
           Padding(
             padding: const EdgeInsets.symmetric(vertical: 18),
             child: Divider(
@@ -63,12 +87,14 @@ class ProfileCollectionSummary extends StatelessWidget {
                     value: doing,
                     label: '进行中',
                     color: scheme.primary,
+                    onTap: onDoingTap,
                   ),
                   _Metric(
                     width: width,
                     value: done,
                     label: '已完成',
                     color: scheme.tertiary,
+                    onTap: onDoneTap,
                   ),
                 ],
               );
@@ -86,29 +112,73 @@ class _Metric extends StatelessWidget {
     required this.value,
     required this.label,
     required this.color,
+    this.onTap,
   });
   final double width;
   final int value;
   final String label;
   final Color color;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) => SizedBox(
     width: width,
-    child: Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        _Number(value, size: 36, color: color),
-        const SizedBox(height: 5),
-        Text(
-          label,
-          style: TextStyle(
-            color: Theme.of(context).colorScheme.onSurfaceVariant,
+    child: _SummaryAction(
+      onTap: onTap,
+      label: '$label：$value 项，查看收藏',
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _Number(value, size: 36, color: color),
+          const SizedBox(height: 5),
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  label,
+                  style: TextStyle(
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  ),
+                ),
+              ),
+              if (onTap != null)
+                Icon(Icons.chevron_right_rounded, size: 18, color: color),
+            ],
           ),
-        ),
-      ],
+        ],
+      ),
     ),
   );
+}
+
+class _SummaryAction extends StatelessWidget {
+  const _SummaryAction({required this.label, required this.child, this.onTap});
+  final String label;
+  final Widget child;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    if (onTap == null) return child;
+    return Semantics(
+      button: true,
+      label: label,
+      onTap: onTap,
+      excludeSemantics: true,
+      child: Tooltip(
+        message: label,
+        excludeFromSemantics: true,
+        child: Material(
+          color: Colors.transparent,
+          child: InkWell(
+            onTap: onTap,
+            borderRadius: BorderRadius.circular(12),
+            child: child,
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 class _Number extends StatelessWidget {
