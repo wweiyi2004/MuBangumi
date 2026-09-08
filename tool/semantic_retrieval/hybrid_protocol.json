@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "text_profile": "synopsis",
+  "fusion": "equal-weight reciprocal rank fusion",
+  "k": 60,
+  "window": 100,
+  "primary": "rrf_lexical_bge",
+  "additional_diagnostic": "rrf_lexical_bge_tags",
+  "parameter_selection": "fixed common RRF settings; no weight search or model fine-tuning",
+  "comparison": "same cached INT8 BGE vectors, same text and filters; original 50 queries are development only",
+  "new_cases": "Assistant-authored extra queries; not real-user blind judgments. Report separately from the original development set.",
+  "user_cases": "Three actual user requirements, no known-positive labels. Inspect constraints and results, do not calculate accuracy from these cases.",
+  "limits": "No historical-earliest guarantee, no objective niche threshold, no proof of theme absence from missing tags, no mobile performance guarantee."
+}

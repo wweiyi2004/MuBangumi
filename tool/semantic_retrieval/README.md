@@ -3,8 +3,9 @@
 直接使用 `BAAI/bge-small-zh-v1.5` 的现成 ONNX 导出，**不训练、不微调**。
 本工具负责固定目录上的离线检索验证，尚未接入 Flutter，也未进行手机性能验收。
 
-实际结果与限制见 [本轮验证记录](../../docs/qa/SEMANTIC_BGE_BASELINE.md)。已完成两种文本构造的对照，
-不微调的简介方案 Hit@10 较好，但前 5 排序仍待改进，不能直接作为上线验收结果。
+初始结果见 [BGE 基线](../../docs/qa/SEMANTIC_BGE_BASELINE.md)，后续结果见
+[混合检索与三条真实需求验证](../../docs/qa/SEMANTIC_HYBRID_VALIDATION.md)。固定关键词 + BGE 融合改善了本轮前列命中，
+但目录缺失和标签定义仍会导致需求无法满足；这些结果不能直接作为上线验收。
 
 ## 已实现
 
@@ -19,6 +20,8 @@
 - 按显式参数执行年份、正片集数、作品 ID、平台、已知标签排除；再按相似度和名称去重排序。
 - 比较相同目录上的应用规则评分、字符 TF-IDF、BGE FP32、BGE INT8 与 INT8 作品向量。
 - 生成 JSON 和 Markdown 报告，以及可在电脑离线查询的独立模型与向量包。
+- 新增固定 RRF 排名融合与可检查的有限中文条件解析，单独记录未满足的要求；仅用于研究脚本。
+- 保留原有 50 条开发查询，新增 20 条助手编写案例和 3 条真实用户需求，分组对照并在线核对候选元数据。
 
 ## 评估边界
 
@@ -28,7 +31,8 @@
 报告只使用已知正例的 Hit@K / MRR@10，不能把它们解释成推荐准确率或满意度。
 未来若据此调整文本、阈值或参数，此数据集仍仅作开发集，需要另建未参与调整的用户测试集。
 
-条件查询的 `retrieval_text` 和 `filters` 是人工预先拆分的，**没有实现通用自然语言条件解析**。
+原有评估条件查询的 `retrieval_text` 和 `filters` 是人工预先拆分的。后续 `hybrid.py` 新增有限解析，
+支持部分年份、评分、集数和形式表达式，**仍没有实现通用自然语言条件解析**；`search.py` 继续使用显式参数。
 例如 `--exclude-tag 致郁` 只能排除已标注这个标签的作品，缺少标签不意味着没有悲剧情节。
 也未实现域外输入拒绝：只计算最近邻时，即使输入修车问题也会返回番剧。
 
@@ -48,7 +52,7 @@ uv venv .dart_tool/semantic-venv --python 3.13
 uv pip install --python .dart_tool/semantic-venv/Scripts/python.exe `
   --index-url https://pypi.org/simple -r tool/semantic_retrieval/requirements.txt
 
-# 唯一需要联网的步骤：下载模型；--reference 额外下载 FP32 用于量化对照。
+# 准备模型需要联网；--reference 额外下载 FP32 用于量化对照。
 .dart_tool/semantic-venv/Scripts/python.exe -X utf8 tool/semantic_retrieval/download_model.py --reference
 
 # 下列过程只读本地模型与数据，不联网、不训练。
@@ -69,6 +73,12 @@ $env:OPENBLAS_NUM_THREADS = '4'
 
 # 真实包的哈希、向量与推理验证；可额外传 --dart-reference 核对应用评分。
 .dart_tool/semantic-venv/Scripts/python.exe -X utf8 tool/semantic_retrieval/verify_artifacts.py
+
+# 固定混合检索对照：原有 50 条、新增 20 条，以及三条用户原句，离线运行。
+.dart_tool/semantic-venv/Scripts/python.exe -X utf8 tool/semantic_retrieval/run_hybrid.py --as-of 2026-09-08
+
+# 可选联网核对：串行读取最多 15 条公开作品资料，不读取用户数据、不补充候选。
+.dart_tool/semantic-venv/Scripts/python.exe -X utf8 tool/semantic_retrieval/verify_user_candidates.py
 ```
 
 默认输入为 `tool/recommend_dataset/data/expand_v1/export_all/item_features.jsonl`；可用 `--input` 覆盖。
@@ -82,6 +92,12 @@ $env:OPENBLAS_NUM_THREADS = '4'
 `search.py` 每次启动会核验全部包文件，因此打印的加载时间包括校验；模型常驻后的耗时见评估报告。
 当前 Python 原型把量化作品向量还原为浮点用于点积，文件大小不等于工作内存。
 所有耗时均为当前 Windows CPU 的观测值，不能代替 Android 真机测量。
+
+混合脚本输出在 `tool/recommend_dataset/data/semantic_hybrid_v1/`，保留基线产物。
+`hybrid_protocol.json` 固定主对照；`additional_queries.json` 的已知正例 ID 与原有查询不重合，
+但仍是助手案例，不是用户盲评。`user_queries.json` 不打准确率分数，只检查解析、原句 BGE 排名和过滤后候选。
+“最早”仅表示目录内日期排序，“小众”暂按评分人数相对排序，题材标签不能证明主题的核心地位或不存在。
+脚本目前会重新构造词法索引，约两秒的完整查询流程不能与基线几毫秒的 BGE 热查询混淆。
 
 ## 接入应用之前
 

@@ -1,0 +1,25 @@
+{
+  "purpose": "20 extra assistant-authored diagnostic cases frozen before hybrid ranking inspection; known-positive IDs are disjoint from the original 50 cases. Not independently human-labeled or a blind user test.",
+  "queries": [
+    {"id":"h01","group":"new_premise","text":"想看一个原本对围棋没兴趣的孩子，被古代棋手的灵魂带进竞技世界。","relevant_subject_ids":[605]},
+    {"id":"h02","group":"new_premise","text":"有没有篮球初学者加入高中球队，和有实力也有缺点的队友一起冲击全国比赛的故事？","relevant_subject_ids":[1608]},
+    {"id":"h03","group":"new_premise","text":"想看高中吹奏乐社团在新老师带领下，朝更高水平的比赛努力。","relevant_subject_ids":[115908]},
+    {"id":"h04","group":"new_premise","text":"梅雨季节的庭园里，想成为鞋匠的男生与一位成年女性渐渐熟悉。","relevant_subject_ids":[58949]},
+    {"id":"h05","group":"new_premise","text":"无家可归的几个人捡到了婴儿，在城市里为这个孩子寻找父母。","relevant_subject_ids":[842]},
+    {"id":"h06","group":"new_premise","text":"从战场回来的女孩替别人写信，通过这份工作逐渐理解感情。","relevant_subject_ids":[183878]},
+    {"id":"h07","group":"new_premise","text":"想找以摄影为爱好的女学生，在宁静海边小镇交朋友的生活故事。","relevant_subject_ids":[8452]},
+    {"id":"h08","group":"new_premise","text":"不喜欢接触小动物的女孩加入了钓鱼社，在海边学习钓鱼。","relevant_subject_ids":[280678]},
+    {"id":"h09","group":"new_premise","text":"侦探用特殊装置进入罪犯的心理世界，追查连环案件。","relevant_subject_ids":[285776]},
+    {"id":"h10","group":"new_premise","text":"大灾难后的日本有食人怪物，两个人结伴寻找传闻中的安全之地。","relevant_subject_ids":[404804]},
+    {"id":"h11","group":"new_premise","text":"几个高中女生把想象画在本子上，并合作把脑中的世界做成动画。","relevant_subject_ids":[282433]},
+    {"id":"h12","group":"new_premise","text":"未来警察依靠系统测出一个人的犯罪风险，没犯罪也可能受到处罚。","relevant_subject_ids":[37685]},
+    {"id":"h13","group":"new_premise","text":"想看骗子组成团队，在不同国家设计骗局对付有钱又危险的人。","relevant_subject_ids":[285813]},
+    {"id":"h14","group":"new_premise","text":"女孩没能成为舞伎，于是在京都给同住的姑娘们做饭，继续陪伴朋友追梦。","relevant_subject_ids":[303068]},
+    {"id":"h15","group":"new_premise","text":"单身上班族决定收养亲戚留下的小女孩，在照顾孩子的过程中学会生活。","relevant_subject_ids":[10843]},
+    {"id":"h16","group":"new_premise","text":"优秀的天使来到人间之后沉迷游戏，变成不爱上学的宅女。","relevant_subject_ids":[188091]},
+    {"id":"h17","group":"new_premise","text":"女高中生因伤放弃跑步，在打工的餐厅喜欢上了年长店长。","relevant_subject_ids":[210458]},
+    {"id":"h18","group":"new_premise","text":"内向转校生通过爵士乐认识朋友，几个人一起享受合奏的青春。","relevant_subject_ids":[29426]},
+    {"id":"h19","group":"new_premise","text":"家里开小餐馆的少年进入精英料理学校，用自己的厨艺挑战同学。","relevant_subject_ids":[116461]},
+    {"id":"h20","group":"new_premise","text":"大学男生住进亲戚的潜水店，被一群闹腾的社团前辈拉进校园生活。","relevant_subject_ids":[235130]}
+  ]
+}

@@ -1,0 +1,8 @@
+{
+  "source": "User supplied during this verification turn; no ranking labels or target titles provided",
+  "queries": [
+    {"id":"u01","text":"我想看2007-2011年小众的galgame的OVA"},
+    {"id":"u02","text":"我想看最早的百合番剧"},
+    {"id":"u03","text":"我想找找评分大于8.0的恋爱喜剧"}
+  ]
+}
