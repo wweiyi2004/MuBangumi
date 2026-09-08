@@ -303,6 +303,11 @@ class BrowsingStore
     title TEXT NOT NULL, subject_type INTEGER NOT NULL, hidden_at INTEGER NOT NULL, UNIQUE(owner_id, subject_id))''',
   );
 
+  Future<String> databaseForBackup() async {
+    await _writes;
+    return (await _open()).path;
+  }
+
   Future<Database> _open() =>
       _database ??= _create().catchError((Object error) {
         _database = null;
@@ -324,6 +329,9 @@ class BrowsingStore
             'mubangumi_browsing.sqlite',
           ),
       options: OpenDatabaseOptions(
+        onConfigure: (db) async {
+          await db.rawQuery('PRAGMA journal_mode=DELETE');
+        },
         version: 4,
         onUpgrade: (db, oldVersion, _) async {
           if (oldVersion < 2) await _createHomePins(db);

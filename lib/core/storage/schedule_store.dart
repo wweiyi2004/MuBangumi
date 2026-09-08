@@ -20,6 +20,18 @@ class ScheduleStore {
   final String? databasePath;
 
   Database? _database;
+  Future<void> _writes = Future.value();
+  Future<T> _write<T>(Future<T> Function() action) {
+    final next = _writes.then((_) => action());
+    _writes = next.then<void>((_) {}, onError: (Object _, StackTrace _) {});
+    return next;
+  }
+
+  Future<String> databaseForBackup() async {
+    await _writes;
+    return (await _open()).path;
+  }
+
   Future<Database>? _opening;
   static bool _ffiReady = false;
 
@@ -46,14 +58,14 @@ class ScheduleStore {
     }
   }
 
-  Future<void> save(SeasonSchedule schedule) async {
+  Future<void> save(SeasonSchedule schedule) => _write(() async {
     final database = await _open();
     await database.insert('season_schedule', {
       'season_key': schedule.season.id,
       'payload': jsonEncode(schedule.toJson()),
       'updated_at': DateTime.now().millisecondsSinceEpoch,
     }, conflictAlgorithm: ConflictAlgorithm.replace);
-  }
+  });
 
   /// All season keys the user has ever saved (newest first).
   Future<List<SeasonKey>> listSeasons() async {
@@ -99,14 +111,14 @@ class ScheduleStore {
     return result;
   }
 
-  Future<void> deleteSeason(SeasonKey season) async {
+  Future<void> deleteSeason(SeasonKey season) => _write(() async {
     final database = await _open();
     await database.delete(
       'season_schedule',
       where: 'season_key = ?',
       whereArgs: [season.id],
     );
-  }
+  });
 
   /// Notification ownership survives deleted seasons and application restarts.
   /// Null identifies installations that predate notification ID tracking.
@@ -118,16 +130,17 @@ class ScheduleStore {
     return {for (final id in ids) id as int};
   }
 
-  Future<void> writeReminderIds(Set<int> ids) async {
+  Future<void> writeReminderIds(Set<int> ids) => _write(() async {
     final database = await _open();
     await database.insert('schedule_reminder_state', {
       'id': 1,
       'ids_json': jsonEncode(ids.toList()),
     }, conflictAlgorithm: ConflictAlgorithm.replace);
-  }
+  });
 
   @visibleForTesting
   Future<void> close() async {
+    await _writes;
     final database = _database;
     _database = null;
     await database?.close();
@@ -163,6 +176,9 @@ class ScheduleStore {
     return openDatabase(
       resolvedPath,
       version: 2,
+      onConfigure: (db) async {
+        await db.rawQuery('PRAGMA journal_mode=DELETE');
+      },
       onCreate: (database, _) async {
         await database.execute('''
           CREATE TABLE season_schedule (

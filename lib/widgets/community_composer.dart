@@ -104,12 +104,16 @@ class _CommunityComposerDialogState extends State<_CommunityComposerDialog> {
   bool _allowPop = false;
   bool _dirty = false;
   int _draftRevision = 0;
+  int _storedRevision = 0;
+  bool _loadedDraft = false;
+  Future<void> _draftWrites = Future.value();
   String _lastTitle = '';
   String _lastContent = '';
   Timer? _saveTimer;
   late final AppLifecycleListener _lifecycle;
 
   bool get _locked => _submitting || _restoring || _closing;
+  bool get _editable => !_locked && (widget.draftKey == null || _loadedDraft);
 
   @override
   void initState() {
@@ -129,8 +133,11 @@ class _CommunityComposerDialogState extends State<_CommunityComposerDialog> {
 
   Future<void> _restoreDraft() async {
     try {
-      final draft = await widget.draftStore.load(widget.draftKey!);
+      final slot = await widget.draftStore.loadVersioned(widget.draftKey!);
+      final draft = slot.data;
       if (!mounted) return;
+      _storedRevision = slot.revision;
+      _loadedDraft = true;
       if (draft != null) {
         _titleController.text = draft.title;
         _contentController.text = draft.content;
@@ -165,10 +172,29 @@ class _CommunityComposerDialogState extends State<_CommunityComposerDialog> {
     }
   }
 
+  Future<void> _persistDraft(String key, CommunityDraftData draft) {
+    final next = _draftWrites.then((_) async {
+      _storedRevision = await widget.draftStore.saveVersioned(
+        key,
+        draft,
+        expectedRevision: _storedRevision,
+      );
+    });
+    _draftWrites = next.then<void>(
+      (_) {},
+      onError: (Object _, StackTrace _) {},
+    );
+    return next;
+  }
+
   Future<bool> _saveDraft() async {
     _saveTimer?.cancel();
     final key = widget.draftKey;
     if (key == null || _sent || !_dirty) return true;
+    if (!_loadedDraft) {
+      if (mounted) setState(() => _draftError = '请先重试读取草稿');
+      return false;
+    }
     final revision = _draftRevision;
     final draft = (
       title: _titleController.text,
@@ -176,7 +202,7 @@ class _CommunityComposerDialogState extends State<_CommunityComposerDialog> {
     );
     if (mounted) setState(() => _savingDraft = true);
     try {
-      await widget.draftStore.save(key, draft);
+      await _persistDraft(key, draft);
       if (mounted && revision == _draftRevision) {
         setState(() {
           _dirty = false;
@@ -185,8 +211,14 @@ class _CommunityComposerDialogState extends State<_CommunityComposerDialog> {
         });
       }
       return true;
-    } catch (_) {
-      if (mounted) setState(() => _draftError = '草稿保存失败，请重试');
+    } catch (error) {
+      if (mounted) {
+        setState(
+          () => _draftError = error is CommunityDraftConflict
+              ? '草稿已在其他操作中更新，请先复制当前输入，再关闭并重新打开'
+              : '草稿保存失败，请重试',
+        );
+      }
       return false;
     } finally {
       if (mounted && revision == _draftRevision) {
@@ -211,6 +243,7 @@ class _CommunityComposerDialogState extends State<_CommunityComposerDialog> {
   }
 
   bool get _canSubmit {
+    if (widget.draftKey != null && !_loadedDraft) return false;
     if (_contentController.text.trim().isEmpty) return false;
     if (widget.requireTitle && _titleController.text.trim().isEmpty) {
       return false;
@@ -249,7 +282,7 @@ class _CommunityComposerDialogState extends State<_CommunityComposerDialog> {
       widget.draft?.clear();
       try {
         if (widget.draftKey case final key?) {
-          await widget.draftStore.save(key, (title: '', content: ''));
+          await _persistDraft(key, (title: '', content: ''));
         }
       } catch (_) {
         if (mounted) {
@@ -286,14 +319,12 @@ class _CommunityComposerDialogState extends State<_CommunityComposerDialog> {
   void dispose() {
     _saveTimer?.cancel();
     _lifecycle.dispose();
-    if (!_sent && _dirty && widget.draftKey != null) {
+    if (!_sent && _dirty && _loadedDraft && widget.draftKey != null) {
       unawaited(
-        widget.draftStore
-            .save(widget.draftKey!, (
-              title: _titleController.text,
-              content: _contentController.text,
-            ))
-            .catchError((Object _) {}),
+        _persistDraft(widget.draftKey!, (
+          title: _titleController.text,
+          content: _contentController.text,
+        )).catchError((Object _) {}),
       );
     }
     if (!_sent) {
@@ -324,7 +355,7 @@ class _CommunityComposerDialogState extends State<_CommunityComposerDialog> {
               if (widget.requireTitle) ...[
                 TextField(
                   controller: _titleController,
-                  enabled: !_locked,
+                  enabled: _editable,
                   autofocus: true,
                   decoration: const InputDecoration(
                     labelText: '标题',
@@ -354,13 +385,13 @@ class _CommunityComposerDialogState extends State<_CommunityComposerDialog> {
               ],
               BbCodeToolbar(
                 controller: _contentController,
-                enabled: !_locked,
+                enabled: _editable,
                 onChanged: () => setState(() {}),
               ),
               const SizedBox(height: 8),
               TextField(
                 controller: _contentController,
-                enabled: !_locked,
+                enabled: _editable,
                 autofocus: !widget.requireTitle,
                 minLines: 5,
                 maxLines: 12,

@@ -6,6 +6,54 @@ import 'package:mubangumi/core/storage/community_draft_store.dart';
 import 'package:mubangumi/widgets/community_composer.dart';
 
 void main() {
+  testWidgets('failed restore disables editing until retry succeeds', (
+    tester,
+  ) async {
+    final store = _Store()..failLoad = true;
+    await _show(tester, store);
+    expect(
+      tester.widget<TextField>(find.widgetWithText(TextField, '内容')).enabled,
+      false,
+    );
+    expect(
+      tester
+          .widget<FilledButton>(find.widgetWithText(FilledButton, '发送'))
+          .onPressed,
+      isNull,
+    );
+    store.failLoad = false;
+    store.drafts['alice/topic/1'] = (title: '标题', content: '保留原稿');
+    await tester.tap(find.text('重试'));
+    await tester.pumpAndSettle();
+    expect(find.text('保留原稿'), findsOneWidget);
+    expect(
+      tester.widget<TextField>(find.widgetWithText(TextField, '内容')).enabled,
+      true,
+    );
+    expect(store.writes, 0);
+    await tester.tap(find.text('稍后再写'));
+    await tester.pumpAndSettle();
+  });
+  testWidgets(
+    'conflicting autosave keeps visible input and permits closing without overwriting',
+    (tester) async {
+      final store = _Store();
+      await _show(tester, store);
+      store.conflict = true;
+      store.drafts['alice/topic/1'] = (title: '导入标题', content: '导入的内容');
+      await tester.enterText(
+        find.widgetWithText(TextField, '内容'),
+        '编辑器中尚未保存的内容',
+      );
+      await tester.pump(const Duration(milliseconds: 400));
+      expect(find.textContaining('草稿已在其他操作中更新'), findsOneWidget);
+      expect(find.text('编辑器中尚未保存的内容'), findsOneWidget);
+      await tester.tap(find.text('不保存并关闭'));
+      await tester.pumpAndSettle();
+      expect(store.drafts['alice/topic/1']!.content, '导入的内容');
+      expect(store.writes, 0);
+    },
+  );
   testWidgets(
     'changing account during verification cannot submit the old draft',
     (tester) async {
@@ -194,15 +242,29 @@ Future<void> _show(
   if (settle) await tester.pumpAndSettle();
 }
 
-class _Store implements CommunityDraftRepository {
+class _Store extends CommunityDraftRepository {
   final drafts = <String, CommunityDraftData>{};
   bool failSave = false;
+  bool failLoad = false;
+  bool conflict = false;
   int writes = 0;
   Future<CommunityDraftData?>? pendingLoad;
 
   @override
-  Future<CommunityDraftData?> load(String key) =>
-      pendingLoad ?? Future.value(drafts[key]);
+  Future<CommunityDraftData?> load(String key) {
+    if (failLoad) return Future.error(StateError('read failed'));
+    return pendingLoad ?? Future.value(drafts[key]);
+  }
+
+  @override
+  Future<int> saveVersioned(
+    String key,
+    CommunityDraftData draft, {
+    required int expectedRevision,
+  }) {
+    if (conflict) return Future.error(const CommunityDraftConflict());
+    return super.saveVersioned(key, draft, expectedRevision: expectedRevision);
+  }
 
   @override
   Future<void> save(String key, CommunityDraftData draft) async {

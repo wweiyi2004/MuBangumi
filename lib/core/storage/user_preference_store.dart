@@ -34,11 +34,25 @@ abstract class UserPreferenceRepository {
 }
 
 class UserPreferenceStore implements UserPreferenceRepository {
-  UserPreferenceStore._();
+  UserPreferenceStore._() : databasePath = null;
+  UserPreferenceStore.test({this.databasePath});
+  final String? databasePath;
 
   static final shared = UserPreferenceStore._();
 
   Database? _database;
+  Future<void> _writes = Future.value();
+  Future<T> _write<T>(Future<T> Function() action) {
+    final next = _writes.then((_) => action());
+    _writes = next.then<void>((_) {}, onError: (Object _, StackTrace _) {});
+    return next;
+  }
+
+  Future<String> databaseForBackup() async {
+    await _writes;
+    return (await _open()).path;
+  }
+
   Future<Database>? _opening;
   static bool _ffiReady = false;
 
@@ -63,7 +77,7 @@ class UserPreferenceStore implements UserPreferenceRepository {
   }
 
   @override
-  Future<void> save(LocalUserPreference preference) async {
+  Future<void> save(LocalUserPreference preference) => _write(() async {
     final key = preference.key;
     if (key.isEmpty) return;
     final database = await _open();
@@ -73,6 +87,12 @@ class UserPreferenceStore implements UserPreferenceRepository {
       'blocked': preference.blocked ? 1 : 0,
       'updated_at': DateTime.now().millisecondsSinceEpoch,
     }, conflictAlgorithm: ConflictAlgorithm.replace);
+  });
+
+  Future<void> close() async {
+    await _writes;
+    await _database?.close();
+    _database = null;
   }
 
   Future<Database> _open() async {
@@ -101,8 +121,11 @@ class UserPreferenceStore implements UserPreferenceRepository {
     }
     final root = await getDatabasesPath();
     return openDatabase(
-      path.join(root, 'mubangumi_user_preferences.sqlite'),
+      databasePath ?? path.join(root, 'mubangumi_user_preferences.sqlite'),
       version: 1,
+      onConfigure: (db) async {
+        await db.rawQuery('PRAGMA journal_mode=DELETE');
+      },
       onCreate: (database, _) async {
         await database.execute('''
           CREATE TABLE user_preference (

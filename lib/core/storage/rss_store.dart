@@ -9,14 +9,27 @@ import '../../models/rss_models.dart';
 
 /// Local persistence for RSS sources, bindings, and matched items.
 class RssStore {
-  RssStore._();
+  RssStore._() : databasePath = null;
 
   @visibleForTesting
-  RssStore.test();
+  RssStore.test({this.databasePath});
+  final String? databasePath;
 
   static final shared = RssStore._();
 
   Database? _database;
+  Future<void> _writes = Future.value();
+  Future<T> _write<T>(Future<T> Function() action) {
+    final next = _writes.then((_) => action());
+    _writes = next.then<void>((_) {}, onError: (Object _, StackTrace _) {});
+    return next;
+  }
+
+  Future<String> databaseForBackup() async {
+    await _writes;
+    return (await _open()).path;
+  }
+
   Future<Database>? _opening;
   static bool _ffiReady = false;
 
@@ -26,7 +39,7 @@ class RssStore {
     return [for (final row in rows) RssSource.fromRow(row)];
   }
 
-  Future<RssSource> upsertSource(RssSource source) async {
+  Future<RssSource> upsertSource(RssSource source) => _write(() async {
     final db = await _open();
     if (source.id == 0) {
       final id = await db.insert('rss_sources', source.toRow());
@@ -39,9 +52,9 @@ class RssStore {
       whereArgs: [source.id],
     );
     return source;
-  }
+  });
 
-  Future<void> deleteSource(int sourceId) async {
+  Future<void> deleteSource(int sourceId) => _write(() async {
     final db = await _open();
     await db.delete('rss_items', where: 'source_id = ?', whereArgs: [sourceId]);
     await db.delete(
@@ -50,7 +63,7 @@ class RssStore {
       whereArgs: [sourceId],
     );
     await db.delete('rss_sources', where: 'id = ?', whereArgs: [sourceId]);
-  }
+  });
 
   Future<List<RssBinding>> listBindings({int? subjectId, int? sourceId}) async {
     final db = await _open();
@@ -73,7 +86,7 @@ class RssStore {
     return [for (final row in rows) RssBinding.fromRow(row)];
   }
 
-  Future<RssBinding> upsertBinding(RssBinding binding) async {
+  Future<RssBinding> upsertBinding(RssBinding binding) => _write(() async {
     final db = await _open();
     if (binding.id == 0) {
       final id = await db.insert('rss_bindings', binding.toRow());
@@ -86,24 +99,24 @@ class RssStore {
       whereArgs: [binding.id],
     );
     return binding;
-  }
+  });
 
-  Future<void> deleteBinding(int bindingId) async {
+  Future<void> deleteBinding(int bindingId) => _write(() async {
     final db = await _open();
     await db.delete('rss_bindings', where: 'id = ?', whereArgs: [bindingId]);
-  }
+  });
 
-  Future<void> deleteBindingsForSubject(int subjectId) async {
+  Future<void> deleteBindingsForSubject(int subjectId) => _write(() async {
     final db = await _open();
     await db.delete(
       'rss_bindings',
       where: 'subject_id = ?',
       whereArgs: [subjectId],
     );
-  }
+  });
 
   /// Insert matched items; ignore duplicates by (source_id, guid).
-  Future<int> insertItemsIgnoreDup(List<RssItem> items) async {
+  Future<int> insertItemsIgnoreDup(List<RssItem> items) => _write(() async {
     if (items.isEmpty) return 0;
     final db = await _open();
     var added = 0;
@@ -120,7 +133,7 @@ class RssStore {
       if (result is int && result > 0) added++;
     }
     return added;
-  }
+  });
 
   Future<List<RssItem>> listItems({
     int? subjectId,
@@ -169,7 +182,7 @@ class RssStore {
     return (rows.first['c'] as num?)?.toInt() ?? 0;
   }
 
-  Future<void> markRead(int itemId, {bool read = true}) async {
+  Future<void> markRead(int itemId, {bool read = true}) => _write(() async {
     final db = await _open();
     await db.update(
       'rss_items',
@@ -177,9 +190,9 @@ class RssStore {
       where: 'id = ?',
       whereArgs: [itemId],
     );
-  }
+  });
 
-  Future<void> markSubjectRead(int subjectId) async {
+  Future<void> markSubjectRead(int subjectId) => _write(() async {
     final db = await _open();
     await db.update(
       'rss_items',
@@ -187,11 +200,17 @@ class RssStore {
       where: 'subject_id = ?',
       whereArgs: [subjectId],
     );
-  }
+  });
 
-  Future<void> markAllRead() async {
+  Future<void> markAllRead() => _write(() async {
     final db = await _open();
     await db.update('rss_items', {'read': 1});
+  });
+
+  Future<void> close() async {
+    await _writes;
+    await _database?.close();
+    _database = null;
   }
 
   Future<Database> _open() async {
@@ -219,10 +238,14 @@ class RssStore {
       }
     }
     final root = await getDatabasesPath();
-    final databasePath = path.join(root, 'mubangumi_rss.sqlite');
+    final resolvedPath =
+        databasePath ?? path.join(root, 'mubangumi_rss.sqlite');
     return openDatabase(
-      databasePath,
+      resolvedPath,
       version: 1,
+      onConfigure: (db) async {
+        await db.rawQuery('PRAGMA journal_mode=DELETE');
+      },
       onCreate: (database, _) async {
         await database.execute('''
           CREATE TABLE rss_sources (

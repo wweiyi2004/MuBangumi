@@ -3,8 +3,71 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mubangumi/core/storage/community_draft_store.dart';
 import 'package:path/path.dart' as path;
+import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 void main() {
+  test(
+    'v1 migration preserves text and CAS rejects stale save after tombstone',
+    () async {
+      sqfliteFfiInit();
+      final dir = await Directory.systemTemp.createTemp(
+        'mubangumi-draft-migrate-',
+      );
+      final file = path.join(dir.path, 'drafts.sqlite');
+      final old = await databaseFactoryFfi.openDatabase(
+        file,
+        options: OpenDatabaseOptions(
+          version: 1,
+          onCreate: (db, _) => db.execute(
+            'CREATE TABLE draft (draft_key TEXT PRIMARY KEY NOT NULL, title TEXT NOT NULL, content TEXT NOT NULL, updated_at INTEGER NOT NULL)',
+          ),
+        ),
+      );
+      final key = communityDraftKey('alice', ['timeline', 'post'])!;
+      await old.insert('draft', {
+        'draft_key': key,
+        'title': '标题',
+        'content': ' 原文\n保留 ',
+        'updated_at': 123,
+      });
+      await old.close();
+      final store = CommunityDraftStore(databasePath: file);
+      addTearDown(() async {
+        await store.close();
+        await dir.delete(recursive: true);
+      });
+      final loaded = await store.loadVersioned(key);
+      expect(loaded.data!.content, ' 原文\n保留 ');
+      expect(loaded.revision, 1);
+      expect(
+        await store.saveVersioned(key, (
+          title: '',
+          content: '',
+        ), expectedRevision: loaded.revision),
+        2,
+      );
+      await store.close();
+      final tombstone = await store.loadVersioned(key);
+      expect(tombstone.data, isNull);
+      expect(tombstone.revision, 2);
+      await expectLater(
+        store.saveVersioned(
+          key,
+          loaded.data!,
+          expectedRevision: loaded.revision,
+        ),
+        throwsA(isA<CommunityDraftConflict>()),
+      );
+      expect(await store.load(key), isNull);
+      expect(
+        await store.saveVersioned(key, (
+          title: '',
+          content: '新稿',
+        ), expectedRevision: 2),
+        3,
+      );
+    },
+  );
   test(
     'drafts survive database reopen, isolate accounts/targets and clear in order',
     () async {
