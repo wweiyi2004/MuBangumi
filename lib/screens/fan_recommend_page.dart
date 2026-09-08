@@ -25,6 +25,9 @@ class _FanRecommendPageState extends ConsumerState<FanRecommendPage> {
   var _startYear = 0;
   var _loading = false;
   String? _error;
+  bool _canRetry = false;
+  bool _partial = false;
+  int _generation = 0;
   String _status = '';
   List<FanRecommendItem> _results = const [];
   FanTasteProfile? _taste;
@@ -33,6 +36,21 @@ class _FanRecommendPageState extends ConsumerState<FanRecommendPage> {
   void initState() {
     super.initState();
     Future.microtask(_refreshTaste);
+    ref.listenManual(sessionProvider.select((state) => state.user?.username), (
+      previous,
+      next,
+    ) {
+      if (!mounted || previous == next) return;
+      _generation++;
+      setState(() {
+        _loading = false;
+        _error = null;
+        _status = '';
+        _results = const [];
+        _canRetry = false;
+      });
+      _refreshTaste();
+    });
   }
 
   @override
@@ -42,6 +60,7 @@ class _FanRecommendPageState extends ConsumerState<FanRecommendPage> {
   }
 
   void _refreshTaste() {
+    if (!mounted) return;
     final collections = ref.read(sessionProvider).collections;
     setState(() {
       _taste = FanRecommendEngine.buildTaste(collections);
@@ -49,6 +68,11 @@ class _FanRecommendPageState extends ConsumerState<FanRecommendPage> {
   }
 
   Future<void> _runRecommend() async {
+    if (!mounted || _loading) return;
+    final generation = ++_generation;
+    bool current() => mounted && generation == _generation;
+    _canRetry = false;
+    _partial = false;
     final collections = ref.read(sessionProvider).collections;
     final taste = FanRecommendEngine.buildTaste(collections);
     final request = FanRecommendRequest(
@@ -87,10 +111,12 @@ class _FanRecommendPageState extends ConsumerState<FanRecommendPage> {
       final api = ref.read(bangumiApiProvider);
       final jobs = FanRecommendEngine.buildSearchJobs(request, taste);
       final merged = <int, Subject>{};
+      var successes = 0;
+      var failures = 0;
 
       for (var i = 0; i < jobs.length; i++) {
         final job = jobs[i];
-        if (!mounted) return;
+        if (!current()) return;
         setState(() {
           _status =
               '检索 ${i + 1}/${jobs.length}'
@@ -110,15 +136,19 @@ class _FanRecommendPageState extends ConsumerState<FanRecommendPage> {
             startYear: request.startYear,
             tags: job.tags,
           );
+          if (!current()) return;
+          successes++;
           for (final s in page) {
             merged.putIfAbsent(s.id, () => s);
           }
         } catch (_) {
-          // Keep going with other jobs.
+          failures++;
+          // Other searches can still provide useful recommendations.
         }
       }
 
       // If still thin, pull a ranked season/year sample.
+      if (!current()) return;
       if (merged.length < 8) {
         final now = DateTime.now();
         try {
@@ -128,10 +158,14 @@ class _FanRecommendPageState extends ConsumerState<FanRecommendPage> {
             sort: 'rank',
             limit: 24,
           );
+          if (!current()) return;
+          successes++;
           for (final s in browse) {
             merged.putIfAbsent(s.id, () => s);
           }
-        } catch (_) {}
+        } catch (_) {
+          failures++;
+        }
       }
 
       final ranked = FanRecommendEngine.rank(
@@ -141,21 +175,32 @@ class _FanRecommendPageState extends ConsumerState<FanRecommendPage> {
         limit: 24,
       );
 
-      if (!mounted) return;
+      if (!current()) return;
       setState(() {
-        _results = ranked;
         _loading = false;
-        _status = ranked.isEmpty ? '' : '为你挑了 ${ranked.length} 部';
-        _error = ranked.isEmpty
-            ? '没有筛到合适的番，试试放宽评分/年份，或换几个标签'
-            : null;
+        _canRetry = failures > 0;
+        _partial = successes > 0 && failures > 0;
+        if (successes == 0) {
+          _status = '';
+          _error = _results.isEmpty ? '暂时无法获取推荐，请稍后重试' : '暂时无法获取推荐，已保留上次结果，请重试';
+        } else {
+          _results = ranked;
+          _status = ranked.isEmpty ? '' : '为你挑了 ${ranked.length} 部';
+          _error = failures > 0
+              ? (ranked.isEmpty ? '部分内容未能加载，暂未找到推荐，请重试' : '部分内容未能加载，当前推荐可能不完整')
+              : ranked.isEmpty
+              ? '没有筛到合适的番，试试放宽评分/年份，或换几个标签'
+              : null;
+        }
       });
-    } catch (error) {
-      if (!mounted) return;
+    } catch (_) {
+      if (!current()) return;
       setState(() {
         _loading = false;
         _status = '';
-        _error = error.toString().replaceFirst(RegExp(r'^.*Exception:\s*'), '');
+        _partial = false;
+        _canRetry = true;
+        _error = '暂时无法获取推荐，请稍后重试';
       });
     }
   }
@@ -207,9 +252,9 @@ class _FanRecommendPageState extends ConsumerState<FanRecommendPage> {
           if (_modeTaste) ...[
             Text(
               '根据你收藏里的高分动画标签来推荐，并自动跳过已在库中的作品。',
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                color: scheme.onSurfaceVariant,
-              ),
+              style: Theme.of(
+                context,
+              ).textTheme.bodyMedium?.copyWith(color: scheme.onSurfaceVariant),
             ),
             const SizedBox(height: 12),
             if (taste == null)
@@ -227,9 +272,9 @@ class _FanRecommendPageState extends ConsumerState<FanRecommendPage> {
             else ...[
               Text(
                 '你的口味标签',
-                style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                  fontWeight: FontWeight.w800,
-                ),
+                style: Theme.of(
+                  context,
+                ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800),
               ),
               const SizedBox(height: 8),
               Wrap(
@@ -269,9 +314,9 @@ class _FanRecommendPageState extends ConsumerState<FanRecommendPage> {
             const SizedBox(height: 12),
             Text(
               '快捷标签',
-              style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                fontWeight: FontWeight.w800,
-              ),
+              style: Theme.of(
+                context,
+              ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800),
             ),
             const SizedBox(height: 8),
             Wrap(
@@ -298,9 +343,9 @@ class _FanRecommendPageState extends ConsumerState<FanRecommendPage> {
           const SizedBox(height: 16),
           Text(
             '筛选',
-            style: Theme.of(context).textTheme.titleMedium?.copyWith(
-              fontWeight: FontWeight.w800,
-            ),
+            style: Theme.of(
+              context,
+            ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800),
           ),
           const SizedBox(height: 8),
           Text('最低评分', style: Theme.of(context).textTheme.labelLarge),
@@ -324,7 +369,13 @@ class _FanRecommendPageState extends ConsumerState<FanRecommendPage> {
             spacing: 8,
             runSpacing: 8,
             children: [
-              for (final year in [0, DateTime.now().year - 2, DateTime.now().year - 5, 2015, 2010])
+              for (final year in [
+                0,
+                DateTime.now().year - 2,
+                DateTime.now().year - 5,
+                2015,
+                2010,
+              ])
                 ChoiceChip(
                   label: Text(year == 0 ? '不限' : '$year 起'),
                   selected: _startYear == year,
@@ -350,18 +401,47 @@ class _FanRecommendPageState extends ConsumerState<FanRecommendPage> {
             const SizedBox(height: 10),
             Text(
               _status,
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                color: scheme.onSurfaceVariant,
-              ),
+              style: Theme.of(
+                context,
+              ).textTheme.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
             ),
           ],
           if (_error != null) ...[
             const SizedBox(height: 14),
             Card(
-              color: scheme.errorContainer.withValues(alpha: 0.45),
-              child: ListTile(
-                leading: Icon(Icons.error_outline_rounded, color: scheme.error),
-                title: Text(_error!),
+              color:
+                  (_partial ? scheme.secondaryContainer : scheme.errorContainer)
+                      .withValues(alpha: 0.45),
+              child: Padding(
+                padding: const EdgeInsets.all(14),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Icon(
+                          _partial
+                              ? Icons.info_outline_rounded
+                              : Icons.error_outline_rounded,
+                          color: _partial
+                              ? scheme.onSecondaryContainer
+                              : scheme.error,
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(child: Text(_error!)),
+                      ],
+                    ),
+                    if (_canRetry)
+                      Align(
+                        alignment: Alignment.centerRight,
+                        child: TextButton(
+                          onPressed: _loading ? null : _runRecommend,
+                          child: const Text('重试'),
+                        ),
+                      ),
+                  ],
+                ),
               ),
             ),
           ],

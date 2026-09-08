@@ -10,10 +10,12 @@ import '../core/network/bangumi_endpoints.dart';
 import '../core/network/bangumi_meta_tags.dart';
 import '../core/network/bangumi_support.dart';
 import '../core/storage/snapshot_cache.dart';
+import '../core/storage/browsing_store.dart';
 import '../models/bangumi_models.dart';
 import '../state/session_controller.dart';
 import '../widgets/episode_grid_sheet.dart';
 import '../widgets/subject_widgets.dart';
+import '../widgets/recent_searches.dart';
 import 'character_detail_screen.dart';
 import 'person_detail_screen.dart';
 import 'score_trends_page.dart';
@@ -347,6 +349,47 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
     unawaited(_startCurrentQuery());
   }
 
+  Future<void> _rememberCurrentSearch() async {
+    final account = ref.read(sessionProvider).user?.username;
+    final keyword = _searchController.text.trim();
+    if (account == null || account.isEmpty || keyword.isEmpty) return;
+    final search = RecentSearch(
+      keyword: keyword,
+      target: _searchTarget.name,
+      subjectType: _subjectType,
+    );
+    try {
+      await ref
+          .read(browsingRepositoryProvider)
+          .rememberSearch(account, search);
+      if (mounted) ref.invalidate(recentSearchesProvider(account));
+    } catch (_) {
+      // History is optional; an unavailable local store cannot block search.
+    }
+  }
+
+  void _selectRecentSearch(RecentSearch search) {
+    _debounce?.cancel();
+    setState(() {
+      _searchTarget = DiscoverSearchTarget.values.firstWhere(
+        (target) => target.name == search.target,
+      );
+      _subjectType = search.subjectType;
+      _searchController.text = search.keyword;
+      _searchController.selection = TextSelection.collapsed(
+        offset: search.keyword.length,
+      );
+      _resetSearchFilters();
+    });
+    unawaited(_rememberCurrentSearch());
+    _runCurrentQuery();
+  }
+
+  void _openSearchResult(Widget page) {
+    unawaited(_rememberCurrentSearch());
+    Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => page));
+  }
+
   void _clearBrowseFilters() {
     final now = DateTime.now();
     setState(() {
@@ -676,6 +719,7 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
               textInputAction: TextInputAction.search,
               onSubmitted: (_) {
                 _debounce?.cancel();
+                unawaited(_rememberCurrentSearch());
                 _runCurrentQuery();
               },
               decoration: InputDecoration(
@@ -714,6 +758,25 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
         ],
       ),
       const SizedBox(height: 12),
+      if (_searchController.text.trim().isEmpty && _tag.isEmpty)
+        Consumer(
+          builder: (context, ref, _) {
+            final account = ref.watch(
+              sessionProvider.select((state) => state.user?.username),
+            );
+            return account == null || account.isEmpty
+                ? const SizedBox.shrink()
+                : RecentSearches(
+                    key: ValueKey(account),
+                    account: account,
+                    onSelected: (search) {
+                      if (ref.read(sessionProvider).user?.username == account) {
+                        _selectRecentSearch(search);
+                      }
+                    },
+                  );
+          },
+        ),
       SingleChildScrollView(
         scrollDirection: Axis.horizontal,
         child: Row(
@@ -974,13 +1037,11 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
                     ? Text(character.name)
                     : null,
                 trailing: const Icon(Icons.chevron_right_rounded),
-                onTap: () => Navigator.of(context).push(
-                  MaterialPageRoute<void>(
-                    builder: (_) => CharacterDetailScreen(
-                      characterId: character.id,
-                      seedName: character.displayName,
-                      seedImageUrl: character.imageUrl,
-                    ),
+                onTap: () => _openSearchResult(
+                  CharacterDetailScreen(
+                    characterId: character.id,
+                    seedName: character.displayName,
+                    seedImageUrl: character.imageUrl,
                   ),
                 ),
               );
@@ -1005,13 +1066,11 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
                         : null)
                   : Text(personMeta.join(' / ')),
               trailing: const Icon(Icons.chevron_right_rounded),
-              onTap: () => Navigator.of(context).push(
-                MaterialPageRoute<void>(
-                  builder: (_) => PersonDetailScreen(
-                    personId: person.id,
-                    seedName: person.displayName,
-                    seedImageUrl: person.imageUrl,
-                  ),
+              onTap: () => _openSearchResult(
+                PersonDetailScreen(
+                  personId: person.id,
+                  seedName: person.displayName,
+                  seedImageUrl: person.imageUrl,
                 ),
               ),
             );
@@ -1053,10 +1112,8 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
                   return SubjectPosterCard(
                     subject: subject,
                     collection: collection,
-                    onTap: () => Navigator.of(context).push(
-                      MaterialPageRoute<void>(
-                        builder: (_) => SubjectDetailScreen(subject: subject),
-                      ),
+                    onTap: () => _openSearchResult(
+                      SubjectDetailScreen(subject: subject),
                     ),
                     onEpisodeGrid: collection != null && supportsEpisodes
                         ? () => showEpisodeGridSheet(context, ref, collection)

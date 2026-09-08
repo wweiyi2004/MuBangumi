@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/layout/app_layout.dart';
+import '../core/storage/browsing_store.dart';
 import '../models/bangumi_models.dart';
 import '../state/session_controller.dart';
 import '../widgets/episode_grid_sheet.dart';
@@ -27,6 +28,7 @@ Future<void> openCollectionLibrary(
         initialSubjectType: null,
         initialCollectionType: collectionType,
         showTitle: false,
+        rememberFilters: false,
       ),
     ),
   ),
@@ -38,11 +40,13 @@ class LibraryPage extends ConsumerStatefulWidget {
     this.initialSubjectType = SubjectType.anime,
     this.initialCollectionType = CollectionType.doing,
     this.showTitle = true,
+    this.rememberFilters = true,
   });
 
   final SubjectType? initialSubjectType;
   final CollectionType? initialCollectionType;
   final bool showTitle;
+  final bool rememberFilters;
 
   @override
   ConsumerState<LibraryPage> createState() => _LibraryPageState();
@@ -56,25 +60,142 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
   int _minimumRating = 0;
   String _query = '';
   Timer? _searchDebounce;
+  final _queryController = TextEditingController();
+  String? _account;
+  int _preferenceRevision = 0;
+  bool _saveErrorShown = false;
 
   @override
   void initState() {
     super.initState();
     _subjectType = widget.initialSubjectType;
     _type = widget.initialCollectionType;
+    ref.listenManual(
+      sessionProvider.select((state) => state.user?.username),
+      (previous, next) => _bindAccount(next),
+      fireImmediately: true,
+    );
   }
 
   @override
   void dispose() {
     _searchDebounce?.cancel();
+    _queryController.dispose();
+    _preferenceRevision++;
     super.dispose();
   }
 
   void _onQueryChanged(String value) {
+    _preferenceRevision++;
     _searchDebounce?.cancel();
     _searchDebounce = Timer(const Duration(milliseconds: 180), () {
       if (mounted) setState(() => _query = value);
     });
+  }
+
+  void _bindAccount(String? account) {
+    _account = account;
+    final revision = ++_preferenceRevision;
+    _searchDebounce?.cancel();
+    _queryController.clear();
+    setState(() {
+      _query = '';
+      _subjectType = widget.initialSubjectType;
+      _type = widget.initialCollectionType;
+      _progress = _ProgressFilter.all;
+      _sort = _LibrarySort.updated;
+      _minimumRating = 0;
+      _saveErrorShown = false;
+    });
+    if (widget.rememberFilters && account != null && account.isNotEmpty) {
+      unawaited(_restorePreferences(account, revision));
+    }
+  }
+
+  Future<void> _restorePreferences(String account, int revision) async {
+    try {
+      final data = await ref
+          .read(browsingRepositoryProvider)
+          .readLibrary(account);
+      if (!mounted ||
+          revision != _preferenceRevision ||
+          account != _account ||
+          data == null) {
+        return;
+      }
+      setState(() {
+        if (data.containsKey('subject_type')) {
+          _subjectType = data['subject_type'] == null
+              ? null
+              : SubjectType.values
+                        .where((type) => type.value == data['subject_type'])
+                        .firstOrNull ??
+                    widget.initialSubjectType;
+        }
+        if (data.containsKey('collection_type')) {
+          _type = data['collection_type'] == null
+              ? null
+              : CollectionType.values
+                        .where((type) => type.value == data['collection_type'])
+                        .firstOrNull ??
+                    widget.initialCollectionType;
+        }
+        _sort =
+            _LibrarySort.values
+                .where((sort) => sort.name == data['sort'])
+                .firstOrNull ??
+            _LibrarySort.updated;
+        _progress =
+            _ProgressFilter.values
+                .where((progress) => progress.name == data['progress'])
+                .firstOrNull ??
+            _ProgressFilter.all;
+        if (_subjectType != null &&
+            !_subjectType!.hasEpisodes &&
+            !_subjectType!.hasVolumes) {
+          _progress = _ProgressFilter.all;
+        }
+        _minimumRating =
+            data['minimum_rating'] is int &&
+                const [0, 6, 7, 8, 9].contains(data['minimum_rating'])
+            ? data['minimum_rating'] as int
+            : 0;
+      });
+    } catch (_) {
+      // Optional preferences never block browsing the loaded collection.
+    }
+  }
+
+  void _changeFilters(VoidCallback change) {
+    _preferenceRevision++;
+    setState(change);
+    final account = _account;
+    if (!widget.rememberFilters || account == null || account.isEmpty) return;
+    unawaited(
+      _savePreferences(account, {
+        'subject_type': _subjectType?.value,
+        'collection_type': _type?.value,
+        'progress': _progress.name,
+        'sort': _sort.name,
+        'minimum_rating': _minimumRating,
+      }),
+    );
+  }
+
+  Future<void> _savePreferences(
+    String account,
+    Map<String, dynamic> settings,
+  ) async {
+    try {
+      await ref.read(browsingRepositoryProvider).saveLibrary(account, settings);
+      if (mounted && account == _account) _saveErrorShown = false;
+    } catch (_) {
+      if (!mounted || account != _account || _saveErrorShown) return;
+      _saveErrorShown = true;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('筛选已应用，但暂时无法记住设置')));
+    }
   }
 
   int get _activeFilters =>
@@ -191,6 +312,7 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
                             children: [
                               Expanded(
                                 child: TextField(
+                                  controller: _queryController,
                                   onChanged: _onQueryChanged,
                                   decoration: InputDecoration(
                                     hintText: '在收藏中搜索',
@@ -227,7 +349,7 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
                                 ChoiceChip(
                                   label: const Text('全部类型'),
                                   selected: _subjectType == null,
-                                  onSelected: (_) => setState(() {
+                                  onSelected: (_) => _changeFilters(() {
                                     _subjectType = null;
                                     _progress = _ProgressFilter.all;
                                   }),
@@ -241,7 +363,7 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
                                     ),
                                     label: Text(type.label),
                                     selected: _subjectType == type,
-                                    onSelected: (_) => setState(() {
+                                    onSelected: (_) => _changeFilters(() {
                                       _subjectType = type;
                                       if (!type.hasEpisodes &&
                                           !type.hasVolumes) {
@@ -263,7 +385,7 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
                                   label: const Text('全部状态'),
                                   selected: _type == null,
                                   onSelected: (_) =>
-                                      setState(() => _type = null),
+                                      _changeFilters(() => _type = null),
                                 ),
                                 const SizedBox(width: 8),
                                 for (final type in CollectionType.values) ...[
@@ -271,7 +393,7 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
                                     label: Text(_statusLabel(type)),
                                     selected: _type == type,
                                     onSelected: (_) =>
-                                        setState(() => _type = type),
+                                        _changeFilters(() => _type = type),
                                   ),
                                   const SizedBox(width: 8),
                                 ],
@@ -461,6 +583,8 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
   }
 
   Future<void> _showFilters() async {
+    _preferenceRevision++;
+    final account = _account;
     var progress = _progress;
     var sort = _sort;
     var minimumRating = _minimumRating;
@@ -543,7 +667,11 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
                   const Spacer(),
                   FilledButton.icon(
                     onPressed: () {
-                      setState(() {
+                      if (!mounted || account != _account) {
+                        Navigator.pop(sheetContext);
+                        return;
+                      }
+                      _changeFilters(() {
                         _progress = progress;
                         _sort = sort;
                         _minimumRating = minimumRating;
@@ -562,7 +690,7 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
     );
   }
 
-  void _resetFilters() => setState(() {
+  void _resetFilters() => _changeFilters(() {
     _progress = _ProgressFilter.all;
     _sort = _LibrarySort.updated;
     _minimumRating = 0;

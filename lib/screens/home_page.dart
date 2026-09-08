@@ -13,6 +13,7 @@ import 'calendar_page.dart';
 import 'fan_recommend_page.dart';
 import 'notify_page.dart';
 import 'subject_detail_screen.dart';
+import 'library_page.dart';
 
 class HomePage extends ConsumerWidget {
   const HomePage({
@@ -140,17 +141,23 @@ class HomePage extends ConsumerWidget {
                               style: AppLayout.sectionTitleStyle(context),
                             ),
                           ),
-                          Text(
-                            watchingAll.length > previewLimit
-                                ? '显示 $previewLimit / ${watchingAll.length} 部'
-                                : '${watchingAll.length} 部',
-                            style: TextStyle(
-                              color: Theme.of(
+                          if (watchingAll.isNotEmpty)
+                            TextButton(
+                              onPressed: () => openCollectionLibrary(
                                 context,
-                              ).colorScheme.onSurfaceVariant,
-                              fontSize: phone ? 13 : null,
+                                collectionType: CollectionType.doing,
+                              ),
+                              child: Text('查看全部（${watchingAll.length}）'),
+                            )
+                          else
+                            Text(
+                              '0 部',
+                              style: TextStyle(
+                                color: Theme.of(
+                                  context,
+                                ).colorScheme.onSurfaceVariant,
+                              ),
                             ),
-                          ),
                         ],
                       ),
                       const SizedBox(height: 14),
