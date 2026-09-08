@@ -1,3 +1,4 @@
+import 'support/memory_recommendation_feedback.dart';
 import 'support/memory_home_pins.dart';
 import 'dart:async';
 
@@ -282,6 +283,9 @@ Future<void> _show(
     ProviderScope(
       overrides: [
         homePinsRepositoryProvider.overrideWithValue(MemoryHomePins()),
+        recommendationFeedbackRepositoryProvider.overrideWithValue(
+          MemoryRecommendationFeedback(),
+        ),
         sessionProvider.overrideWith((ref) => session ?? _Session()),
         bangumiApiProvider.overrideWithValue(api ?? _Api()),
         browsingRepositoryProvider.overrideWithValue(repo),

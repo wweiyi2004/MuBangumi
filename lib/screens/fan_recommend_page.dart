@@ -5,6 +5,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../core/layout/app_layout.dart';
 import '../core/recommend/fan_recommend_engine.dart';
 import '../models/bangumi_models.dart';
+import '../models/recommendation_feedback.dart';
+import '../state/recommendation_feedback_controller.dart';
+import '../widgets/recommendation_feedback_sheet.dart';
 import '../state/session_controller.dart';
 import '../widgets/subject_widgets.dart';
 import 'subject_detail_screen.dart';
@@ -29,14 +32,44 @@ class _FanRecommendPageState extends ConsumerState<FanRecommendPage> {
   bool _partial = false;
   int _generation = 0;
   String _status = '';
-  List<FanRecommendItem> _results = const [];
+  List<Subject> _candidates = const [];
+  FanRecommendRequest? _rankRequest;
+  FanTasteProfile? _rankTaste;
+  bool _hasSuccessfulRun = false;
+
+  List<FanRecommendItem> _rankVisible(Set<int> hidden, Set<int> owned) {
+    final request = _rankRequest, taste = _rankTaste;
+    if (request == null || taste == null) return const [];
+    return FanRecommendEngine.rank(
+      candidates: _candidates,
+      taste: FanTasteProfile(
+        topTags: taste.topTags,
+        ownedIds: owned,
+        likedCount: taste.likedCount,
+        avgLikedScore: taste.avgLikedScore,
+      ),
+      request: request,
+      excludedIds: hidden,
+    );
+  }
+
+  List<FanRecommendItem> _currentResults() {
+    final session = ref.read(sessionProvider);
+    final feedback = ref.read(
+      recommendationFeedbackProvider(session.user?.id ?? 0),
+    );
+    return _rankVisible(feedback.hidden.keys.toSet(), {
+      for (final collection in session.collections) collection.subjectId,
+    });
+  }
+
   FanTasteProfile? _taste;
 
   @override
   void initState() {
     super.initState();
     Future.microtask(_refreshTaste);
-    ref.listenManual(sessionProvider.select((state) => state.user?.username), (
+    ref.listenManual(sessionProvider.select((state) => state.user?.id), (
       previous,
       next,
     ) {
@@ -46,7 +79,11 @@ class _FanRecommendPageState extends ConsumerState<FanRecommendPage> {
         _loading = false;
         _error = null;
         _status = '';
-        _results = const [];
+        _candidates = const [];
+        _rankRequest = null;
+        _rankTaste = null;
+        _hasSuccessfulRun = false;
+        _partial = false;
         _canRetry = false;
       });
       _refreshTaste();
@@ -69,6 +106,9 @@ class _FanRecommendPageState extends ConsumerState<FanRecommendPage> {
 
   Future<void> _runRecommend() async {
     if (!mounted || _loading) return;
+    final ownerId = ref.read(sessionProvider).user?.id ?? 0;
+    final feedback = ref.read(recommendationFeedbackProvider(ownerId));
+    if (!feedback.ready || feedback.loading) return;
     final generation = ++_generation;
     bool current() => mounted && generation == _generation;
     _canRetry = false;
@@ -88,18 +128,27 @@ class _FanRecommendPageState extends ConsumerState<FanRecommendPage> {
         request.effectiveTags.isEmpty) {
       setState(() {
         _error = '先写一点想看的方向，或点选几个标签吧';
-        _results = const [];
+        _candidates = const [];
+        _rankRequest = null;
+        _rankTaste = null;
+        _hasSuccessfulRun = false;
+        _partial = false;
       });
       return;
     }
     if (_modeTaste && !taste.hasTaste && request.effectiveTags.isEmpty) {
       setState(() {
         _error = '收藏里还没有足够的高分动画，先去看几部并评分，或切换到「说出需求」';
-        _results = const [];
+        _candidates = const [];
+        _rankRequest = null;
+        _rankTaste = null;
+        _hasSuccessfulRun = false;
+        _partial = false;
       });
       return;
     }
 
+    FocusManager.instance.primaryFocus?.unfocus();
     setState(() {
       _loading = true;
       _error = null;
@@ -149,7 +198,15 @@ class _FanRecommendPageState extends ConsumerState<FanRecommendPage> {
 
       // If still thin, pull a ranked season/year sample.
       if (!current()) return;
-      if (merged.length < 8) {
+      if (merged.keys
+              .where(
+                (id) => !ref
+                    .read(recommendationFeedbackProvider(ownerId))
+                    .hidden
+                    .containsKey(id),
+              )
+              .length <
+          8) {
         final now = DateTime.now();
         try {
           final browse = await api.browseSubjects(
@@ -168,29 +225,22 @@ class _FanRecommendPageState extends ConsumerState<FanRecommendPage> {
         }
       }
 
-      final ranked = FanRecommendEngine.rank(
-        candidates: merged.values.toList(),
-        taste: taste,
-        request: request,
-        limit: 24,
-      );
-
       if (!current()) return;
       setState(() {
         _loading = false;
         _canRetry = failures > 0;
         _partial = successes > 0 && failures > 0;
+        _status = '';
         if (successes == 0) {
-          _status = '';
-          _error = _results.isEmpty ? '暂时无法获取推荐，请稍后重试' : '暂时无法获取推荐，已保留上次结果，请重试';
+          _error = _currentResults().isEmpty
+              ? '暂时无法获取推荐，请稍后重试'
+              : '暂时无法获取推荐，已保留上次结果，请重试';
         } else {
-          _results = ranked;
-          _status = ranked.isEmpty ? '' : '为你挑了 ${ranked.length} 部';
-          _error = failures > 0
-              ? (ranked.isEmpty ? '部分内容未能加载，暂未找到推荐，请重试' : '部分内容未能加载，当前推荐可能不完整')
-              : ranked.isEmpty
-              ? '没有筛到合适的番，试试放宽评分/年份，或换几个标签'
-              : null;
+          _candidates = merged.values.toList();
+          _rankRequest = request;
+          _rankTaste = taste;
+          _hasSuccessfulRun = true;
+          _error = failures > 0 ? '部分内容未能加载，当前推荐可能不完整' : null;
         }
       });
     } catch (_) {
@@ -205,8 +255,53 @@ class _FanRecommendPageState extends ConsumerState<FanRecommendPage> {
     }
   }
 
+  Future<void> _hide(Subject subject, int ownerId) async {
+    if ((ref.read(sessionProvider).user?.id ?? 0) != ownerId) return;
+    final state = ref.read(recommendationFeedbackProvider(ownerId));
+    if (!state.ready ||
+        state.pending.contains(subject.id) ||
+        state.hidden.containsKey(subject.id)) {
+      return;
+    }
+    final saved = await ref
+        .read(recommendationFeedbackProvider(ownerId).notifier)
+        .hide(HiddenRecommendation.fromSubject(subject));
+    if (!mounted || (ref.read(sessionProvider).user?.id ?? 0) != ownerId) {
+      return;
+    }
+    if (!saved) showAppMessage(context, '未能保存对《${subject.displayName}》的反馈，请重试');
+  }
+
   @override
   Widget build(BuildContext context) {
+    final ownerId =
+        ref.watch(sessionProvider.select((state) => state.user?.id)) ?? 0;
+    final collections = ref.watch(
+      sessionProvider.select((state) => state.collections),
+    );
+    final feedback = ref.watch(recommendationFeedbackProvider(ownerId));
+    final owned = {for (final item in collections) item.subjectId};
+    final results = feedback.ready
+        ? _rankVisible(feedback.hidden.keys.toSet(), owned)
+        : const <FanRecommendItem>[];
+    final allHidden =
+        feedback.ready &&
+        _hasSuccessfulRun &&
+        results.isEmpty &&
+        _rankVisible(const {}, owned).isNotEmpty;
+    final displayError =
+        _error ??
+        (_hasSuccessfulRun && results.isEmpty && feedback.ready
+            ? allHidden
+                  ? '本次候选已全部隐藏，可以恢复作品或重新推荐'
+                  : '没有筛到合适的番，试试放宽评分/年份，或换几个标签'
+            : null);
+    final status = _loading
+        ? _status
+        : (_hasSuccessfulRun && results.isNotEmpty && _error == null
+              ? '为你挑了 ${results.length} 部'
+              : '');
+    final canRun = !_loading && feedback.ready && !feedback.loading;
     final phone = AppLayout.isPhone(context);
     final scheme = Theme.of(context).colorScheme;
     final taste = _taste;
@@ -215,6 +310,19 @@ class _FanRecommendPageState extends ConsumerState<FanRecommendPage> {
       appBar: AppBar(
         title: const Text('番会荐'),
         actions: [
+          IconButton(
+            tooltip: '不感兴趣的作品',
+            onPressed: () => showHiddenRecommendations(context, ownerId),
+            icon: Badge(
+              isLabelVisible: feedback.hidden.isNotEmpty,
+              label: Text(
+                feedback.hidden.length > 99
+                    ? '99+'
+                    : '${feedback.hidden.length}',
+              ),
+              child: const Icon(Icons.visibility_off_outlined),
+            ),
+          ),
           IconButton(
             tooltip: '重新分析喜好',
             onPressed: () {
@@ -387,7 +495,7 @@ class _FanRecommendPageState extends ConsumerState<FanRecommendPage> {
           SizedBox(
             width: double.infinity,
             child: FilledButton.icon(
-              onPressed: _loading ? null : _runRecommend,
+              onPressed: canRun ? _runRecommend : null,
               icon: _loading
                   ? const SizedBox.square(
                       dimension: 18,
@@ -397,16 +505,17 @@ class _FanRecommendPageState extends ConsumerState<FanRecommendPage> {
               label: Text(_loading ? '推荐中…' : '开始推荐'),
             ),
           ),
-          if (_status.isNotEmpty) ...[
+          RecommendationFeedbackNotice(ownerId: ownerId),
+          if (status.isNotEmpty) ...[
             const SizedBox(height: 10),
             Text(
-              _status,
+              status,
               style: Theme.of(
                 context,
               ).textTheme.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
             ),
           ],
-          if (_error != null) ...[
+          if (displayError != null) ...[
             const SizedBox(height: 14),
             Card(
               color:
@@ -429,14 +538,28 @@ class _FanRecommendPageState extends ConsumerState<FanRecommendPage> {
                               : scheme.error,
                         ),
                         const SizedBox(width: 10),
-                        Expanded(child: Text(_error!)),
+                        Expanded(child: Text(displayError)),
                       ],
                     ),
+                    if (allHidden && _error != null)
+                      const Padding(
+                        padding: EdgeInsets.only(top: 8),
+                        child: Text('本次候选已全部隐藏，可以恢复作品或重新推荐'),
+                      ),
+                    if (allHidden)
+                      Align(
+                        alignment: Alignment.centerRight,
+                        child: TextButton(
+                          onPressed: () =>
+                              showHiddenRecommendations(context, ownerId),
+                          child: const Text('恢复隐藏作品'),
+                        ),
+                      ),
                     if (_canRetry)
                       Align(
                         alignment: Alignment.centerRight,
                         child: TextButton(
-                          onPressed: _loading ? null : _runRecommend,
+                          onPressed: canRun ? _runRecommend : null,
                           child: const Text('重试'),
                         ),
                       ),
@@ -445,7 +568,7 @@ class _FanRecommendPageState extends ConsumerState<FanRecommendPage> {
               ),
             ),
           ],
-          if (_results.isNotEmpty) ...[
+          if (results.isNotEmpty) ...[
             SizedBox(height: AppLayout.blockGap(context)),
             Row(
               children: [
@@ -456,22 +579,26 @@ class _FanRecommendPageState extends ConsumerState<FanRecommendPage> {
                   ),
                 ),
                 Text(
-                  '${_results.length} 部',
+                  '${results.length} 部',
                   style: TextStyle(color: scheme.onSurfaceVariant),
                 ),
               ],
             ),
             const SizedBox(height: 12),
-            for (var i = 0; i < _results.length; i++) ...[
+            for (var i = 0; i < results.length; i++) ...[
               _RecommendTile(
+                key: ValueKey('recommendation-${results[i].subject.id}'),
+                onHide: feedback.pending.contains(results[i].subject.id)
+                    ? null
+                    : () => _hide(results[i].subject, ownerId),
                 index: i + 1,
-                item: _results[i],
+                item: results[i],
                 compact: phone,
                 onTap: () {
                   Navigator.of(context).push(
                     MaterialPageRoute<void>(
                       builder: (_) =>
-                          SubjectDetailScreen(subject: _results[i].subject),
+                          SubjectDetailScreen(subject: results[i].subject),
                     ),
                   );
                 },
@@ -554,6 +681,8 @@ class _HeroBanner extends StatelessWidget {
 
 class _RecommendTile extends StatelessWidget {
   const _RecommendTile({
+    super.key,
+    required this.onHide,
     required this.index,
     required this.item,
     required this.onTap,
@@ -563,6 +692,7 @@ class _RecommendTile extends StatelessWidget {
   final int index;
   final FanRecommendItem item;
   final VoidCallback onTap;
+  final VoidCallback? onHide;
   final bool compact;
 
   @override
@@ -645,6 +775,11 @@ class _RecommendTile extends StatelessWidget {
                             ),
                           ),
                       ],
+                    ),
+                    TextButton.icon(
+                      onPressed: onHide,
+                      icon: const Icon(Icons.thumb_down_outlined, size: 18),
+                      label: const Text('不感兴趣'),
                     ),
                   ],
                 ),

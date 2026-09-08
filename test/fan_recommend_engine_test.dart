@@ -38,6 +38,67 @@ UserCollection _collection({
 );
 
 void main() {
+  test(
+    'subject feedback filters before the limit and preserves other scores and reasons',
+    () {
+      const taste = FanTasteProfile(
+        topTags: ['治愈'],
+        ownedIds: {4},
+        likedCount: 1,
+      );
+      const request = FanRecommendRequest();
+      final candidates = [
+        for (var id = 1; id <= 4; id++)
+          _subject(id: id, name: '作品$id', score: 9 - id * .1, tags: ['治愈']),
+      ];
+      final baseline = FanRecommendEngine.rank(
+        candidates: candidates,
+        taste: taste,
+        request: request,
+      );
+      final visible = FanRecommendEngine.rank(
+        candidates: candidates,
+        taste: taste,
+        request: request,
+        excludedIds: {1},
+        limit: 2,
+      );
+      expect(visible.map((item) => item.subject.id), [2, 3]);
+      for (final item in visible) {
+        final original = baseline.firstWhere(
+          (value) => value.subject.id == item.subject.id,
+        );
+        expect(item.score, original.score);
+        expect(item.reasons, original.reasons);
+      }
+      expect(
+        FanRecommendEngine.rank(
+          candidates: candidates,
+          taste: taste,
+          request: request,
+          excludedIds: {},
+        ).map((item) => item.subject.id),
+        baseline.map((item) => item.subject.id),
+      );
+      expect(taste.topTags, ['治愈']);
+    },
+  );
+
+  test(
+    'hiding one subject does not suppress another subject with the same name',
+    () {
+      final ranked = FanRecommendEngine.rank(
+        candidates: [
+          _subject(id: 1, name: '同名动画', score: 9),
+          _subject(id: 2, name: '同名动画', score: 8),
+        ],
+        taste: const FanTasteProfile(topTags: [], ownedIds: {}),
+        request: const FanRecommendRequest(),
+        excludedIds: {1},
+      );
+      expect(ranked.single.subject.id, 2);
+    },
+  );
   test('builds taste tags from high-rated collections', () {
     final collections = [
       _collection(

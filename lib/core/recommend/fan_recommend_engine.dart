@@ -169,6 +169,7 @@ class FanRecommendEngine {
     required List<Subject> candidates,
     required FanTasteProfile taste,
     required FanRecommendRequest request,
+    Set<int> excludedIds = const {},
     int limit = 24,
   }) {
     final wanted = {
@@ -185,6 +186,7 @@ class FanRecommendEngine {
     for (final subject in candidates) {
       if (subject.id <= 0) continue;
       if (taste.ownedIds.contains(subject.id)) continue;
+      if (excludedIds.contains(subject.id)) continue;
       if (request.minimumRating > 0 && subject.score > 0) {
         if (subject.score + 1e-6 < request.minimumRating) continue;
       }

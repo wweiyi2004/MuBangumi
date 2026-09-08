@@ -8,6 +8,7 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart' as ffi;
 
 import '../../models/bangumi_models.dart';
 import '../../models/schedule_view.dart';
+import '../../models/recommendation_feedback.dart';
 
 class RecentSearch {
   const RecentSearch({
@@ -49,6 +50,15 @@ abstract class ScheduleViewRepository {
   Future<void> saveScheduleView(int ownerId, ScheduleView view);
 }
 
+abstract class RecommendationFeedbackRepository {
+  Future<List<HiddenRecommendation>> readHiddenRecommendations(int ownerId);
+  Future<void> hideRecommendation(int ownerId, HiddenRecommendation item);
+  Future<void> restoreRecommendation(int ownerId, int subjectId);
+}
+
+final recommendationFeedbackRepositoryProvider =
+    Provider<RecommendationFeedbackRepository>((ref) => BrowsingStore.shared);
+
 final scheduleViewRepositoryProvider = Provider<ScheduleViewRepository>(
   (ref) => BrowsingStore.shared,
 );
@@ -68,7 +78,11 @@ final recentSearchesProvider = FutureProvider.autoDispose
 
 /// Durable browsing preferences are separate from the disposable cache.
 class BrowsingStore
-    implements BrowsingRepository, HomePinsRepository, ScheduleViewRepository {
+    implements
+        BrowsingRepository,
+        HomePinsRepository,
+        ScheduleViewRepository,
+        RecommendationFeedbackRepository {
   BrowsingStore({this.databasePath});
   static final shared = BrowsingStore();
   static const historyLimit = 12;
@@ -234,6 +248,61 @@ class BrowsingStore
     'CREATE TABLE schedule_view (owner_id INTEGER PRIMARY KEY NOT NULL, view TEXT NOT NULL)',
   );
 
+  @override
+  Future<List<HiddenRecommendation>> readHiddenRecommendations(
+    int ownerId,
+  ) async {
+    await _writes;
+    final rows = await (await _open()).query(
+      'recommendation_hidden',
+      where: 'owner_id = ?',
+      whereArgs: [ownerId],
+      orderBy: 'id DESC',
+    );
+    return [
+      for (final row in rows)
+        HiddenRecommendation(
+          subjectId: row['subject_id'] as int,
+          title: row['title'] as String,
+          type: SubjectType.fromValue(row['subject_type'] as int),
+          hiddenAt: DateTime.fromMillisecondsSinceEpoch(
+            row['hidden_at'] as int,
+          ),
+        ),
+    ];
+  }
+
+  @override
+  Future<void> hideRecommendation(int ownerId, HiddenRecommendation item) {
+    if (ownerId < 0 || item.subjectId <= 0) {
+      throw ArgumentError('Invalid feedback owner or subject');
+    }
+    return _write((db) async {
+      await db.insert('recommendation_hidden', {
+        'owner_id': ownerId,
+        'subject_id': item.subjectId,
+        'title': item.title,
+        'subject_type': item.type.value,
+        'hidden_at': item.hiddenAt.millisecondsSinceEpoch,
+      }, conflictAlgorithm: ConflictAlgorithm.replace);
+    });
+  }
+
+  @override
+  Future<void> restoreRecommendation(int ownerId, int subjectId) =>
+      _write((db) async {
+        await db.delete(
+          'recommendation_hidden',
+          where: 'owner_id = ? AND subject_id = ?',
+          whereArgs: [ownerId, subjectId],
+        );
+      });
+  Future<void> _createRecommendationFeedback(Database db) => db.execute(
+    '''CREATE TABLE recommendation_hidden (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, owner_id INTEGER NOT NULL, subject_id INTEGER NOT NULL,
+    title TEXT NOT NULL, subject_type INTEGER NOT NULL, hidden_at INTEGER NOT NULL, UNIQUE(owner_id, subject_id))''',
+  );
+
   Future<Database> _open() =>
       _database ??= _create().catchError((Object error) {
         _database = null;
@@ -255,14 +324,16 @@ class BrowsingStore
             'mubangumi_browsing.sqlite',
           ),
       options: OpenDatabaseOptions(
-        version: 3,
+        version: 4,
         onUpgrade: (db, oldVersion, _) async {
           if (oldVersion < 2) await _createHomePins(db);
           if (oldVersion < 3) await _createScheduleView(db);
+          if (oldVersion < 4) await _createRecommendationFeedback(db);
         },
         onCreate: (db, _) async {
           await _createHomePins(db);
           await _createScheduleView(db);
+          await _createRecommendationFeedback(db);
           await db.execute(
             'CREATE TABLE library_preferences (account TEXT PRIMARY KEY NOT NULL, payload TEXT NOT NULL)',
           );

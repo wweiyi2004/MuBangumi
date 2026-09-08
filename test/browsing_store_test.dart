@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:mubangumi/core/storage/browsing_store.dart';
 import 'package:mubangumi/models/bangumi_models.dart';
 import 'package:mubangumi/models/schedule_view.dart';
+import 'package:mubangumi/models/recommendation_feedback.dart';
 import 'package:path/path.dart' as path;
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
@@ -27,6 +28,69 @@ void main() {
     }
     await directory.delete(recursive: true);
   });
+
+  test(
+    'hidden recommendations survive reopen and restore only the selected owner',
+    () async {
+      final item = HiddenRecommendation(
+        subjectId: 42,
+        title: '尚未想看的作品',
+        type: SubjectType.anime,
+        hiddenAt: DateTime(2026, 9, 8),
+      );
+      await store.hideRecommendation(1, item);
+      await store.hideRecommendation(2, item);
+      await store.hideRecommendation(0, item);
+      await store.hideRecommendation(1, item);
+      await store.close();
+      expect(await store.readHiddenRecommendations(1), hasLength(1));
+      expect(
+        (await store.readHiddenRecommendations(1)).single.title,
+        item.title,
+      );
+      await store.restoreRecommendation(1, 42);
+      expect(await store.readHiddenRecommendations(1), isEmpty);
+      expect(await store.readHiddenRecommendations(2), hasLength(1));
+      expect(await store.readHiddenRecommendations(0), hasLength(1));
+    },
+  );
+
+  test(
+    'browsing v3 migration preserves earlier preferences while adding feedback',
+    () async {
+      sqfliteFfiInit();
+      final db = await databaseFactoryFfi.openDatabase(
+        store.databasePath!,
+        options: OpenDatabaseOptions(
+          version: 3,
+          onCreate: (db, _) async {
+            await db.execute(
+              'CREATE TABLE schedule_view (owner_id INTEGER PRIMARY KEY NOT NULL, view TEXT NOT NULL)',
+            );
+            await db.execute(
+              'CREATE TABLE home_pins (owner_id INTEGER PRIMARY KEY NOT NULL, payload TEXT NOT NULL)',
+            );
+            await db.insert('schedule_view', {'owner_id': 1, 'view': 'week'});
+            await db.insert('home_pins', {'owner_id': 1, 'payload': '[8,9]'});
+          },
+        ),
+      );
+      await db.close();
+      expect(await store.readHiddenRecommendations(1), isEmpty);
+      await store.hideRecommendation(
+        1,
+        HiddenRecommendation(
+          subjectId: 8,
+          title: '作品8',
+          type: SubjectType.anime,
+          hiddenAt: DateTime(2026),
+        ),
+      );
+      expect(await store.readScheduleView(1), ScheduleView.week);
+      expect(await store.readHomePins(1), [8, 9]);
+      expect((await store.readHiddenRecommendations(1)).single.subjectId, 8);
+    },
+  );
 
   test(
     'schedule view survives restart and stays separate for each account and guest',
