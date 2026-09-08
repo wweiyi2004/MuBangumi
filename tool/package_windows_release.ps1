@@ -1,7 +1,9 @@
 param(
     [Parameter(Mandatory = $true)]
     [ValidatePattern('^\d+\.\d+\.\d+$')]
-    [string]$Version
+    [string]$Version,
+
+    [string]$VisualCppRuntimePath
 )
 
 $ErrorActionPreference = 'Stop'
@@ -27,6 +29,37 @@ $stagingPath = Join-Path $repositoryRoot ('.dart_tool\windows-package-' + [guid]
 New-Item -ItemType Directory -Path (Join-Path $stagingPath 'data') -Force | Out-Null
 Get-ChildItem -LiteralPath $releasePath -File |
     Where-Object { $_.Name -eq 'mubangumi.exe' -or $_.Extension -eq '.dll' } |
+    ForEach-Object { Copy-Item -LiteralPath $_.FullName -Destination $stagingPath }
+
+# Flutter ZIP deployments need the Visual C++ runtime beside the executable.
+# Resolve the redistributable directory from the installed build tools rather
+# than copying arbitrary DLLs from the system directory.
+if ([string]::IsNullOrWhiteSpace($VisualCppRuntimePath)) {
+    $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
+    if (-not (Test-Path -LiteralPath $vswhere -PathType Leaf)) {
+        throw 'Cannot locate Visual Studio. Supply -VisualCppRuntimePath with the x64 CRT redistributable directory.'
+    }
+    $visualStudio = & $vswhere -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+    if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($visualStudio)) {
+        throw 'Cannot locate Visual C++ build tools.'
+    }
+    $redistRoot = Join-Path $visualStudio.Trim() 'VC\Redist\MSVC'
+    $redistVersion = Get-ChildItem -LiteralPath $redistRoot -Directory |
+        Where-Object { $_.Name -match '^\d+\.\d+\.\d+$' } |
+        Sort-Object { [version]$_.Name } -Descending | Select-Object -First 1
+    if (-not $redistVersion) { throw 'No Visual C++ redistributable version found.' }
+    $crt = Get-ChildItem -LiteralPath (Join-Path $redistVersion.FullName 'x64') -Directory |
+        Where-Object { $_.Name -match '^Microsoft\.VC\d+\.CRT$' } |
+        Sort-Object Name -Descending | Select-Object -First 1
+    if (-not $crt) { throw 'No x64 Visual C++ runtime directory found.' }
+    $VisualCppRuntimePath = $crt.FullName
+}
+foreach ($requiredRuntime in @('msvcp140.dll', 'vcruntime140.dll', 'vcruntime140_1.dll')) {
+    if (-not (Test-Path -LiteralPath (Join-Path $VisualCppRuntimePath $requiredRuntime) -PathType Leaf)) {
+        throw "Missing Visual C++ runtime: $requiredRuntime"
+    }
+}
+Get-ChildItem -LiteralPath $VisualCppRuntimePath -File -Filter '*.dll' |
     ForEach-Object { Copy-Item -LiteralPath $_.FullName -Destination $stagingPath }
 foreach ($relative in @('app.so', 'icudtl.dat', 'flutter_assets')) {
     Copy-Item -LiteralPath (Join-Path $releasePath "data\$relative") -Destination (Join-Path $stagingPath 'data') -Recurse
