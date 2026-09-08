@@ -7,6 +7,8 @@ import '../core/layout/app_layout.dart';
 import '../core/storage/browsing_store.dart';
 import '../models/bangumi_models.dart';
 import '../models/episode_edit.dart';
+import '../models/library_batch.dart';
+import 'library_batch_page.dart';
 import '../widgets/episode_undo_message.dart';
 import '../state/session_controller.dart';
 import '../widgets/episode_grid_sheet.dart';
@@ -66,12 +68,34 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
   String? _account;
   int _preferenceRevision = 0;
   bool _saveErrorShown = false;
+  bool _selectionMode = false;
+  final _selected = <int>{};
 
   @override
   void initState() {
     super.initState();
     _subjectType = widget.initialSubjectType;
     _type = widget.initialCollectionType;
+    ref.listenManual(sessionProvider.select((state) => state.user?.id), (
+      previous,
+      next,
+    ) {
+      if (mounted && previous != next) {
+        setState(() {
+          _selected.clear();
+          _selectionMode = false;
+        });
+      }
+    });
+    ref.listenManual(sessionProvider.select((state) => state.collections), (
+      _,
+      next,
+    ) {
+      final available = {for (final item in next) item.subjectId};
+      if (mounted && _selected.any((id) => !available.contains(id))) {
+        setState(() => _selected.removeWhere((id) => !available.contains(id)));
+      }
+    });
     ref.listenManual(
       sessionProvider.select((state) => state.user?.username),
       (previous, next) => _bindAccount(next),
@@ -102,6 +126,8 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
     _queryController.clear();
     setState(() {
       _query = '';
+      _selected.clear();
+      _selectionMode = false;
       _subjectType = widget.initialSubjectType;
       _type = widget.initialCollectionType;
       _progress = _ProgressFilter.all;
@@ -236,6 +262,102 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
     return items;
   }
 
+  void _toggleSelection(int subjectId) => setState(() {
+    if (!_selected.add(subjectId)) _selected.remove(subjectId);
+  });
+
+  Future<void> _openBatch(LibraryBatchKind kind) async {
+    final session = ref.read(sessionProvider.notifier);
+    final actor = session.batchAccount;
+    if (actor == null || _selected.isEmpty) return;
+    final selected = {
+      for (final item in ref.read(sessionProvider).collections)
+        if (_selected.contains(item.subjectId)) item.subjectId: item,
+    }.values.toList();
+    FocusManager.instance.primaryFocus?.unfocus();
+    final completed = await openLibraryBatchPage(
+      context,
+      selected: selected,
+      kind: kind,
+    );
+    if (!mounted || !session.isCurrentBatchAccount(actor)) return;
+    setState(() {
+      _selected.removeAll(completed ?? {});
+      if (_selected.isEmpty) _selectionMode = false;
+    });
+  }
+
+  Widget _batchToolbar(List<UserCollection> visible, bool canBatch) {
+    final visibleIds = visible.map((item) => item.subjectId).toSet();
+    final outside = _selected.difference(visibleIds).length;
+    final allVisible =
+        visibleIds.isNotEmpty && _selected.containsAll(visibleIds);
+    return SafeArea(
+      top: false,
+      child: Material(
+        color: Theme.of(context).colorScheme.surfaceContainerLow,
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                '已选 ${_selected.length} 部${outside > 0 ? ' · $outside 部在当前筛选外' : ''}',
+                key: const ValueKey('library-selected-count'),
+                style: Theme.of(context).textTheme.titleSmall,
+              ),
+              Text('长按作品可查看完整名称', style: Theme.of(context).textTheme.bodySmall),
+              Wrap(
+                spacing: 8,
+                runSpacing: 4,
+                children: [
+                  TextButton(
+                    onPressed: visibleIds.isEmpty
+                        ? null
+                        : () => setState(() {
+                            if (allVisible) {
+                              _selected.removeAll(visibleIds);
+                            } else {
+                              _selected.addAll(visibleIds);
+                            }
+                          }),
+                    child: Text(allVisible ? '取消当前选择' : '全选当前结果'),
+                  ),
+                  TextButton(
+                    onPressed: _selected.isEmpty
+                        ? null
+                        : () => setState(_selected.clear),
+                    child: const Text('清空选择'),
+                  ),
+                  TextButton(
+                    onPressed: () => setState(() {
+                      _selected.clear();
+                      _selectionMode = false;
+                    }),
+                    child: const Text('退出多选'),
+                  ),
+                  FilledButton.tonal(
+                    onPressed: (_selected.isEmpty || !canBatch)
+                        ? null
+                        : () => _openBatch(LibraryBatchKind.collection),
+                    child: const Text('改状态'),
+                  ),
+                  FilledButton.tonal(
+                    onPressed: (_selected.isEmpty || !canBatch)
+                        ? null
+                        : () => _openBatch(LibraryBatchKind.schedule),
+                    child: const Text('加入新番表'),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final collections = ref.watch(
@@ -253,6 +375,14 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
         )
         .length;
     final items = _filterItems(collections);
+    final canBatch = ref.watch(
+      sessionProvider.select(
+        (state) =>
+            state.user != null &&
+            state.phase == SessionPhase.signedIn &&
+            !state.isAuthenticating,
+      ),
+    );
 
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -263,272 +393,350 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
             ? 2
             : 1;
         final pagePad = AppLayout.pagePadding(context);
-        return RefreshIndicator(
-          onRefresh: () => ref.read(sessionProvider.notifier).refresh(),
-          child: CustomScrollView(
-            physics: const AlwaysScrollableScrollPhysics(),
-            slivers: [
-              SliverPadding(
-                padding: EdgeInsets.fromLTRB(
-                  pagePad,
-                  AppLayout.pageTopPadding(context),
-                  pagePad,
-                  0,
-                ),
-                sliver: SliverToBoxAdapter(
-                  child: Center(
-                    child: ConstrainedBox(
-                      constraints: const BoxConstraints(maxWidth: 1220),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          if (widget.showTitle) ...[
-                            Text(
-                              '我的收藏',
-                              style: AppLayout.pageTitleStyle(context),
-                            ),
-                            const SizedBox(height: 6),
-                          ],
-                          Text(
-                            phone
-                                ? '找到 ${items.length} 部'
-                                      '${isLoadingCollections ? ' · 同步中' : ''}'
-                                : '找到 ${items.length} 部 · '
-                                      '当前类型 $typedCount 部 · '
-                                      '全部 ${collections.length} 部'
-                                      '${isLoadingCollections ? ' · 同步中' : ''}',
-                            style: TextStyle(
-                              color: Theme.of(
-                                context,
-                              ).colorScheme.onSurfaceVariant,
-                              fontSize: phone ? 13 : null,
-                            ),
-                          ),
-                          const CollectionSyncStatus(),
-                          if (isLoadingCollections && collections.isEmpty) ...[
-                            const SizedBox(height: 10),
-                            const LinearProgressIndicator(minHeight: 3),
-                          ],
-                          SizedBox(height: phone ? 16 : 24),
-                          Row(
-                            children: [
-                              Expanded(
-                                child: TextField(
-                                  controller: _queryController,
-                                  onChanged: _onQueryChanged,
-                                  decoration: InputDecoration(
-                                    hintText: '在收藏中搜索',
-                                    isDense: phone,
-                                    prefixIcon: const Icon(
-                                      Icons.search_rounded,
-                                    ),
-                                  ),
-                                ),
-                              ),
-                              const SizedBox(width: 8),
-                              Badge.count(
-                                count: _activeFilters,
-                                isLabelVisible: _activeFilters > 0,
-                                child: phone
-                                    ? IconButton.filledTonal(
-                                        tooltip: '筛选',
-                                        onPressed: _showFilters,
-                                        icon: const Icon(Icons.tune_rounded),
-                                      )
-                                    : FilledButton.tonalIcon(
-                                        onPressed: _showFilters,
-                                        icon: const Icon(Icons.tune_rounded),
-                                        label: const Text('筛选'),
+        return Column(
+          children: [
+            Expanded(
+              child: RefreshIndicator(
+                onRefresh: () => ref.read(sessionProvider.notifier).refresh(),
+                child: CustomScrollView(
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  slivers: [
+                    SliverPadding(
+                      padding: EdgeInsets.fromLTRB(
+                        pagePad,
+                        AppLayout.pageTopPadding(context),
+                        pagePad,
+                        0,
+                      ),
+                      sliver: SliverToBoxAdapter(
+                        child: Center(
+                          child: ConstrainedBox(
+                            constraints: const BoxConstraints(maxWidth: 1220),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                SizedBox(
+                                  width: double.infinity,
+                                  child: Wrap(
+                                    alignment: WrapAlignment.spaceBetween,
+                                    crossAxisAlignment:
+                                        WrapCrossAlignment.center,
+                                    children: [
+                                      if (widget.showTitle)
+                                        Text(
+                                          '我的收藏',
+                                          style: AppLayout.pageTitleStyle(
+                                            context,
+                                          ),
+                                        ),
+                                      TextButton.icon(
+                                        key: const ValueKey(
+                                          'library-selection-toggle',
+                                        ),
+                                        onPressed: !canBatch
+                                            ? null
+                                            : () => setState(() {
+                                                _selectionMode =
+                                                    !_selectionMode;
+                                                if (!_selectionMode) {
+                                                  _selected.clear();
+                                                }
+                                              }),
+                                        icon: const Icon(
+                                          Icons.checklist_rounded,
+                                        ),
+                                        label: Text(
+                                          _selectionMode ? '结束多选' : '批量整理',
+                                        ),
                                       ),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 16),
-                          SingleChildScrollView(
-                            scrollDirection: Axis.horizontal,
-                            child: Row(
-                              children: [
-                                ChoiceChip(
-                                  label: const Text('全部类型'),
-                                  selected: _subjectType == null,
-                                  onSelected: (_) => _changeFilters(() {
-                                    _subjectType = null;
-                                    _progress = _ProgressFilter.all;
-                                  }),
-                                ),
-                                const SizedBox(width: 8),
-                                for (final type in SubjectType.values) ...[
-                                  ChoiceChip(
-                                    avatar: Icon(
-                                      subjectTypeIcon(type),
-                                      size: 16,
-                                    ),
-                                    label: Text(type.label),
-                                    selected: _subjectType == type,
-                                    onSelected: (_) => _changeFilters(() {
-                                      _subjectType = type;
-                                      if (!type.hasEpisodes &&
-                                          !type.hasVolumes) {
-                                        _progress = _ProgressFilter.all;
-                                      }
-                                    }),
+                                    ],
                                   ),
-                                  const SizedBox(width: 8),
-                                ],
-                              ],
-                            ),
-                          ),
-                          const SizedBox(height: 12),
-                          SingleChildScrollView(
-                            scrollDirection: Axis.horizontal,
-                            child: Row(
-                              children: [
-                                ChoiceChip(
-                                  label: const Text('全部状态'),
-                                  selected: _type == null,
-                                  onSelected: (_) =>
-                                      _changeFilters(() => _type = null),
                                 ),
-                                const SizedBox(width: 8),
-                                for (final type in CollectionType.values) ...[
-                                  ChoiceChip(
-                                    label: Text(_statusLabel(type)),
-                                    selected: _type == type,
-                                    onSelected: (_) =>
-                                        _changeFilters(() => _type = type),
-                                  ),
-                                  const SizedBox(width: 8),
-                                ],
-                              ],
-                            ),
-                          ),
-                          if (_activeFilters > 0) ...[
-                            const SizedBox(height: 12),
-                            Wrap(
-                              spacing: 8,
-                              runSpacing: 8,
-                              crossAxisAlignment: WrapCrossAlignment.center,
-                              children: [
+                                const SizedBox(height: 6),
                                 Text(
-                                  '已启用：',
-                                  style: Theme.of(
-                                    context,
-                                  ).textTheme.labelMedium,
+                                  phone
+                                      ? '找到 ${items.length} 部'
+                                            '${isLoadingCollections ? ' · 同步中' : ''}'
+                                      : '找到 ${items.length} 部 · '
+                                            '当前类型 $typedCount 部 · '
+                                            '全部 ${collections.length} 部'
+                                            '${isLoadingCollections ? ' · 同步中' : ''}',
+                                  style: TextStyle(
+                                    color: Theme.of(
+                                      context,
+                                    ).colorScheme.onSurfaceVariant,
+                                    fontSize: phone ? 13 : null,
+                                  ),
                                 ),
-                                if (_progress != _ProgressFilter.all)
-                                  Chip(label: Text(_progressLabel(_progress))),
-                                if (_minimumRating > 0)
-                                  Chip(label: Text('个人评分 ≥ $_minimumRating')),
-                                if (_sort != _LibrarySort.updated)
-                                  Chip(label: Text(_sortLabel(_sort))),
-                                TextButton(
-                                  onPressed: _resetFilters,
-                                  child: const Text('清除'),
+                                const CollectionSyncStatus(),
+                                if (isLoadingCollections &&
+                                    collections.isEmpty) ...[
+                                  const SizedBox(height: 10),
+                                  const LinearProgressIndicator(minHeight: 3),
+                                ],
+                                SizedBox(height: phone ? 16 : 24),
+                                Row(
+                                  children: [
+                                    Expanded(
+                                      child: TextField(
+                                        controller: _queryController,
+                                        onChanged: _onQueryChanged,
+                                        decoration: InputDecoration(
+                                          hintText: '在收藏中搜索',
+                                          isDense: phone,
+                                          prefixIcon: const Icon(
+                                            Icons.search_rounded,
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                    const SizedBox(width: 8),
+                                    Badge.count(
+                                      count: _activeFilters,
+                                      isLabelVisible: _activeFilters > 0,
+                                      child: phone
+                                          ? IconButton.filledTonal(
+                                              tooltip: '筛选',
+                                              onPressed: _showFilters,
+                                              icon: const Icon(
+                                                Icons.tune_rounded,
+                                              ),
+                                            )
+                                          : FilledButton.tonalIcon(
+                                              onPressed: _showFilters,
+                                              icon: const Icon(
+                                                Icons.tune_rounded,
+                                              ),
+                                              label: const Text('筛选'),
+                                            ),
+                                    ),
+                                  ],
                                 ),
+                                const SizedBox(height: 16),
+                                SingleChildScrollView(
+                                  scrollDirection: Axis.horizontal,
+                                  child: Row(
+                                    children: [
+                                      ChoiceChip(
+                                        label: const Text('全部类型'),
+                                        selected: _subjectType == null,
+                                        onSelected: (_) => _changeFilters(() {
+                                          _subjectType = null;
+                                          _progress = _ProgressFilter.all;
+                                        }),
+                                      ),
+                                      const SizedBox(width: 8),
+                                      for (final type
+                                          in SubjectType.values) ...[
+                                        ChoiceChip(
+                                          avatar: Icon(
+                                            subjectTypeIcon(type),
+                                            size: 16,
+                                          ),
+                                          label: Text(type.label),
+                                          selected: _subjectType == type,
+                                          onSelected: (_) => _changeFilters(() {
+                                            _subjectType = type;
+                                            if (!type.hasEpisodes &&
+                                                !type.hasVolumes) {
+                                              _progress = _ProgressFilter.all;
+                                            }
+                                          }),
+                                        ),
+                                        const SizedBox(width: 8),
+                                      ],
+                                    ],
+                                  ),
+                                ),
+                                const SizedBox(height: 12),
+                                SingleChildScrollView(
+                                  scrollDirection: Axis.horizontal,
+                                  child: Row(
+                                    children: [
+                                      ChoiceChip(
+                                        label: const Text('全部状态'),
+                                        selected: _type == null,
+                                        onSelected: (_) =>
+                                            _changeFilters(() => _type = null),
+                                      ),
+                                      const SizedBox(width: 8),
+                                      for (final type
+                                          in CollectionType.values) ...[
+                                        ChoiceChip(
+                                          label: Text(_statusLabel(type)),
+                                          selected: _type == type,
+                                          onSelected: (_) => _changeFilters(
+                                            () => _type = type,
+                                          ),
+                                        ),
+                                        const SizedBox(width: 8),
+                                      ],
+                                    ],
+                                  ),
+                                ),
+                                if (_activeFilters > 0) ...[
+                                  const SizedBox(height: 12),
+                                  Wrap(
+                                    spacing: 8,
+                                    runSpacing: 8,
+                                    crossAxisAlignment:
+                                        WrapCrossAlignment.center,
+                                    children: [
+                                      Text(
+                                        '已启用：',
+                                        style: Theme.of(
+                                          context,
+                                        ).textTheme.labelMedium,
+                                      ),
+                                      if (_progress != _ProgressFilter.all)
+                                        Chip(
+                                          label: Text(
+                                            _progressLabel(_progress),
+                                          ),
+                                        ),
+                                      if (_minimumRating > 0)
+                                        Chip(
+                                          label: Text('个人评分 ≥ $_minimumRating'),
+                                        ),
+                                      if (_sort != _LibrarySort.updated)
+                                        Chip(label: Text(_sortLabel(_sort))),
+                                      TextButton(
+                                        onPressed: _resetFilters,
+                                        child: const Text('清除'),
+                                      ),
+                                    ],
+                                  ),
+                                ],
+                                const SizedBox(height: 18),
                               ],
                             ),
-                          ],
-                          const SizedBox(height: 18),
-                        ],
+                          ),
+                        ),
                       ),
                     ),
-                  ),
+                    if (items.isEmpty)
+                      const SliverFillRemaining(
+                        hasScrollBody: false,
+                        child: Padding(
+                          padding: EdgeInsets.all(24),
+                          child: EmptyState(
+                            icon: Icons.filter_alt_off_outlined,
+                            title: '没有符合条件的收藏',
+                            message: '换个类型、分类、搜索词或清除筛选条件试试看。',
+                          ),
+                        ),
+                      )
+                    else
+                      SliverPadding(
+                        padding: EdgeInsets.fromLTRB(pagePad, 0, pagePad, 60),
+                        sliver: SliverLayoutBuilder(
+                          builder: (context, constraints) {
+                            final width = constraints.crossAxisExtent;
+                            final contentWidth = width > 1220 ? 1220.0 : width;
+                            final side = (width - contentWidth) / 2;
+                            return SliverPadding(
+                              padding: EdgeInsets.symmetric(
+                                horizontal: side > 0 ? side : 0,
+                              ),
+                              sliver: SliverGrid(
+                                gridDelegate:
+                                    SliverGridDelegateWithFixedCrossAxisCount(
+                                      crossAxisCount: columns,
+                                      mainAxisExtent: subjectTileHeight(
+                                        context,
+                                      ),
+                                      mainAxisSpacing: 14,
+                                      crossAxisSpacing: 14,
+                                    ),
+                                delegate: SliverChildBuilderDelegate((
+                                  context,
+                                  index,
+                                ) {
+                                  final collection = items[index];
+                                  final supportsEpisodes =
+                                      collection.subject.type.hasEpisodes;
+                                  return SubjectTile(
+                                    key: ValueKey(
+                                      'library-subject-${collection.subjectId}',
+                                    ),
+                                    selected: _selectionMode
+                                        ? _selected.contains(
+                                            collection.subjectId,
+                                          )
+                                        : null,
+                                    onSelectionChanged: _selectionMode
+                                        ? () => _toggleSelection(
+                                            collection.subjectId,
+                                          )
+                                        : null,
+                                    subject: collection.subject,
+                                    collection: collection,
+                                    showTypeBadge: _subjectType == null,
+                                    busy: updating.contains(
+                                      collection.subjectId,
+                                    ),
+                                    onTap: _selectionMode
+                                        ? () => _toggleSelection(
+                                            collection.subjectId,
+                                          )
+                                        : () => Navigator.of(context).push(
+                                            MaterialPageRoute(
+                                              builder: (_) =>
+                                                  SubjectDetailScreen(
+                                                    subject: collection.subject,
+                                                  ),
+                                            ),
+                                          ),
+                                    onEpisodeGrid:
+                                        supportsEpisodes && !_selectionMode
+                                        ? () => showEpisodeGridSheet(
+                                            context,
+                                            ref,
+                                            collection,
+                                          )
+                                        : null,
+                                    onNextEpisode:
+                                        supportsEpisodes &&
+                                            !_selectionMode &&
+                                            collection.type ==
+                                                CollectionType.doing
+                                        ? () async {
+                                            EpisodeUndo? undo;
+                                            final controller = ref.read(
+                                              sessionProvider.notifier,
+                                            );
+                                            final error = await controller
+                                                .markNextEpisode(
+                                                  collection,
+                                                  onUndoReady: (value) =>
+                                                      undo = value,
+                                                );
+                                            if (context.mounted) {
+                                              if (error != null) {
+                                                showAppMessage(context, error);
+                                              } else if (undo != null) {
+                                                showEpisodeUndoMessage(
+                                                  context,
+                                                  controller,
+                                                  undo!,
+                                                );
+                                              }
+                                            }
+                                          }
+                                        : null,
+                                  );
+                                }, childCount: items.length),
+                              ),
+                            );
+                          },
+                        ),
+                      ),
+                  ],
                 ),
               ),
-              if (items.isEmpty)
-                const SliverFillRemaining(
-                  hasScrollBody: false,
-                  child: Padding(
-                    padding: EdgeInsets.all(24),
-                    child: EmptyState(
-                      icon: Icons.filter_alt_off_outlined,
-                      title: '没有符合条件的收藏',
-                      message: '换个类型、分类、搜索词或清除筛选条件试试看。',
-                    ),
-                  ),
-                )
-              else
-                SliverPadding(
-                  padding: EdgeInsets.fromLTRB(pagePad, 0, pagePad, 60),
-                  sliver: SliverLayoutBuilder(
-                    builder: (context, constraints) {
-                      final width = constraints.crossAxisExtent;
-                      final contentWidth = width > 1220 ? 1220.0 : width;
-                      final side = (width - contentWidth) / 2;
-                      return SliverPadding(
-                        padding: EdgeInsets.symmetric(
-                          horizontal: side > 0 ? side : 0,
-                        ),
-                        sliver: SliverGrid(
-                          gridDelegate:
-                              SliverGridDelegateWithFixedCrossAxisCount(
-                                crossAxisCount: columns,
-                                mainAxisExtent: subjectTileHeight(context),
-                                mainAxisSpacing: 14,
-                                crossAxisSpacing: 14,
-                              ),
-                          delegate: SliverChildBuilderDelegate((
-                            context,
-                            index,
-                          ) {
-                            final collection = items[index];
-                            final supportsEpisodes =
-                                collection.subject.type.hasEpisodes;
-                            return SubjectTile(
-                              subject: collection.subject,
-                              collection: collection,
-                              showTypeBadge: _subjectType == null,
-                              busy: updating.contains(collection.subjectId),
-                              onTap: () => Navigator.of(context).push(
-                                MaterialPageRoute(
-                                  builder: (_) => SubjectDetailScreen(
-                                    subject: collection.subject,
-                                  ),
-                                ),
-                              ),
-                              onEpisodeGrid: supportsEpisodes
-                                  ? () => showEpisodeGridSheet(
-                                      context,
-                                      ref,
-                                      collection,
-                                    )
-                                  : null,
-                              onNextEpisode:
-                                  supportsEpisodes &&
-                                      collection.type == CollectionType.doing
-                                  ? () async {
-                                      EpisodeUndo? undo;
-                                      final controller = ref.read(
-                                        sessionProvider.notifier,
-                                      );
-                                      final error = await controller
-                                          .markNextEpisode(
-                                            collection,
-                                            onUndoReady: (value) =>
-                                                undo = value,
-                                          );
-                                      if (context.mounted) {
-                                        if (error != null) {
-                                          showAppMessage(context, error);
-                                        } else if (undo != null) {
-                                          showEpisodeUndoMessage(
-                                            context,
-                                            controller,
-                                            undo!,
-                                          );
-                                        }
-                                      }
-                                    }
-                                  : null,
-                            );
-                          }, childCount: items.length),
-                        ),
-                      );
-                    },
-                  ),
-                ),
-            ],
-          ),
+            ),
+            if (_selectionMode) _batchToolbar(items, canBatch),
+          ],
         );
       },
     );

@@ -438,6 +438,8 @@ class SubjectTile extends StatelessWidget {
     this.onEpisodeGrid,
     this.busy = false,
     this.showTypeBadge = true,
+    this.selected,
+    this.onSelectionChanged,
   });
 
   final Subject subject;
@@ -447,6 +449,8 @@ class SubjectTile extends StatelessWidget {
   final VoidCallback? onEpisodeGrid;
   final bool busy;
   final bool showTypeBadge;
+  final bool? selected;
+  final VoidCallback? onSelectionChanged;
 
   @override
   Widget build(BuildContext context) {
@@ -460,10 +464,18 @@ class SubjectTile extends StatelessWidget {
     final coverHeight = narrow ? 92.0 : 104.0;
     final coverWidth = narrow ? 66.0 : 74.0;
     return Material(
-      color: Colors.transparent,
+      color: selected == true
+          ? scheme.primaryContainer.withValues(alpha: .35)
+          : Colors.transparent,
       child: InkWell(
         borderRadius: BorderRadius.circular(12),
         onTap: onTap,
+        onLongPress: selected == null
+            ? null
+            : () => ReadableSubjectTitle.showFullTitle(
+                context,
+                subject.displayName,
+              ),
         child: Padding(
           padding: EdgeInsets.all(narrow ? 8 : 10),
           child: Row(
@@ -483,11 +495,14 @@ class SubjectTile extends StatelessWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      ReadableSubjectTitle(
-                        subject.displayName,
-                        maxLines: 2,
-                        style: Theme.of(context).textTheme.titleMedium
-                            ?.copyWith(fontSize: narrow ? 15 : null),
+                      IgnorePointer(
+                        ignoring: selected != null,
+                        child: ReadableSubjectTitle(
+                          subject.displayName,
+                          maxLines: 2,
+                          style: Theme.of(context).textTheme.titleMedium
+                              ?.copyWith(fontSize: narrow ? 15 : null),
+                        ),
                       ),
                       const SizedBox(height: 4),
                       Row(
@@ -613,7 +628,16 @@ class SubjectTile extends StatelessWidget {
                   ),
                 ),
               ),
-              if (onEpisodeGrid != null || onNextEpisode != null) ...[
+              if (selected != null)
+                Checkbox(
+                  key: ValueKey('library-select-${subject.id}'),
+                  value: selected,
+                  semanticLabel: '选择${subject.displayName}',
+                  onChanged: onSelectionChanged == null
+                      ? null
+                      : (_) => onSelectionChanged!(),
+                )
+              else if (onEpisodeGrid != null || onNextEpisode != null) ...[
                 SizedBox(width: narrow ? 2 : 6),
                 SizedBox(
                   height: coverHeight,

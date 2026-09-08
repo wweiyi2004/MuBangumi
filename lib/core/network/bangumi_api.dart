@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:dio/dio.dart';
 
 import '../../models/bangumi_models.dart';
@@ -38,6 +40,11 @@ bool shouldRetryBangumiProxyRequest(DioException error) {
 }
 
 class BangumiApi {
+  static final _requestGuardKey = Object();
+  Future<T> withRequestGuard<T>(
+    bool Function() allowed,
+    Future<T> Function() action,
+  ) => runZoned(action, zoneValues: {_requestGuardKey: allowed});
   BangumiApi({Dio? dio})
     : _dio =
           dio ??
@@ -146,6 +153,15 @@ class BangumiApi {
         );
         return;
       case BangumiMutationKind.collection:
+        if (payload['status_only'] == true) {
+          await updateCollectionStatus(
+            (payload['subject_id'] as num).toInt(),
+            CollectionType.fromValue(
+              (payload['collection_type'] as num).toInt(),
+            ),
+          );
+          return;
+        }
         await updateCollection(
           (payload['subject_id'] as num).toInt(),
           CollectionType.fromValue((payload['collection_type'] as num).toInt()),
@@ -651,6 +667,19 @@ class BangumiApi {
 
   /// Create or update a user collection (status, score, comment, tags, privacy).
   ///
+  /// Patch only the selected status, preserving every unrelated server field.
+  Future<void> updateCollectionStatus(
+    int subjectId,
+    CollectionType type,
+  ) async {
+    await _request(
+      () => _dio.patch<void>(
+        '/users/-/collections/$subjectId',
+        data: {'type': type.value},
+      ),
+    );
+  }
+
   /// [episodeStatus] / [volumeStatus] map to book progress fields only.
   Future<void> updateCollection(
     int subjectId,
@@ -766,10 +795,20 @@ class BangumiApi {
     bool transportRetried = false,
     bool checkToken = true,
   }) async {
+    final allowed = Zone.current[_requestGuardKey] as bool Function()?;
     try {
+      if (allowed != null && !allowed()) {
+        throw const BangumiApiException('登录已变化，旧请求未发送', retryable: true);
+      }
       if (checkToken) await ensureFreshToken?.call();
+      if (allowed != null && !allowed()) {
+        throw const BangumiApiException('登录已变化，旧请求未发送', retryable: true);
+      }
       return await request();
     } on DioException catch (error) {
+      if (allowed != null && !allowed()) {
+        throw const BangumiApiException('登录已变化，旧请求不再重试', retryable: true);
+      }
       final status = error.response?.statusCode;
       if (!transportRetried && shouldRetryBangumiProxyRequest(error)) {
         await Future<void>.delayed(const Duration(milliseconds: 300));

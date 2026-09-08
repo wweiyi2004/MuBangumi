@@ -52,7 +52,7 @@ class ReadableSubjectTitle extends StatelessWidget {
           hint: '查看完整名称',
           child: GestureDetector(
             behavior: HitTestBehavior.opaque,
-            onTap: () => _showFullTitle(context),
+            onTap: () => showFullTitle(context, title),
             child: text,
           ),
         ),
@@ -60,7 +60,7 @@ class ReadableSubjectTitle extends StatelessWidget {
     },
   );
 
-  void _showFullTitle(BuildContext context) {
+  static void showFullTitle(BuildContext context, String title) {
     showModalBottomSheet<void>(
       context: context,
       showDragHandle: true,

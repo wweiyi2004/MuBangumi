@@ -13,6 +13,59 @@ import 'package:mubangumi/state/session_controller.dart';
 import 'package:mubangumi/widgets/sync_issues_sheet.dart';
 
 void main() {
+  testWidgets(
+    'superseded records retain review details but cannot be retried',
+    (tester) async {
+      final issue = PendingBangumiMutation(
+        id: 1,
+        username: 'tester',
+        kind: BangumiMutationKind.collection,
+        mutationKey: 'old',
+        payload: {
+          'subject_id': 8,
+          'subject': _subject.toJson(),
+          'collection_type': 2,
+          'rate': 9,
+          'comment': '原来的吐槽',
+          'tags': ['原标签'],
+        },
+        createdAt: DateTime(2026),
+        updatedAt: DateTime(2026),
+        revision: 1,
+        attempts: 1,
+        blocked: true,
+        superseded: true,
+      );
+      final controller = _SyncIssuesController([issue]);
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [sessionProvider.overrideWith((ref) => controller)],
+          child: const MaterialApp(home: Scaffold(body: SyncIssuesSheet())),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(
+        tester
+            .widget<FilledButton>(find.widgetWithText(FilledButton, '重试'))
+            .onPressed,
+        isNull,
+      );
+      expect(
+        tester
+            .widget<FilledButton>(find.widgetWithText(FilledButton, '全部重试'))
+            .onPressed,
+        isNull,
+      );
+      await tester.tap(find.text('原修改内容'));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('原来的吐槽'), findsOneWidget);
+      controller.switchAccount();
+      await tester.pumpAndSettle();
+      expect(find.textContaining('原来的吐槽'), findsNothing);
+      expect(find.text(_subject.displayName), findsNothing);
+      expect(find.text('账号已变化，请重新打开同步问题'), findsOneWidget);
+    },
+  );
   testWidgets('sync issue sheet explains and discards a blocked mutation', (
     tester,
   ) async {
@@ -96,6 +149,15 @@ class _SyncIssuesController extends SessionController {
 
   final List<PendingBangumiMutation> issues;
   int discardCalls = 0;
+  void switchAccount() => state = const SessionState(
+    phase: SessionPhase.signedIn,
+    user: BangumiUser(
+      id: 2,
+      username: 'other',
+      nickname: 'Other',
+      avatarUrl: '',
+    ),
+  );
 
   @override
   Future<List<PendingBangumiMutation>> blockedSyncMutations() async =>

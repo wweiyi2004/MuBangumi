@@ -28,14 +28,35 @@ class _SyncIssuesSheetState extends ConsumerState<SyncIssuesSheet> {
   bool _loading = true;
   bool _retryingAll = false;
   String? _loadError;
+  int _loadGeneration = 0;
+  late final int? _ownerId;
+  bool get _sameAccount =>
+      mounted && ref.read(sessionProvider).user?.id == _ownerId;
 
   @override
   void initState() {
     super.initState();
+    _ownerId = ref.read(sessionProvider).user?.id;
+    ref.listenManual(sessionProvider.select((state) => state.user?.id), (
+      _,
+      next,
+    ) {
+      if (mounted && next != _ownerId) {
+        _loadGeneration++;
+        setState(() {
+          _issues = const [];
+          _busyIds.clear();
+          _loading = false;
+          _retryingAll = false;
+        });
+      }
+    });
     unawaited(_load());
   }
 
   Future<List<PendingBangumiMutation>> _load({bool showSpinner = true}) async {
+    if (!_sameAccount) return const [];
+    final generation = ++_loadGeneration;
     if (showSpinner && mounted) {
       setState(() {
         _loading = true;
@@ -46,7 +67,7 @@ class _SyncIssuesSheetState extends ConsumerState<SyncIssuesSheet> {
       final issues = await ref
           .read(sessionProvider.notifier)
           .blockedSyncMutations();
-      if (!mounted) return issues;
+      if (!_sameAccount || generation != _loadGeneration) return const [];
       setState(() {
         _issues = issues;
         _loading = false;
@@ -54,7 +75,7 @@ class _SyncIssuesSheetState extends ConsumerState<SyncIssuesSheet> {
       });
       return issues;
     } catch (error) {
-      if (!mounted) return const [];
+      if (!_sameAccount || generation != _loadGeneration) return const [];
       setState(() {
         _loading = false;
         _loadError = '读取同步问题失败：${_errorText(error)}';
@@ -70,7 +91,7 @@ class _SyncIssuesSheetState extends ConsumerState<SyncIssuesSheet> {
         .read(sessionProvider.notifier)
         .retryBlockedMutation(mutation);
     final issues = await _load(showSpinner: false);
-    if (!mounted) return;
+    if (!mounted || !_sameAccount) return;
     setState(() => _busyIds.remove(mutation.id));
     final stillBlocked = issues.any(
       (item) => item.id == mutation.id && item.revision == mutation.revision,
@@ -85,7 +106,7 @@ class _SyncIssuesSheetState extends ConsumerState<SyncIssuesSheet> {
         .read(sessionProvider.notifier)
         .syncPendingChanges(retryBlocked: true);
     final issues = await _load(showSpinner: false);
-    if (!mounted) return;
+    if (!mounted || !_sameAccount) return;
     setState(() => _retryingAll = false);
     if (issues.isEmpty) {
       _showMessage('失败记录已重新提交同步');
@@ -112,13 +133,13 @@ class _SyncIssuesSheetState extends ConsumerState<SyncIssuesSheet> {
         ],
       ),
     );
-    if (confirmed != true || !mounted) return;
+    if (confirmed != true || !mounted || !_sameAccount) return;
 
     setState(() => _busyIds.add(mutation.id));
     final controller = ref.read(sessionProvider.notifier);
     final error = await controller.discardBlockedMutation(mutation);
     await _load(showSpinner: false);
-    if (!mounted) return;
+    if (!mounted || !_sameAccount) return;
     setState(() => _busyIds.remove(mutation.id));
     if (error != null) {
       _showMessage(error);
@@ -138,6 +159,19 @@ class _SyncIssuesSheetState extends ConsumerState<SyncIssuesSheet> {
   Widget build(BuildContext context) {
     final session = ref.watch(sessionProvider);
     final colorScheme = Theme.of(context).colorScheme;
+    if (!_sameAccount) {
+      return SafeArea(
+        child: SizedBox(
+          height: 240,
+          child: _SyncIssuesEmptyState(
+            icon: Icons.person_outline,
+            message: '账号已变化，请重新打开同步问题',
+            actionLabel: '关闭',
+            onAction: () => Navigator.maybePop(context),
+          ),
+        ),
+      );
+    }
     return FractionallySizedBox(
       heightFactor: 0.82,
       child: SafeArea(
@@ -163,7 +197,9 @@ class _SyncIssuesSheetState extends ConsumerState<SyncIssuesSheet> {
                   const SizedBox(width: 4),
                   FilledButton.tonalIcon(
                     onPressed:
-                        _issues.isEmpty || _retryingAll || _busyIds.isNotEmpty
+                        _issues.every((issue) => issue.superseded) ||
+                            _retryingAll ||
+                            _busyIds.isNotEmpty
                         ? null
                         : _retryAll,
                     icon: _retryingAll
@@ -251,6 +287,20 @@ class _SyncIssuesSheetState extends ConsumerState<SyncIssuesSheet> {
                       : '服务器拒绝了这次修改，但没有返回具体原因。',
                   style: TextStyle(color: Theme.of(context).colorScheme.error),
                 ),
+                if (issue.superseded) ...[
+                  const SizedBox(height: 8),
+                  const Text('已有后续修改，旧操作不能再重试。可核对原内容后重新编辑，或选择不再上传。'),
+                  if (issue.kind == BangumiMutationKind.collection &&
+                      issue.payload['status_only'] != true)
+                    ExpansionTile(
+                      title: const Text('原修改内容'),
+                      children: [
+                        SelectableText(
+                          '评分：${issue.payload['rate'] ?? '未设置'}\n吐槽：${issue.payload['comment'] ?? ''}\n标签：${(issue.payload['tags'] as List? ?? const []).join('、')}\n私密：${issue.payload['private'] == true ? '是' : '否'}${issue.payload['episode_status'] != null ? '\n章节进度：${issue.payload['episode_status']}' : ''}${issue.payload['volume_status'] != null ? '\n卷进度：${issue.payload['volume_status']}' : ''}',
+                        ),
+                      ],
+                    ),
+                ],
                 const SizedBox(height: 6),
                 Text(
                   '尝试 ${issue.attempts} 次 · ${_formatTime(issue.updatedAt)}',
@@ -271,7 +321,7 @@ class _SyncIssuesSheetState extends ConsumerState<SyncIssuesSheet> {
                         child: const Text('不再上传'),
                       ),
                       FilledButton.tonal(
-                        onPressed: busy || _retryingAll
+                        onPressed: busy || _retryingAll || issue.superseded
                             ? null
                             : () => _retry(issue),
                         child: busy

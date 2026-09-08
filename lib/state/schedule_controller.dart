@@ -4,6 +4,7 @@ import '../core/notifications/schedule_reminder_service.dart';
 import '../core/storage/schedule_store.dart';
 import '../models/bangumi_models.dart';
 import '../models/schedule_models.dart';
+import '../models/library_batch.dart';
 
 class ScheduleState {
   const ScheduleState({
@@ -209,6 +210,102 @@ class ScheduleController extends StateNotifier<ScheduleState> {
 
   Future<void> addCollection(UserCollection collection, {int? weekday}) =>
       addSubject(collection.subject, weekday: weekday);
+
+  Future<SeasonSchedule> inspectBatchSeason(SeasonKey season) async {
+    await _writes;
+    return _store.load(season);
+  }
+
+  /// A bulk addition is one local row write and one reminder reconciliation.
+  /// Existing entries keep their weekday, position, notes and reminder settings.
+  Future<ScheduleBatchAddResult> addBatchToSeason(
+    List<Subject> subjects,
+    SeasonKey season, {
+    int? weekday,
+    required bool Function() allowed,
+  }) async {
+    if (_rejectBusy()) {
+      return const ScheduleBatchAddResult(error: '正在保存或切换新番表，请稍后重试');
+    }
+    if (season.year < 1990 ||
+        season.year > 2100 ||
+        season.quarter < 0 ||
+        season.quarter > 3 ||
+        (weekday != null && (weekday < 1 || weekday > 7))) {
+      return const ScheduleBatchAddResult(error: '季度或星期无效');
+    }
+    final generation = _loadGeneration;
+    final mutation = ++_mutationGeneration;
+    state = state.copyWith(saving: true, clearMessage: true);
+    SeasonSchedule? updated;
+    final existingKnown = <int>{};
+    final work = Future<ScheduleBatchAddResult>.sync(() async {
+      if (!allowed()) return const ScheduleBatchAddResult(stopped: true);
+      final current = await _store.load(season);
+      if (!allowed()) return const ScheduleBatchAddResult(stopped: true);
+      final added = <int>{}, existing = existingKnown;
+      final items = [...current.items];
+      var order = weekday == null
+          ? current.unscheduled.length
+          : current.itemsOn(weekday).length;
+      for (final subject in subjects) {
+        if (subject.id <= 0) continue;
+        if (added.contains(subject.id)) continue;
+        if (items.any((item) => item.subjectId == subject.id)) {
+          existing.add(subject.id);
+          continue;
+        }
+        items.add(
+          ScheduleItem.fromSubject(
+            subject,
+            weekday: weekday,
+            sortOrder: order++,
+          ),
+        );
+        added.add(subject.id);
+      }
+      if (added.isEmpty) return ScheduleBatchAddResult(existing: existing);
+      if (!allowed()) return const ScheduleBatchAddResult(stopped: true);
+      updated = current.copyWith(items: items);
+      await _store.save(updated!);
+      return ScheduleBatchAddResult(added: added, existing: existing);
+    });
+    _writes = work.then<void>((_) {}, onError: (Object _, StackTrace _) {});
+    ScheduleBatchAddResult result;
+    try {
+      result = await work;
+    } catch (error) {
+      result = ScheduleBatchAddResult(
+        error: '保存季度表失败：${_errorText(error)}',
+        existing: existingKnown,
+      );
+    }
+    if (!mounted) return result;
+    state = state.copyWith(
+      saving: false,
+      schedule:
+          updated != null &&
+              result.error == null &&
+              generation == _loadGeneration &&
+              state.season == season
+          ? updated
+          : null,
+      knownSeasons: result.added.isNotEmpty
+          ? _mergeKnownSeasons([...state.knownSeasons, season])
+          : null,
+    );
+    if (result.added.isNotEmpty && !await syncReminders(reportErrors: false)) {
+      if (mounted && mutation == _mutationGeneration) {
+        state = state.copyWith(message: '新番表已保存，但系统提醒暂未同步');
+      }
+      return ScheduleBatchAddResult(
+        added: result.added,
+        existing: result.existing,
+        warning: '新番表已保存，但系统提醒暂未同步，可稍后重试提醒同步',
+      );
+    }
+    return result;
+  }
 
   Future<void> removeSubject(int subjectId) async {
     if (_rejectBusy()) return;
