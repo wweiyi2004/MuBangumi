@@ -24,6 +24,8 @@ void main() {
   Completer<void>? pendingEntered;
   var failSchedule = false;
   var failCancel = false;
+  var deviceZone = 'Asia/Shanghai';
+  final scheduledZones = <String>[];
   final season = SeasonKey.current();
   final enabled = SeasonSchedule(
     season: season,
@@ -49,9 +51,11 @@ void main() {
     pendingEntered = null;
     failSchedule = false;
     failCancel = false;
+    deviceZone = 'Asia/Shanghai';
+    scheduledZones.clear();
     messenger.setMockMethodCallHandler(
       timezoneChannel,
-      (_) async => 'Asia/Shanghai',
+      (_) async => deviceZone,
     );
     messenger.setMockMethodCallHandler(notificationChannel, (call) async {
       switch (call.method) {
@@ -73,6 +77,7 @@ void main() {
           return null;
         case 'zonedSchedule':
           final args = call.arguments as Map;
+          scheduledZones.add(args['timeZoneName'] as String);
           final id = args['id'] as int;
           // Match the Windows plugin: pending requests contain IDs, no payload.
           pending[id] = {
@@ -92,6 +97,17 @@ void main() {
     messenger.setMockMethodCallHandler(timezoneChannel, null);
     messenger.setMockMethodCallHandler(notificationChannel, null);
   });
+
+  test(
+    'reconciliation refreshes the device timezone after initialization',
+    () async {
+      await service.syncSchedules([enabled]);
+      expect(scheduledZones.last, 'Asia/Shanghai');
+      deviceZone = 'Asia/Tokyo';
+      await service.syncSchedules([enabled]);
+      expect(scheduledZones.last, 'Asia/Tokyo');
+    },
+  );
 
   test(
     'removes payload-less notifications after restart and season deletion',

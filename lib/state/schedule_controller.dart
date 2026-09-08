@@ -13,6 +13,7 @@ class ScheduleState {
     ),
     this.knownSeasons = const [],
     this.loading = true,
+    this.saving = false,
     this.message,
   });
 
@@ -22,6 +23,7 @@ class ScheduleState {
   /// Seasons the user has opened/created (plus any already saved locally).
   final List<SeasonKey> knownSeasons;
   final bool loading;
+  final bool saving;
   final String? message;
 
   ScheduleState copyWith({
@@ -29,6 +31,7 @@ class ScheduleState {
     SeasonSchedule? schedule,
     List<SeasonKey>? knownSeasons,
     bool? loading,
+    bool? saving,
     String? message,
     bool clearMessage = false,
   }) => ScheduleState(
@@ -36,6 +39,7 @@ class ScheduleState {
     schedule: schedule ?? this.schedule,
     knownSeasons: knownSeasons ?? this.knownSeasons,
     loading: loading ?? this.loading,
+    saving: saving ?? this.saving,
     message: clearMessage ? null : message ?? this.message,
   );
 }
@@ -53,16 +57,29 @@ class ScheduleController extends StateNotifier<ScheduleState> {
   /// overwriting a newer season's table.
   int _loadGeneration = 0;
   int _reminderSyncGeneration = 0;
+  int _mutationGeneration = 0;
+  Future<void> _writes = Future.value();
+  bool _rejectBusy() {
+    if (!mounted) return true;
+    if (!state.loading && !state.saving) return false;
+    state = state.copyWith(message: '正在保存或切换季度，请稍后再操作');
+    return true;
+  }
 
   Future<bool> load(SeasonKey season) async {
+    if (!mounted) return false;
     final generation = ++_loadGeneration;
     state = state.copyWith(loading: true, clearMessage: true);
     try {
+      await _writes;
+      if (!mounted || generation != _loadGeneration) return false;
       final results = await Future.wait([
         _store.load(season),
         _store.listSeasons(),
       ]);
-      if (generation != _loadGeneration) return false; // Stale load; drop.
+      if (!mounted || generation != _loadGeneration) {
+        return false; // Stale load; drop.
+      }
       final schedule = results[0] as SeasonSchedule;
       final saved = results[1] as List<SeasonKey>;
       final known = _mergeKnownSeasons([
@@ -75,7 +92,9 @@ class ScheduleController extends StateNotifier<ScheduleState> {
       if (schedule.items.isEmpty) {
         await _store.save(schedule);
       }
-      if (generation != _loadGeneration) return false; // Stale load; drop.
+      if (!mounted || generation != _loadGeneration) {
+        return false; // Stale load; drop.
+      }
       state = state.copyWith(
         season: season,
         schedule: schedule,
@@ -85,7 +104,7 @@ class ScheduleController extends StateNotifier<ScheduleState> {
       await syncReminders(reportErrors: false);
       return true;
     } catch (error) {
-      if (generation != _loadGeneration) return false;
+      if (!mounted || generation != _loadGeneration) return false;
       final alignedSchedule = state.schedule.season == state.season
           ? state.schedule
           : SeasonSchedule.empty(state.season);
@@ -102,29 +121,45 @@ class ScheduleController extends StateNotifier<ScheduleState> {
 
   /// Create/open an arbitrary year-quarter table (local only).
   Future<void> createSeason(SeasonKey season) async {
-    if (await load(season)) {
+    if (await load(season) && mounted) {
       state = state.copyWith(message: '已打开 ${season.label}');
     }
   }
 
-  Future<void> deleteCurrentSeason() async {
-    final season = state.season;
-    try {
-      await _store.deleteSeason(season);
-    } catch (error) {
-      state = state.copyWith(message: '删除季度表失败：${_errorText(error)}');
+  Future<void> deleteCurrentSeason({SeasonKey? expectedSeason}) async {
+    if (_rejectBusy()) return;
+    if ((expectedSeason != null && expectedSeason != state.season) ||
+        state.schedule.items.isNotEmpty) {
+      state = state.copyWith(message: '季度已变化或表中仍有作品，只能删除当前空表');
       return;
     }
+    final season = state.season;
+    final generation = ++_loadGeneration;
+    state = state.copyWith(loading: true);
+    final deletion = Future<void>.sync(() => _store.deleteSeason(season));
+    _writes = deletion.then<void>((_) {}, onError: (Object _, StackTrace _) {});
+    try {
+      await deletion;
+    } catch (error) {
+      if (mounted && generation == _loadGeneration) {
+        state = state.copyWith(
+          loading: false,
+          message: '删除季度表失败：${_errorText(error)}',
+        );
+      }
+      return;
+    }
+    if (!mounted || generation != _loadGeneration) return;
     final remaining = [
       for (final key in state.knownSeasons)
         if (key != season) key,
     ];
     final next = remaining.isNotEmpty ? remaining.first : SeasonKey.current();
-    state = state.copyWith(
-      knownSeasons: remaining,
-      message: '已删除 ${season.label}',
-    );
-    if (await load(next)) {
+    state = state.copyWith(knownSeasons: remaining);
+    final followUp = _loadGeneration + 1;
+    final loaded = await load(next);
+    if (!mounted || followUp != _loadGeneration) return;
+    if (loaded) {
       state = state.copyWith(message: '已删除 ${season.label}');
     } else {
       state = state.copyWith(
@@ -152,7 +187,7 @@ class ScheduleController extends StateNotifier<ScheduleState> {
   }
 
   Future<void> addSubject(Subject subject, {int? weekday}) async {
-    if (subject.id <= 0) return;
+    if (_rejectBusy() || subject.id <= 0) return;
     final current = state.schedule;
     if (current.containsSubject(subject.id)) {
       state = state.copyWith(message: '已在本季新番表中');
@@ -176,6 +211,7 @@ class ScheduleController extends StateNotifier<ScheduleState> {
       addSubject(collection.subject, weekday: weekday);
 
   Future<void> removeSubject(int subjectId) async {
+    if (_rejectBusy()) return;
     final removed = state.schedule.items
         .where((item) => item.subjectId == subjectId)
         .map((item) => item.displayName)
@@ -196,6 +232,7 @@ class ScheduleController extends StateNotifier<ScheduleState> {
 
   /// Place [subjectId] within the current season (drag-and-drop / menu).
   Future<void> moveItem(int subjectId, {int? weekday, int? insertIndex}) async {
+    if (_rejectBusy()) return;
     final current = state.schedule;
     final moving = current.items
         .where((item) => item.subjectId == subjectId)
@@ -255,6 +292,7 @@ class ScheduleController extends StateNotifier<ScheduleState> {
   }
 
   Future<void> reorderOnDay(int weekday, List<int> subjectIds) async {
+    if (_rejectBusy()) return;
     final order = {
       for (var index = 0; index < subjectIds.length; index++)
         subjectIds[index]: index,
@@ -274,7 +312,16 @@ class ScheduleController extends StateNotifier<ScheduleState> {
     required bool enabled,
     required int hour,
     required int minute,
+    SeasonKey? expectedSeason,
   }) async {
+    if (_rejectBusy()) return false;
+    final generation = _loadGeneration;
+    final mutationGeneration = _mutationGeneration;
+    final season = state.season;
+    if (expectedSeason != null && expectedSeason != season) {
+      state = state.copyWith(message: '季度已变化，请重新打开提醒设置');
+      return false;
+    }
     final item = state.schedule.items
         .where((candidate) => candidate.subjectId == subjectId)
         .firstOrNull;
@@ -288,6 +335,15 @@ class ScheduleController extends StateNotifier<ScheduleState> {
     }
     if (enabled) {
       final permission = await _reminders?.requestPermission();
+      if (!mounted) return false;
+      if (generation != _loadGeneration ||
+          season != state.season ||
+          mutationGeneration != _mutationGeneration ||
+          state.loading ||
+          state.saving) {
+        state = state.copyWith(message: '安排已变化，请重新打开提醒设置');
+        return false;
+      }
       if (permission != null && !permission.granted) {
         state = state.copyWith(message: permission.message ?? '未获得系统通知权限');
         return false;
@@ -326,11 +382,11 @@ class ScheduleController extends StateNotifier<ScheduleState> {
     try {
       final schedules = await _store.loadAllSchedules();
       // A slow database read must not submit stale settings after a newer read.
-      if (generation != _reminderSyncGeneration) return true;
+      if (!mounted || generation != _reminderSyncGeneration) return true;
       await reminders.syncSchedules(schedules);
       return true;
     } catch (error) {
-      if (reportErrors && generation == _reminderSyncGeneration) {
+      if (mounted && reportErrors && generation == _reminderSyncGeneration) {
         state = state.copyWith(message: '同步系统更新提醒失败：${_errorText(error)}');
       }
       return false;
@@ -340,22 +396,40 @@ class ScheduleController extends StateNotifier<ScheduleState> {
   void clearMessage() => state = state.copyWith(clearMessage: true);
 
   Future<bool> _persist(SeasonSchedule schedule, {String? message}) async {
+    if (_rejectBusy()) return false;
     final previous = state.schedule;
+    final generation = _loadGeneration;
+    final mutation = ++_mutationGeneration;
     state = state.copyWith(
       schedule: schedule,
-      message: message,
-      clearMessage: message == null,
+      saving: true,
+      clearMessage: true,
     );
+    final saved = Future<void>.sync(() => _store.save(schedule));
+    _writes = saved.then<void>((_) {}, onError: (Object _, StackTrace _) {});
     try {
-      await _store.save(schedule);
+      await saved;
     } catch (error) {
-      state = state.copyWith(
-        schedule: identical(state.schedule, schedule) ? previous : null,
-        message: '保存新番表失败：${_errorText(error)}',
-      );
+      if (mounted) {
+        state = state.copyWith(
+          saving: false,
+          schedule: identical(state.schedule, schedule) ? previous : null,
+          message: generation == _loadGeneration
+              ? '保存新番表失败：${_errorText(error)}'
+              : null,
+        );
+      }
       return false;
     }
-    if (!await syncReminders(reportErrors: false)) {
+    if (!mounted) return true;
+    state = state.copyWith(
+      saving: false,
+      message: generation == _loadGeneration ? message : null,
+    );
+    if (!await syncReminders(reportErrors: false) &&
+        mounted &&
+        generation == _loadGeneration &&
+        mutation == _mutationGeneration) {
       state = state.copyWith(message: '设置已保存，但系统更新提醒暂未同步；下次启动会重试');
     }
     return true;

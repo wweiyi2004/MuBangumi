@@ -6,6 +6,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../models/bangumi_models.dart';
 import '../models/schedule_models.dart';
+import '../models/schedule_view.dart';
+import '../state/schedule_view_controller.dart';
+import '../widgets/schedule_list_view.dart';
 import '../state/rss_controller.dart';
 import '../state/schedule_controller.dart';
 import '../state/session_controller.dart';
@@ -27,6 +30,18 @@ class SchedulePage extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final state = ref.watch(scheduleProvider);
+    final ownerId =
+        ref.watch(sessionProvider.select((state) => state.user?.id)) ?? 0;
+    final viewState = ref.watch(scheduleViewProvider(ownerId));
+    final viewController = ref.read(scheduleViewProvider(ownerId).notifier);
+    final view =
+        viewState.selected ?? defaultScheduleView(Theme.of(context).platform);
+    final today = ref.watch(scheduleDayProvider);
+    ref.listen(scheduleDayProvider, (_, _) {
+      unawaited(
+        ref.read(scheduleProvider.notifier).syncReminders(reportErrors: false),
+      );
+    });
     final collections = ref.watch(
       sessionProvider.select((value) => value.collections),
     );
@@ -85,115 +100,27 @@ class SchedulePage extends ConsumerWidget {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Row(
-                            children: [
-                              if (Navigator.canPop(context)) ...[
-                                IconButton(
-                                  visualDensity: isWide
-                                      ? VisualDensity.standard
-                                      : VisualDensity.compact,
-                                  tooltip: '返回',
-                                  onPressed: () => Navigator.maybePop(context),
-                                  icon: const Icon(Icons.arrow_back_rounded),
-                                ),
-                                SizedBox(width: isWide ? 6 : 2),
-                              ],
-                              Expanded(
-                                child: Text(
-                                  '新番表',
-                                  style: isWide
-                                      ? Theme.of(
-                                          context,
-                                        ).textTheme.headlineLarge
-                                      : Theme.of(
-                                          context,
-                                        ).textTheme.headlineMedium,
-                                ),
-                              ),
-                              Flexible(
-                                child: FittedBox(
-                                  fit: BoxFit.scaleDown,
-                                  alignment: Alignment.centerRight,
-                                  child: Row(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      IconButton(
-                                        visualDensity: isWide
-                                            ? VisualDensity.standard
-                                            : VisualDensity.compact,
-                                        tooltip: '导出图片',
-                                        onPressed: () => unawaited(
-                                          showScheduleExportDialog(
-                                            context,
-                                            schedule: state.schedule,
-                                          ),
-                                        ),
-                                        icon: const Icon(Icons.image_outlined),
-                                      ),
-                                      IconButton(
-                                        visualDensity: isWide
-                                            ? VisualDensity.standard
-                                            : VisualDensity.compact,
-                                        tooltip: '更新提醒',
-                                        onPressed: () =>
-                                            showRssUpdatesSheet(context),
-                                        icon: Badge(
-                                          isLabelVisible: rss.totalUnread > 0,
-                                          label: Text(
-                                            rss.totalUnread > 99
-                                                ? '99+'
-                                                : '${rss.totalUnread}',
-                                          ),
-                                          child: const Icon(
-                                            Icons.notifications_outlined,
-                                          ),
-                                        ),
-                                      ),
-                                      IconButton(
-                                        visualDensity: isWide
-                                            ? VisualDensity.standard
-                                            : VisualDensity.compact,
-                                        tooltip: rss.refreshing
-                                            ? '检查中…'
-                                            : '检查更新',
-                                        onPressed: rss.refreshing
-                                            ? null
-                                            : () => ref
-                                                  .read(rssProvider.notifier)
-                                                  .refreshAll(force: true),
-                                        icon: rss.refreshing
-                                            ? const SizedBox(
-                                                width: 22,
-                                                height: 22,
-                                                child:
-                                                    CircularProgressIndicator(
-                                                      strokeWidth: 2,
-                                                    ),
-                                              )
-                                            : const Icon(Icons.sync_rounded),
-                                      ),
-                                      IconButton(
-                                        visualDensity: isWide
-                                            ? VisualDensity.standard
-                                            : VisualDensity.compact,
-                                        tooltip: '更新源 RSS',
-                                        onPressed: () =>
-                                            showRssSourcesSheet(context),
-                                        icon: const Icon(
-                                          Icons.rss_feed_rounded,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              ),
-                            ],
+                          _ScheduleToolbar(
+                            wide: isWide,
+                            refreshing: rss.refreshing,
+                            unread: rss.totalUnread,
+                            onExport: () => showScheduleExportDialog(
+                              context,
+                              schedule: state.schedule,
+                            ),
+                            onUpdates: () => showRssUpdatesSheet(context),
+                            onRefresh: () => ref
+                                .read(rssProvider.notifier)
+                                .refreshAll(force: true),
+                            onSources: () => showRssSourcesSheet(context),
                           ),
                           const SizedBox(height: 4),
                           Text(
                             isWide
                                 ? '搜索加番 · 拖拽改期 · 导出海报 · 种子站 RSS 提醒'
-                                : '拖拽改期 · 导出图片 · RSS 角标',
+                                : view == ScheduleView.board
+                                ? '拖拽改期 · 导出图片 · RSS 角标'
+                                : '每周安排与 RSS 更新分开显示',
                             style: TextStyle(
                               color: Theme.of(
                                 context,
@@ -204,34 +131,110 @@ class SchedulePage extends ConsumerWidget {
                           const SizedBox(height: 12),
                           _SeasonPicker(
                             season: state.season,
+                            currentSeason: SeasonKey.current(today),
+                            compact: !isWide,
                             knownSeasons: state.knownSeasons,
                             onChanged: (season) => ref
                                 .read(scheduleProvider.notifier)
                                 .setSeason(season),
                             onCreate: () => _createSeasonDialog(context, ref),
-                            onDeleteCurrent: state.schedule.items.isEmpty
+                            onDeleteCurrent:
+                                !state.saving && state.schedule.items.isEmpty
                                 ? () => ref
                                       .read(scheduleProvider.notifier)
-                                      .deleteCurrentSeason()
+                                      .deleteCurrentSeason(
+                                        expectedSeason: state.season,
+                                      )
                                 : null,
                           ),
                           const SizedBox(height: 8),
-                          Text(
-                            '共 ${state.schedule.items.length} 部 · '
-                            '已排 ${state.schedule.items.where((e) => e.isScheduled).length} 部'
-                            ' · RSS 未读 ${rss.totalUnread}',
-                            style: Theme.of(context).textTheme.bodySmall
-                                ?.copyWith(
-                                  color: Theme.of(
-                                    context,
-                                  ).colorScheme.onSurfaceVariant,
+                          SegmentedButton<ScheduleView>(
+                            segments: [
+                              for (final mode in ScheduleView.values)
+                                ButtonSegment(
+                                  value: mode,
+                                  label: Text(mode.label),
                                 ),
+                            ],
+                            selected: {view},
+                            showSelectedIcon: false,
+                            onSelectionChanged: (selection) =>
+                                viewController.select(selection.single),
+                          ),
+                          if (viewState.error != null)
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: Text(
+                                    viewState.error!,
+                                    style: Theme.of(
+                                      context,
+                                    ).textTheme.bodySmall,
+                                  ),
+                                ),
+                                TextButton(
+                                  onPressed: viewController.retry,
+                                  child: const Text('重试'),
+                                ),
+                              ],
+                            ),
+                          const SizedBox(height: 8),
+                          Wrap(
+                            spacing: 12,
+                            runSpacing: 4,
+                            children: [
+                              for (final label in [
+                                '共 ${state.schedule.items.length} 部',
+                                '已排 ${state.schedule.items.where((item) => item.isScheduled).length} 部',
+                                'RSS 未读 ${rss.totalUnread}',
+                              ])
+                                Text(
+                                  label,
+                                  style: Theme.of(context).textTheme.bodySmall
+                                      ?.copyWith(
+                                        color: Theme.of(
+                                          context,
+                                        ).colorScheme.onSurfaceVariant,
+                                      ),
+                                ),
+                            ],
                           ),
                         ],
                       ),
                     ),
                     Expanded(
-                      child: state.schedule.items.isEmpty
+                      child: view != ScheduleView.board
+                          ? ScheduleListView(
+                              schedule: state.schedule,
+                              view: view,
+                              today: today,
+                              progressMap: progressMap,
+                              unreadBySubject: rss.unreadBySubject,
+                              boundSubjects: {
+                                for (final binding in rss.bindings)
+                                  if (binding.enabled) binding.subjectId,
+                              },
+                              rssAvailable: rss.loaded,
+                              onOpen: (item) => _openSubject(context, item),
+                              onActions: (item) => showScheduleItemActions(
+                                context,
+                                ref,
+                                item: item,
+                                season: state.season,
+                                unreadCount: rss.unreadFor(item.subjectId),
+                                onOpen: () => _openSubject(context, item),
+                                onMove: (day) => ref
+                                    .read(scheduleProvider.notifier)
+                                    .moveItem(item.subjectId, weekday: day),
+                                onRemove: () => ref
+                                    .read(scheduleProvider.notifier)
+                                    .removeSubject(item.subjectId),
+                              ),
+                              onViewWeek: () =>
+                                  viewController.select(ScheduleView.week),
+                              onAdd: () => _openSearchAddSheet(context),
+                            )
+                          : state.schedule.items.isEmpty
                           ? const Padding(
                               padding: EdgeInsets.all(24),
                               child: EmptyState(
@@ -241,6 +244,7 @@ class SchedulePage extends ConsumerWidget {
                               ),
                             )
                           : _ScheduleBoard(
+                              key: ValueKey(state.season.id),
                               schedule: state.schedule,
                               progressMap: progressMap,
                               compactChrome: !isWide,
@@ -396,7 +400,7 @@ class _SearchAddSheetState extends ConsumerState<_SearchAddSheet> {
   String? _error;
   int _requestId = 0;
   SubjectType _type = SubjectType.anime;
-  int? _weekday = DateTime.now().weekday;
+  late int? _weekday = ref.read(scheduleDayProvider).weekday;
 
   @override
   void dispose() {
@@ -646,6 +650,8 @@ class _SearchAddSheetState extends ConsumerState<_SearchAddSheet> {
 class _SeasonPicker extends StatelessWidget {
   const _SeasonPicker({
     required this.season,
+    required this.currentSeason,
+    required this.compact,
     required this.knownSeasons,
     required this.onChanged,
     required this.onCreate,
@@ -653,6 +659,8 @@ class _SeasonPicker extends StatelessWidget {
   });
 
   final SeasonKey season;
+  final SeasonKey currentSeason;
+  final bool compact;
   final List<SeasonKey> knownSeasons;
   final ValueChanged<SeasonKey> onChanged;
   final VoidCallback onCreate;
@@ -661,7 +669,7 @@ class _SeasonPicker extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     // Nearby seasons as quick picks + anything the user has created/opened.
-    final now = SeasonKey.current();
+    final now = currentSeason;
     final quick = <SeasonKey>[];
     var cursor = now.quarter == 0
         ? SeasonKey(year: now.year - 1, quarter: 3)
@@ -682,7 +690,59 @@ class _SeasonPicker extends StatelessWidget {
         return b.quarter.compareTo(a.quarter);
       });
 
+    list.remove(season);
+    list.insert(0, season);
+    if (compact) {
+      return Row(
+        children: [
+          Expanded(
+            child: DropdownButtonFormField<SeasonKey>(
+              key: ValueKey('season-dropdown-${season.id}'),
+              initialValue: season,
+              isExpanded: true,
+              decoration: const InputDecoration(
+                labelText: '季度',
+                contentPadding: EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 10,
+                ),
+              ),
+              items: [
+                for (final option in list)
+                  DropdownMenuItem(
+                    value: option,
+                    child: Text(
+                      option.label.replaceFirst('新番', ''),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+              ],
+              onChanged: (option) {
+                if (option != null) onChanged(option);
+              },
+            ),
+          ),
+          PopupMenuButton<String>(
+            tooltip: '季度操作',
+            onSelected: (action) {
+              if (action == 'create') {
+                onCreate();
+              } else {
+                onDeleteCurrent?.call();
+              }
+            },
+            itemBuilder: (_) => [
+              const PopupMenuItem(value: 'create', child: Text('新建表')),
+              if (onDeleteCurrent != null)
+                const PopupMenuItem(value: 'delete', child: Text('删空表')),
+            ],
+          ),
+        ],
+      );
+    }
     return SingleChildScrollView(
+      key: ValueKey('season-shortcuts-${season.id}'),
       scrollDirection: Axis.horizontal,
       child: Row(
         children: [
@@ -721,13 +781,15 @@ class _SeasonPicker extends StatelessWidget {
 }
 
 class _DragPayload {
-  const _DragPayload(this.item);
+  const _DragPayload(this.item, this.season);
   final ScheduleItem item;
+  final SeasonKey season;
 }
 
 /// Unscheduled strip + week grid, with drag-and-drop within the season.
 class _ScheduleBoard extends ConsumerStatefulWidget {
   const _ScheduleBoard({
+    super.key,
     required this.schedule,
     required this.progressMap,
     required this.compactChrome,
@@ -749,7 +811,7 @@ class _ScheduleBoardState extends ConsumerState<_ScheduleBoard> {
   bool _dragging = false;
 
   void _setDragging(bool value) {
-    if (_dragging == value) return;
+    if (!mounted || _dragging == value) return;
     setState(() => _dragging = value);
   }
 
@@ -817,7 +879,11 @@ class _ScheduleBoardState extends ConsumerState<_ScheduleBoard> {
           child: _dragging
               ? _DeleteDropZone(
                   key: const ValueKey('delete-zone'),
-                  onAccept: (payload) => _remove(payload.item.subjectId),
+                  onAccept: (payload) {
+                    if (payload.season == widget.season) {
+                      _remove(payload.item.subjectId);
+                    }
+                  },
                 )
               : const SizedBox(key: ValueKey('delete-zone-off'), height: 0),
         ),
@@ -903,7 +969,7 @@ class _UnscheduledBar extends StatelessWidget {
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     return DragTarget<_DragPayload>(
-      onWillAcceptWithDetails: (_) => true,
+      onWillAcceptWithDetails: (details) => details.data.season == season,
       onAcceptWithDetails: (details) => onAccept(details.data, items.length),
       builder: (context, candidate, _) {
         final highlight = candidate.isNotEmpty;
@@ -911,57 +977,58 @@ class _UnscheduledBar extends StatelessWidget {
           color: highlight
               ? scheme.tertiaryContainer.withValues(alpha: .65)
               : scheme.surfaceContainerLow,
-          child: SizedBox(
-            height: compact ? 108 : 124,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Padding(
-                  padding: EdgeInsets.fromLTRB(16, compact ? 6 : 8, 16, 4),
-                  child: Text(
-                    highlight
-                        ? '松手放到待安排'
-                        : items.isEmpty
-                        ? '待安排 · 拖到这里取消排期'
-                        : compact
-                        ? '待安排 ${items.length} · 长按拖到周几'
-                        : '待安排（${items.length}）· 长按拖拽 / 点 ⋮ 删除',
-                    style: Theme.of(context).textTheme.labelLarge,
-                  ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Padding(
+                padding: EdgeInsets.fromLTRB(16, compact ? 6 : 8, 16, 4),
+                child: Text(
+                  highlight
+                      ? '松手放到待安排'
+                      : items.isEmpty
+                      ? '待安排 · 拖到这里取消排期'
+                      : compact
+                      ? '待安排 ${items.length} · 长按拖到周几'
+                      : '待安排（${items.length}）· 长按拖拽 / 点 ⋮ 删除',
+                  style: Theme.of(context).textTheme.labelLarge,
                 ),
-                Expanded(
-                  child: items.isEmpty
-                      ? Center(
-                          child: Text(
-                            dragging ? '拖到此处' : '空',
-                            style: TextStyle(color: scheme.onSurfaceVariant),
-                          ),
-                        )
-                      : ListView.separated(
-                          scrollDirection: Axis.horizontal,
-                          padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
-                          itemCount: items.length,
-                          separatorBuilder: (_, _) => const SizedBox(width: 8),
-                          itemBuilder: (context, index) {
-                            final item = items[index];
-                            return _CourseCell(
-                              item: item,
-                              collection: progressMap[item.subjectId],
-                              style: _CellStyle.chip,
-                              enableDrag: true,
-                              unreadCount: unreadBySubject[item.subjectId] ?? 0,
-                              season: season,
-                              onDragStarted: onDragStarted,
-                              onDragEnded: onDragEnded,
-                              onOpen: () => onOpen(item),
-                              onMove: (day) => onMove(item, day),
-                              onRemove: () => onRemove(item),
-                            );
-                          },
+              ),
+              SizedBox(
+                height:
+                    (compact ? 60 : 76) +
+                    MediaQuery.textScalerOf(context).scale(12) * 1.5,
+                child: items.isEmpty
+                    ? Center(
+                        child: Text(
+                          dragging ? '拖到此处' : '空',
+                          style: TextStyle(color: scheme.onSurfaceVariant),
                         ),
-                ),
-              ],
-            ),
+                      )
+                    : ListView.separated(
+                        scrollDirection: Axis.horizontal,
+                        padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
+                        itemCount: items.length,
+                        separatorBuilder: (_, _) => const SizedBox(width: 8),
+                        itemBuilder: (context, index) {
+                          final item = items[index];
+                          return _CourseCell(
+                            item: item,
+                            collection: progressMap[item.subjectId],
+                            style: _CellStyle.chip,
+                            enableDrag: true,
+                            unreadCount: unreadBySubject[item.subjectId] ?? 0,
+                            season: season,
+                            onDragStarted: onDragStarted,
+                            onDragEnded: onDragEnded,
+                            onOpen: () => onOpen(item),
+                            onMove: (day) => onMove(item, day),
+                            onRemove: () => onRemove(item),
+                          );
+                        },
+                      ),
+              ),
+            ],
           ),
         );
       },
@@ -970,7 +1037,7 @@ class _UnscheduledBar extends StatelessWidget {
 }
 
 /// WakeUp-style week grid: Mon–Sun always fit; cells are drop targets.
-class _CourseTable extends StatelessWidget {
+class _CourseTable extends ConsumerWidget {
   const _CourseTable({
     required this.schedule,
     required this.progressMap,
@@ -998,9 +1065,9 @@ class _CourseTable extends StatelessWidget {
   final ValueChanged<ScheduleItem> onRemove;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final scheme = Theme.of(context).colorScheme;
-    final today = DateTime.now().weekday;
+    final today = ref.watch(scheduleDayProvider).weekday;
     // Precompute each weekday's sorted items once: itemsOn() filters and
     // sorts on every call, and the table below used to call it repeatedly
     // per day/slot (hundreds of O(n) passes per rebuild).
@@ -1039,7 +1106,10 @@ class _CourseTable extends StatelessWidget {
             : medium
             ? 96.0
             : 100.0;
-        final headerHeight = dense ? 34.0 : 44.0;
+        final headerHeight = math.max(
+          dense ? 34.0 : 44.0,
+          MediaQuery.textScalerOf(context).scale(dense ? 17 : 32) + 12,
+        );
         final shortHeader = dayWidth < 64;
 
         return SingleChildScrollView(
@@ -1075,7 +1145,8 @@ class _CourseTable extends StatelessWidget {
                       )
                         Expanded(
                           child: DragTarget<_DragPayload>(
-                            onWillAcceptWithDetails: (_) => true,
+                            onWillAcceptWithDetails: (details) =>
+                                details.data.season == season,
                             onAcceptWithDetails: (details) => onAccept(
                               details.data,
                               day,
@@ -1261,7 +1332,7 @@ class _DaySlot extends StatelessWidget {
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     return DragTarget<_DragPayload>(
-      onWillAcceptWithDetails: (_) => true,
+      onWillAcceptWithDetails: (details) => details.data.season == season,
       onAcceptWithDetails: (details) => onAccept(details.data, day, slot),
       builder: (context, candidate, _) {
         final hot = candidate.isNotEmpty;
@@ -1618,7 +1689,7 @@ class _CourseCell extends ConsumerWidget {
     if (!enableDrag) return card;
 
     return LongPressDraggable<_DragPayload>(
-      data: _DragPayload(item),
+      data: _DragPayload(item, season),
       hapticFeedbackOnStart: true,
       onDragStarted: onDragStarted,
       onDragEnd: (_) => onDragEnded?.call(),
@@ -1666,130 +1737,165 @@ class _CourseCell extends ConsumerWidget {
     );
   }
 
-  Future<void> _showActions(BuildContext context, WidgetRef ref) async {
-    final value = await showModalBottomSheet<String>(
-      context: context,
-      showDragHandle: true,
-      isScrollControlled: true,
-      builder: (context) => SafeArea(
-        child: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              ListTile(
-                title: ReadableSubjectTitle(
-                  item.displayName,
-                  maxLines: 1,
-                  style: const TextStyle(fontWeight: FontWeight.w800),
-                ),
-                subtitle: Text(
-                  unreadCount > 0
-                      ? '有 $unreadCount 条未读更新 · 长按拖拽改期'
-                      : '点封面进条目 · 长按可拖拽改期',
-                ),
+  Future<void> _showActions(BuildContext context, WidgetRef ref) =>
+      showScheduleItemActions(
+        context,
+        ref,
+        item: item,
+        season: season,
+        unreadCount: unreadCount,
+        onOpen: onOpen,
+        onMove: onMove,
+        onRemove: onRemove,
+      );
+}
+
+Future<void> showScheduleItemActions(
+  BuildContext context,
+  WidgetRef ref, {
+  required ScheduleItem item,
+  required SeasonKey season,
+  required int unreadCount,
+  required VoidCallback onOpen,
+  required ValueChanged<int?> onMove,
+  required VoidCallback onRemove,
+}) async {
+  final value = await showModalBottomSheet<String>(
+    context: context,
+    showDragHandle: true,
+    isScrollControlled: true,
+    builder: (context) => SafeArea(
+      child: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              title: ReadableSubjectTitle(
+                item.displayName,
+                maxLines: 1,
+                style: const TextStyle(fontWeight: FontWeight.w800),
               ),
-              const Divider(height: 1),
-              ListTile(
-                leading: const Icon(Icons.open_in_new_rounded),
-                title: const Text('打开条目'),
-                onTap: () => Navigator.pop(context, 'open'),
+              subtitle: Text(
+                unreadCount > 0
+                    ? '有 $unreadCount 条未读更新 · 长按拖拽改期'
+                    : '点封面进条目 · 长按可拖拽改期',
               ),
-              ListTile(
-                leading: Icon(
-                  item.reminderEnabled
-                      ? Icons.notifications_active_rounded
-                      : Icons.notifications_none_rounded,
-                ),
-                title: const Text('系统更新提醒'),
-                subtitle: Text(
-                  item.reminderEnabled && item.isScheduled
-                      ? '${weekdayLabel(item.weekday!)} '
-                            '${item.reminderHour.toString().padLeft(2, '0')}:'
-                            '${item.reminderMinute.toString().padLeft(2, '0')}'
-                      : item.isScheduled
-                      ? '已关闭 · 可独立设置'
-                      : '先安排到具体星期',
-                ),
-                onTap: () => Navigator.pop(context, 'reminder'),
+            ),
+            const Divider(height: 1),
+            ListTile(
+              leading: const Icon(Icons.open_in_new_rounded),
+              title: const Text('打开条目'),
+              onTap: () => Navigator.pop(context, 'open'),
+            ),
+            ListTile(
+              leading: Icon(
+                item.reminderEnabled
+                    ? Icons.notifications_active_rounded
+                    : Icons.notifications_none_rounded,
               ),
-              ListTile(
-                leading: const Icon(Icons.rss_feed_rounded),
-                title: const Text('绑定更新源'),
-                subtitle: const Text('种子站 RSS → 提醒该看了'),
-                onTap: () => Navigator.pop(context, 'rss_bind'),
+              title: const Text('系统更新提醒'),
+              subtitle: Text(
+                item.reminderEnabled && item.isScheduled
+                    ? '${weekdayLabel(item.weekday!)} '
+                          '${item.reminderHour.toString().padLeft(2, '0')}:'
+                          '${item.reminderMinute.toString().padLeft(2, '0')}'
+                    : item.isScheduled
+                    ? '已关闭 · 可独立设置'
+                    : '先安排到具体星期',
               ),
-              ListTile(
-                leading: Badge(
-                  isLabelVisible: unreadCount > 0,
-                  child: const Icon(Icons.notifications_outlined),
-                ),
-                title: const Text('查看更新'),
-                onTap: () => Navigator.pop(context, 'rss_updates'),
+              onTap: () => Navigator.pop(context, 'reminder'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.rss_feed_rounded),
+              title: const Text('绑定更新源'),
+              subtitle: const Text('种子站 RSS → 提醒该看了'),
+              onTap: () => Navigator.pop(context, 'rss_bind'),
+            ),
+            ListTile(
+              leading: Badge(
+                isLabelVisible: unreadCount > 0,
+                child: const Icon(Icons.notifications_outlined),
               ),
-              ListTile(
-                leading: Icon(
-                  Icons.delete_outline_rounded,
-                  color: Theme.of(context).colorScheme.error,
-                ),
-                title: Text(
-                  '删除安排',
-                  style: TextStyle(color: Theme.of(context).colorScheme.error),
-                ),
-                subtitle: const Text('从本季新番表移除'),
-                onTap: () => Navigator.pop(context, 'remove'),
+              title: const Text('查看更新'),
+              onTap: () => Navigator.pop(context, 'rss_updates'),
+            ),
+            ListTile(
+              leading: Icon(
+                Icons.delete_outline_rounded,
+                color: Theme.of(context).colorScheme.error,
               ),
-              ListTile(
-                leading: const Icon(Icons.inbox_outlined),
-                title: const Text('移到待安排'),
-                onTap: () => Navigator.pop(context, 'pool'),
+              title: Text(
+                '删除安排',
+                style: TextStyle(color: Theme.of(context).colorScheme.error),
               ),
-              for (var day = DateTime.monday; day <= DateTime.sunday; day++)
-                ListTile(
-                  leading: const Icon(Icons.event_rounded),
-                  title: Text('安排到${weekdayLabel(day)}'),
-                  onTap: () => Navigator.pop(context, '$day'),
-                ),
-              const SizedBox(height: 8),
-            ],
-          ),
+              subtitle: const Text('从本季新番表移除'),
+              onTap: () => Navigator.pop(context, 'remove'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.inbox_outlined),
+              title: const Text('移到待安排'),
+              onTap: () => Navigator.pop(context, 'pool'),
+            ),
+            for (var day = DateTime.monday; day <= DateTime.sunday; day++)
+              ListTile(
+                leading: const Icon(Icons.event_rounded),
+                title: Text('安排到${weekdayLabel(day)}'),
+                onTap: () => Navigator.pop(context, '$day'),
+              ),
+            const SizedBox(height: 8),
+          ],
         ),
       ),
-    );
-    if (value == null) return;
-    if (value == 'open') {
-      onOpen();
-      return;
-    }
-    if (value == 'rss_bind') {
-      if (!context.mounted) return;
-      await showRssBindSheet(context, item: item, season: season);
-      return;
-    }
-    if (value == 'reminder') {
-      if (!context.mounted) return;
-      await showScheduleReminderSheet(context, item: item);
-      return;
-    }
-    if (value == 'rss_updates') {
-      if (!context.mounted) return;
-      await showRssUpdatesSheet(
-        context,
-        subjectId: item.subjectId,
-        subjectName: item.displayName,
-      );
-      return;
-    }
-    if (value == 'remove') {
-      onRemove();
-      return;
-    }
-    if (value == 'pool') {
-      onMove(null);
-      return;
-    }
-    final day = int.tryParse(value);
-    if (day != null) onMove(day);
+    ),
+  );
+  if (!context.mounted || value == null) return;
+  final current = ref.read(scheduleProvider);
+  if (current.loading ||
+      current.saving ||
+      current.season != season ||
+      !current.schedule.containsSubject(item.subjectId)) {
+    showAppMessage(context, '安排已变化，请重新打开操作菜单');
+    return;
   }
+  if (value == 'open') {
+    onOpen();
+    return;
+  }
+  if (value == 'rss_bind') {
+    if (!context.mounted) return;
+    await showRssBindSheet(context, item: item, season: season);
+    return;
+  }
+  if (value == 'reminder') {
+    if (!context.mounted) return;
+    await showScheduleReminderSheet(
+      context,
+      item: current.schedule.items.firstWhere(
+        (candidate) => candidate.subjectId == item.subjectId,
+      ),
+      expectedSeason: season,
+    );
+    return;
+  }
+  if (value == 'rss_updates') {
+    if (!context.mounted) return;
+    await showRssUpdatesSheet(
+      context,
+      subjectId: item.subjectId,
+      subjectName: item.displayName,
+    );
+    return;
+  }
+  if (value == 'remove') {
+    onRemove();
+    return;
+  }
+  if (value == 'pool') {
+    onMove(null);
+    return;
+  }
+  final day = int.tryParse(value);
+  if (day != null) onMove(day);
 }
 
 void _openSubject(BuildContext context, ScheduleItem item) {
@@ -1810,5 +1916,93 @@ void _openSubject(BuildContext context, ScheduleItem item) {
         ),
       ),
     ),
+  );
+}
+
+class _ScheduleToolbar extends StatelessWidget {
+  const _ScheduleToolbar({
+    required this.wide,
+    required this.refreshing,
+    required this.unread,
+    required this.onExport,
+    required this.onUpdates,
+    required this.onRefresh,
+    required this.onSources,
+  });
+  final bool wide, refreshing;
+  final int unread;
+  final VoidCallback onExport, onUpdates, onRefresh, onSources;
+  @override
+  Widget build(BuildContext context) => Row(
+    children: [
+      if (Navigator.canPop(context))
+        IconButton(
+          tooltip: '返回',
+          onPressed: () => Navigator.maybePop(context),
+          icon: const Icon(Icons.arrow_back_rounded),
+        ),
+      Expanded(
+        child: Text(
+          '新番表',
+          style: wide
+              ? Theme.of(context).textTheme.headlineLarge
+              : Theme.of(context).textTheme.headlineSmall,
+        ),
+      ),
+      if (wide)
+        IconButton(
+          tooltip: '导出图片',
+          onPressed: onExport,
+          icon: const Icon(Icons.image_outlined),
+        ),
+      IconButton(
+        tooltip: '更新提醒',
+        onPressed: onUpdates,
+        icon: Badge(
+          isLabelVisible: unread > 0,
+          label: Text(unread > 99 ? '99+' : '$unread'),
+          child: const Icon(Icons.notifications_outlined),
+        ),
+      ),
+      if (wide) ...[
+        IconButton(
+          tooltip: refreshing ? '检查中…' : '检查更新',
+          onPressed: refreshing ? null : onRefresh,
+          icon: refreshing
+              ? const SizedBox.square(
+                  dimension: 22,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : const Icon(Icons.sync_rounded),
+        ),
+        IconButton(
+          tooltip: '更新源 RSS',
+          onPressed: onSources,
+          icon: const Icon(Icons.rss_feed_rounded),
+        ),
+      ] else
+        PopupMenuButton<String>(
+          tooltip: '新番表更多操作',
+          onSelected: (action) {
+            switch (action) {
+              case 'export':
+                onExport();
+              case 'refresh':
+                onRefresh();
+              case 'sources':
+                onSources();
+            }
+          },
+          itemBuilder: (_) => [
+            const PopupMenuItem(value: 'export', child: Text('导出图片')),
+            PopupMenuItem(
+              value: 'refresh',
+              enabled: !refreshing,
+              child: Text(refreshing ? '检查中…' : '检查更新'),
+            ),
+            const PopupMenuItem(value: 'sources', child: Text('更新源 RSS')),
+          ],
+        ),
+    ],
   );
 }

@@ -163,6 +163,113 @@ void main() {
       expect(reminders.syncs, hasLength(1));
     },
   );
+  test(
+    'late reminder permission never changes a newly selected season',
+    () async {
+      final current = SeasonKey.current(),
+          other = SeasonKey(year: SeasonKey.current().year + 1, quarter: 0);
+      final store = _FakeScheduleStore({
+        current.id: _schedule(current, weekday: 2),
+        other.id: _schedule(other, weekday: 3),
+      });
+      final gate = Completer<ReminderPermissionResult>();
+      final reminders = _FakeReminderGateway()..pendingPermission = gate.future;
+      final controller = ScheduleController(store, reminders);
+      addTearDown(controller.dispose);
+      await _waitFor(() => !controller.state.loading);
+      final enable = controller.setReminder(
+        1,
+        enabled: true,
+        hour: 21,
+        minute: 10,
+        expectedSeason: current,
+      );
+      await controller.setSeason(other);
+      gate.complete(
+        const ReminderPermissionResult(ReminderPermissionStatus.granted),
+      );
+      expect(await enable, isFalse);
+      expect(controller.state.season, other);
+      expect(controller.state.schedule.items.single.reminderEnabled, isFalse);
+    },
+  );
+
+  test(
+    'removing an item while permission is pending cannot resurrect its reminder',
+    () async {
+      final current = SeasonKey.current();
+      final store = _FakeScheduleStore({
+        current.id: _schedule(current, weekday: 2),
+      });
+      final gate = Completer<ReminderPermissionResult>();
+      final reminders = _FakeReminderGateway()..pendingPermission = gate.future;
+      final controller = ScheduleController(store, reminders);
+      addTearDown(controller.dispose);
+      await _waitFor(() => !controller.state.loading);
+      final enable = controller.setReminder(
+        1,
+        enabled: true,
+        hour: 21,
+        minute: 0,
+      );
+      await controller.removeSubject(1);
+      gate.complete(
+        const ReminderPermissionResult(ReminderPermissionStatus.granted),
+      );
+      expect(await enable, isFalse);
+      expect(controller.state.schedule.items, isEmpty);
+    },
+  );
+
+  for (final fail in [false, true]) {
+    test(
+      'season load waits for an accepted save without mixing quarters, failure=$fail',
+      () async {
+        final current = SeasonKey.current(),
+            other = SeasonKey(year: SeasonKey.current().year + 1, quarter: 0);
+        final store = _FakeScheduleStore({
+          current.id: _schedule(current, weekday: 2),
+          other.id: _schedule(other, weekday: 5),
+        });
+        final controller = ScheduleController(store);
+        addTearDown(controller.dispose);
+        await _waitFor(() => !controller.state.loading);
+        final gate = Completer<void>();
+        store.saveGate = gate.future;
+        store.failSave = fail;
+        final move = controller.moveItem(1, weekday: 3);
+        final load = controller.setSeason(other);
+        expect(controller.state.loading, isTrue);
+        gate.complete();
+        await move;
+        expect(await load, isTrue);
+        expect(controller.state.season, other);
+        expect(controller.state.schedule.items.single.weekday, 5);
+        expect(controller.state.saving, isFalse);
+        expect(store.schedules[current.id]!.items.single.weekday, fail ? 2 : 3);
+      },
+    );
+  }
+
+  test(
+    'failed save restores the original schedule and can be retried',
+    () async {
+      final current = SeasonKey.current();
+      final store = _FakeScheduleStore({
+        current.id: _schedule(current, weekday: 2),
+      });
+      final controller = ScheduleController(store);
+      addTearDown(controller.dispose);
+      await _waitFor(() => !controller.state.loading);
+      store.failSave = true;
+      await controller.moveItem(1, weekday: 3);
+      expect(controller.state.schedule.items.single.weekday, 2);
+      expect(controller.state.message, contains('保存新番表失败'));
+      store.failSave = false;
+      await controller.moveItem(1, weekday: 3);
+      expect(store.schedules[current.id]!.items.single.weekday, 3);
+    },
+  );
 }
 
 SeasonSchedule _schedule(SeasonKey season, {int? weekday}) => SeasonSchedule(
@@ -184,6 +291,8 @@ class _FakeScheduleStore extends ScheduleStore {
 
   final Map<String, SeasonSchedule> schedules;
   Object? loadError;
+  Future<void>? saveGate;
+  bool failSave = false;
   Future<List<SeasonSchedule>> Function()? loadAllOverride;
 
   @override
@@ -200,6 +309,8 @@ class _FakeScheduleStore extends ScheduleStore {
 
   @override
   Future<void> save(SeasonSchedule schedule) async {
+    await saveGate;
+    if (failSave) throw StateError('disk full');
     schedules[schedule.season.id] = schedule;
   }
 
@@ -215,11 +326,13 @@ class _FakeReminderGateway implements ScheduleReminderGateway {
 
   final bool permissionGranted;
   int permissionRequests = 0;
+  Future<ReminderPermissionResult>? pendingPermission;
   final List<List<SeasonSchedule>> syncs = [];
 
   @override
   Future<ReminderPermissionResult> requestPermission() async {
     permissionRequests++;
+    if (pendingPermission != null) return pendingPermission!;
     return ReminderPermissionResult(
       permissionGranted
           ? ReminderPermissionStatus.granted

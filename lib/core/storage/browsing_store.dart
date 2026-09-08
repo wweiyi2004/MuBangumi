@@ -7,6 +7,7 @@ import 'package:sqflite/sqflite.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart' as ffi;
 
 import '../../models/bangumi_models.dart';
+import '../../models/schedule_view.dart';
 
 class RecentSearch {
   const RecentSearch({
@@ -43,6 +44,15 @@ abstract class HomePinsRepository {
   Future<void> saveHomePins(int ownerId, List<int> ids);
 }
 
+abstract class ScheduleViewRepository {
+  Future<ScheduleView?> readScheduleView(int ownerId);
+  Future<void> saveScheduleView(int ownerId, ScheduleView view);
+}
+
+final scheduleViewRepositoryProvider = Provider<ScheduleViewRepository>(
+  (ref) => BrowsingStore.shared,
+);
+
 final homePinsRepositoryProvider = Provider<HomePinsRepository>(
   (ref) => BrowsingStore.shared,
 );
@@ -57,7 +67,8 @@ final recentSearchesProvider = FutureProvider.autoDispose
     );
 
 /// Durable browsing preferences are separate from the disposable cache.
-class BrowsingStore implements BrowsingRepository, HomePinsRepository {
+class BrowsingStore
+    implements BrowsingRepository, HomePinsRepository, ScheduleViewRepository {
   BrowsingStore({this.databasePath});
   static final shared = BrowsingStore();
   static const historyLimit = 12;
@@ -197,6 +208,32 @@ class BrowsingStore implements BrowsingRepository, HomePinsRepository {
     'CREATE TABLE home_pins (owner_id INTEGER PRIMARY KEY NOT NULL, payload TEXT NOT NULL)',
   );
 
+  @override
+  Future<ScheduleView?> readScheduleView(int ownerId) async {
+    await _writes;
+    final rows = await (await _open()).query(
+      'schedule_view',
+      where: 'owner_id = ?',
+      whereArgs: [ownerId],
+    );
+    if (rows.isEmpty) return null;
+    return ScheduleView.values
+        .where((mode) => mode.name == rows.single['view'])
+        .firstOrNull;
+  }
+
+  @override
+  Future<void> saveScheduleView(int ownerId, ScheduleView view) =>
+      _write((db) async {
+        await db.insert('schedule_view', {
+          'owner_id': ownerId,
+          'view': view.name,
+        }, conflictAlgorithm: ConflictAlgorithm.replace);
+      });
+  Future<void> _createScheduleView(Database db) => db.execute(
+    'CREATE TABLE schedule_view (owner_id INTEGER PRIMARY KEY NOT NULL, view TEXT NOT NULL)',
+  );
+
   Future<Database> _open() =>
       _database ??= _create().catchError((Object error) {
         _database = null;
@@ -218,12 +255,14 @@ class BrowsingStore implements BrowsingRepository, HomePinsRepository {
             'mubangumi_browsing.sqlite',
           ),
       options: OpenDatabaseOptions(
-        version: 2,
+        version: 3,
         onUpgrade: (db, oldVersion, _) async {
           if (oldVersion < 2) await _createHomePins(db);
+          if (oldVersion < 3) await _createScheduleView(db);
         },
         onCreate: (db, _) async {
           await _createHomePins(db);
+          await _createScheduleView(db);
           await db.execute(
             'CREATE TABLE library_preferences (account TEXT PRIMARY KEY NOT NULL, payload TEXT NOT NULL)',
           );

@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mubangumi/core/storage/browsing_store.dart';
 import 'package:mubangumi/models/bangumi_models.dart';
+import 'package:mubangumi/models/schedule_view.dart';
 import 'package:path/path.dart' as path;
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
@@ -26,6 +27,44 @@ void main() {
     }
     await directory.delete(recursive: true);
   });
+
+  test(
+    'schedule view survives restart and stays separate for each account and guest',
+    () async {
+      await store.saveScheduleView(1, ScheduleView.today);
+      await store.saveScheduleView(2, ScheduleView.board);
+      await store.saveScheduleView(0, ScheduleView.week);
+      await store.close();
+      expect(await store.readScheduleView(1), ScheduleView.today);
+      expect(await store.readScheduleView(2), ScheduleView.board);
+      expect(await store.readScheduleView(0), ScheduleView.week);
+      expect(await store.readScheduleView(3), isNull);
+    },
+  );
+
+  test(
+    'browsing v2 migration preserves home pins while adding schedule views',
+    () async {
+      sqfliteFfiInit();
+      final db = await databaseFactoryFfi.openDatabase(
+        store.databasePath!,
+        options: OpenDatabaseOptions(
+          version: 2,
+          onCreate: (db, _) async {
+            await db.execute(
+              'CREATE TABLE home_pins (owner_id INTEGER PRIMARY KEY NOT NULL, payload TEXT NOT NULL)',
+            );
+            await db.insert('home_pins', {'owner_id': 1, 'payload': '[8,9]'});
+          },
+        ),
+      );
+      await db.close();
+      expect(await store.readScheduleView(1), isNull);
+      await store.saveScheduleView(1, ScheduleView.week);
+      expect(await store.readHomePins(1), [8, 9]);
+      expect(await store.readScheduleView(1), ScheduleView.week);
+    },
+  );
 
   test(
     'library settings and typed searches survive reopen and isolate accounts',

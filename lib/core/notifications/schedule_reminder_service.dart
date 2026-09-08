@@ -43,12 +43,22 @@ DateTime nextWeeklyReminder({
   required int minute,
 }) {
   var daysAhead = (weekday - now.weekday + 7) % 7;
-  var date = now.add(Duration(days: daysAhead));
-  var candidate = DateTime(date.year, date.month, date.day, hour, minute);
+  DateTime atDay(int offset) => now is timezone.TZDateTime
+      ? timezone.TZDateTime(
+          now.location,
+          now.year,
+          now.month,
+          now.day + offset,
+          hour,
+          minute,
+        )
+      : now.isUtc
+      ? DateTime.utc(now.year, now.month, now.day + offset, hour, minute)
+      : DateTime(now.year, now.month, now.day + offset, hour, minute);
+  var candidate = atDay(daysAhead);
   if (!candidate.isAfter(now)) {
-    daysAhead = daysAhead == 0 ? 7 : daysAhead + 7;
-    date = now.add(Duration(days: daysAhead));
-    candidate = DateTime(date.year, date.month, date.day, hour, minute);
+    daysAhead += 7;
+    candidate = atDay(daysAhead);
   }
   return candidate;
 }
@@ -181,6 +191,9 @@ class ScheduleReminderService implements ScheduleReminderGateway {
 
   Future<void> _syncSchedules(List<SeasonSchedule> schedules) async {
     await initialize();
+    // Refresh after a device time-zone change while preserving local wall time.
+    final zone = await FlutterTimezone.getLocalTimezone();
+    timezone.setLocalLocation(timezone.getLocation(zone.identifier));
 
     final pending = await _plugin.pendingNotificationRequests();
     final storedIds = await _store.readReminderIds();
@@ -252,14 +265,7 @@ class ScheduleReminderService implements ScheduleReminderGateway {
   }) async {
     final now = timezone.TZDateTime.now(timezone.local);
     final next = nextWeeklyReminder(
-      now: DateTime(
-        now.year,
-        now.month,
-        now.day,
-        now.hour,
-        now.minute,
-        now.second,
-      ),
+      now: now,
       weekday: item.weekday!,
       hour: item.reminderHour,
       minute: item.reminderMinute,
