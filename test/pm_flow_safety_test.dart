@@ -1,3 +1,7 @@
+import 'support/memory_pm_draft_repository.dart';
+import 'support/pm_fixtures.dart';
+import 'package:mubangumi/core/storage/pm_draft_store.dart';
+import 'package:mubangumi/state/session_controller.dart';
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -146,10 +150,11 @@ void main() {
     );
     expect(find.text('private message A'), findsOneWidget);
     store.account = 'account-b';
+    store.verifiedUserId = 2;
     await container.read(websiteSessionProvider.notifier).reload();
     await tester.pumpAndSettle();
     expect(find.text('private message A'), findsNothing);
-    expect(tester.widget<TextField>(find.byType(TextField)).enabled, isFalse);
+    expect(find.byType(TextField), findsNothing);
   });
 
   testWidgets(
@@ -166,6 +171,7 @@ void main() {
       );
       await tester.enterText(find.byType(TextField).at(1), 'private draft');
       store.account = 'account-b';
+      store.verifiedUserId = 2;
       await container.read(websiteSessionProvider.notifier).reload();
       pending.complete(
         const PmComposeParams(formhash: 'old', msgReceivers: 'alice'),
@@ -243,9 +249,18 @@ Future<ProviderContainer> _show(
   bool settle = true,
   double scale = 1,
 }) async {
+  final websiteStore = store ?? _Store();
+  if (page is PmComposeScreen) {
+    (page.service as _Service).websiteStore = websiteStore;
+  }
+  if (page is PmConversationScreen) {
+    (page.service as _Service).websiteStore = websiteStore;
+  }
   final container = ProviderContainer(
     overrides: [
-      websiteSessionStoreProvider.overrideWithValue(store ?? _Store()),
+      sessionProvider.overrideWith((ref) => PmTestSession()),
+      pmDraftRepositoryProvider.overrideWithValue(MemoryPmDraftRepository()),
+      websiteSessionStoreProvider.overrideWithValue(websiteStore),
     ],
   );
   addTearDown(container.dispose);
@@ -283,20 +298,13 @@ Future<ProviderContainer> _show(
   return container;
 }
 
-class _Store extends WebsiteSessionStore {
-  String account = 'account-a';
-  String challenge = 'challenge';
-  @override
-  Future<WebsiteSessionSnapshot?> read() async => WebsiteSessionSnapshot(
-    cookies: [
-      WebsiteCookie(name: 'chii_auth', value: account),
-      WebsiteCookie(name: 'cf_clearance', value: challenge),
-    ],
-    syncedAt: DateTime(2026),
-  );
-}
+class _Store extends PmTestWebsiteStore {}
 
 class _Service extends PmService {
+  late WebsiteSessionStore websiteStore;
+  @override
+  Future<({int userId, String authenticationKey})> verifyDraftOwner(user) =>
+      PmService(sessionStore: websiteStore).verifyDraftOwner(user);
   Future<PmComposeParams>? pendingAlice;
   Future<void>? pendingReply;
   final sentTo = <String>[];

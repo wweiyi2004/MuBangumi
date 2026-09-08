@@ -456,6 +456,7 @@ void main() {
       expect(store.accessToken, 'verified-oauth-token');
       expect(store.config, config);
       expect(website.snapshot!.cookieHeader, 'chii_auth=website-login');
+      expect(website.snapshot!.verifiedUserId, 1);
     },
   );
 

@@ -466,6 +466,7 @@ class SessionController extends StateNotifier<SessionState> {
         final website = WebsiteSessionSnapshot(
           cookies: websiteCookies,
           syncedAt: DateTime.now(),
+          verifiedUserId: user.id,
         );
         if (website.hasSessionCookies) {
           try {

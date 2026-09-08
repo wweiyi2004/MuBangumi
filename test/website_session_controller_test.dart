@@ -6,6 +6,65 @@ import 'package:mubangumi/state/website_session_controller.dart';
 
 void main() {
   test(
+    'owner verification survives a challenge refresh but not a new auth cookie',
+    () async {
+      final store = _CountingWebsiteStore()
+        ..snapshot = WebsiteSessionSnapshot(
+          cookies: const [WebsiteCookie(name: 'chii_auth', value: 'a')],
+          syncedAt: DateTime(2026),
+        );
+      final controller = WebsiteSessionController(store);
+      addTearDown(controller.dispose);
+      await _waitFor(() => controller.state.ready);
+      expect(
+        await controller.bindVerifiedUser(
+          authenticationKey: 'chii_auth=a',
+          userId: 42,
+        ),
+        isTrue,
+      );
+      await controller.saveCookies(const [
+        WebsiteCookie(name: 'chii_auth', value: 'a'),
+        WebsiteCookie(name: 'cf_clearance', value: 'new'),
+      ]);
+      expect(store.snapshot!.verifiedUserId, 42);
+      await controller.saveCookies(const [
+        WebsiteCookie(name: 'chii_auth', value: 'b'),
+      ]);
+      expect(store.snapshot!.verifiedUserId, isNull);
+      expect(
+        await controller.bindVerifiedUser(
+          authenticationKey: 'chii_auth=a',
+          userId: 42,
+        ),
+        isFalse,
+      );
+    },
+  );
+
+  test('logout clears an owner binding already writing to disk', () async {
+    final store = _InterleavableWebsiteSessionStore()
+      ..snapshot = WebsiteSessionSnapshot(
+        cookies: const [WebsiteCookie(name: 'chii_auth', value: 'a')],
+        syncedAt: DateTime(2026),
+      );
+    final controller = WebsiteSessionController(store);
+    addTearDown(controller.dispose);
+    await _waitFor(() => controller.state.ready);
+    final binding = controller.bindVerifiedUser(
+      authenticationKey: 'chii_auth=a',
+      userId: 42,
+    );
+    await _waitFor(() => store.pendingWrite != null);
+    final clearing = controller.markCleared();
+    store.pendingWrite!.complete();
+    expect(await binding, isFalse);
+    await clearing;
+    expect(store.snapshot, isNull);
+    expect(controller.state.snapshot, isNull);
+  });
+
+  test(
     'automatic capture ignores anonymous cookies and reuses unchanged login',
     () async {
       final store = _CountingWebsiteStore();

@@ -1,3 +1,7 @@
+import 'support/memory_pm_draft_repository.dart';
+import 'support/pm_fixtures.dart';
+import 'package:mubangumi/core/storage/pm_draft_store.dart';
+import 'package:mubangumi/state/session_controller.dart';
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -26,8 +30,12 @@ void main() {
       expect(service.outboxPages, [1]);
       await tester.tap(find.byType(FloatingActionButton));
       await tester.pumpAndSettle();
-      service.sent = true;
-      Navigator.of(tester.element(find.byType(PmComposeScreen))).pop(true);
+      await tester.enterText(find.byType(TextField).at(0), 'alice');
+      await tester.enterText(find.byType(TextField).at(1), 'title');
+      await tester.enterText(find.byType(TextField).at(2), 'message');
+      await tester.ensureVisible(find.text('发送短信'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('发送短信'));
       await tester.pumpAndSettle();
       expect(find.text('新发件'), findsOneWidget);
       expect(find.text('旧发件'), findsNothing);
@@ -89,9 +97,13 @@ Future<ProviderContainer> _show(
   _SessionStore? store,
   bool settle = true,
 }) async {
+  final websiteStore = store ?? _SessionStore();
+  service.websiteStore = websiteStore;
   final container = ProviderContainer(
     overrides: [
-      websiteSessionStoreProvider.overrideWithValue(store ?? _SessionStore()),
+      sessionProvider.overrideWith((ref) => PmTestSession()),
+      pmDraftRepositoryProvider.overrideWithValue(MemoryPmDraftRepository()),
+      websiteSessionStoreProvider.overrideWithValue(websiteStore),
     ],
   );
   addTearDown(container.dispose);
@@ -106,16 +118,27 @@ Future<ProviderContainer> _show(
   return container;
 }
 
-class _SessionStore extends WebsiteSessionStore {
-  String cookie = 'account';
-  @override
-  Future<WebsiteSessionSnapshot?> read() async => WebsiteSessionSnapshot(
-    cookies: [WebsiteCookie(name: 'chii_auth', value: cookie)],
-    syncedAt: DateTime(2026),
-  );
+class _SessionStore extends PmTestWebsiteStore {
+  set cookie(String value) => account = value;
 }
 
 class _Service extends PmService {
+  late WebsiteSessionStore websiteStore;
+  @override
+  Future<({int userId, String authenticationKey})> verifyDraftOwner(user) =>
+      PmService(sessionStore: websiteStore).verifyDraftOwner(user);
+  @override
+  Future<PmComposeParams> loadComposeParams(String user) async =>
+      PmComposeParams(formhash: 'hash', msgReceivers: user);
+  @override
+  Future<void> compose({
+    required PmComposeParams params,
+    required String title,
+    required String body,
+  }) async {
+    sent = true;
+  }
+
   final inboxPages = <int>[];
   final outboxPages = <int>[];
   bool sent = false;

@@ -59,10 +59,24 @@ class WebsiteCookie {
 
 /// Persisted website login snapshot (supplemental to OAuth).
 class WebsiteSessionSnapshot {
-  const WebsiteSessionSnapshot({required this.cookies, required this.syncedAt});
+  const WebsiteSessionSnapshot({
+    required this.cookies,
+    required this.syncedAt,
+    this.verifiedUserId,
+  });
 
   final List<WebsiteCookie> cookies;
   final DateTime syncedAt;
+
+  /// Identity established by the same embedded OAuth flow or website chrome.
+  /// Cookie capture alone must never assign this field.
+  final int? verifiedUserId;
+
+  WebsiteSessionSnapshot withVerifiedUser(int userId) => WebsiteSessionSnapshot(
+    cookies: cookies,
+    syncedAt: syncedAt,
+    verifiedUserId: userId,
+  );
 
   bool get hasSessionCookies => cookies.any(
     (cookie) =>
@@ -105,6 +119,7 @@ class WebsiteSessionSnapshot {
   Map<String, dynamic> toJson() => {
     'synced_at': syncedAt.toIso8601String(),
     'cookies': [for (final cookie in cookies) cookie.toJson()],
+    if (verifiedUserId != null) 'verified_user_id': verifiedUserId,
   };
 
   factory WebsiteSessionSnapshot.fromJson(Map<String, dynamic> json) {
@@ -122,6 +137,11 @@ class WebsiteSessionSnapshot {
     }
     return WebsiteSessionSnapshot(
       cookies: cookies,
+      verifiedUserId:
+          json['verified_user_id'] is int &&
+              (json['verified_user_id'] as int) > 0
+          ? json['verified_user_id'] as int
+          : null,
       syncedAt:
           DateTime.tryParse(json['synced_at']?.toString() ?? '') ??
           DateTime.fromMillisecondsSinceEpoch(0),

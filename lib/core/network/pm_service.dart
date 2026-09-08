@@ -2,6 +2,7 @@ import 'package:dio/dio.dart';
 
 import '../auth/website_session.dart';
 import '../../models/pm_models.dart';
+import '../../models/bangumi_models.dart';
 import 'bangumi_user_agent.dart';
 import 'pm_html_parser.dart';
 
@@ -33,6 +34,33 @@ class PmService {
   final PmHtmlParser _parser;
   final Dio _dio;
   final _formSessions = Expando<String>('PM form website session');
+
+  Future<({int userId, String authenticationKey})> verifyDraftOwner(
+    BangumiUser user,
+  ) async {
+    if (user.id <= 0) throw const PmAuthException('请先登录应用账号');
+    final session = await _requireSession();
+    if (session.verifiedUserId != null) {
+      if (session.verifiedUserId != user.id) {
+        throw const PmAuthException('网站登录与应用账号不一致，请登录同一个 Bangumi 账号');
+      }
+      return (userId: user.id, authenticationKey: session.authenticationKey);
+    }
+    final html = await _getHtml('/');
+    if ((await _requireSession()).authenticationKey !=
+        session.authenticationKey) {
+      throw const PmAuthException('网站登录已变化，请重新核对');
+    }
+    final identifier = _parser.parseSignedInUser(html);
+    if (identifier == null) {
+      throw const PmAuthException('暂时无法核对网站账号，请重新登录网站后重试');
+    }
+    if (identifier != '${user.id}' &&
+        identifier.toLowerCase() != user.username.toLowerCase()) {
+      throw const PmAuthException('网站登录与应用账号不一致，请登录同一个 Bangumi 账号');
+    }
+    return (userId: user.id, authenticationKey: session.authenticationKey);
+  }
 
   Future<List<PmConversation>> loadInbox({int page = 1}) =>
       _loadList('/pm/inbox.chii', page: page);

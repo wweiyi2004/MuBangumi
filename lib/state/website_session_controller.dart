@@ -130,13 +130,18 @@ class WebsiteSessionController extends StateNotifier<WebsiteSessionState> {
       state = state.copyWith(ready: true, message: '未检测到登录，请登录后再保存');
       return false;
     }
-    final snapshot = WebsiteSessionSnapshot(
+    var snapshot = WebsiteSessionSnapshot(
       cookies: cleaned,
       syncedAt: syncedAt ?? DateTime.now(),
     );
     if (!snapshot.hasSessionCookies) {
       state = state.copyWith(ready: true, message: '未检测到有效登录，请登录后再保存');
       return false;
+    }
+    final previous = state.snapshot;
+    if (previous?.authenticationKey == snapshot.authenticationKey &&
+        previous?.verifiedUserId != null) {
+      snapshot = snapshot.withVerifiedUser(previous!.verifiedUserId!);
     }
     try {
       await _write(() async {
@@ -155,6 +160,42 @@ class WebsiteSessionController extends StateNotifier<WebsiteSessionState> {
       message: '网站登录已保存',
     );
     return true;
+  }
+
+  /// Serialize identity binding with captures and logout; a late probe cannot
+  /// attach an identity to a different cookie session or restore a cleared one.
+  Future<bool> bindVerifiedUser({
+    required String authenticationKey,
+    required int userId,
+  }) async {
+    if (userId <= 0 || authenticationKey.isEmpty) return false;
+    if (state.snapshot?.authenticationKey == authenticationKey &&
+        state.snapshot?.verifiedUserId == userId) {
+      return true;
+    }
+    final generation = ++_generation;
+    var bound = false;
+    try {
+      await _write(() async {
+        if (!mounted || generation != _generation) return;
+        final snapshot = await _store.read();
+        if (!mounted ||
+            generation != _generation ||
+            snapshot?.authenticationKey != authenticationKey) {
+          return;
+        }
+        final next = snapshot!.withVerifiedUser(userId);
+        await _store.write(next);
+        if (!mounted || generation != _generation) return;
+        state = WebsiteSessionState(ready: true, snapshot: next);
+        bound = true;
+      });
+    } catch (_) {
+      if (mounted && generation == _generation) {
+        state = state.copyWith(message: '无法保存已核对的账号，请重试');
+      }
+    }
+    return bound;
   }
 
   Future<void> clear({String? message}) async {

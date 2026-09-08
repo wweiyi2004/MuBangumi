@@ -4,6 +4,36 @@ import 'package:html/parser.dart' as html_parser;
 import '../../models/pm_models.dart';
 
 class PmHtmlParser {
+  /// Only inspect the site's own account navigation, never a message author.
+  String? parseSignedInUser(String source) {
+    final document = html_parser.parse(source);
+    final links = document.querySelectorAll(
+      '#headerNeue2 > div > .idBadgerNeue a.avatar[href], #badgeUserPanel a.avatar[href], #dock a[href]',
+    );
+    final ids = <String>{};
+    for (final link in links) {
+      final uri = Uri.tryParse(link.attributes['href'] ?? '');
+      if (uri == null ||
+          (uri.hasScheme && !const ['http', 'https'].contains(uri.scheme))) {
+        continue;
+      }
+      if (uri.hasAuthority &&
+          !const [
+            'bgm.tv',
+            'bangumi.tv',
+            'chii.in',
+          ].contains(uri.host.toLowerCase())) {
+        continue;
+      }
+      if (uri.pathSegments.length >= 2 &&
+          uri.pathSegments.first == 'user' &&
+          uri.pathSegments[1].isNotEmpty) {
+        ids.add(uri.pathSegments[1]);
+      }
+    }
+    return ids.length == 1 ? ids.single : null;
+  }
+
   static final _bgUrl = RegExp(
     r'''url\((?:['"])?([^)'";]+)''',
     caseSensitive: false,

@@ -13,6 +13,8 @@ import '../models/pm_models.dart';
 import '../state/website_session_controller.dart';
 import '../state/pm_mailbox_controller.dart';
 import '../widgets/community_loading.dart';
+import '../widgets/pm_draft_editor.dart';
+import '../core/storage/pm_draft_store.dart';
 import 'community_page.dart';
 import 'website_login_screen.dart';
 
@@ -719,6 +721,7 @@ class _PmConversationScreenState extends ConsumerState<PmConversationScreen> {
   final _focus = FocusNode();
 
   PmConversationDetail? _detail;
+  PmDraftEditing? _draftEditing;
   bool _loading = true;
   bool _sending = false;
   String? _error;
@@ -745,6 +748,7 @@ class _PmConversationScreenState extends ConsumerState<PmConversationScreen> {
 
   void _onWebsiteSessionChanged() {
     if (!mounted) return;
+    _draftEditing?.suspend();
     _requestId++;
     _input.clear();
     setState(() {
@@ -759,6 +763,13 @@ class _PmConversationScreenState extends ConsumerState<PmConversationScreen> {
   Future<void> _load() async {
     if (!mounted || _sessionChanged) return;
     final requestId = ++_requestId;
+    final draft = _draftEditing?.controller;
+    setState(() => _loading = true);
+    if (draft?.dirty == true && !await draft!.flush()) {
+      if (mounted && requestId == _requestId) setState(() => _loading = false);
+      return;
+    }
+    if (!mounted || requestId != _requestId) return;
     // Capture the requested thread up-front so a slow response for a
     // previously-selected thread cannot overwrite the current one (and so
     // _send can never reply through a stale thread's form).
@@ -797,6 +808,8 @@ class _PmConversationScreenState extends ConsumerState<PmConversationScreen> {
 
   Future<void> _send() async {
     final detail = _detail;
+    final editing = _draftEditing;
+    final draft = editing?.controller;
     final text = _input.text.trim();
     if (!mounted ||
         _sessionChanged ||
@@ -804,16 +817,22 @@ class _PmConversationScreenState extends ConsumerState<PmConversationScreen> {
         text.isEmpty ||
         _sending ||
         _loading ||
-        _error != null) {
+        _error != null ||
+        editing?.ready != true ||
+        draft == null) {
       return;
     }
     final requestId = _requestId;
     setState(() => _sending = true);
     try {
-      await _service.reply(form: detail.form, body: text);
+      if (!await editing!.flush()) return;
       if (!mounted || _sessionChanged || requestId != _requestId) return;
-      _input.clear();
-      await _load();
+      await _service.reply(form: detail.form, body: text);
+      final cleared = await draft.markSent();
+      if (!mounted || _sessionChanged || requestId != _requestId) return;
+      if (!cleared) return;
+      await editing.restart();
+      if (mounted && !_sessionChanged) await _load();
     } catch (error) {
       if (!mounted || _sessionChanged) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -845,111 +864,173 @@ class _PmConversationScreenState extends ConsumerState<PmConversationScreen> {
                   .firstOrNull ??
               '');
 
-    return Scaffold(
-      appBar: AppBar(
-        titleSpacing: 0,
-        title: Row(
-          children: [
-            _PmAvatar(url: avatar, name: title, radius: 18),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    title,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(fontWeight: FontWeight.w800),
+    final canonicalThread = _loadedThread?.isNotEmpty == true
+        ? _loadedThread!
+        : detail?.threads
+                  .where((thread) => thread.current && thread.id.isNotEmpty)
+                  .firstOrNull
+                  ?.id ??
+              detail?.form.related ??
+              '';
+    return PmDraftEditor(
+      service: _service,
+      kind: PmDraftKind.reply,
+      body: _input,
+      conversationId: widget.conversationId,
+      threadId: canonicalThread,
+      contextReady: detail != null,
+      replyRecipient: detail?.peerUserId.isNotEmpty == true
+          ? detail!.peerUserId
+          : detail?.form.msgReceivers ?? '',
+      replyTitle: detail?.form.msgTitle ?? widget.title,
+      onSessionInvalidated: _onWebsiteSessionChanged,
+      onOwnerVerified: () {
+        if (_sessionChanged && mounted) {
+          setState(() => _sessionChanged = false);
+          unawaited(_load());
+        }
+      },
+      onSentCleanup: () => unawaited(_load()),
+      builder: (context, editing) {
+        _draftEditing = editing;
+        return Scaffold(
+          appBar: AppBar(
+            titleSpacing: 0,
+            title: Row(
+              children: [
+                _PmAvatar(
+                  url: editing.ownerVerified ? avatar : '',
+                  name: editing.ownerVerified ? title : '站内短信',
+                  radius: 18,
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        editing.ownerVerified ? title : '站内短信',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(fontWeight: FontWeight.w800),
+                      ),
+                      if (editing.ownerVerified &&
+                          !_sessionChanged &&
+                          widget.title.isNotEmpty &&
+                          widget.title != title)
+                        Text(
+                          widget.title,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: Theme.of(context).textTheme.labelSmall
+                              ?.copyWith(color: scheme.onSurfaceVariant),
+                        ),
+                    ],
                   ),
-                  if (!_sessionChanged &&
-                      widget.title.isNotEmpty &&
-                      widget.title != title)
-                    Text(
-                      widget.title,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                        color: scheme.onSurfaceVariant,
+                ),
+              ],
+            ),
+            actions: [
+              IconButton(
+                tooltip: '刷新',
+                onPressed: _loading || _sessionChanged ? null : _load,
+                icon: const Icon(Icons.refresh_rounded),
+              ),
+            ],
+          ),
+          body: !editing.ownerVerified
+              ? Center(
+                  child: Padding(
+                    padding: const EdgeInsets.all(20),
+                    child: editing.status,
+                  ),
+                )
+              : Column(
+                  children: [
+                    if (_threads.length > 1)
+                      SingleChildScrollView(
+                        scrollDirection: Axis.horizontal,
+                        padding: const EdgeInsets.fromLTRB(14, 6, 14, 6),
+                        child: Row(
+                          children: _threads.map((thread) {
+                            final selected =
+                                (_threadId == null && thread.current) ||
+                                _threadId == thread.id;
+                            return Padding(
+                              padding: const EdgeInsets.only(right: 8),
+                              child: ChoiceChip(
+                                materialTapTargetSize:
+                                    MaterialTapTargetSize.padded,
+                                label: Text(thread.title),
+                                selected: selected,
+                                onSelected: _sending || _loading
+                                    ? null
+                                    : (_) async {
+                                        if (editing.controller != null &&
+                                            !await editing.flush()) {
+                                          return;
+                                        }
+                                        if (!mounted || _sessionChanged) return;
+                                        setState(() => _threadId = thread.id);
+                                        await _load();
+                                      },
+                              ),
+                            );
+                          }).toList(),
+                        ),
+                      ),
+                    if (_error != null && detail != null)
+                      Padding(
+                        padding: const EdgeInsets.all(12),
+                        child: Text(
+                          _error!,
+                          style: TextStyle(color: scheme.error),
+                        ),
+                      ),
+                    Expanded(
+                      child: DecoratedBox(
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            begin: Alignment.topCenter,
+                            end: Alignment.bottomCenter,
+                            colors: [
+                              scheme.surface,
+                              scheme.surfaceContainerLowest.withValues(
+                                alpha: .65,
+                              ),
+                            ],
+                          ),
+                        ),
+                        child: _loading && detail == null
+                            ? const Center(
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2.4,
+                                ),
+                              )
+                            : _messageList(detail),
                       ),
                     ),
-                ],
-              ),
-            ),
-          ],
-        ),
-        actions: [
-          IconButton(
-            tooltip: '刷新',
-            onPressed: _loading || _sessionChanged ? null : _load,
-            icon: const Icon(Icons.refresh_rounded),
-          ),
-        ],
-      ),
-      body: Column(
-        children: [
-          if (_threads.length > 1)
-            SizedBox(
-              height: 48,
-              child: ListView.separated(
-                scrollDirection: Axis.horizontal,
-                padding: const EdgeInsets.fromLTRB(14, 6, 14, 6),
-                itemCount: _threads.length,
-                separatorBuilder: (_, _) => const SizedBox(width: 8),
-                itemBuilder: (context, index) {
-                  final thread = _threads[index];
-                  final selected =
-                      (_threadId == null && thread.current) ||
-                      _threadId == thread.id;
-                  return ChoiceChip(
-                    label: Text(thread.title),
-                    selected: selected,
-                    onSelected: (_) {
-                      setState(() => _threadId = thread.id);
-                      unawaited(_load());
-                    },
-                  );
-                },
-              ),
-            ),
-          if (_error != null && detail != null)
-            Padding(
-              padding: const EdgeInsets.all(12),
-              child: Text(_error!, style: TextStyle(color: scheme.error)),
-            ),
-          Expanded(
-            child: DecoratedBox(
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
-                  colors: [
-                    scheme.surface,
-                    scheme.surfaceContainerLowest.withValues(alpha: .65),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 14),
+                      child: editing.status,
+                    ),
+                    _ComposerBar(
+                      controller: _input,
+                      focusNode: _focus,
+                      sending: _sending,
+                      enabled:
+                          detail != null &&
+                          !_sending &&
+                          !_loading &&
+                          _error == null &&
+                          !_sessionChanged &&
+                          editing.ready,
+                      onSend: _send,
+                    ),
                   ],
                 ),
-              ),
-              child: _loading && detail == null
-                  ? const Center(
-                      child: CircularProgressIndicator(strokeWidth: 2.4),
-                    )
-                  : _messageList(detail),
-            ),
-          ),
-          _ComposerBar(
-            controller: _input,
-            focusNode: _focus,
-            sending: _sending,
-            enabled:
-                detail != null &&
-                !_sending &&
-                !_loading &&
-                _error == null &&
-                !_sessionChanged,
-            onSend: _send,
-          ),
-        ],
-      ),
+        );
+      },
     );
   }
 
@@ -1218,10 +1299,11 @@ class _ComposerBar extends StatelessWidget {
 }
 
 class PmComposeScreen extends ConsumerStatefulWidget {
-  const PmComposeScreen({super.key, this.toUser, this.service});
+  const PmComposeScreen({super.key, this.toUser, this.service, this.draftId});
 
   final String? toUser;
   final PmService? service;
+  final String? draftId;
 
   @override
   ConsumerState<PmComposeScreen> createState() => _PmComposeScreenState();
@@ -1233,8 +1315,11 @@ class _PmComposeScreenState extends ConsumerState<PmComposeScreen> {
   final _title = TextEditingController();
   final _body = TextEditingController();
   PmComposeParams? _params;
+  PmDraftEditing? _draftEditing;
   bool _loading = false;
   bool _sending = false;
+  bool _choosingDraft = false;
+  bool _sentFromOtherDraft = false;
   String? _error;
   String _recipient = '';
   String? _preparedRecipient;
@@ -1250,7 +1335,6 @@ class _PmComposeScreenState extends ConsumerState<PmComposeScreen> {
     final initial = widget.toUser?.trim() ?? '';
     if (initial.isNotEmpty) {
       _to.text = initial;
-      unawaited(_prepare());
     }
   }
 
@@ -1280,6 +1364,7 @@ class _PmComposeScreenState extends ConsumerState<PmComposeScreen> {
 
   void _onWebsiteSessionChanged() {
     if (!mounted) return;
+    _draftEditing?.suspend();
     _sessionChanged = true;
     _prepareGeneration++;
     _preparing = null;
@@ -1336,19 +1421,33 @@ class _PmComposeScreenState extends ConsumerState<PmComposeScreen> {
   }
 
   Future<void> _send() async {
-    if (!mounted || _sending || _sessionChanged) return;
+    final editing = _draftEditing;
+    final draft = editing?.controller;
+    if (!mounted ||
+        _sending ||
+        _sessionChanged ||
+        editing?.ready != true ||
+        draft == null) {
+      return;
+    }
     final user = _recipient;
     final title = _title.text;
     final body = _body.text;
     setState(() => _sending = true);
     try {
+      if (!await editing!.flush()) return;
+      if (!mounted || _sessionChanged) return;
       if (_params == null || _preparedRecipient != user) await _prepare();
       if (!mounted || _sessionChanged || _recipient != user) return;
       final params = _params;
       if (params == null || _preparedRecipient != user) return;
       await _service.compose(params: params, title: title, body: body);
-      if (!mounted || _sessionChanged) return;
-      Navigator.of(context).pop(true);
+      final cleared = await draft.markSent();
+      if (!mounted || _sessionChanged || !cleared) return;
+      editing.allowPop();
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) Navigator.of(context).pop(true);
+      });
     } catch (error) {
       if (!mounted || _sessionChanged) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -1361,154 +1460,251 @@ class _PmComposeScreenState extends ConsumerState<PmComposeScreen> {
     }
   }
 
+  Future<void> _chooseDraft() async {
+    if (_choosingDraft || _sending || _draftEditing?.ready != true) return;
+    setState(() => _choosingDraft = true);
+    try {
+      if (!await _draftEditing!.flush() || !mounted || _sessionChanged) return;
+      final selected = await pickPmComposeDraft(
+        context,
+        ref,
+        _service,
+        excludeId: _draftEditing?.controller?.data.id,
+      );
+      if (!mounted || _sessionChanged || selected == null) return;
+      final sent = await Navigator.of(context).push<bool>(
+        MaterialPageRoute(
+          builder: (_) =>
+              PmComposeScreen(service: _service, draftId: selected.id),
+        ),
+      );
+      if (mounted && sent == true) setState(() => _sentFromOtherDraft = true);
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('草稿打开失败：$error')));
+      }
+    } finally {
+      if (mounted) setState(() => _choosingDraft = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final pad = AppLayout.pagePadding(context);
-    return Scaffold(
-      appBar: AppBar(title: const Text('写短信')),
-      body: ListView(
-        padding: EdgeInsets.fromLTRB(pad, 8, pad, 28),
-        children: [
-          Container(
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                colors: [
-                  scheme.primary.withValues(alpha: .12),
-                  scheme.secondary.withValues(alpha: .08),
-                ],
+    return PmDraftEditor(
+      service: _service,
+      kind: PmDraftKind.compose,
+      recipient: _to,
+      title: _title,
+      body: _body,
+      initialRecipient: widget.toUser,
+      draftId: widget.draftId,
+      sentElsewhere: _sentFromOtherDraft,
+      onSessionInvalidated: _onWebsiteSessionChanged,
+      onOwnerVerified: () {
+        if (mounted && _sessionChanged) setState(() => _sessionChanged = false);
+      },
+      onRestored: () {
+        if (_to.text.trim().isNotEmpty) unawaited(_prepare());
+      },
+      builder: (context, editing) {
+        _draftEditing = editing;
+        return Scaffold(
+          appBar: AppBar(
+            title: const Text('写短信'),
+            actions: [
+              IconButton(
+                tooltip: '其他草稿',
+                onPressed: !editing.ready || _sending || _choosingDraft
+                    ? null
+                    : _chooseDraft,
+                icon: const Icon(Icons.drafts_outlined),
               ),
-              borderRadius: BorderRadius.circular(20),
-              border: Border.all(
-                color: scheme.outlineVariant.withValues(alpha: .5),
+              IconButton(
+                tooltip: '新建草稿',
+                onPressed: !editing.canStartNew || _sending || _choosingDraft
+                    ? null
+                    : editing.newCompose,
+                icon: const Icon(Icons.note_add_outlined),
               ),
-            ),
-            child: Row(
-              children: [
+            ],
+          ),
+          body: ListView(
+            padding: EdgeInsets.fromLTRB(pad, 8, pad, 28),
+            children: [
+              editing.status,
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [
+                      scheme.primary.withValues(alpha: .12),
+                      scheme.secondary.withValues(alpha: .08),
+                    ],
+                  ),
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(
+                    color: scheme.outlineVariant.withValues(alpha: .5),
+                  ),
+                ),
+                child: Row(
+                  children: [
+                    Container(
+                      width: 44,
+                      height: 44,
+                      decoration: BoxDecoration(
+                        color: scheme.primary.withValues(alpha: .16),
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                      child: Icon(Icons.mail_rounded, color: scheme.primary),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Text(
+                        '发送站内短信给 Bangumi 用户。对方会在官网收件箱中看到。',
+                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                          color: scheme.onSurfaceVariant,
+                          height: 1.4,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 18),
+              TextField(
+                controller: _to,
+                enabled:
+                    !_sending &&
+                    !_choosingDraft &&
+                    !_sessionChanged &&
+                    editing.ready,
+                decoration: InputDecoration(
+                  labelText: '收件人',
+                  hintText: '用户名或 UID',
+                  prefixIcon: const Icon(Icons.person_outline_rounded),
+                  suffixIcon: IconButton(
+                    tooltip: '校验收件人',
+                    onPressed:
+                        !editing.ready ||
+                            _loading ||
+                            _sending ||
+                            _sessionChanged
+                        ? null
+                        : _prepare,
+                    icon: _loading
+                        ? const SizedBox.square(
+                            dimension: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.person_search_rounded),
+                  ),
+                ),
+                onSubmitted: (_) => _prepare(),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: _title,
+                enabled:
+                    !_sending &&
+                    !_choosingDraft &&
+                    !_sessionChanged &&
+                    editing.ready,
+                decoration: const InputDecoration(
+                  labelText: '标题',
+                  prefixIcon: Icon(Icons.title_rounded),
+                ),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: _body,
+                enabled:
+                    !_sending &&
+                    !_choosingDraft &&
+                    !_sessionChanged &&
+                    editing.ready,
+                minLines: 8,
+                maxLines: 14,
+                decoration: const InputDecoration(
+                  labelText: '内容',
+                  alignLabelWithHint: true,
+                  prefixIcon: Padding(
+                    padding: EdgeInsets.only(bottom: 120),
+                    child: Icon(Icons.notes_rounded),
+                  ),
+                ),
+              ),
+              if (_error != null) ...[
+                const SizedBox(height: 12),
+                Text(
+                  _error!,
+                  style: TextStyle(color: scheme.error, height: 1.4),
+                ),
+              ],
+              if (_params != null) ...[
+                const SizedBox(height: 12),
                 Container(
-                  width: 44,
-                  height: 44,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 10,
+                  ),
                   decoration: BoxDecoration(
-                    color: scheme.primary.withValues(alpha: .16),
+                    color: scheme.primaryContainer.withValues(alpha: .45),
                     borderRadius: BorderRadius.circular(14),
                   ),
-                  child: Icon(Icons.mail_rounded, color: scheme.primary),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Text(
-                    '发送站内短信给 Bangumi 用户。对方会在官网收件箱中看到。',
-                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                      color: scheme.onSurfaceVariant,
-                      height: 1.4,
-                    ),
+                  child: Row(
+                    children: [
+                      Icon(
+                        Icons.check_circle_rounded,
+                        color: scheme.primary,
+                        size: 18,
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          '收件人已确认，可以发送',
+                          style: TextStyle(
+                            color: scheme.primary,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               ],
-            ),
-          ),
-          const SizedBox(height: 18),
-          TextField(
-            controller: _to,
-            enabled: !_sending && !_sessionChanged,
-            decoration: InputDecoration(
-              labelText: '收件人',
-              hintText: '用户名或 UID',
-              prefixIcon: const Icon(Icons.person_outline_rounded),
-              suffixIcon: IconButton(
-                tooltip: '校验收件人',
-                onPressed: _loading || _sending || _sessionChanged
+              const SizedBox(height: 22),
+              FilledButton(
+                onPressed:
+                    _sending ||
+                        _choosingDraft ||
+                        _sessionChanged ||
+                        !editing.ready
                     ? null
-                    : _prepare,
-                icon: _loading
+                    : _send,
+                style: FilledButton.styleFrom(
+                  minimumSize: const Size.fromHeight(50),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                ),
+                child: _sending
                     ? const SizedBox.square(
-                        dimension: 18,
-                        child: CircularProgressIndicator(strokeWidth: 2),
+                        dimension: 20,
+                        child: CircularProgressIndicator(strokeWidth: 2.2),
                       )
-                    : const Icon(Icons.person_search_rounded),
-              ),
-            ),
-            onSubmitted: (_) => _prepare(),
-          ),
-          const SizedBox(height: 12),
-          TextField(
-            controller: _title,
-            enabled: !_sending && !_sessionChanged,
-            decoration: const InputDecoration(
-              labelText: '标题',
-              prefixIcon: Icon(Icons.title_rounded),
-            ),
-          ),
-          const SizedBox(height: 12),
-          TextField(
-            controller: _body,
-            enabled: !_sending && !_sessionChanged,
-            minLines: 8,
-            maxLines: 14,
-            decoration: const InputDecoration(
-              labelText: '内容',
-              alignLabelWithHint: true,
-              prefixIcon: Padding(
-                padding: EdgeInsets.only(bottom: 120),
-                child: Icon(Icons.notes_rounded),
-              ),
-            ),
-          ),
-          if (_error != null) ...[
-            const SizedBox(height: 12),
-            Text(_error!, style: TextStyle(color: scheme.error, height: 1.4)),
-          ],
-          if (_params != null) ...[
-            const SizedBox(height: 12),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-              decoration: BoxDecoration(
-                color: scheme.primaryContainer.withValues(alpha: .45),
-                borderRadius: BorderRadius.circular(14),
-              ),
-              child: Row(
-                children: [
-                  Icon(
-                    Icons.check_circle_rounded,
-                    color: scheme.primary,
-                    size: 18,
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      '收件人已确认，可以发送',
-                      style: TextStyle(
-                        color: scheme.primary,
-                        fontWeight: FontWeight.w700,
+                    : const Text(
+                        '发送短信',
+                        style: TextStyle(fontWeight: FontWeight.w800),
                       ),
-                    ),
-                  ),
-                ],
               ),
-            ),
-          ],
-          const SizedBox(height: 22),
-          FilledButton(
-            onPressed: _sending || _sessionChanged ? null : _send,
-            style: FilledButton.styleFrom(
-              minimumSize: const Size.fromHeight(50),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(16),
-              ),
-            ),
-            child: _sending
-                ? const SizedBox.square(
-                    dimension: 20,
-                    child: CircularProgressIndicator(strokeWidth: 2.2),
-                  )
-                : const Text(
-                    '发送短信',
-                    style: TextStyle(fontWeight: FontWeight.w800),
-                  ),
+            ],
           ),
-        ],
-      ),
+        );
+      },
     );
   }
 }
