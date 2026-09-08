@@ -32,6 +32,7 @@ class PmService {
   final WebsiteSessionStore _sessionStore;
   final PmHtmlParser _parser;
   final Dio _dio;
+  final _formSessions = Expando<String>('PM form website session');
 
   Future<List<PmConversation>> loadInbox({int page = 1}) =>
       _loadList('/pm/inbox.chii', page: page);
@@ -55,20 +56,29 @@ class PmService {
     if (threadId != null && threadId.isNotEmpty) {
       query['thread'] = threadId;
     }
+    String? sessionKey;
     final html = await _getHtml(
       '/pm/conversation/$conversationId.chii',
+      onSession: (value) => sessionKey = value,
       query: query,
     );
-    return _parser.parseConversationDetail(html);
+    final detail = _parser.parseConversationDetail(html);
+    _formSessions[detail.form] = sessionKey;
+    return detail;
   }
 
   Future<PmComposeParams> loadComposeParams(String userIdOrUsername) async {
     final encoded = Uri.encodeComponent(userIdOrUsername.trim());
-    final html = await _getHtml('/pm/compose/$encoded.chii');
+    String? sessionKey;
+    final html = await _getHtml(
+      '/pm/compose/$encoded.chii',
+      onSession: (value) => sessionKey = value,
+    );
     final params = _parser.parseComposeParams(html);
     if (!params.isValid) {
       throw const PmException('无法获取发信参数，请确认对方用户存在且已同步网站登录');
     }
+    _formSessions[params] = sessionKey;
     return params;
   }
 
@@ -93,7 +103,7 @@ class PmService {
       if (form.newTopic != null) 'new_topic': form.newTopic,
       'chat': 'on',
       'submit': '回复',
-    });
+    }, expectedSession: _formSessions[form]);
   }
 
   Future<void> compose({
@@ -114,11 +124,19 @@ class PmService {
       'msg_title': t,
       'msg_body': b,
       'submit': '发送',
-    });
+    }, expectedSession: _formSessions[params]);
   }
 
-  Future<void> _postCreate(Map<String, dynamic> data) async {
-    final cookie = await _requireCookieHeader();
+  Future<void> _postCreate(
+    Map<String, dynamic> data, {
+    String? expectedSession,
+  }) async {
+    final session = await _requireSession();
+    final cookie = session.cookieHeader;
+    if (expectedSession != null &&
+        session.authenticationKey != expectedSession) {
+      throw const PmAuthException('网站登录已变化，请重新打开私信后再发送');
+    }
     try {
       final response = await _dio.post<String>(
         '/pm/create.chii',
@@ -154,8 +172,14 @@ class PmService {
     }
   }
 
-  Future<String> _getHtml(String path, {Map<String, dynamic>? query}) async {
-    final cookie = await _requireCookieHeader();
+  Future<String> _getHtml(
+    String path, {
+    Map<String, dynamic>? query,
+    void Function(String)? onSession,
+  }) async {
+    final session = await _requireSession();
+    final cookie = session.cookieHeader;
+    onSession?.call(session.authenticationKey);
     try {
       final response = await _dio.get<String>(
         path,
@@ -164,6 +188,10 @@ class PmService {
           headers: {'Cookie': cookie, 'Referer': 'https://bgm.tv/pm'},
         ),
       );
+      if ((await _requireSession()).authenticationKey !=
+          session.authenticationKey) {
+        throw const PmAuthException('网站登录已变化，请重新打开私信');
+      }
       final html = response.data ?? '';
       final location = response.realUri.toString();
       if (response.statusCode == 401 ||
@@ -181,12 +209,12 @@ class PmService {
     }
   }
 
-  Future<String> _requireCookieHeader() async {
+  Future<WebsiteSessionSnapshot> _requireSession() async {
     final snapshot = await _sessionStore.read();
     final header = snapshot?.cookieHeader.trim() ?? '';
     if (snapshot == null || header.isEmpty || !snapshot.hasSessionCookies) {
       throw const PmAuthException();
     }
-    return header;
+    return snapshot;
   }
 }

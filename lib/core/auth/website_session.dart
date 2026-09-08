@@ -74,6 +74,27 @@ class WebsiteSessionSnapshot {
 
   bool get isEmpty => cookies.isEmpty;
 
+  /// Authentication cookies identify the session; challenge/theme cookies can
+  /// refresh without invalidating a private-message draft or its form.
+  String get authenticationKey {
+    final active = cookies
+        .where(
+          (cookie) =>
+              !cookie.isExpired &&
+              cookie.value.isNotEmpty &&
+              cookie.looksLikeSession,
+        )
+        .toList();
+    final auth = active
+        .where((cookie) => cookie.name.toLowerCase().endsWith('_auth'))
+        .toList();
+    final values = [
+      for (final cookie in auth.isNotEmpty ? auth : active)
+        '${cookie.name}=${cookie.value}',
+    ]..sort();
+    return values.join('; ');
+  }
+
   /// Cookie header for future Dio / HTML requests.
   String get cookieHeader => [
     for (final cookie in cookies)

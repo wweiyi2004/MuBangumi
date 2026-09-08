@@ -18,24 +18,34 @@ class WebsiteCookieBridge {
   static const bgmHost = 'bgm.tv';
   static const _cookieOrigins = [bgmOrigin];
 
-  /// Best-effort wipe of Bangumi-related cookies from platform WebView jars.
+  static Future<void> _cookieWrites = Future<void>.value();
+
+  static Future<void> _writeCookies(Future<void> Function() action) {
+    final next = _cookieWrites.then((_) => action());
+    _cookieWrites = next.then<void>(
+      (_) {},
+      onError: (Object _, StackTrace _) {},
+    );
+    return next;
+  }
+
+  /// Logout stays responsive; subsequent injection must wait for the cleanup.
   static Future<void> clearBgmCookies() async {
+    final cleanup = _writeCookies(() async {
+      if (Platform.isWindows) {
+        await _clearWindowsCookies();
+      } else if (Platform.isAndroid) {
+        await _androidCookieManager().clearCookies();
+      } else if (Platform.isIOS || Platform.isMacOS) {
+        await mobile.WebViewCookieManager().clearCookies();
+      }
+    });
     if (Platform.isWindows) {
-      // WebView2 needs its own controller and startup can take seconds on a
-      // cold machine. Run the cleanup detached so sign-out never waits on it;
-      // failures are logged with a distinctive prefix so HttpOnly cookies
-      // that could not be removed stay diagnosable.
-      runDetachedBestEffort(_clearWindowsCookies);
+      runDetachedBestEffort(() => cleanup);
       return;
     }
     try {
-      if (Platform.isAndroid) {
-        await _androidCookieManager().clearCookies();
-        return;
-      }
-      if (Platform.isIOS || Platform.isMacOS) {
-        await mobile.WebViewCookieManager().clearCookies();
-      }
+      await cleanup;
     } catch (error, stack) {
       _reportCleanupFailure(error, stack);
     }
@@ -86,7 +96,9 @@ class WebsiteCookieBridge {
   }
 
   /// Inject stored cookies into a mobile WebView cookie jar before navigation.
-  static Future<void> injectMobile(List<WebsiteCookie> cookies) async {
+  static Future<void> injectMobile(
+    List<WebsiteCookie> cookies,
+  ) => _writeCookies(() async {
     if (cookies.isEmpty) return;
     if (!(Platform.isAndroid || Platform.isIOS || Platform.isMacOS)) return;
     try {
@@ -119,13 +131,13 @@ class WebsiteCookieBridge {
     } catch (error, stack) {
       debugPrint('WebsiteCookieBridge.injectMobile failed: $error\n$stack');
     }
-  }
+  });
 
   /// Inject stored cookies into a Windows WebView2 controller.
   static Future<void> injectWindows(
     windows.WebviewController controller,
     List<WebsiteCookie> cookies,
-  ) async {
+  ) => _writeCookies(() async {
     if (cookies.isEmpty) return;
     try {
       for (final cookie in cookies.where((cookie) => !cookie.isExpired)) {
@@ -144,13 +156,14 @@ class WebsiteCookieBridge {
     } catch (error, stack) {
       debugPrint('WebsiteCookieBridge.injectWindows failed: $error\n$stack');
     }
-  }
+  });
 
   /// Read cookies from the active platform WebView session.
   static Future<List<WebsiteCookie>> capture({
     windows.WebviewController? windowsController,
     mobile.WebViewController? mobileController,
   }) async {
+    await _cookieWrites;
     if (Platform.isWindows && windowsController != null) {
       return _captureWindows(windowsController);
     }

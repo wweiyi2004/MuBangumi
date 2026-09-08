@@ -16,6 +16,17 @@ import '../widgets/community_loading.dart';
 import 'community_page.dart';
 import 'website_login_screen.dart';
 
+void _watchPmSession(WidgetRef ref, VoidCallback onChanged) {
+  ref.listenManual(websiteSessionProvider, (previous, next) {
+    if (next.ready &&
+        previous?.ready == true &&
+        previous?.snapshot?.authenticationKey !=
+            next.snapshot?.authenticationKey) {
+      onChanged();
+    }
+  });
+}
+
 /// Native 站内短信：Cookie 会话 + HTML 解析；失败时回退官网 WebView。
 class PmPage extends ConsumerStatefulWidget {
   const PmPage({super.key, this.composeTo, this.service});
@@ -44,7 +55,8 @@ class _PmPageState extends ConsumerState<PmPage> {
     _outbox.addListener(_onMailboxChanged);
     ref.listenManual(websiteSessionProvider, (previous, next) {
       if (!next.ready ||
-          previous?.snapshot?.cookieHeader == next.snapshot?.cookieHeader) {
+          previous?.snapshot?.authenticationKey ==
+              next.snapshot?.authenticationKey) {
         return;
       }
       _inbox.reset(requireAuth: !next.isSynced);
@@ -679,7 +691,7 @@ class _PmStateCard extends StatelessWidget {
   }
 }
 
-class PmConversationScreen extends StatefulWidget {
+class PmConversationScreen extends ConsumerStatefulWidget {
   const PmConversationScreen({
     super.key,
     required this.conversationId,
@@ -696,10 +708,11 @@ class PmConversationScreen extends StatefulWidget {
   final PmService? service;
 
   @override
-  State<PmConversationScreen> createState() => _PmConversationScreenState();
+  ConsumerState<PmConversationScreen> createState() =>
+      _PmConversationScreenState();
 }
 
-class _PmConversationScreenState extends State<PmConversationScreen> {
+class _PmConversationScreenState extends ConsumerState<PmConversationScreen> {
   late final _service = widget.service ?? PmService.shared;
   final _input = TextEditingController();
   final _scroll = ScrollController();
@@ -711,10 +724,14 @@ class _PmConversationScreenState extends State<PmConversationScreen> {
   String? _error;
   String? _threadId;
   int _requestId = 0;
+  bool _sessionChanged = false;
+  String? _loadedThread;
+  List<PmThreadFilter> _threads = const [];
 
   @override
   void initState() {
     super.initState();
+    _watchPmSession(ref, _onWebsiteSessionChanged);
     unawaited(_load());
   }
 
@@ -726,7 +743,21 @@ class _PmConversationScreenState extends State<PmConversationScreen> {
     super.dispose();
   }
 
+  void _onWebsiteSessionChanged() {
+    if (!mounted) return;
+    _requestId++;
+    _input.clear();
+    setState(() {
+      _sessionChanged = true;
+      _detail = null;
+      _threads = const [];
+      _loading = _sending = false;
+      _error = '网站登录已变化，请返回后重新打开私信';
+    });
+  }
+
   Future<void> _load() async {
+    if (!mounted || _sessionChanged) return;
     final requestId = ++_requestId;
     // Capture the requested thread up-front so a slow response for a
     // previously-selected thread cannot overwrite the current one (and so
@@ -735,6 +766,7 @@ class _PmConversationScreenState extends State<PmConversationScreen> {
     setState(() {
       _loading = true;
       _error = null;
+      if (requestedThread != _loadedThread) _detail = null;
     });
     try {
       final detail = await _service.loadConversation(
@@ -744,6 +776,8 @@ class _PmConversationScreenState extends State<PmConversationScreen> {
       if (!mounted || requestId != _requestId) return;
       setState(() {
         _detail = detail;
+        _threads = detail.threads;
+        _loadedThread = requestedThread;
         _loading = false;
       });
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -755,6 +789,7 @@ class _PmConversationScreenState extends State<PmConversationScreen> {
       if (!mounted || requestId != _requestId) return;
       setState(() {
         _loading = false;
+        if (error is PmAuthException) _detail = null;
         _error = error.toString().replaceFirst('Exception: ', '');
       });
     }
@@ -763,14 +798,24 @@ class _PmConversationScreenState extends State<PmConversationScreen> {
   Future<void> _send() async {
     final detail = _detail;
     final text = _input.text.trim();
-    if (detail == null || text.isEmpty || _sending || _loading) return;
+    if (!mounted ||
+        _sessionChanged ||
+        detail == null ||
+        text.isEmpty ||
+        _sending ||
+        _loading ||
+        _error != null) {
+      return;
+    }
+    final requestId = _requestId;
     setState(() => _sending = true);
     try {
       await _service.reply(form: detail.form, body: text);
+      if (!mounted || _sessionChanged || requestId != _requestId) return;
       _input.clear();
       await _load();
     } catch (error) {
-      if (!mounted) return;
+      if (!mounted || _sessionChanged) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(error.toString().replaceFirst('Exception: ', '')),
@@ -785,10 +830,14 @@ class _PmConversationScreenState extends State<PmConversationScreen> {
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final detail = _detail;
-    final title = detail?.peerName.isNotEmpty == true
+    final title = _sessionChanged
+        ? '站内短信'
+        : detail?.peerName.isNotEmpty == true
         ? detail!.peerName
         : (widget.peerName.isNotEmpty ? widget.peerName : widget.title);
-    final avatar = widget.peerAvatar.isNotEmpty
+    final avatar = _sessionChanged
+        ? ''
+        : widget.peerAvatar.isNotEmpty
         ? widget.peerAvatar
         : (detail?.messages
                   .where((m) => !m.isSelf && m.avatarUrl.isNotEmpty)
@@ -813,7 +862,9 @@ class _PmConversationScreenState extends State<PmConversationScreen> {
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(fontWeight: FontWeight.w800),
                   ),
-                  if (widget.title.isNotEmpty && widget.title != title)
+                  if (!_sessionChanged &&
+                      widget.title.isNotEmpty &&
+                      widget.title != title)
                     Text(
                       widget.title,
                       maxLines: 1,
@@ -830,23 +881,23 @@ class _PmConversationScreenState extends State<PmConversationScreen> {
         actions: [
           IconButton(
             tooltip: '刷新',
-            onPressed: _loading ? null : _load,
+            onPressed: _loading || _sessionChanged ? null : _load,
             icon: const Icon(Icons.refresh_rounded),
           ),
         ],
       ),
       body: Column(
         children: [
-          if (detail != null && detail.threads.length > 1)
+          if (_threads.length > 1)
             SizedBox(
               height: 48,
               child: ListView.separated(
                 scrollDirection: Axis.horizontal,
                 padding: const EdgeInsets.fromLTRB(14, 6, 14, 6),
-                itemCount: detail.threads.length,
+                itemCount: _threads.length,
                 separatorBuilder: (_, _) => const SizedBox(width: 8),
                 itemBuilder: (context, index) {
-                  final thread = detail.threads[index];
+                  final thread = _threads[index];
                   final selected =
                       (_threadId == null && thread.current) ||
                       _threadId == thread.id;
@@ -860,6 +911,11 @@ class _PmConversationScreenState extends State<PmConversationScreen> {
                   );
                 },
               ),
+            ),
+          if (_error != null && detail != null)
+            Padding(
+              padding: const EdgeInsets.all(12),
+              child: Text(_error!, style: TextStyle(color: scheme.error)),
             ),
           Expanded(
             child: DecoratedBox(
@@ -884,7 +940,12 @@ class _PmConversationScreenState extends State<PmConversationScreen> {
             controller: _input,
             focusNode: _focus,
             sending: _sending,
-            enabled: detail != null && !_sending && !_loading,
+            enabled:
+                detail != null &&
+                !_sending &&
+                !_loading &&
+                _error == null &&
+                !_sessionChanged,
             onSend: _send,
           ),
         ],
@@ -902,7 +963,8 @@ class _PmConversationScreenState extends State<PmConversationScreen> {
             children: [
               Text(_error!, textAlign: TextAlign.center),
               const SizedBox(height: 12),
-              FilledButton.tonal(onPressed: _load, child: const Text('重试')),
+              if (!_sessionChanged)
+                FilledButton.tonal(onPressed: _load, child: const Text('重试')),
             ],
           ),
         ),
@@ -1155,17 +1217,17 @@ class _ComposerBar extends StatelessWidget {
   }
 }
 
-class PmComposeScreen extends StatefulWidget {
+class PmComposeScreen extends ConsumerStatefulWidget {
   const PmComposeScreen({super.key, this.toUser, this.service});
 
   final String? toUser;
   final PmService? service;
 
   @override
-  State<PmComposeScreen> createState() => _PmComposeScreenState();
+  ConsumerState<PmComposeScreen> createState() => _PmComposeScreenState();
 }
 
-class _PmComposeScreenState extends State<PmComposeScreen> {
+class _PmComposeScreenState extends ConsumerState<PmComposeScreen> {
   late final _service = widget.service ?? PmService.shared;
   final _to = TextEditingController();
   final _title = TextEditingController();
@@ -1174,10 +1236,17 @@ class _PmComposeScreenState extends State<PmComposeScreen> {
   bool _loading = false;
   bool _sending = false;
   String? _error;
+  String _recipient = '';
+  String? _preparedRecipient;
+  int _prepareGeneration = 0;
+  Future<void>? _preparing;
+  bool _sessionChanged = false;
 
   @override
   void initState() {
     super.initState();
+    _watchPmSession(ref, _onWebsiteSessionChanged);
+    _to.addListener(_recipientChanged);
     final initial = widget.toUser?.trim() ?? '';
     if (initial.isNotEmpty) {
       _to.text = initial;
@@ -1187,57 +1256,101 @@ class _PmComposeScreenState extends State<PmComposeScreen> {
 
   @override
   void dispose() {
+    _prepareGeneration++;
+    _to.removeListener(_recipientChanged);
     _to.dispose();
     _title.dispose();
     _body.dispose();
     super.dispose();
   }
 
-  Future<void> _prepare() async {
-    final user = _to.text.trim();
+  void _recipientChanged() {
+    final next = _to.text.trim();
+    if (next == _recipient) return;
+    _recipient = next;
+    _prepareGeneration++;
+    _preparing = null;
+    setState(() {
+      _params = null;
+      _preparedRecipient = null;
+      _loading = false;
+      if (!_sessionChanged) _error = null;
+    });
+  }
+
+  void _onWebsiteSessionChanged() {
+    if (!mounted) return;
+    _sessionChanged = true;
+    _prepareGeneration++;
+    _preparing = null;
+    _to.clear();
+    _title.clear();
+    _body.clear();
+    setState(() {
+      _params = null;
+      _preparedRecipient = null;
+      _loading = _sending = false;
+      _error = '网站登录已变化，请返回后重新打开私信';
+    });
+  }
+
+  Future<void> _prepare() {
+    if (!mounted || _sessionChanged) return Future.value();
+    if (_preparing != null) return _preparing!;
+    final user = _recipient;
     if (user.isEmpty) {
       setState(() => _error = '请填写对方用户名或 UID');
-      return;
+      return Future.value();
     }
+    final generation = ++_prepareGeneration;
     setState(() {
       _loading = true;
+      _params = null;
+      _preparedRecipient = null;
       _error = null;
     });
+    return _preparing = _fetchRecipient(user, generation);
+  }
+
+  Future<void> _fetchRecipient(String user, int generation) async {
     try {
       final params = await _service.loadComposeParams(user);
-      if (!mounted) return;
+      if (!mounted || generation != _prepareGeneration || _sessionChanged) {
+        return;
+      }
       setState(() {
         _params = params;
-        _loading = false;
+        _preparedRecipient = user;
       });
     } catch (error) {
-      if (!mounted) return;
-      setState(() {
-        _loading = false;
-        _params = null;
-        _error = error.toString().replaceFirst('Exception: ', '');
-      });
+      if (!mounted || generation != _prepareGeneration || _sessionChanged) {
+        return;
+      }
+      setState(() => _error = error.toString().replaceFirst('Exception: ', ''));
+    } finally {
+      if (mounted && generation == _prepareGeneration && !_sessionChanged) {
+        _preparing = null;
+        setState(() => _loading = false);
+      }
     }
   }
 
   Future<void> _send() async {
-    var params = _params;
-    if (params == null) {
-      await _prepare();
-      params = _params;
-    }
-    if (params == null || _sending) return;
+    if (!mounted || _sending || _sessionChanged) return;
+    final user = _recipient;
+    final title = _title.text;
+    final body = _body.text;
     setState(() => _sending = true);
     try {
-      await _service.compose(
-        params: params,
-        title: _title.text,
-        body: _body.text,
-      );
-      if (!mounted) return;
+      if (_params == null || _preparedRecipient != user) await _prepare();
+      if (!mounted || _sessionChanged || _recipient != user) return;
+      final params = _params;
+      if (params == null || _preparedRecipient != user) return;
+      await _service.compose(params: params, title: title, body: body);
+      if (!mounted || _sessionChanged) return;
       Navigator.of(context).pop(true);
     } catch (error) {
-      if (!mounted) return;
+      if (!mounted || _sessionChanged) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(error.toString().replaceFirst('Exception: ', '')),
@@ -1298,13 +1411,16 @@ class _PmComposeScreenState extends State<PmComposeScreen> {
           const SizedBox(height: 18),
           TextField(
             controller: _to,
+            enabled: !_sending && !_sessionChanged,
             decoration: InputDecoration(
               labelText: '收件人',
               hintText: '用户名或 UID',
               prefixIcon: const Icon(Icons.person_outline_rounded),
               suffixIcon: IconButton(
                 tooltip: '校验收件人',
-                onPressed: _loading ? null : _prepare,
+                onPressed: _loading || _sending || _sessionChanged
+                    ? null
+                    : _prepare,
                 icon: _loading
                     ? const SizedBox.square(
                         dimension: 18,
@@ -1318,6 +1434,7 @@ class _PmComposeScreenState extends State<PmComposeScreen> {
           const SizedBox(height: 12),
           TextField(
             controller: _title,
+            enabled: !_sending && !_sessionChanged,
             decoration: const InputDecoration(
               labelText: '标题',
               prefixIcon: Icon(Icons.title_rounded),
@@ -1326,6 +1443,7 @@ class _PmComposeScreenState extends State<PmComposeScreen> {
           const SizedBox(height: 12),
           TextField(
             controller: _body,
+            enabled: !_sending && !_sessionChanged,
             minLines: 8,
             maxLines: 14,
             decoration: const InputDecoration(
@@ -1357,11 +1475,13 @@ class _PmComposeScreenState extends State<PmComposeScreen> {
                     size: 18,
                   ),
                   const SizedBox(width: 8),
-                  Text(
-                    '收件人已确认，可以发送',
-                    style: TextStyle(
-                      color: scheme.primary,
-                      fontWeight: FontWeight.w700,
+                  Expanded(
+                    child: Text(
+                      '收件人已确认，可以发送',
+                      style: TextStyle(
+                        color: scheme.primary,
+                        fontWeight: FontWeight.w700,
+                      ),
                     ),
                   ),
                 ],
@@ -1370,7 +1490,7 @@ class _PmComposeScreenState extends State<PmComposeScreen> {
           ],
           const SizedBox(height: 22),
           FilledButton(
-            onPressed: _sending ? null : _send,
+            onPressed: _sending || _sessionChanged ? null : _send,
             style: FilledButton.styleFrom(
               minimumSize: const Size.fromHeight(50),
               shape: RoundedRectangleBorder(
