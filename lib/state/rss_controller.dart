@@ -14,6 +14,7 @@ class RssState {
     this.refreshing = false,
     this.message,
     this.loaded = false,
+    this.autoRefreshPaused = false,
   });
 
   final List<RssSource> sources;
@@ -23,6 +24,7 @@ class RssState {
   final bool refreshing;
   final String? message;
   final bool loaded;
+  final bool autoRefreshPaused;
 
   int unreadFor(int subjectId) => unreadBySubject[subjectId] ?? 0;
 
@@ -37,6 +39,7 @@ class RssState {
     bool? refreshing,
     String? message,
     bool? loaded,
+    bool? autoRefreshPaused,
     bool clearMessage = false,
   }) => RssState(
     sources: sources ?? this.sources,
@@ -46,6 +49,7 @@ class RssState {
     refreshing: refreshing ?? this.refreshing,
     message: clearMessage ? null : message ?? this.message,
     loaded: loaded ?? this.loaded,
+    autoRefreshPaused: autoRefreshPaused ?? this.autoRefreshPaused,
   );
 }
 
@@ -56,14 +60,39 @@ class RssController extends StateNotifier<RssState> {
 
   final RssStore _store;
   final RssFetcher _fetcher;
+  int _epoch = 0;
+  int _loadGeneration = 0;
+  bool _pausedForImport = false;
+  bool _valid(int epoch) => mounted && !_pausedForImport && epoch == _epoch;
+
+  Future<void> pauseForImport() async {
+    _pausedForImport = true;
+    _epoch++;
+    _loadGeneration++;
+    if (mounted) state = state.copyWith(refreshing: false, loaded: false);
+    await _store.flushWrites();
+  }
+
+  Future<bool> resumeAfterImport({required bool imported}) async {
+    _pausedForImport = false;
+    if (!mounted) return false;
+    state = state.copyWith(
+      refreshing: false,
+      autoRefreshPaused: imported || state.autoRefreshPaused,
+    );
+    return reload();
+  }
 
   Future<bool> reload() async {
+    if (!_valid(_epoch)) return false;
+    final epoch = _epoch;
+    final generation = ++_loadGeneration;
     try {
       final sources = await _store.listSources();
       final bindings = await _store.listBindings();
       final unread = await _store.unreadCountsBySubject();
       final total = await _store.totalUnread();
-      if (!mounted) return false;
+      if (!_valid(epoch) || generation != _loadGeneration) return false;
       state = state.copyWith(
         sources: sources,
         bindings: bindings,
@@ -74,7 +103,7 @@ class RssController extends StateNotifier<RssState> {
       );
       return true;
     } catch (error) {
-      if (!mounted) return false;
+      if (!_valid(epoch) || generation != _loadGeneration) return false;
       state = state.copyWith(
         loaded: false,
         message: '读取更新源失败：${_errorText(error)}',
@@ -84,6 +113,8 @@ class RssController extends StateNotifier<RssState> {
   }
 
   Future<void> addSource({required String name, required String url}) async {
+    if (!_valid(_epoch)) return;
+    final epoch = _epoch;
     final trimmedUrl = url.trim();
     final trimmedName = name.trim().isEmpty
         ? _guessName(trimmedUrl)
@@ -103,10 +134,11 @@ class RssController extends StateNotifier<RssState> {
       await _store.upsertSource(
         RssSource(id: 0, name: trimmedName, url: trimmedUrl),
       );
-      if (await reload()) {
+      if (_valid(epoch) && await reload() && _valid(epoch)) {
         state = state.copyWith(message: '已添加更新源：$trimmedName');
       }
     } catch (error) {
+      if (!_valid(epoch)) return;
       state = state.copyWith(
         message: '添加失败：${error.toString().replaceFirst('Exception: ', '')}',
       );
@@ -114,12 +146,15 @@ class RssController extends StateNotifier<RssState> {
   }
 
   Future<void> deleteSource(int sourceId) async {
+    if (!_valid(_epoch)) return;
+    final epoch = _epoch;
     try {
       await _store.deleteSource(sourceId);
-      if (await reload()) {
+      if (_valid(epoch) && await reload() && _valid(epoch)) {
         state = state.copyWith(message: '已删除更新源');
       }
     } catch (error) {
+      if (!_valid(epoch)) return;
       state = state.copyWith(message: '删除失败：${_errorText(error)}');
     }
   }
@@ -131,6 +166,8 @@ class RssController extends StateNotifier<RssState> {
     String? matchKeywords,
     String? excludeKeywords,
   }) async {
+    if (!_valid(_epoch)) return;
+    final epoch = _epoch;
     final binding = RssBinding(
       id: 0,
       sourceId: sourceId,
@@ -149,9 +186,10 @@ class RssController extends StateNotifier<RssState> {
         subjectId: item.subjectId,
         sourceId: sourceId,
       )).firstOrNull;
+      if (!_valid(epoch)) return;
       if (existing == null) {
         await _store.upsertBinding(binding);
-        if (await reload()) {
+        if (_valid(epoch) && await reload() && _valid(epoch)) {
           state = state.copyWith(message: '已绑定更新源 → ${item.displayName}');
         }
       } else {
@@ -164,40 +202,55 @@ class RssController extends StateNotifier<RssState> {
             enabled: true,
           ),
         );
-        if (await reload()) {
+        if (_valid(epoch) && await reload() && _valid(epoch)) {
           state = state.copyWith(message: '已更新绑定：${item.displayName}');
         }
       }
     } catch (error) {
+      if (!_valid(epoch)) return;
       state = state.copyWith(message: '绑定失败：${_errorText(error)}');
     }
   }
 
   Future<void> unbind(int bindingId) async {
+    if (!_valid(_epoch)) return;
+    final epoch = _epoch;
     try {
       await _store.deleteBinding(bindingId);
-      if (await reload()) {
+      if (_valid(epoch) && await reload() && _valid(epoch)) {
         state = state.copyWith(message: '已解除绑定');
       }
     } catch (error) {
+      if (!_valid(epoch)) return;
       state = state.copyWith(message: '解除失败：${_errorText(error)}');
     }
   }
 
   Future<void> unbindSubject(int subjectId) async {
+    if (!_valid(_epoch)) return;
+    final epoch = _epoch;
     try {
       await _store.deleteBindingsForSubject(subjectId);
-      if (await reload()) {
+      if (_valid(epoch) && await reload() && _valid(epoch)) {
         state = state.copyWith(message: '已解除该番的更新源');
       }
     } catch (error) {
+      if (!_valid(epoch)) return;
       state = state.copyWith(message: '解除失败：${_errorText(error)}');
     }
   }
 
   /// Refresh all enabled sources. Only keeps items matching schedule bindings.
-  Future<void> refreshAll({bool force = false}) async {
-    if (state.refreshing) return;
+  Future<void> refreshAll({bool force = false, bool automatic = false}) async {
+    if (!_valid(_epoch) ||
+        state.refreshing ||
+        (automatic && state.autoRefreshPaused)) {
+      return;
+    }
+    final epoch = _epoch;
+    if (!state.loaded && !await reload()) return;
+    if (!_valid(epoch)) return;
+    if (!automatic) state = state.copyWith(autoRefreshPaused: false);
     final sources = state.sources.where((s) => s.enabled).toList();
     if (sources.isEmpty) {
       state = state.copyWith(message: '还没有更新源，先添加种子站 RSS');
@@ -215,18 +268,22 @@ class RssController extends StateNotifier<RssState> {
       var nextSource = 0;
       var publish = Future<void>.value();
       Future<void> worker() async {
-        while (mounted && nextSource < sources.length) {
+        while (_valid(epoch) && nextSource < sources.length) {
           final source = sources[nextSource++];
           try {
             // Await before incrementing: += across await can lose another worker's count.
-            final added = await _refreshSource(source, force: force);
+            final added = await _refreshSource(
+              source,
+              epoch: epoch,
+              force: force,
+            );
             newCount += added;
           } catch (_) {
             errors++;
           }
           // Serialize snapshots so an older disk read cannot replace a newer one.
           publish = publish.then((_) async {
-            if (mounted) await reload();
+            if (_valid(epoch)) await reload();
           });
           await publish;
         }
@@ -235,9 +292,9 @@ class RssController extends StateNotifier<RssState> {
       await Future.wait([
         for (var i = 0; i < 3 && i < sources.length; i++) worker(),
       ]);
-      if (!mounted) return;
+      if (!_valid(epoch)) return;
       final loaded = await reload();
-      if (!mounted) return;
+      if (!_valid(epoch)) return;
       if (!loaded) {
         state = state.copyWith(refreshing: false);
         return;
@@ -247,7 +304,7 @@ class RssController extends StateNotifier<RssState> {
           : '检查完成：+$newCount 条，另有 $errors 个源失败';
       state = state.copyWith(refreshing: false, message: msg);
     } catch (error) {
-      if (!mounted) return;
+      if (!_valid(epoch)) return;
       state = state.copyWith(
         refreshing: false,
         message: '刷新失败：${error.toString().replaceFirst('Exception: ', '')}',
@@ -255,7 +312,12 @@ class RssController extends StateNotifier<RssState> {
     }
   }
 
-  Future<int> _refreshSource(RssSource source, {bool force = false}) async {
+  Future<int> _refreshSource(
+    RssSource source, {
+    required int epoch,
+    bool force = false,
+  }) async {
+    if (!_valid(epoch)) return 0;
     final bindings = state.bindings
         .where((b) => b.enabled && b.sourceId == source.id)
         .toList();
@@ -274,6 +336,7 @@ class RssController extends StateNotifier<RssState> {
         lastModified: force ? '' : source.lastModified,
       );
 
+      if (!_valid(epoch)) return 0;
       if (result.notModified) {
         await _store.upsertSource(
           source.copyWith(lastFetchAt: DateTime.now(), clearError: true),
@@ -304,6 +367,7 @@ class RssController extends StateNotifier<RssState> {
       }
 
       final added = await _store.insertItemsIgnoreDup(matched);
+      if (!_valid(epoch)) return 0;
       await _store.upsertSource(
         source.copyWith(
           etag: result.etag,
@@ -314,6 +378,7 @@ class RssController extends StateNotifier<RssState> {
       );
       return added;
     } catch (error) {
+      if (!_valid(epoch)) return 0;
       await _store.upsertSource(
         source.copyWith(
           lastFetchAt: DateTime.now(),
@@ -334,19 +399,25 @@ class RssController extends StateNotifier<RssState> {
       _store.listItems(limit: limit);
 
   Future<void> markItemRead(int itemId) async {
+    if (!_valid(_epoch)) return;
+    final epoch = _epoch;
     try {
       await _store.markRead(itemId);
-      await reload();
+      if (_valid(epoch)) await reload();
     } catch (error) {
+      if (!_valid(epoch)) return;
       state = state.copyWith(message: '标记已读失败：${_errorText(error)}');
     }
   }
 
   Future<void> markSubjectRead(int subjectId) async {
+    if (!_valid(_epoch)) return;
+    final epoch = _epoch;
     try {
       await _store.markSubjectRead(subjectId);
-      await reload();
+      if (_valid(epoch)) await reload();
     } catch (error) {
+      if (!_valid(epoch)) return;
       state = state.copyWith(message: '标记已读失败：${_errorText(error)}');
     }
   }

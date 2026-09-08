@@ -15,6 +15,7 @@ class ScheduleState {
     this.knownSeasons = const [],
     this.loading = true,
     this.saving = false,
+    this.readFailed = false,
     this.message,
   });
 
@@ -25,6 +26,7 @@ class ScheduleState {
   final List<SeasonKey> knownSeasons;
   final bool loading;
   final bool saving;
+  final bool readFailed;
   final String? message;
 
   ScheduleState copyWith({
@@ -33,6 +35,7 @@ class ScheduleState {
     List<SeasonKey>? knownSeasons,
     bool? loading,
     bool? saving,
+    bool? readFailed,
     String? message,
     bool clearMessage = false,
   }) => ScheduleState(
@@ -41,6 +44,7 @@ class ScheduleState {
     knownSeasons: knownSeasons ?? this.knownSeasons,
     loading: loading ?? this.loading,
     saving: saving ?? this.saving,
+    readFailed: readFailed ?? this.readFailed,
     message: clearMessage ? null : message ?? this.message,
   );
 }
@@ -60,17 +64,51 @@ class ScheduleController extends StateNotifier<ScheduleState> {
   int _reminderSyncGeneration = 0;
   int _mutationGeneration = 0;
   Future<void> _writes = Future.value();
+  Future<void> _reminderWrites = Future.value();
+  bool _pausedForImport = false;
+
+  Future<void> pauseForImport() async {
+    _pausedForImport = true;
+    _loadGeneration++;
+    _mutationGeneration++;
+    _reminderSyncGeneration++;
+    await _writes;
+    await _reminderWrites;
+    await _store.flushWrites();
+  }
+
+  Future<bool> resumeAfterImport() async {
+    _pausedForImport = false;
+    if (!mounted) return false;
+    state = state.copyWith(knownSeasons: [], saving: false);
+    final loaded = await load(state.season, reconcileReminders: false);
+    final reminders = await syncReminders(reportErrors: false);
+    return loaded && reminders;
+  }
+
   bool _rejectBusy() {
-    if (!mounted) return true;
+    if (!mounted || _pausedForImport) return true;
+    if (state.readFailed) {
+      state = state.copyWith(message: '新番表尚未读取成功，请先重试');
+      return true;
+    }
     if (!state.loading && !state.saving) return false;
     state = state.copyWith(message: '正在保存或切换季度，请稍后再操作');
     return true;
   }
 
-  Future<bool> load(SeasonKey season) async {
-    if (!mounted) return false;
+  Future<bool> load(
+    SeasonKey season, {
+    bool rememberEmpty = false,
+    bool reconcileReminders = true,
+  }) async {
+    if (!mounted || _pausedForImport) return false;
     final generation = ++_loadGeneration;
-    state = state.copyWith(loading: true, clearMessage: true);
+    state = state.copyWith(
+      loading: true,
+      readFailed: false,
+      clearMessage: true,
+    );
     try {
       await _writes;
       if (!mounted || generation != _loadGeneration) return false;
@@ -90,7 +128,7 @@ class ScheduleController extends StateNotifier<ScheduleState> {
         SeasonKey.current(),
       ]);
       // Ensure empty new seasons still appear in the picker after first open.
-      if (schedule.items.isEmpty) {
+      if (rememberEmpty && schedule.items.isEmpty && !saved.contains(season)) {
         await _store.save(schedule);
       }
       if (!mounted || generation != _loadGeneration) {
@@ -101,8 +139,9 @@ class ScheduleController extends StateNotifier<ScheduleState> {
         schedule: schedule,
         knownSeasons: known,
         loading: false,
+        readFailed: false,
       );
-      await syncReminders(reportErrors: false);
+      if (reconcileReminders) await syncReminders(reportErrors: false);
       return true;
     } catch (error) {
       if (!mounted || generation != _loadGeneration) return false;
@@ -113,16 +152,17 @@ class ScheduleController extends StateNotifier<ScheduleState> {
         schedule: alignedSchedule,
         loading: false,
         message: '加载季度表失败：${_errorText(error)}',
+        readFailed: true,
       );
       return false;
     }
   }
 
-  Future<bool> setSeason(SeasonKey season) => load(season);
+  Future<bool> setSeason(SeasonKey season) => load(season, rememberEmpty: true);
 
   /// Create/open an arbitrary year-quarter table (local only).
   Future<void> createSeason(SeasonKey season) async {
-    if (await load(season) && mounted) {
+    if (await load(season, rememberEmpty: true) && mounted) {
       state = state.copyWith(message: '已打开 ${season.label}');
     }
   }
@@ -473,6 +513,7 @@ class ScheduleController extends StateNotifier<ScheduleState> {
 
   /// Reconciles all saved quarters with native scheduled notifications.
   Future<bool> syncReminders({bool reportErrors = true}) async {
+    if (!mounted || _pausedForImport) return true;
     final reminders = _reminders;
     if (reminders == null) return true;
     final generation = ++_reminderSyncGeneration;
@@ -480,7 +521,12 @@ class ScheduleController extends StateNotifier<ScheduleState> {
       final schedules = await _store.loadAllSchedules();
       // A slow database read must not submit stale settings after a newer read.
       if (!mounted || generation != _reminderSyncGeneration) return true;
-      await reminders.syncSchedules(schedules);
+      final syncing = reminders.syncSchedules(schedules);
+      _reminderWrites = Future.wait([
+        _reminderWrites,
+        syncing,
+      ]).then<void>((_) {}, onError: (Object _, StackTrace _) {});
+      await syncing;
       return true;
     } catch (error) {
       if (mounted && reportErrors && generation == _reminderSyncGeneration) {

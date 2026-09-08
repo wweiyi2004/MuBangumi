@@ -21,6 +21,7 @@ class ScheduleStore {
 
   Database? _database;
   Future<void> _writes = Future.value();
+  Future<void> flushWrites() async => _writes;
   Future<T> _write<T>(Future<T> Function() action) {
     final next = _writes.then((_) => action());
     _writes = next.then<void>((_) {}, onError: (Object _, StackTrace _) {});

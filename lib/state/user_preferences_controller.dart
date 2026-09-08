@@ -44,10 +44,12 @@ class UserPreferencesController extends StateNotifier<UserPreferencesState> {
   int _mutationGeneration = 0;
 
   Future<void> load() async {
+    if (!mounted) return;
     final generation = _mutationGeneration;
     state = state.copyWith(isLoading: true, clearError: true);
     try {
       final items = await _repository.loadAll();
+      if (!mounted) return;
       if (generation != _mutationGeneration) {
         state = state.copyWith(isLoading: false);
         return;
@@ -56,6 +58,7 @@ class UserPreferencesController extends StateNotifier<UserPreferencesState> {
         preferences: {for (final item in items) item.key: item},
       );
     } catch (error) {
+      if (!mounted || generation != _mutationGeneration) return;
       state = UserPreferencesState(error: error.toString());
     }
   }
@@ -71,7 +74,7 @@ class UserPreferencesController extends StateNotifier<UserPreferencesState> {
     LocalUserPreference Function(LocalUserPreference current) change,
   ) async {
     final key = username.trim().toLowerCase();
-    if (key.isEmpty) return;
+    if (key.isEmpty || !mounted) return;
     final previous = state.preferenceFor(key);
     final next = change(previous);
     _mutationGeneration++;
@@ -83,6 +86,7 @@ class UserPreferencesController extends StateNotifier<UserPreferencesState> {
     try {
       await _repository.save(next);
     } catch (error) {
+      if (!mounted) rethrow;
       state = state.copyWith(
         preferences: {...state.preferences, key: previous},
         error: error.toString(),

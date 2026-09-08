@@ -19,9 +19,36 @@ import 'package:mubangumi/screens/home_page.dart';
 import 'package:mubangumi/screens/library_page.dart';
 import 'package:mubangumi/state/notify_controller.dart';
 import 'package:mubangumi/state/session_controller.dart';
+import 'package:mubangumi/state/local_data_state.dart';
 import 'package:mubangumi/widgets/subject_widgets.dart';
 
 void main() {
+  testWidgets(
+    'local import refreshes saved filters without replacing the page or login',
+    (tester) async {
+      final repo = _Repository()
+        ..settings['alice'] = {'subject_type': 1, 'collection_type': 2};
+      await _show(tester, const LibraryPage(), repo);
+      expect(_visibleIds(tester), {3});
+      final pageState = tester.state(find.byType(LibraryPage));
+      final container = ProviderScope.containerOf(
+        tester.element(find.byType(LibraryPage)),
+      );
+      final session = container.read(sessionProvider.notifier);
+      repo.settings['alice'] = {'subject_type': null, 'collection_type': null};
+      container.read(localBrowsingEpochProvider.notifier).state++;
+      await tester.pumpAndSettle();
+      expect(_visibleIds(tester), {1, 2, 3, 4});
+      expect(
+        identical(tester.state(find.byType(LibraryPage)), pageState),
+        true,
+      );
+      expect(
+        identical(container.read(sessionProvider.notifier), session),
+        true,
+      );
+    },
+  );
   testWidgets(
     'home view-all reaches entries beyond the preview and ignores saved filters',
     (tester) async {

@@ -8,6 +8,7 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart' as ffi;
 import '../storage/browsing_store.dart';
 import '../storage/community_draft_store.dart';
 import '../storage/pm_draft_store.dart';
+import '../storage/pending_personal_writes.dart';
 import '../storage/rss_store.dart';
 import '../storage/schedule_store.dart';
 import '../storage/user_preference_store.dart';
@@ -68,11 +69,13 @@ class SqliteBackupRepository implements BackupRepository {
   }
 
   Future<T> _withDatabase<T>(
+    BackupOwner owner,
     Set<BackupCategory> categories,
     Future<T> Function(Database) action,
   ) {
     final next = _operations.then((_) async {
       if (categories.isEmpty) throw const BackupException('请选择数据类别');
+      await PendingPersonalWrites.drain(owner.id, categories);
       final files = <BackupDatabase, String>{};
       for (final name in categories.map(_databaseFor).toSet()) {
         files[name] = await databasePaths[name]!();
@@ -136,6 +139,7 @@ class SqliteBackupRepository implements BackupRepository {
     BackupOwner owner,
     Set<BackupCategory> categories,
   ) => _withDatabase(
+    owner,
     categories,
     (db) => db.transaction(
       (txn) async => BackupArchive.create(
@@ -155,6 +159,7 @@ class SqliteBackupRepository implements BackupRepository {
   ) async {
     _checkOwner(owner, archive);
     return _withDatabase(
+      owner,
       categories,
       (db) => db.transaction(
         (txn) async => BackupPreview.create(
@@ -181,6 +186,7 @@ class SqliteBackupRepository implements BackupRepository {
 
     guard();
     return _withDatabase(
+      owner,
       preview.categories,
       (db) => db.transaction((txn) async {
         guard();

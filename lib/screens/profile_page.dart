@@ -26,6 +26,7 @@ import 'notify_page.dart';
 import 'pm_page.dart';
 import 'website_login_screen.dart';
 import 'library_page.dart';
+import 'backup_page.dart';
 
 class ProfilePage extends ConsumerWidget {
   const ProfilePage({super.key});
@@ -307,6 +308,18 @@ class ProfilePage extends ConsumerWidget {
                             );
                             await controller.refresh();
                           },
+                  ),
+                  const Divider(height: 1, indent: 56),
+                  ListTile(
+                    leading: const Icon(Icons.backup_outlined),
+                    title: const Text('本地备份与导入'),
+                    subtitle: const Text('保存与恢复新番表、偏好和可选草稿'),
+                    trailing: const Icon(Icons.chevron_right_rounded),
+                    onTap: () => Navigator.of(context).push(
+                      MaterialPageRoute<void>(
+                        builder: (_) => const BackupPage(),
+                      ),
+                    ),
                   ),
                   const Divider(height: 1, indent: 56),
                   ListTile(

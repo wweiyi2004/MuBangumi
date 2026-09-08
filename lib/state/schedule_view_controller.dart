@@ -4,6 +4,8 @@ import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/storage/browsing_store.dart';
+import '../core/storage/pending_personal_writes.dart';
+import '../core/backup/backup_archive.dart';
 import '../models/schedule_view.dart';
 
 class ScheduleViewState {
@@ -58,6 +60,7 @@ class ScheduleViewController extends StateNotifier<ScheduleViewState> {
       (_) => repository.saveScheduleView(ownerId, view),
     );
     _writes = save.then<void>((_) {}, onError: (Object _, StackTrace _) {});
+    PendingPersonalWrites.track(ownerId, BackupCategory.browsing, _writes);
     return save.then<void>(
       (_) {},
       onError: (Object _, StackTrace _) {

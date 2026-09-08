@@ -3,6 +3,8 @@ import 'dart:async';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/storage/browsing_store.dart';
+import '../core/storage/pending_personal_writes.dart';
+import '../core/backup/backup_archive.dart';
 import '../models/recommendation_feedback.dart';
 
 class RecommendationFeedbackFailure {
@@ -145,6 +147,11 @@ class RecommendationFeedbackController
       }
     });
     _operations = operation.then<void>((_) {});
+    PendingPersonalWrites.track(
+      ownerId,
+      BackupCategory.recommendations,
+      _operations,
+    );
     return operation;
   }
 

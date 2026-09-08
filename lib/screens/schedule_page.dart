@@ -71,6 +71,7 @@ class SchedulePage extends ConsumerWidget {
     });
 
     return Scaffold(
+      appBar: state.readFailed ? AppBar(title: const Text('新番表')) : null,
       floatingActionButton: isWide
           ? FloatingActionButton.extended(
               onPressed: () => _openSearchAddSheet(context),
@@ -82,7 +83,27 @@ class SchedulePage extends ConsumerWidget {
               tooltip: '搜索加入',
               child: const Icon(Icons.search_rounded),
             ),
-      body: state.loading
+      body: state.readFailed
+          ? Center(
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Text('新番表读取失败，重试成功后即可继续整理'),
+                    const SizedBox(height: 12),
+                    FilledButton.icon(
+                      onPressed: () => ref
+                          .read(scheduleProvider.notifier)
+                          .load(state.season),
+                      icon: const Icon(Icons.refresh),
+                      label: const Text('重试读取'),
+                    ),
+                  ],
+                ),
+              ),
+            )
+          : state.loading
           ? const Center(child: CircularProgressIndicator())
           : Stack(
               children: [
@@ -291,7 +312,7 @@ class _RssAutoRefreshState extends ConsumerState<_RssAutoRefresh> {
   void _maybeRefresh() {
     if (_didRun || !mounted) return;
     final rss = ref.read(rssProvider);
-    if (!rss.loaded || rss.refreshing) return;
+    if (!rss.loaded || rss.refreshing || rss.autoRefreshPaused) return;
     if (rss.bindings.isEmpty || rss.sources.isEmpty) return;
     final stale = rss.sources.any((source) {
       final last = source.lastFetchAt;
@@ -300,7 +321,7 @@ class _RssAutoRefreshState extends ConsumerState<_RssAutoRefresh> {
     });
     if (!stale) return;
     _didRun = true;
-    unawaited(ref.read(rssProvider.notifier).refreshAll());
+    unawaited(ref.read(rssProvider.notifier).refreshAll(automatic: true));
   }
 
   @override

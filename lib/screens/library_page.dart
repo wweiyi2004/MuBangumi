@@ -11,6 +11,7 @@ import '../models/library_batch.dart';
 import 'library_batch_page.dart';
 import '../widgets/episode_undo_message.dart';
 import '../state/session_controller.dart';
+import '../state/local_data_state.dart';
 import '../widgets/episode_grid_sheet.dart';
 import '../widgets/subject_widgets.dart';
 import '../widgets/collection_sync_status.dart';
@@ -76,6 +77,9 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
     super.initState();
     _subjectType = widget.initialSubjectType;
     _type = widget.initialCollectionType;
+    ref.listenManual(localBrowsingEpochProvider, (_, _) {
+      if (mounted) _bindAccount(ref.read(sessionProvider).user?.username);
+    });
     ref.listenManual(sessionProvider.select((state) => state.user?.id), (
       previous,
       next,
