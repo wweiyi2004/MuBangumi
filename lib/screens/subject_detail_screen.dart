@@ -14,8 +14,9 @@ import '../core/network/bangumi_support.dart';
 import '../core/network/community_service.dart';
 import '../core/network/moegirl_service.dart';
 import '../core/network/netaba_api.dart';
-import '../core/storage/snapshot_cache.dart';
 import '../models/bangumi_models.dart';
+import '../models/episode_edit.dart';
+import '../widgets/episode_undo_message.dart';
 import '../models/community_models.dart';
 import '../models/netaba_models.dart';
 import '../state/session_controller.dart';
@@ -81,6 +82,28 @@ class _SubjectDetailScreenState extends ConsumerState<SubjectDetailScreen> {
   void initState() {
     super.initState();
     _sessionController = ref.read(sessionProvider.notifier);
+    ref.listenManual(sessionProvider.select((state) => state.user?.id), (
+      _,
+      next,
+    ) {
+      if (!mounted) return;
+      setState(() {
+        _episodeTypes = const {};
+        _updatingEpisodes.clear();
+      });
+      unawaited(_load());
+    });
+    ref.listenManual(sessionProvider.select((state) => state.lastEpisodeEdit), (
+      _,
+      change,
+    ) {
+      if (!mounted || change == null || change.subjectId != widget.subject.id) {
+        return;
+      }
+      setState(
+        () => _episodeTypes = {..._episodeTypes, change.episodeId: change.type},
+      );
+    });
     _details = widget.subject;
     _loading = false;
     Future.microtask(_load);
@@ -138,21 +161,24 @@ class _SubjectDetailScreenState extends ConsumerState<SubjectDetailScreen> {
 
   Future<void> _loadEpisodeInfo(int generation) async {
     if (!widget.subject.type.hasEpisodes) return;
+    final episodeRevision = _sessionController.episodeRevision;
     final api = ref.read(bangumiApiProvider);
-    final cache = ref.read(snapshotCacheProvider);
     final hasCollection =
         ref.read(sessionProvider).collectionFor(widget.subject.id) != null;
     var networkApplied = false;
     Future<void> restoreCache() async {
       if (!hasCollection) return;
       try {
-        final cached = await cache.readEpisodeCollections(widget.subject.id);
+        final cached = await _sessionController.readEpisodeSnapshot(
+          widget.subject.id,
+        );
         if (cached == null || !_isCurrentLoad(generation) || networkApplied) {
           return;
         }
         final local = await _sessionController.applyPendingEpisodeChanges(
           widget.subject.id,
           cached,
+          afterRevision: episodeRevision,
         );
         if (!_isCurrentLoad(generation) || networkApplied) return;
         setState(() {
@@ -169,14 +195,9 @@ class _SubjectDetailScreenState extends ConsumerState<SubjectDetailScreen> {
     unawaited(restoreCache());
     try {
       if (hasCollection) {
-        var items = await api.getEpisodeCollections(
+        final items = await _sessionController.loadEpisodeCollections(
           widget.subject.id,
           episodeType: null,
-        );
-        if (!_isCurrentLoad(generation)) return;
-        items = await _sessionController.applyPendingEpisodeChanges(
-          widget.subject.id,
-          items,
         );
         if (!_isCurrentLoad(generation)) return;
         networkApplied = true;
@@ -186,11 +207,6 @@ class _SubjectDetailScreenState extends ConsumerState<SubjectDetailScreen> {
             for (final item in items) item.episode.id: item.type,
           };
         });
-        unawaited(
-          cache
-              .writeEpisodeCollections(widget.subject.id, items)
-              .catchError((Object _) {}),
-        );
       } else {
         final episodes = await api.getEpisodes(
           widget.subject.id,
@@ -871,28 +887,15 @@ class _SubjectDetailScreenState extends ConsumerState<SubjectDetailScreen> {
   }
 
   Future<void> _reloadEpisodeWatchState(int subjectId) async {
+    final account = ref.read(sessionProvider).user?.id;
     try {
-      var episodeCollections = await ref
-          .read(bangumiApiProvider)
-          .getEpisodeCollections(subjectId, episodeType: null);
-      episodeCollections = await _sessionController.applyPendingEpisodeChanges(
-        subjectId,
-        episodeCollections,
-      );
-      await SnapshotCache.shared.writeEpisodeCollections(
-        subjectId,
-        episodeCollections,
-      );
-      if (!mounted) return;
+      final items = await _sessionController.loadEpisodeCollections(subjectId);
+      if (!mounted || ref.read(sessionProvider).user?.id != account) return;
       setState(() {
-        _episodes = [for (final item in episodeCollections) item.episode];
-        _episodeTypes = {
-          for (final item in episodeCollections) item.episode.id: item.type,
-        };
+        _episodes = [for (final item in items) item.episode];
+        _episodeTypes = {for (final item in items) item.episode.id: item.type};
       });
-    } catch (_) {
-      // Keep the uncollected episode list if watch-state fetch fails.
-    }
+    } catch (_) {}
   }
 
   Future<void> _setEpisode(
@@ -906,19 +909,23 @@ class _SubjectDetailScreenState extends ConsumerState<SubjectDetailScreen> {
       return;
     }
     if (_updatingEpisodes.contains(episode.id)) return;
+    final account = ref.read(sessionProvider).user?.id;
     final previousType = _episodeTypes[episode.id] ?? 0;
     setState(() {
       _updatingEpisodes.add(episode.id);
       _episodeTypes = {..._episodeTypes, episode.id: type};
     });
+    EpisodeUndo? undo;
     final error = await _sessionController.setEpisode(
       subjectId: subjectId,
       episodeId: episode.id,
       type: type,
       previousType: previousType,
+      episode: episode,
+      onUndoReady: (value) => undo = value,
       trackGlobalBusy: false,
     );
-    if (!mounted) return;
+    if (!mounted || ref.read(sessionProvider).user?.id != account) return;
     setState(() {
       _updatingEpisodes.remove(episode.id);
       if (error != null) {
@@ -927,6 +934,8 @@ class _SubjectDetailScreenState extends ConsumerState<SubjectDetailScreen> {
     });
     if (error != null) {
       showAppMessage(context, error);
+    } else if (undo != null) {
+      showEpisodeUndoMessage(context, _sessionController, undo!);
     }
   }
 }

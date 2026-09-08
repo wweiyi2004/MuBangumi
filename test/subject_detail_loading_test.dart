@@ -100,7 +100,7 @@ Future<void> _show(WidgetTester tester, _Api api, _Cache cache) async {
         bangumiApiProvider.overrideWithValue(api),
         snapshotCacheProvider.overrideWithValue(cache),
         netabaApiProvider.overrideWithValue(_History()),
-        sessionProvider.overrideWith((ref) => _Session(api)),
+        sessionProvider.overrideWith((ref) => _Session(api, cache)),
       ],
       child: const MaterialApp(home: SubjectDetailScreen(subject: _subject)),
     ),
@@ -183,8 +183,9 @@ class _Cache extends SnapshotCache {
   Completer<List<UserEpisodeCollection>?>? readResult;
   @override
   Future<List<UserEpisodeCollection>?> readEpisodeCollections(
-    int subjectId,
-  ) async {
+    int subjectId, {
+    String? username,
+  }) async {
     if (failRead) throw StateError('disk unavailable');
     return readResult == null ? null : await readResult!.future;
   }
@@ -192,8 +193,9 @@ class _Cache extends SnapshotCache {
   @override
   Future<void> writeEpisodeCollections(
     int subjectId,
-    List<UserEpisodeCollection> items,
-  ) async {
+    List<UserEpisodeCollection> items, {
+    String? username,
+  }) async {
     writes++;
     if (failWrite) throw StateError('disk full');
   }
@@ -206,7 +208,8 @@ class _History extends NetabaApi {
 }
 
 class _Session extends SessionController {
-  _Session(BangumiApi api) : super(api, BangumiOAuth(), _Tokens()) {
+  _Session(BangumiApi api, SnapshotCache cache)
+    : super(api, BangumiOAuth(), _Tokens(), snapshotCache: cache) {
     state = const SessionState(
       phase: SessionPhase.signedIn,
       user: BangumiUser(
@@ -230,8 +233,9 @@ class _Session extends SessionController {
   @override
   Future<List<UserEpisodeCollection>> applyPendingEpisodeChanges(
     int subjectId,
-    List<UserEpisodeCollection> source,
-  ) async => source;
+    List<UserEpisodeCollection> source, {
+    int? afterRevision,
+  }) async => source;
 }
 
 class _Tokens extends TokenStore {

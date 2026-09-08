@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:mubangumi/core/storage/browsing_store.dart';
 import 'package:mubangumi/models/bangumi_models.dart';
 import 'package:path/path.dart' as path;
+import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 void main() {
   late Directory directory;
@@ -58,6 +59,57 @@ void main() {
       expect(await store.readSearches('alice'), isEmpty);
       expect(await store.readSearches('bob'), hasLength(1));
       expect((await store.readLibrary('alice'))!['sort'], 'title');
+    },
+  );
+
+  test(
+    'home pin order survives database reopening without account leakage',
+    () async {
+      await store.saveHomePins(1, [8, 3, 8, 9]);
+      await store.saveHomePins(2, [3, 8]);
+      await store.close();
+      expect(await store.readHomePins(1), [8, 3, 9]);
+      expect(await store.readHomePins(2), [3, 8]);
+      await store.saveHomePins(1, [9, 8]);
+      expect(await store.readHomePins(2), [3, 8]);
+    },
+  );
+
+  test(
+    'upgrading browsing database keeps existing searches and library preferences',
+    () async {
+      sqfliteFfiInit();
+      final db = await databaseFactoryFfi.openDatabase(
+        store.databasePath!,
+        options: OpenDatabaseOptions(
+          version: 1,
+          onCreate: (db, _) async {
+            await db.execute(
+              'CREATE TABLE library_preferences (account TEXT PRIMARY KEY NOT NULL, payload TEXT NOT NULL)',
+            );
+            await db.execute(
+              'CREATE TABLE recent_search (id INTEGER PRIMARY KEY AUTOINCREMENT, account TEXT NOT NULL, search_key TEXT NOT NULL, keyword TEXT NOT NULL, target TEXT NOT NULL, subject_type INTEGER NOT NULL, UNIQUE(account, search_key))',
+            );
+            await db.insert('library_preferences', {
+              'account': 'alice',
+              'payload': '{"sort":"title"}',
+            });
+            await db.insert('recent_search', {
+              'account': 'alice',
+              'search_key': 'query',
+              'keyword': '银河',
+              'target': 'subject',
+              'subject_type': 2,
+            });
+          },
+        ),
+      );
+      await db.close();
+      expect((await store.readLibrary('alice'))!['sort'], 'title');
+      expect((await store.readSearches('alice')).single.keyword, '银河');
+      expect(await store.readHomePins(1), isEmpty);
+      await store.saveHomePins(1, [77]);
+      expect(await store.readHomePins(1), [77]);
     },
   );
 

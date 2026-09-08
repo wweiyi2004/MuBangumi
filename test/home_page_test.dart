@@ -1,3 +1,5 @@
+import 'package:mubangumi/core/storage/browsing_store.dart';
+import 'support/memory_home_pins.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -23,6 +25,7 @@ void main() {
       await tester.pumpWidget(
         ProviderScope(
           overrides: [
+            homePinsRepositoryProvider.overrideWithValue(MemoryHomePins()),
             sessionProvider.overrideWith((ref) => controller),
             userPreferencesProvider.overrideWith(
               (ref) => UserPreferencesController(_FakePrefRepository()),
@@ -80,6 +83,7 @@ void main() {
       await tester.pumpWidget(
         ProviderScope(
           overrides: [
+            homePinsRepositoryProvider.overrideWithValue(MemoryHomePins()),
             sessionProvider.overrideWith((ref) => controller),
             userPreferencesProvider.overrideWith(
               (ref) => UserPreferencesController(_FakePrefRepository()),
@@ -164,6 +168,7 @@ void main() {
       await tester.pumpWidget(
         ProviderScope(
           overrides: [
+            homePinsRepositoryProvider.overrideWithValue(MemoryHomePins()),
             sessionProvider.overrideWith((ref) => controller),
             userPreferencesProvider.overrideWith(
               (ref) => UserPreferencesController(_FakePrefRepository()),

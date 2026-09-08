@@ -38,6 +38,15 @@ abstract class BrowsingRepository {
   Future<void> clearSearches(String account);
 }
 
+abstract class HomePinsRepository {
+  Future<List<int>> readHomePins(int ownerId);
+  Future<void> saveHomePins(int ownerId, List<int> ids);
+}
+
+final homePinsRepositoryProvider = Provider<HomePinsRepository>(
+  (ref) => BrowsingStore.shared,
+);
+
 final browsingRepositoryProvider = Provider<BrowsingRepository>(
   (ref) => BrowsingStore.shared,
 );
@@ -48,7 +57,7 @@ final recentSearchesProvider = FutureProvider.autoDispose
     );
 
 /// Durable browsing preferences are separate from the disposable cache.
-class BrowsingStore implements BrowsingRepository {
+class BrowsingStore implements BrowsingRepository, HomePinsRepository {
   BrowsingStore({this.databasePath});
   static final shared = BrowsingStore();
   static const historyLimit = 12;
@@ -153,6 +162,41 @@ class BrowsingStore implements BrowsingRepository {
     });
   }
 
+  @override
+  Future<List<int>> readHomePins(int ownerId) async {
+    if (ownerId <= 0) return const [];
+    await _writes;
+    final rows = await (await _open()).query(
+      'home_pins',
+      where: 'owner_id = ?',
+      whereArgs: [ownerId],
+    );
+    if (rows.isEmpty) return const [];
+    final data = jsonDecode(rows.single['payload'] as String);
+    if (data is! List || data.any((id) => id is! int || id <= 0)) {
+      throw const FormatException('Invalid home pins');
+    }
+    return data.cast<int>().toSet().toList();
+  }
+
+  @override
+  Future<void> saveHomePins(int ownerId, List<int> ids) {
+    if (ownerId <= 0 || ids.any((id) => id <= 0)) {
+      throw ArgumentError('Invalid owner or subject');
+    }
+    final payload = jsonEncode(ids.toSet().toList());
+    return _write((db) async {
+      await db.insert('home_pins', {
+        'owner_id': ownerId,
+        'payload': payload,
+      }, conflictAlgorithm: ConflictAlgorithm.replace);
+    });
+  }
+
+  Future<void> _createHomePins(Database db) => db.execute(
+    'CREATE TABLE home_pins (owner_id INTEGER PRIMARY KEY NOT NULL, payload TEXT NOT NULL)',
+  );
+
   Future<Database> _open() =>
       _database ??= _create().catchError((Object error) {
         _database = null;
@@ -174,8 +218,12 @@ class BrowsingStore implements BrowsingRepository {
             'mubangumi_browsing.sqlite',
           ),
       options: OpenDatabaseOptions(
-        version: 1,
+        version: 2,
+        onUpgrade: (db, oldVersion, _) async {
+          if (oldVersion < 2) await _createHomePins(db);
+        },
         onCreate: (db, _) async {
+          await _createHomePins(db);
           await db.execute(
             'CREATE TABLE library_preferences (account TEXT PRIMARY KEY NOT NULL, payload TEXT NOT NULL)',
           );

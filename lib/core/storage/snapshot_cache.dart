@@ -27,8 +27,8 @@ class SnapshotCache {
   static String collectionsKey(String username) =>
       'collections_snapshot:${username.trim().toLowerCase()}';
 
-  static String episodeCollectionsKey(int subjectId) =>
-      'episode_collections_snapshot:$subjectId';
+  static String episodeCollectionsKey(int subjectId, {String? username}) =>
+      'episode_collections_snapshot:${username == null ? '' : '${Uri.encodeComponent(username.trim().toLowerCase())}:'}$subjectId';
 
   static String discoverBrowseKey({
     required SubjectType type,
@@ -107,9 +107,12 @@ class SnapshotCache {
   }
 
   Future<List<UserEpisodeCollection>?> readEpisodeCollections(
-    int subjectId,
-  ) async {
-    final json = await _cache.readJson(episodeCollectionsKey(subjectId));
+    int subjectId, {
+    String? username,
+  }) async {
+    final json = await _cache.readJson(
+      episodeCollectionsKey(subjectId, username: username),
+    );
     if (json == null) return null;
     final savedAt = DateTime.tryParse(json['saved_at']?.toString() ?? '');
     if (savedAt == null ||
@@ -131,18 +134,26 @@ class SnapshotCache {
 
   Future<void> writeEpisodeCollections(
     int subjectId,
-    List<UserEpisodeCollection> episodes,
-  ) async {
+    List<UserEpisodeCollection> episodes, {
+    String? username,
+  }) async {
     if (subjectId <= 0 || episodes.isEmpty) return;
-    await _cache.writeJson(episodeCollectionsKey(subjectId), {
-      'saved_at': DateTime.now().toIso8601String(),
-      'items': [for (final item in episodes) item.toJson()],
-    }, accountScoped: true);
+    await _cache.writeJson(
+      episodeCollectionsKey(subjectId, username: username),
+      {
+        'saved_at': DateTime.now().toIso8601String(),
+        'items': [for (final item in episodes) item.toJson()],
+      },
+      accountScoped: true,
+    );
   }
 
-  Future<void> clearEpisodeCollections(int subjectId) async {
+  Future<void> clearEpisodeCollections(
+    int subjectId, {
+    String? username,
+  }) async {
     if (subjectId <= 0) return;
-    await _cache.remove(episodeCollectionsKey(subjectId));
+    await _cache.remove(episodeCollectionsKey(subjectId, username: username));
   }
 
   Future<List<Subject>?> readDiscoverBrowse(String key) async {

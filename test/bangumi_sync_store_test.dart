@@ -3,8 +3,70 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as path;
 import 'package:mubangumi/core/storage/bangumi_sync_store.dart';
+import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 void main() {
+  test(
+    'upgrading the queue preserves payloads and orders old coalesced edits by last update',
+    () async {
+      final directory = await Directory.systemTemp.createTemp(
+        'mubangumi-sync-migration-',
+      );
+      final filename = path.join(directory.path, 'sync.sqlite');
+      final store = BangumiSyncStore(databasePath: filename);
+      addTearDown(() async {
+        await store.close();
+        if (directory.parent.resolveSymbolicLinksSync() !=
+                Directory.systemTemp.resolveSymbolicLinksSync() ||
+            !path
+                .basename(directory.path)
+                .startsWith('mubangumi-sync-migration-')) {
+          throw StateError('Unexpected test directory');
+        }
+        await directory.delete(recursive: true);
+      });
+      sqfliteFfiInit();
+      final old = await databaseFactoryFfi.openDatabase(
+        filename,
+        options: OpenDatabaseOptions(
+          version: 1,
+          onCreate: (db, _) async {
+            await db.execute(
+              'CREATE TABLE bangumi_sync_queue (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT NOT NULL, mutation_key TEXT NOT NULL, kind TEXT NOT NULL, payload TEXT NOT NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, attempts INTEGER NOT NULL DEFAULT 0, revision INTEGER NOT NULL DEFAULT 1, blocked INTEGER NOT NULL DEFAULT 0, last_error TEXT)',
+            );
+            await db.execute(
+              'CREATE UNIQUE INDEX bangumi_sync_queue_account_key ON bangumi_sync_queue(username, mutation_key)',
+            );
+            for (final (id, updatedAt) in [(7, 30), (8, 20)]) {
+              await db.insert('bangumi_sync_queue', {
+                'username': 'tester',
+                'mutation_key': 'episode:$id',
+                'kind': 'episode',
+                'payload': '{"episode_id":$id,"type":0}',
+                'created_at': 10,
+                'updated_at': updatedAt,
+                'revision': 2,
+              });
+            }
+          },
+        ),
+      );
+      await old.close();
+      final migrated = await store.pendingFor('tester');
+      expect(migrated.map((item) => item.payload['episode_id']), [8, 7]);
+      expect(migrated.map((item) => item.revision), [2, 2]);
+      await store.enqueue(
+        username: 'tester',
+        kind: BangumiMutationKind.episode,
+        mutationKey: 'episode:8',
+        payload: {'episode_id': 8, 'type': 2},
+      );
+      final updated = await store.pendingFor('tester');
+      expect(updated.map((item) => item.payload['episode_id']), [7, 8]);
+      expect(updated.last.revision, 3);
+      expect(await store.removeIfUnchanged(migrated.first), isFalse);
+    },
+  );
   test('queue coalesces edits and protects newer revisions', () async {
     final directory = await Directory.systemTemp.createTemp(
       'mubangumi-sync-test-',
@@ -37,6 +99,7 @@ void main() {
     expect(latest, hasLength(1));
     expect(latest.single.payload['rate'], 9);
     expect(latest.single.revision, firstRevision.revision + 1);
+    expect(latest.single.id, greaterThan(firstRevision.id));
 
     expect(await store.removeIfUnchanged(latest.single), isTrue);
     expect(await store.countFor('tester'), 0);
@@ -58,6 +121,45 @@ void main() {
     await store.retryBlocked('tester');
     expect(await store.pendingFor('tester'), hasLength(1));
   });
+
+  test(
+    'coalesced episode compensation reopens after other earlier intents',
+    () async {
+      final directory = await Directory.systemTemp.createTemp(
+        'mubangumi-sync-order-',
+      );
+      final store = BangumiSyncStore(
+        databasePath: path.join(directory.path, 'sync.sqlite'),
+      );
+      addTearDown(() async {
+        await store.close();
+        if (directory.parent.resolveSymbolicLinksSync() !=
+                Directory.systemTemp.resolveSymbolicLinksSync() ||
+            !path
+                .basename(directory.path)
+                .startsWith('mubangumi-sync-order-')) {
+          throw StateError('Unexpected test directory');
+        }
+        await directory.delete(recursive: true);
+      });
+      for (final (id, count) in [(7, 1), (8, 2), (7, 1)]) {
+        await store.enqueue(
+          username: 'tester',
+          kind: BangumiMutationKind.episode,
+          mutationKey: 'episode:$id',
+          payload: {
+            'subject_id': 99,
+            'episode_id': id,
+            'local_episode_status': count,
+          },
+        );
+      }
+      await store.close();
+      final pending = await store.pendingFor('tester');
+      expect(pending.map((item) => item.payload['episode_id']), [8, 7]);
+      expect(pending.last.payload['local_episode_status'], 1);
+    },
+  );
 
   test('blocked issue actions are account and revision safe', () async {
     final directory = await Directory.systemTemp.createTemp(

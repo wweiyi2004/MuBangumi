@@ -56,7 +56,7 @@ class BangumiSyncStore {
     await database.transaction((transaction) async {
       final existing = await transaction.query(
         'bangumi_sync_queue',
-        columns: const ['id', 'revision'],
+        columns: const ['id', 'revision', 'created_at'],
         where: 'username = ? AND mutation_key = ?',
         whereArgs: [username, mutationKey],
         limit: 1,
@@ -69,25 +69,24 @@ class BangumiSyncStore {
         'blocked': 0,
         'last_error': null,
       };
-      if (existing.isEmpty) {
-        await transaction.insert('bangumi_sync_queue', {
-          'username': username,
-          'mutation_key': mutationKey,
-          'created_at': now,
-          'revision': 1,
-          ...values,
-        });
-      } else {
-        await transaction.update(
+      if (existing.isNotEmpty) {
+        await transaction.delete(
           'bangumi_sync_queue',
-          {
-            ...values,
-            'revision': (existing.first['revision'] as num).toInt() + 1,
-          },
           where: 'id = ?',
           whereArgs: [existing.first['id']],
         );
       }
+      // A replacement receives a new monotonic ID: its final intent must run
+      // after edits to other keys, regardless of timestamp precision or clock changes.
+      await transaction.insert('bangumi_sync_queue', {
+        'username': username,
+        'mutation_key': mutationKey,
+        'created_at': existing.isEmpty ? now : existing.first['created_at'],
+        'revision': existing.isEmpty
+            ? 1
+            : (existing.first['revision'] as num).toInt() + 1,
+        ...values,
+      });
     });
   }
 
@@ -100,7 +99,7 @@ class BangumiSyncStore {
       'bangumi_sync_queue',
       where: includeBlocked ? 'username = ?' : 'username = ? AND blocked = 0',
       whereArgs: [username],
-      orderBy: 'created_at ASC, id ASC',
+      orderBy: 'id ASC',
     );
     return [for (final row in rows) _decode(row)];
   }
@@ -237,7 +236,29 @@ class BangumiSyncStore {
         databasePath ?? path.join(root, 'mubangumi_sync.sqlite');
     return openDatabase(
       resolvedPath,
-      version: 1,
+      version: 2,
+      onUpgrade: (database, oldVersion, _) async {
+        if (oldVersion < 2) {
+          final rows = await database.query(
+            'bangumi_sync_queue',
+            columns: ['id'],
+            orderBy: 'updated_at ASC, id ASC',
+          );
+          var nextId = rows.fold<int>(
+            0,
+            (largest, row) =>
+                (row['id'] as int) > largest ? row['id'] as int : largest,
+          );
+          for (final row in rows) {
+            await database.update(
+              'bangumi_sync_queue',
+              {'id': ++nextId},
+              where: 'id = ?',
+              whereArgs: [row['id']],
+            );
+          }
+        }
+      },
       onCreate: (database, _) async {
         await database.execute('''
           CREATE TABLE bangumi_sync_queue (

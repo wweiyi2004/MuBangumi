@@ -1,8 +1,75 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mubangumi/core/storage/snapshot_cache.dart';
 import 'package:mubangumi/models/bangumi_models.dart';
+import 'package:mubangumi/core/storage/community_cache.dart';
+import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 void main() {
+  test(
+    'chapter snapshots isolate accounts and never restore the old unscoped cache',
+    () async {
+      sqfliteFfiInit();
+      final db = await databaseFactoryFfi.openDatabase(inMemoryDatabasePath);
+      await db.execute(
+        'CREATE TABLE community_cache (cache_key TEXT PRIMARY KEY, payload TEXT, updated_at INTEGER, account_scoped INTEGER)',
+      );
+      final cache = CommunityCache.test(connection: db);
+      final snapshots = SnapshotCache(cache: cache);
+      addTearDown(() async {
+        await cache.prune();
+        await db.close();
+      });
+      const episode = UserEpisodeCollection(
+        episode: Episode(
+          id: 7,
+          type: 0,
+          number: 1,
+          sort: 1,
+          name: 'One',
+          nameCn: '',
+          airDate: '',
+          description: '',
+        ),
+        type: 2,
+        updatedAt: 0,
+      );
+      await snapshots.writeEpisodeCollections(99, [episode]);
+      expect(
+        await snapshots.readEpisodeCollections(99, username: 'alice'),
+        isNull,
+      );
+      await snapshots.writeEpisodeCollections(99, [episode], username: 'alice');
+      await snapshots.writeEpisodeCollections(99, [
+        episode.copyWith(type: 0),
+      ], username: 'bob');
+      expect(
+        (await snapshots.readEpisodeCollections(
+          99,
+          username: 'ALICE',
+        ))!.single.type,
+        2,
+      );
+      expect(
+        (await snapshots.readEpisodeCollections(
+          99,
+          username: 'bob',
+        ))!.single.type,
+        0,
+      );
+      await snapshots.clearEpisodeCollections(99, username: 'alice');
+      expect(
+        await snapshots.readEpisodeCollections(99, username: 'alice'),
+        isNull,
+      );
+      expect(
+        (await snapshots.readEpisodeCollections(
+          99,
+          username: 'bob',
+        ))!.single.type,
+        0,
+      );
+    },
+  );
   test('Subject/UserCollection snapshot round-trips through JSON', () {
     const subject = Subject(
       id: 12,

@@ -13,6 +13,7 @@ import '../core/storage/bangumi_sync_store.dart';
 import '../core/storage/snapshot_cache.dart';
 import '../core/storage/token_store.dart';
 import '../models/bangumi_models.dart';
+import '../models/episode_edit.dart';
 import 'website_session_controller.dart';
 
 final bangumiApiProvider = Provider<BangumiApi>((ref) => BangumiApi());
@@ -44,6 +45,8 @@ class SessionState {
     this.blockedSyncCount = 0,
     this.isSyncing = false,
     this.message,
+    this.episodeUndo,
+    this.lastEpisodeEdit,
   });
 
   final SessionPhase phase;
@@ -66,6 +69,8 @@ class SessionState {
   final int blockedSyncCount;
   final bool isSyncing;
   final String? message;
+  final EpisodeUndo? episodeUndo;
+  final EpisodeEdit? lastEpisodeEdit;
 
   UserCollection? collectionFor(int subjectId) {
     for (final collection in collections) {
@@ -92,6 +97,9 @@ class SessionState {
     String? message,
     bool clearMessage = false,
     bool clearUser = false,
+    EpisodeUndo? episodeUndo,
+    bool clearEpisodeUndo = false,
+    EpisodeEdit? lastEpisodeEdit,
   }) => SessionState(
     phase: phase ?? this.phase,
     authActivity: authActivity ?? this.authActivity,
@@ -99,6 +107,8 @@ class SessionState {
     canRetrySignOut: canRetrySignOut ?? this.canRetrySignOut,
     isPreparingHome: isPreparingHome ?? this.isPreparingHome,
     user: clearUser ? null : user ?? this.user,
+    episodeUndo: clearEpisodeUndo ? null : episodeUndo ?? this.episodeUndo,
+    lastEpisodeEdit: lastEpisodeEdit ?? this.lastEpisodeEdit,
     collections: collections ?? this.collections,
     isRefreshing: isRefreshing ?? this.isRefreshing,
     isLoadingCollections: isLoadingCollections ?? this.isLoadingCollections,
@@ -145,6 +155,123 @@ class SessionController extends StateNotifier<SessionState> {
   Future<bool>? _refreshInFlight;
   int _authGeneration = 0;
   bool _hasStoredCredentials = false;
+  final _subjectOperations = <String, Future<void>>{};
+  final _episodeChanges = <int, EpisodeEdit>{};
+  final _confirmedEpisodeRevisions = <int, int>{};
+
+  EpisodeUndo? get pendingEpisodeUndo => mounted ? state.episodeUndo : null;
+  int get episodeRevision => _localMutationRevision;
+
+  void _requireEditAccount(int generation, String username) {
+    if (!_isCurrentAuth(generation) || state.user?.username != username) {
+      throw const BangumiApiException('登录状态已变化，请重新打开作品后操作');
+    }
+  }
+
+  Future<T> _serializeSubject<T>(
+    int subjectId,
+    int generation,
+    Future<T> Function() work,
+  ) {
+    final key = '$generation:$subjectId';
+    final previous = _subjectOperations[key] ?? Future<void>.value();
+    final next = previous.then((_) => work());
+    final done = next.then<void>((_) {}, onError: (Object _, StackTrace _) {});
+    _subjectOperations[key] = done;
+    unawaited(
+      done.then((_) {
+        if (identical(_subjectOperations[key], done)) {
+          _subjectOperations.remove(key);
+        }
+      }),
+    );
+    return next;
+  }
+
+  Future<String?> _editSubject(
+    int subjectId,
+    Future<String?> Function(int generation, String username) work, {
+    bool trackGlobalBusy = true,
+  }) {
+    if (!mounted) return Future.value('页面已关闭');
+    final generation = _authGeneration;
+    final username = state.user?.username;
+    if (username == null || username.isEmpty) return Future.value('请先登录后再修改');
+    return _serializeSubject(subjectId, generation, () async {
+      try {
+        _requireEditAccount(generation, username);
+        if (trackGlobalBusy) _setUpdating(subjectId, true);
+        return await work(generation, username);
+      } catch (error) {
+        return _messageFor(error);
+      } finally {
+        if (_isCurrentAuth(generation) && trackGlobalBusy) {
+          _setUpdating(subjectId, false);
+        }
+      }
+    });
+  }
+
+  Future<List<UserEpisodeCollection>?> readEpisodeSnapshot(
+    int subjectId,
+  ) async {
+    final generation = _authGeneration;
+    final username = state.user?.username;
+    if (username == null) return null;
+    final cached = await _snapshotCache.readEpisodeCollections(
+      subjectId,
+      username: username,
+    );
+    _requireEditAccount(generation, username);
+    if (cached == null) return null;
+    return applyPendingEpisodeChanges(
+      subjectId,
+      cached,
+      afterRevision: _localMutationRevision,
+    );
+  }
+
+  Future<List<UserEpisodeCollection>> loadEpisodeCollections(
+    int subjectId, {
+    int? episodeType,
+  }) async {
+    final generation = _authGeneration;
+    final username = state.user?.username;
+    if (username == null) throw const BangumiApiException('请先登录');
+    final revision = _localMutationRevision;
+    final remote = await _api.getEpisodeCollections(
+      subjectId,
+      episodeType: episodeType,
+    );
+    _requireEditAccount(generation, username);
+    return _serializeSubject(subjectId, generation, () async {
+      _requireEditAccount(generation, username);
+      for (final item in remote) {
+        final local = _episodeChanges[item.episode.id];
+        if (local != null &&
+            local.revision <= revision &&
+            local.type == item.type) {
+          _confirmedEpisodeRevisions[item.episode.id] = local.revision;
+        }
+      }
+      final merged = await applyPendingEpisodeChanges(
+        subjectId,
+        remote,
+        afterRevision: revision,
+      );
+      _requireEditAccount(generation, username);
+      try {
+        await _snapshotCache.writeEpisodeCollections(
+          subjectId,
+          merged,
+          username: username,
+        );
+      } catch (_) {}
+      _requireEditAccount(generation, username);
+      return merged;
+    });
+  }
+
   Future<void> _authWrites = Future<void>.value();
 
   bool _isCurrentAuth(int generation) =>
@@ -452,6 +579,8 @@ class SessionController extends StateNotifier<SessionState> {
             return false;
           }
           _subjectMutationRevisions.clear();
+          _episodeChanges.clear();
+          _confirmedEpisodeRevisions.clear();
           _localMutationRevision = 0;
         }
         snapshot = alreadyRestored && state.user?.username == user.username
@@ -814,8 +943,10 @@ class SessionController extends StateNotifier<SessionState> {
 
   Future<List<UserEpisodeCollection>> applyPendingEpisodeChanges(
     int subjectId,
-    List<UserEpisodeCollection> source,
-  ) async {
+    List<UserEpisodeCollection> source, {
+    int? afterRevision,
+  }) async {
+    final generation = _authGeneration;
     final username = state.user?.username;
     if (username == null || username.isEmpty) return source;
     final merged = List<UserEpisodeCollection>.from(source);
@@ -855,6 +986,19 @@ class SessionController extends StateNotifier<SessionState> {
         }
       }
     } catch (_) {}
+    _requireEditAccount(generation, username);
+    if (afterRevision != null) {
+      for (var index = 0; index < merged.length; index++) {
+        final change = _episodeChanges[merged[index].episode.id];
+        if (change != null &&
+            change.subjectId == subjectId &&
+            (change.revision > afterRevision ||
+                _confirmedEpisodeRevisions[change.episodeId] !=
+                    change.revision)) {
+          merged[index] = merged[index].copyWith(type: change.type);
+        }
+      }
+    }
     return merged;
   }
 
@@ -1037,11 +1181,19 @@ class SessionController extends StateNotifier<SessionState> {
         } else if (retryLater) {
           _scheduleSyncRetry();
         }
+      } else if (mounted &&
+          state.user != null &&
+          state.pendingSyncCount > state.blockedSyncCount) {
+        // New-account edits joined the old in-flight drain. Resume them once
+        // it has settled, while keeping uploads serialized across logins.
+        _scheduleSyncRetry(immediate: true);
       }
     }
   }
 
   Future<void> _replayMutation(PendingBangumiMutation mutation) async {
+    final generation = _authGeneration;
+    _requireEditAccount(generation, mutation.username);
     await _api.replayPendingMutation(mutation.kind, mutation.payload);
     if (mutation.kind != BangumiMutationKind.collection ||
         mutation.payload['complete_episodes'] != true ||
@@ -1049,7 +1201,9 @@ class SessionController extends StateNotifier<SessionState> {
       return;
     }
     final subjectId = (mutation.payload['subject_id'] as num).toInt();
+    _requireEditAccount(generation, mutation.username);
     final episodes = await _api.getEpisodeCollections(subjectId);
+    _requireEditAccount(generation, mutation.username);
     final unfinished = BangumiSupport.unfinishedMainEpisodeIds(episodes);
     if (unfinished.isNotEmpty) {
       await _api.updateEpisodesBatch(
@@ -1067,11 +1221,17 @@ class SessionController extends StateNotifier<SessionState> {
   /// state for the same subject.
   Future<void> _persistEpisodeSnapshot(
     int subjectId, {
+    required String username,
+    required int generation,
     int? episodeId,
     int? type,
   }) async {
     try {
-      final cached = await _snapshotCache.readEpisodeCollections(subjectId);
+      final cached = await _snapshotCache.readEpisodeCollections(
+        subjectId,
+        username: username,
+      );
+      _requireEditAccount(generation, username);
       if (cached == null || cached.isEmpty) return;
       final edited = [
         for (final item in cached)
@@ -1080,8 +1240,16 @@ class SessionController extends StateNotifier<SessionState> {
           else
             item,
       ];
-      final merged = await applyPendingEpisodeChanges(subjectId, edited);
-      await _snapshotCache.writeEpisodeCollections(subjectId, merged);
+      final merged = await applyPendingEpisodeChanges(
+        subjectId,
+        edited,
+        afterRevision: _localMutationRevision,
+      );
+      await _snapshotCache.writeEpisodeCollections(
+        subjectId,
+        merged,
+        username: username,
+      );
     } catch (_) {
       // The queue entry is durable on its own; a snapshot hiccup must not
       // surface as a failed edit.
@@ -1157,32 +1325,38 @@ class SessionController extends StateNotifier<SessionState> {
     }
   }
 
-  Future<String?> discardBlockedMutation(
-    PendingBangumiMutation mutation,
-  ) async {
-    final username = state.user?.username;
-    if (username == null || username.isEmpty) return '请先登录后再处理';
-    if (mutation.username != username) return '该同步记录不属于当前账号';
-    try {
+  Future<String?> discardBlockedMutation(PendingBangumiMutation mutation) {
+    final subjectId = (mutation.payload['subject_id'] as num?)?.toInt();
+    if (subjectId == null || subjectId <= 0) return Future.value('同步记录缺少作品信息');
+    return _editSubject(subjectId, (generation, username) async {
+      if (mutation.username != username) return '该同步记录不属于当前账号';
       final discarded = await _syncStore.discardIfUnchanged(mutation);
       await _refreshPendingCount(username);
+      _requireEditAccount(generation, username);
       if (!discarded) return '同步记录已变化，请刷新列表后重试';
+      _subjectMutationRevisions[subjectId] = ++_localMutationRevision;
+      for (final change
+          in _episodeChanges.values
+              .where((change) => change.subjectId == subjectId)
+              .toList()) {
+        _episodeChanges.remove(change.episodeId);
+        _confirmedEpisodeRevisions.remove(change.episodeId);
+      }
+      if (state.episodeUndo?.change.subjectId == subjectId) {
+        state = state.copyWith(clearEpisodeUndo: true);
+      }
       try {
         await _snapshotCache.clearCollections(username);
-        final subjectId = (mutation.payload['subject_id'] as num?)?.toInt();
-        if (subjectId != null &&
-            (mutation.kind != BangumiMutationKind.collection ||
-                mutation.payload['complete_episodes'] == true)) {
-          await _snapshotCache.clearEpisodeCollections(subjectId);
+        if (mutation.kind != BangumiMutationKind.collection ||
+            mutation.payload['complete_episodes'] == true) {
+          await _snapshotCache.clearEpisodeCollections(
+            subjectId,
+            username: username,
+          );
         }
-      } catch (_) {
-        // The rejected queue entry is already gone. Snapshot cleanup is
-        // best-effort; the UI also triggers a server refresh immediately.
-      }
+      } catch (_) {}
       return null;
-    } catch (error) {
-      return _messageFor(error);
-    }
+    });
   }
 
   Future<String> _enqueueMutation({
@@ -1190,6 +1364,7 @@ class SessionController extends StateNotifier<SessionState> {
     required String mutationKey,
     required Map<String, dynamic> payload,
   }) async {
+    final generation = _authGeneration;
     final username = state.user?.username;
     if (username == null || username.isEmpty) {
       throw const BangumiApiException('请先登录后再修改');
@@ -1200,16 +1375,19 @@ class SessionController extends StateNotifier<SessionState> {
       mutationKey: mutationKey,
       payload: payload,
     );
-    if (state.user?.username != username) {
+    if (!_isCurrentAuth(generation) || state.user?.username != username) {
       throw const BangumiApiException('登录状态已变化，修改已保存在原账号的本地队列中');
     }
     final subjectId = (payload['subject_id'] as num?)?.toInt();
     if (subjectId != null && subjectId > 0) {
+      if (state.episodeUndo?.change.subjectId == subjectId) {
+        state = state.copyWith(clearEpisodeUndo: true);
+      }
       _localMutationRevision++;
       _subjectMutationRevisions[subjectId] = _localMutationRevision;
     }
     await _refreshPendingCount(username);
-    if (state.user?.username != username) {
+    if (!_isCurrentAuth(generation) || state.user?.username != username) {
       throw const BangumiApiException('登录状态已变化，修改已保存在原账号的本地队列中');
     }
     unawaited(syncPendingChanges());
@@ -1336,59 +1514,62 @@ class SessionController extends StateNotifier<SessionState> {
     }
   }
 
-  Future<String?> markNextEpisode(UserCollection collection) async {
-    if (state.updatingSubjects.contains(collection.subjectId)) return null;
-    _setUpdating(collection.subjectId, true);
-    try {
+  Future<String?> markNextEpisode(
+    UserCollection collection, {
+    void Function(EpisodeUndo)? onUndoReady,
+  }) {
+    final subjectId = collection.subjectId;
+    if (_subjectOperations.containsKey('$_authGeneration:$subjectId')) {
+      return Future.value('章节修改正在保存');
+    }
+    return _editSubject(subjectId, (generation, username) async {
+      final revision = _localMutationRevision;
       List<UserEpisodeCollection> episodes;
       try {
-        episodes = await _api.getEpisodeCollections(collection.subjectId);
+        episodes = await _api.getEpisodeCollections(subjectId);
       } catch (_) {
         episodes =
-            await _snapshotCache.readEpisodeCollections(collection.subjectId) ??
+            await _snapshotCache.readEpisodeCollections(
+              subjectId,
+              username: username,
+            ) ??
             const [];
         if (episodes.isEmpty) rethrow;
       }
+      _requireEditAccount(generation, username);
       episodes = await applyPendingEpisodeChanges(
-        collection.subjectId,
+        subjectId,
         episodes,
+        afterRevision: revision,
       );
-      await _snapshotCache.writeEpisodeCollections(
-        collection.subjectId,
-        episodes,
-      );
+      _requireEditAccount(generation, username);
       final target = BangumiSupport.nextUnwatchedMain(episodes);
       if (target == null) return '已经没有下一集了';
+      try {
+        await _snapshotCache.writeEpisodeCollections(
+          subjectId,
+          episodes,
+          username: username,
+        );
+      } catch (_) {}
+      _requireEditAccount(generation, username);
       final watchedCount = BangumiSupport.watchedMainCountAfterMark(
         episodes,
         target.episode.id,
       );
-      final username = await _enqueueMutation(
-        kind: BangumiMutationKind.episode,
-        mutationKey: 'episode:${target.episode.id}',
-        payload: {
-          'subject_id': collection.subjectId,
-          'episode_id': target.episode.id,
-          'type': 2,
-          'local_episode_status': watchedCount,
-        },
-      );
-      await _persistEpisodeSnapshot(
-        collection.subjectId,
+      return _saveEpisodeEdit(
+        subjectId: subjectId,
         episodeId: target.episode.id,
         type: 2,
+        previousType: target.type,
+        nextCount: watchedCount,
+        previousCount: watchedCount - 1,
+        episode: target.episode,
+        generation: generation,
+        username: username,
+        onUndoReady: onUndoReady,
       );
-      if (state.user?.username != username) {
-        return '登录状态已变化，修改已保存在原账号的本地队列中';
-      }
-      _replaceCollection(collection.copyWith(episodeStatus: watchedCount));
-      await _snapshotCache.writeCollections(username, state.collections);
-      return null;
-    } catch (error) {
-      return _messageFor(error);
-    } finally {
-      _setUpdating(collection.subjectId, false);
-    }
+    });
   }
 
   Future<String?> setEpisode({
@@ -1396,44 +1577,138 @@ class SessionController extends StateNotifier<SessionState> {
     required int episodeId,
     required int type,
     int? previousType,
+    Episode? episode,
     bool trackGlobalBusy = true,
-  }) async {
-    if (trackGlobalBusy) {
-      _setUpdating(subjectId, true);
-    }
-    try {
+    void Function(EpisodeUndo)? onUndoReady,
+  }) {
+    final requestRevision = _localMutationRevision;
+    return _editSubject(subjectId, (generation, username) async {
       final collection = state.collectionFor(subjectId);
-      int? nextCount;
-      if (collection != null && previousType != null && previousType != type) {
-        final delta = (type == 2 ? 1 : 0) - (previousType == 2 ? 1 : 0);
-        nextCount = (collection.episodeStatus + delta).clamp(0, 1 << 30);
-      }
-      final username = await _enqueueMutation(
-        kind: BangumiMutationKind.episode,
-        mutationKey: 'episode:$episodeId',
-        payload: {
-          'subject_id': subjectId,
-          'episode_id': episodeId,
-          'type': type,
-          'local_episode_status': ?nextCount,
-        },
-      );
-      await _persistEpisodeSnapshot(
-        subjectId,
+      final newer = _episodeChanges[episodeId];
+      final before = newer != null && newer.revision > requestRevision
+          ? newer.type
+          : previousType;
+      if (before == type) return null;
+      final countsMain = episode == null || episode.type == 0;
+      final previousCount = countsMain ? collection?.episodeStatus : null;
+      final delta = before == null
+          ? 0
+          : (type == 2 ? 1 : 0) - (before == 2 ? 1 : 0);
+      final nextCount = previousCount == null || before == null
+          ? null
+          : (previousCount + delta).clamp(0, 1 << 30);
+      return _saveEpisodeEdit(
+        subjectId: subjectId,
         episodeId: episodeId,
         type: type,
+        previousType: before,
+        nextCount: nextCount,
+        previousCount: previousCount,
+        episode: episode,
+        generation: generation,
+        username: username,
+        onUndoReady: onUndoReady,
       );
-      if (collection != null && nextCount != null) {
-        _replaceCollection(collection.copyWith(episodeStatus: nextCount));
-        await _snapshotCache.writeCollections(username, state.collections);
-      }
-      return null;
-    } catch (error) {
-      return _messageFor(error);
-    } finally {
-      if (trackGlobalBusy) {
-        _setUpdating(subjectId, false);
-      }
+    }, trackGlobalBusy: trackGlobalBusy);
+  }
+
+  Future<String?> _saveEpisodeEdit({
+    required int subjectId,
+    required int episodeId,
+    required int type,
+    required int? previousType,
+    required int? nextCount,
+    required int? previousCount,
+    required int generation,
+    required String username,
+    Episode? episode,
+    void Function(EpisodeUndo)? onUndoReady,
+    bool createUndo = true,
+  }) async {
+    _requireEditAccount(generation, username);
+    await _enqueueMutation(
+      kind: BangumiMutationKind.episode,
+      mutationKey: 'episode:$episodeId',
+      payload: {
+        'subject_id': subjectId,
+        'episode_id': episodeId,
+        'type': type,
+        'local_episode_status': ?nextCount,
+      },
+    );
+    _requireEditAccount(generation, username);
+    final change = EpisodeEdit(
+      subjectId: subjectId,
+      episodeId: episodeId,
+      type: type,
+      revision: _subjectMutationRevisions[subjectId]!,
+    );
+    _episodeChanges[episodeId] = change;
+    final current = state.collectionFor(subjectId);
+    final undo = createUndo && previousType != null
+        ? EpisodeUndo(
+            userId: state.user!.id,
+            username: username,
+            authGeneration: generation,
+            change: change,
+            previousType: previousType,
+            previousCount: previousCount,
+            subjectTitle: current?.subject.displayName ?? '作品 $subjectId',
+            episodeLabel: episode == null
+                ? '章节 $episodeId'
+                : '${BangumiSupport.episodeTypeLabel(episode.type)} 第 ${episode.number % 1 == 0 ? episode.number.toInt() : episode.number} 话',
+          )
+        : null;
+    if (current != null && nextCount != null) {
+      _replaceCollection(current.copyWith(episodeStatus: nextCount));
+    }
+    state = state.copyWith(
+      lastEpisodeEdit: change,
+      episodeUndo: undo,
+      clearEpisodeUndo: undo == null,
+    );
+    await _persistEpisodeSnapshot(
+      subjectId,
+      username: username,
+      generation: generation,
+      episodeId: episodeId,
+      type: type,
+    );
+    _requireEditAccount(generation, username);
+    try {
+      await _snapshotCache.writeCollections(username, state.collections);
+    } catch (_) {}
+    _requireEditAccount(generation, username);
+    if (undo != null) onUndoReady?.call(undo);
+    return null;
+  }
+
+  Future<String?> undoEpisode(EpisodeUndo undo) =>
+      _editSubject(undo.change.subjectId, (generation, username) async {
+        if (!identical(state.episodeUndo, undo) ||
+            undo.authGeneration != generation ||
+            undo.userId != state.user?.id ||
+            undo.username != username ||
+            _subjectMutationRevisions[undo.change.subjectId] !=
+                undo.change.revision) {
+          return '这次操作已失效，后续修改保持不变';
+        }
+        return _saveEpisodeEdit(
+          subjectId: undo.change.subjectId,
+          episodeId: undo.change.episodeId,
+          type: undo.previousType,
+          previousType: undo.change.type,
+          nextCount: undo.previousCount,
+          previousCount: null,
+          generation: generation,
+          username: username,
+          createUndo: false,
+        );
+      });
+
+  void dismissEpisodeUndo(EpisodeUndo undo) {
+    if (mounted && identical(state.episodeUndo, undo)) {
+      state = state.copyWith(clearEpisodeUndo: true);
     }
   }
 
@@ -1447,8 +1722,7 @@ class SessionController extends StateNotifier<SessionState> {
     bool? private,
     int? episodeStatus,
     int? volumeStatus,
-  }) async {
-    _setUpdating(subject.id, true);
+  }) => _editSubject(subject.id, (generation, username) async {
     try {
       final old = state.collectionFor(subject.id);
       final nextRate = rate ?? old?.rate ?? 0;
@@ -1471,6 +1745,7 @@ class SessionController extends StateNotifier<SessionState> {
       if (shouldCompleteEpisodes) {
         cachedEpisodes = await _snapshotCache.readEpisodeCollections(
           subject.id,
+          username: username,
         );
         if (cachedEpisodes != null && cachedEpisodes.isNotEmpty) {
           resolvedEpisodeStatus = BangumiSupport.mainEpisodeCollections(
@@ -1480,7 +1755,8 @@ class SessionController extends StateNotifier<SessionState> {
           resolvedEpisodeStatus = subject.episodeCount;
         }
       }
-      final username = await _enqueueMutation(
+      _requireEditAccount(generation, username);
+      await _enqueueMutation(
         kind: BangumiMutationKind.collection,
         mutationKey: 'collection:${subject.id}',
         payload: {
@@ -1498,11 +1774,22 @@ class SessionController extends StateNotifier<SessionState> {
           'local_updated_at': DateTime.now().toIso8601String(),
         },
       );
+      _requireEditAccount(generation, username);
       if (shouldCompleteEpisodes && cachedEpisodes != null) {
+        for (final item in cachedEpisodes.where(
+          (item) => item.episode.type == 0,
+        )) {
+          _episodeChanges[item.episode.id] = EpisodeEdit(
+            subjectId: subject.id,
+            episodeId: item.episode.id,
+            type: 2,
+            revision: _subjectMutationRevisions[subject.id]!,
+          );
+        }
         await _snapshotCache.writeEpisodeCollections(subject.id, [
           for (final item in cachedEpisodes)
             if (item.episode.type == 0) item.copyWith(type: 2) else item,
-        ]);
+        ], username: username);
       }
       if (state.user?.username != username) {
         return '登录状态已变化，修改已保存在原账号的本地队列中';
@@ -1542,10 +1829,8 @@ class SessionController extends StateNotifier<SessionState> {
       return null;
     } catch (error) {
       return _messageFor(error);
-    } finally {
-      _setUpdating(subject.id, false);
     }
-  }
+  });
 
   Future<void> signOut() => _forceSignOut();
 
@@ -1554,6 +1839,8 @@ class SessionController extends StateNotifier<SessionState> {
     final generation = ++_authGeneration;
     _collectionsGeneration++;
     _subjectMutationRevisions.clear();
+    _episodeChanges.clear();
+    _confirmedEpisodeRevisions.clear();
     _localMutationRevision = 0;
     _syncRetryTimer?.cancel();
     _syncRetryTimer = null;

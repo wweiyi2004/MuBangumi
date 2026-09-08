@@ -3,8 +3,9 @@ import 'readable_subject_title.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/network/bangumi_support.dart';
-import '../core/storage/snapshot_cache.dart';
 import '../models/bangumi_models.dart';
+import '../models/episode_edit.dart';
+import 'episode_undo_message.dart';
 import '../state/session_controller.dart';
 import 'subject_widgets.dart';
 
@@ -21,7 +22,9 @@ Future<void> showEpisodeGridSheet(
     constraints: const BoxConstraints(maxWidth: 760),
     builder: (_) => FractionallySizedBox(
       heightFactor: .86,
-      child: _EpisodeGridPanel(collection: collection),
+      child: ScaffoldMessenger(
+        child: Scaffold(body: _EpisodeGridPanel(collection: collection)),
+      ),
     ),
   );
 }
@@ -41,6 +44,10 @@ class _EpisodeGridPanelState extends ConsumerState<_EpisodeGridPanel> {
   bool _loading = true;
   String? _error;
   int? _typeFilter;
+  int _loadGeneration = 0;
+  late final int? _accountId;
+  bool get _sameAccount =>
+      mounted && ref.read(sessionProvider).user?.id == _accountId;
 
   /// True once the user changed any episode status in this sheet session.
   bool _changed = false;
@@ -48,50 +55,73 @@ class _EpisodeGridPanelState extends ConsumerState<_EpisodeGridPanel> {
   @override
   void initState() {
     super.initState();
+    _accountId = ref.read(sessionProvider).user?.id;
+    ref.listenManual(sessionProvider.select((state) => state.user?.id), (
+      _,
+      next,
+    ) {
+      if (next != _accountId && mounted) {
+        _loadGeneration++;
+        setState(() {
+          _episodes = const [];
+          _loading = false;
+          _error = '登录已变化，请重新打开章节';
+        });
+      }
+    });
+    ref.listenManual(sessionProvider.select((state) => state.lastEpisodeEdit), (
+      _,
+      change,
+    ) {
+      if (!_sameAccount ||
+          change == null ||
+          change.subjectId != widget.collection.subjectId) {
+        return;
+      }
+      setState(() {
+        _episodes = [
+          for (final item in _episodes)
+            item.episode.id == change.episodeId
+                ? item.copyWith(type: change.type)
+                : item,
+        ];
+      });
+    });
     Future.microtask(_load);
   }
 
   Future<void> _load() async {
+    if (!_sameAccount) return;
+    final generation = ++_loadGeneration;
+    bool current() => _sameAccount && generation == _loadGeneration;
     setState(() {
       _loading = true;
       _error = null;
     });
-    final cache = SnapshotCache.shared;
-    final cached = await cache.readEpisodeCollections(
-      widget.collection.subjectId,
-    );
-    if (!mounted) return;
-    if (cached != null && cached.isNotEmpty) {
-      final localCached = await ref
-          .read(sessionProvider.notifier)
-          .applyPendingEpisodeChanges(widget.collection.subjectId, cached);
-      if (!mounted) return;
-      setState(() {
-        _episodes = localCached;
-        _loading = false;
-      });
-    }
+    final session = ref.read(sessionProvider.notifier);
     try {
-      var episodes = await ref
-          .read(bangumiApiProvider)
-          .getEpisodeCollections(
-            widget.collection.subjectId,
-            episodeType: null,
-          );
-      episodes = await ref
-          .read(sessionProvider.notifier)
-          .applyPendingEpisodeChanges(widget.collection.subjectId, episodes);
-      if (!mounted) return;
+      final cached = await session.readEpisodeSnapshot(
+        widget.collection.subjectId,
+      );
+      if (!current()) return;
+      if (cached != null && cached.isNotEmpty) {
+        setState(() {
+          _episodes = cached;
+          _loading = false;
+        });
+      }
+    } catch (_) {}
+    try {
+      final episodes = await session.loadEpisodeCollections(
+        widget.collection.subjectId,
+      );
+      if (!current()) return;
       setState(() {
         _episodes = episodes;
         _loading = false;
       });
-      await cache.writeEpisodeCollections(
-        widget.collection.subjectId,
-        episodes,
-      );
     } catch (error) {
-      if (!mounted) return;
+      if (!current()) return;
       setState(() {
         _loading = false;
         if (_episodes.isEmpty) _error = error.toString();
@@ -196,24 +226,24 @@ class _EpisodeGridPanelState extends ConsumerState<_EpisodeGridPanel> {
             ),
           Padding(
             padding: const EdgeInsets.fromLTRB(22, 14, 22, 10),
-            child: Row(
+            child: Wrap(
+              spacing: 16,
+              runSpacing: 8,
+              crossAxisAlignment: WrapCrossAlignment.center,
               children: [
                 _Legend(
                   color: Theme.of(context).colorScheme.primary,
                   label: '看过',
                 ),
-                const SizedBox(width: 16),
                 _Legend(
                   color: Theme.of(context).colorScheme.secondaryContainer,
                   label: '想看',
                 ),
-                const SizedBox(width: 16),
                 _Legend(
                   color: Colors.transparent,
                   label: '未标记',
                   outlined: true,
                 ),
-                const Spacer(),
                 Text(
                   '点击切换 · 长按更多',
                   style: Theme.of(context).textTheme.bodySmall,
@@ -235,7 +265,7 @@ class _EpisodeGridPanelState extends ConsumerState<_EpisodeGridPanel> {
         title: '章节状态加载失败',
         message: _error!,
         action: FilledButton.tonalIcon(
-          onPressed: _load,
+          onPressed: _sameAccount ? _load : null,
           icon: const Icon(Icons.refresh_rounded),
           label: const Text('重试'),
         ),
@@ -251,9 +281,9 @@ class _EpisodeGridPanelState extends ConsumerState<_EpisodeGridPanel> {
     }
     return GridView.builder(
       padding: const EdgeInsets.fromLTRB(22, 10, 22, 30),
-      gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+      gridDelegate: SliverGridDelegateWithMaxCrossAxisExtent(
         maxCrossAxisExtent: 78,
-        mainAxisExtent: 58,
+        mainAxisExtent: 38 + MediaQuery.textScalerOf(context).scale(20),
         mainAxisSpacing: 10,
         crossAxisSpacing: 10,
       ),
@@ -299,7 +329,15 @@ class _EpisodeGridPanelState extends ConsumerState<_EpisodeGridPanel> {
         ],
       ),
     );
-    if (type != null && type != item.type) await _setStatus(index, type);
+    if (!mounted || !_sameAccount) return;
+    final currentIndex = _episodes.indexWhere(
+      (entry) => entry.episode.id == item.episode.id,
+    );
+    if (currentIndex >= 0 &&
+        type != null &&
+        type != _episodes[currentIndex].type) {
+      await _setStatus(currentIndex, type);
+    }
   }
 
   Widget _statusOption(
@@ -318,32 +356,40 @@ class _EpisodeGridPanelState extends ConsumerState<_EpisodeGridPanel> {
   );
 
   Future<void> _setStatus(int index, int type) async {
+    if (!_sameAccount || index < 0 || index >= _episodes.length) return;
     final item = _episodes[index];
-    if (_updating.contains(item.episode.id)) return;
+    if (!_sameAccount || _updating.contains(item.episode.id)) return;
     setState(() {
       _updating.add(item.episode.id);
       _episodes[index] = item.copyWith(type: type);
     });
-    final error = await ref
-        .read(sessionProvider.notifier)
-        .setEpisode(
-          subjectId: widget.collection.subjectId,
-          episodeId: item.episode.id,
-          type: type,
-          previousType: item.type,
-          trackGlobalBusy: false,
-        );
-    if (!mounted) return;
+    EpisodeUndo? undo;
+    final controller = ref.read(sessionProvider.notifier);
+    final error = await controller.setEpisode(
+      subjectId: widget.collection.subjectId,
+      episodeId: item.episode.id,
+      type: type,
+      previousType: item.type,
+      episode: item.episode,
+      onUndoReady: (value) => undo = value,
+      trackGlobalBusy: false,
+    );
+    if (!mounted || !_sameAccount) return;
     setState(() {
       _updating.remove(item.episode.id);
       if (error != null) {
-        _episodes[index] = item;
+        _episodes = [
+          for (final entry in _episodes)
+            entry.episode.id == item.episode.id ? item : entry,
+        ];
       } else {
         _changed = true;
       }
     });
     if (error != null) {
       showAppMessage(context, error);
+    } else if (undo != null) {
+      showEpisodeUndoMessage(context, controller, undo!);
     }
   }
 
@@ -379,7 +425,7 @@ class _EpisodeCell extends StatelessWidget {
         colors.onErrorContainer,
         colors.errorContainer,
       ),
-      _ => (Colors.white, colors.onSurface, colors.outlineVariant),
+      _ => (colors.surface, colors.onSurface, colors.outlineVariant),
     };
     final number = item.episode.number % 1 == 0
         ? item.episode.number.toInt().toString()

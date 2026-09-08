@@ -9,6 +9,7 @@ import 'package:mubangumi/core/storage/bangumi_sync_store.dart';
 import 'package:mubangumi/core/storage/snapshot_cache.dart';
 import 'package:mubangumi/core/storage/token_store.dart';
 import 'package:mubangumi/models/bangumi_models.dart';
+import 'package:mubangumi/models/episode_edit.dart';
 import 'package:mubangumi/state/session_controller.dart';
 
 void main() {
@@ -1248,6 +1249,369 @@ void main() {
       expect(await syncStore.blockedFor('another'), hasLength(1));
     },
   );
+
+  Future<SessionController> undoController({
+    BangumiApi? api,
+    _MemorySnapshotCache? snapshot,
+    BangumiSyncStore? queue,
+  }) async {
+    final controller = buildController(
+      store: _MemoryTokenStore(config: config),
+      oauth: _FailingOAuth(const BangumiOAuthException('网络暂时不可用')),
+      api: api ?? _EpisodeReadApi(),
+      snapshotCache: snapshot,
+      syncStore: queue,
+    );
+    addTearDown(controller.dispose);
+    await _waitFor(
+      () =>
+          controller.state.phase == SessionPhase.signedIn &&
+          !controller.state.isLoadingCollections,
+    );
+    return controller;
+  }
+
+  Future<EpisodeUndo> mark(
+    SessionController controller, {
+    int episodeId = 7,
+    int type = 2,
+    int previousType = 0,
+    Episode? episode,
+  }) async {
+    EpisodeUndo? undo;
+    expect(
+      await controller.setEpisode(
+        subjectId: 99,
+        episodeId: episodeId,
+        type: type,
+        previousType: previousType,
+        episode:
+            episode ?? _testEpisodeCollection(episodeId, episodeId - 6).episode,
+        onUndoReady: (value) => undo = value,
+        trackGlobalBusy: false,
+      ),
+      isNull,
+    );
+    return undo!;
+  }
+
+  test(
+    'offline undo restores snapshot count and the durable queue final value',
+    () async {
+      final queue = _MemorySyncStore();
+      final snapshot = _MemorySnapshotCache()
+        ..episodeCollections[99] = [_testEpisodeCollection(7, 1)];
+      final controller = await undoController(snapshot: snapshot, queue: queue);
+      final undo = await mark(controller);
+      expect(controller.state.collectionFor(99)!.episodeStatus, 1);
+      expect(undo.message, contains('第 1 话'));
+      expect(await controller.undoEpisode(undo), isNull);
+      expect(controller.state.collectionFor(99)!.episodeStatus, 0);
+      expect(snapshot.episodeCollections[99]!.single.type, 0);
+      expect(
+        (await queue.pendingFor(
+          'tester',
+          includeBlocked: true,
+        )).single.payload['type'],
+        0,
+      );
+      final revision = queue.mutations.single.revision;
+      expect(await controller.undoEpisode(undo), isNotNull);
+      expect(queue.mutations.single.revision, revision);
+    },
+  );
+
+  test(
+    'undo during upload survives acknowledgement and uploads compensation',
+    () async {
+      final api = _ControlledReplayApi();
+      final queue = _MemorySyncStore();
+      final controller = await undoController(api: api, queue: queue);
+      final undo = await mark(controller);
+      await api.firstUploadStarted.future;
+      expect(await controller.undoEpisode(undo), isNull);
+      expect(queue.mutations.single.payload['type'], 0);
+      api.releaseFirstUpload.complete();
+      await _waitFor(
+        () =>
+            api.replayed.length == 2 && controller.state.pendingSyncCount == 0,
+      );
+      expect(api.replayed.map((item) => item['type']), [2, 0]);
+      expect(controller.state.collectionFor(99)!.episodeStatus, 0);
+    },
+  );
+
+  test(
+    'undo after upload creates a new compensation and preserves collection metadata',
+    () async {
+      final api = _EpisodeReadApi()..offline = false;
+      final controller = await undoController(api: api);
+      final undo = await mark(controller);
+      await _waitFor(() => controller.state.pendingSyncCount == 0);
+      expect(await controller.undoEpisode(undo), isNull);
+      await _waitFor(
+        () =>
+            api.replayed.length == 2 && controller.state.pendingSyncCount == 0,
+      );
+      expect(api.replayed.map((item) => item['type']), [2, 0]);
+      expect(controller.state.collectionFor(99)!.type, CollectionType.doing);
+    },
+  );
+
+  test(
+    'simultaneous episode edits accumulate counts and only the latest is undoable',
+    () async {
+      final controller = await undoController();
+      final changes = await Future.wait([
+        mark(controller),
+        mark(controller, episodeId: 8),
+      ]);
+      expect(controller.state.collectionFor(99)!.episodeStatus, 2);
+      expect(await controller.undoEpisode(changes.first), isNotNull);
+      expect(controller.state.collectionFor(99)!.episodeStatus, 2);
+      expect(await controller.undoEpisode(changes.last), isNull);
+      expect(controller.state.collectionFor(99)!.episodeStatus, 1);
+    },
+  );
+
+  test(
+    'later modification of the same episode invalidates the earlier undo',
+    () async {
+      final controller = await undoController();
+      final first = await mark(controller);
+      final second = await mark(controller, type: 1, previousType: 2);
+      expect(await controller.undoEpisode(first), isNotNull);
+      expect(controller.state.lastEpisodeEdit!.type, 1);
+      expect(await controller.undoEpisode(second), isNull);
+      expect(controller.state.lastEpisodeEdit!.type, 2);
+      expect(controller.state.collectionFor(99)!.episodeStatus, 1);
+    },
+  );
+
+  test('completing a collection invalidates an earlier episode undo', () async {
+    final controller = await undoController();
+    final undo = await mark(controller);
+    expect(
+      await controller.changeCollection(
+        _testSubject,
+        CollectionType.done,
+        rate: 9,
+      ),
+      isNull,
+    );
+    expect(await controller.undoEpisode(undo), isNotNull);
+    expect(controller.state.collectionFor(99)!.type, CollectionType.done);
+    expect(controller.state.collectionFor(99)!.rate, 9);
+    expect(controller.state.collectionFor(99)!.episodeStatus, 1);
+  });
+
+  test(
+    'special episode edits and undo never inflate main episode progress',
+    () async {
+      final controller = await undoController();
+      const special = Episode(
+        id: 77,
+        type: 1,
+        number: 1,
+        sort: 1,
+        name: 'SP',
+        nameCn: '',
+        airDate: '',
+        description: '',
+      );
+      final undo = await mark(controller, episodeId: 77, episode: special);
+      expect(controller.state.collectionFor(99)!.episodeStatus, 0);
+      expect(await controller.undoEpisode(undo), isNull);
+      expect(controller.state.collectionFor(99)!.episodeStatus, 0);
+      expect(controller.state.lastEpisodeEdit!.type, 0);
+    },
+  );
+
+  test('failed undo persistence retains the edit and allows retry', () async {
+    final queue = _RejectingSyncStore();
+    final controller = await undoController(queue: queue);
+    final undo = await mark(controller);
+    queue.fail = true;
+    expect(await controller.undoEpisode(undo), isNotNull);
+    expect(controller.state.collectionFor(99)!.episodeStatus, 1);
+    expect(controller.pendingEpisodeUndo, same(undo));
+    queue.fail = false;
+    expect(await controller.undoEpisode(undo), isNull);
+    expect(controller.state.collectionFor(99)!.episodeStatus, 0);
+  });
+
+  test(
+    'late network chapters cannot replace an undo after both uploads complete',
+    () async {
+      final api = _EpisodeReadApi()..offline = false;
+      final snapshot = _MemorySnapshotCache()
+        ..episodeCollections[99] = [_testEpisodeCollection(7, 1)];
+      final controller = await undoController(api: api, snapshot: snapshot);
+      final undo = await mark(controller);
+      await _waitFor(() => controller.state.pendingSyncCount == 0);
+      final pending = Completer<List<UserEpisodeCollection>>();
+      api.pending = pending.future;
+      final loading = controller.loadEpisodeCollections(99);
+      await controller.undoEpisode(undo);
+      await _waitFor(() => controller.state.pendingSyncCount == 0);
+      pending.complete([_testEpisodeCollection(7, 1).copyWith(type: 2)]);
+      expect((await loading).single.type, 0);
+      expect(snapshot.episodeCollections[99]!.single.type, 0);
+    },
+  );
+
+  test(
+    'old next-episode response cannot enqueue work for a replacement account',
+    () async {
+      final api = _EpisodeReadApi();
+      final queue = _MemorySyncStore();
+      final controller = await undoController(api: api, queue: queue);
+      final pending = Completer<List<UserEpisodeCollection>>();
+      api.pending = pending.future;
+      final edit = controller.markNextEpisode(
+        controller.state.collectionFor(99)!,
+      );
+      await Future<void>.delayed(Duration.zero);
+      await controller.signOut();
+      api.otherUser = true;
+      expect(await controller.signIn('replacement-token'), isTrue);
+      pending.complete([_testEpisodeCollection(7, 1)]);
+      expect(await edit, isNotNull);
+      expect(queue.mutations, isEmpty);
+      expect(controller.state.user!.id, 2);
+    },
+  );
+
+  test(
+    'undo from before logout stays invalid after signing in as the same user',
+    () async {
+      final controller = await undoController();
+      final undo = await mark(controller);
+      await controller.signOut();
+      expect(await controller.signIn('replacement-token'), isTrue);
+      expect(await controller.undoEpisode(undo), isNotNull);
+      expect(controller.pendingEpisodeUndo, isNull);
+    },
+  );
+
+  test(
+    'dismissed undo cannot be replayed through an old button callback',
+    () async {
+      final controller = await undoController();
+      final undo = await mark(controller);
+      controller.dismissEpisodeUndo(undo);
+      expect(await controller.undoEpisode(undo), isNotNull);
+      expect(controller.state.collectionFor(99)!.episodeStatus, 1);
+    },
+  );
+  test(
+    'coalescing an earlier episode key keeps the latest count after refresh and undo',
+    () async {
+      final controller = await undoController();
+      await mark(controller);
+      await mark(controller, episodeId: 8);
+      final last = await mark(controller, type: 1, previousType: 2);
+      expect(controller.state.collectionFor(99)!.episodeStatus, 1);
+      await controller.refresh();
+      expect(controller.state.collectionFor(99)!.episodeStatus, 1);
+      expect(await controller.undoEpisode(last), isNull);
+      await controller.refresh();
+      expect(controller.state.collectionFor(99)!.episodeStatus, 2);
+    },
+  );
+  test(
+    'concurrent edits to different subjects keep a valid revision for the latest undo',
+    () async {
+      final controller = await undoController();
+      const other = Subject(
+        id: 100,
+        name: 'Other',
+        nameCn: '',
+        imageUrl: '',
+        summary: '',
+        episodeCount: 12,
+        score: 0,
+        rank: 0,
+        date: '',
+      );
+      await controller.changeCollection(other, CollectionType.doing);
+      await Future.wait([
+        controller.setEpisode(
+          subjectId: 99,
+          episodeId: 7,
+          type: 2,
+          previousType: 0,
+        ),
+        controller.setEpisode(
+          subjectId: 100,
+          episodeId: 70,
+          type: 2,
+          previousType: 0,
+        ),
+      ]);
+      final undo = controller.pendingEpisodeUndo!;
+      expect(await controller.undoEpisode(undo), isNull);
+      expect(
+        controller.state.collectionFor(undo.change.subjectId)!.episodeStatus,
+        0,
+      );
+      expect(
+        controller.state
+            .collectionFor(undo.change.subjectId == 99 ? 100 : 99)!
+            .episodeStatus,
+        1,
+      );
+    },
+  );
+  test(
+    'discarding a rejected edit invalidates undo and removes its local overlay',
+    () async {
+      final queue = _MemorySyncStore();
+      final controller = await undoController(queue: queue);
+      await mark(controller);
+      await _waitFor(() => !controller.state.isSyncing);
+      final mutation = queue.mutations.single;
+      await queue.markFailure(mutation, 'rejected', blocked: true);
+      final issue = (await queue.blockedFor('tester')).single;
+      expect(await controller.discardBlockedMutation(issue), isNull);
+      expect(controller.pendingEpisodeUndo, isNull);
+      final episodes = await controller.applyPendingEpisodeChanges(99, [
+        _testEpisodeCollection(7, 1),
+      ], afterRevision: 0);
+      expect(episodes.single.type, 0);
+      await controller.refresh();
+      expect(controller.state.collectionFor(99)!.episodeStatus, 0);
+    },
+  );
+  test(
+    'new-account pending edits resume after the previous account upload settles',
+    () async {
+      final api = _SwitchingControlledApi();
+      final controller = await undoController(api: api);
+      await controller.changeCollection(_testSubject, CollectionType.wish);
+      await api.firstUploadStarted.future;
+      await controller.signOut();
+      api.secondAccount = true;
+      expect(await controller.signIn('new-token'), isTrue);
+      expect(
+        await controller.setEpisode(
+          subjectId: 99,
+          episodeId: 7,
+          type: 2,
+          previousType: 0,
+        ),
+        isNull,
+      );
+      expect(api.replayed, hasLength(1));
+      api.releaseFirstUpload.complete();
+      await _waitFor(
+        () =>
+            api.replayed.length == 2 && controller.state.pendingSyncCount == 0,
+      );
+      expect(controller.state.user!.id, 2);
+      expect(api.replayed.last['episode_id'], 7);
+    },
+  );
 }
 
 const _testSubject = Subject(
@@ -1407,19 +1771,24 @@ class _MemorySnapshotCache extends SnapshotCache {
 
   @override
   Future<List<UserEpisodeCollection>?> readEpisodeCollections(
-    int subjectId,
-  ) async => episodeCollections[subjectId];
+    int subjectId, {
+    String? username,
+  }) async => episodeCollections[subjectId];
 
   @override
   Future<void> writeEpisodeCollections(
     int subjectId,
-    List<UserEpisodeCollection> episodes,
-  ) async {
+    List<UserEpisodeCollection> episodes, {
+    String? username,
+  }) async {
     episodeCollections[subjectId] = episodes;
   }
 
   @override
-  Future<void> clearEpisodeCollections(int subjectId) async {
+  Future<void> clearEpisodeCollections(
+    int subjectId, {
+    String? username,
+  }) async {
     episodeCollections.remove(subjectId);
   }
 }
@@ -1456,17 +1825,20 @@ class _MemorySyncStore extends BangumiSyncStore {
       return;
     }
     final existing = mutations[index];
-    mutations[index] = PendingBangumiMutation(
-      id: existing.id,
-      username: username,
-      kind: kind,
-      mutationKey: mutationKey,
-      payload: Map<String, dynamic>.from(payload),
-      createdAt: existing.createdAt,
-      updatedAt: DateTime.now(),
-      revision: existing.revision + 1,
-      attempts: 0,
-      blocked: false,
+    mutations.removeAt(index);
+    mutations.add(
+      PendingBangumiMutation(
+        id: _nextId++,
+        username: username,
+        kind: kind,
+        mutationKey: mutationKey,
+        payload: Map<String, dynamic>.from(payload),
+        createdAt: existing.createdAt,
+        updatedAt: DateTime.now(),
+        revision: existing.revision + 1,
+        attempts: 0,
+        blocked: false,
+      ),
     );
   }
 
@@ -1878,4 +2250,59 @@ class _MemoryTokenStore extends TokenStore {
     refreshToken = null;
     expiresAt = null;
   }
+}
+
+class _EpisodeReadApi extends _OfflineReplayApi {
+  Future<List<UserEpisodeCollection>>? pending;
+  bool otherUser = false;
+  @override
+  Future<BangumiUser> getMe() => otherUser
+      ? Future.value(
+          const BangumiUser(
+            id: 2,
+            username: 'second',
+            nickname: 'Second',
+            avatarUrl: '',
+          ),
+        )
+      : super.getMe();
+  @override
+  Future<List<UserEpisodeCollection>> getEpisodeCollections(
+    int subjectId, {
+    int? episodeType = 0,
+  }) async => pending ?? [_testEpisodeCollection(7, 1)];
+}
+
+class _RejectingSyncStore extends _MemorySyncStore {
+  bool fail = false;
+  @override
+  Future<void> enqueue({
+    required String username,
+    required BangumiMutationKind kind,
+    required String mutationKey,
+    required Map<String, dynamic> payload,
+  }) {
+    if (fail) throw StateError('disk full');
+    return super.enqueue(
+      username: username,
+      kind: kind,
+      mutationKey: mutationKey,
+      payload: payload,
+    );
+  }
+}
+
+class _SwitchingControlledApi extends _ControlledReplayApi {
+  bool secondAccount = false;
+  @override
+  Future<BangumiUser> getMe() => secondAccount
+      ? Future.value(
+          const BangumiUser(
+            id: 2,
+            username: 'second',
+            nickname: 'Second',
+            avatarUrl: '',
+          ),
+        )
+      : super.getMe();
 }

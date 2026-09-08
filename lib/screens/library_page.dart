@@ -6,6 +6,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../core/layout/app_layout.dart';
 import '../core/storage/browsing_store.dart';
 import '../models/bangumi_models.dart';
+import '../models/episode_edit.dart';
+import '../widgets/episode_undo_message.dart';
 import '../state/session_controller.dart';
 import '../widgets/episode_grid_sheet.dart';
 import '../widgets/subject_widgets.dart';
@@ -495,14 +497,26 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
                                   supportsEpisodes &&
                                       collection.type == CollectionType.doing
                                   ? () async {
-                                      final error = await ref
-                                          .read(sessionProvider.notifier)
-                                          .markNextEpisode(collection);
+                                      EpisodeUndo? undo;
+                                      final controller = ref.read(
+                                        sessionProvider.notifier,
+                                      );
+                                      final error = await controller
+                                          .markNextEpisode(
+                                            collection,
+                                            onUndoReady: (value) =>
+                                                undo = value,
+                                          );
                                       if (context.mounted) {
-                                        showAppMessage(
-                                          context,
-                                          error ?? '已看完下一集',
-                                        );
+                                        if (error != null) {
+                                          showAppMessage(context, error);
+                                        } else if (undo != null) {
+                                          showEpisodeUndoMessage(
+                                            context,
+                                            controller,
+                                            undo!,
+                                          );
+                                        }
                                       }
                                     }
                                   : null,

@@ -3,8 +3,12 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/layout/app_layout.dart';
 import '../models/bangumi_models.dart';
+import '../models/episode_edit.dart';
+import '../widgets/episode_undo_message.dart';
 import '../state/notify_controller.dart';
 import '../state/session_controller.dart';
+import '../state/home_pins_controller.dart';
+import '../widgets/home_pins_sheet.dart';
 import '../widgets/episode_grid_sheet.dart';
 import '../widgets/friend_qr_actions.dart';
 import '../widgets/subject_widgets.dart';
@@ -45,9 +49,13 @@ class HomePage extends ConsumerWidget {
     final updating = ref.watch(
       sessionProvider.select((state) => state.updatingSubjects),
     );
-    final watchingAll = collections
-        .where((item) => item.type == CollectionType.doing)
-        .toList();
+    final pins = user == null
+        ? const HomePinsState(loading: false)
+        : ref.watch(homePinsProvider(user.id));
+    final pinController = user == null
+        ? null
+        : ref.read(homePinsProvider(user.id).notifier);
+    final watchingAll = orderHomeCollections(collections, pins.ids);
     // Cap rendered tiles so huge "doing" lists do not freeze the home page.
     const previewLimit = 18;
     final watching = watchingAll.length > previewLimit
@@ -133,33 +141,31 @@ class HomePage extends ConsumerWidget {
                         ),
                       ],
                       SizedBox(height: AppLayout.blockGap(context)),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: Text(
-                              '继续追',
-                              style: AppLayout.sectionTitleStyle(context),
-                            ),
-                          ),
-                          if (watchingAll.isNotEmpty)
-                            TextButton(
-                              onPressed: () => openCollectionLibrary(
-                                context,
-                                collectionType: CollectionType.doing,
-                              ),
-                              child: Text('查看全部（${watchingAll.length}）'),
-                            )
-                          else
-                            Text(
-                              '0 部',
-                              style: TextStyle(
-                                color: Theme.of(
-                                  context,
-                                ).colorScheme.onSurfaceVariant,
-                              ),
-                            ),
-                        ],
+                      _WatchingHeading(
+                        count: watchingAll.length,
+                        onManage: user == null
+                            ? null
+                            : () => showHomePinsSheet(context, user.id),
+                        onViewAll: () => openCollectionLibrary(
+                          context,
+                          collectionType: CollectionType.doing,
+                        ),
                       ),
+                      if (pins.error != null)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 8),
+                          child: Row(
+                            children: [
+                              Expanded(child: Text(pins.error!)),
+                              TextButton(
+                                onPressed: pins.saving
+                                    ? null
+                                    : pinController?.load,
+                                child: const Text('重试'),
+                              ),
+                            ],
+                          ),
+                        ),
                       const SizedBox(height: 14),
                       if (watching.isEmpty)
                         isLoadingCollections
@@ -181,22 +187,64 @@ class HomePage extends ConsumerWidget {
                             final collection = watching[index];
                             final supportsEpisodes =
                                 collection.subject.type.hasEpisodes;
-                            return SubjectPosterCard(
-                              subject: collection.subject,
-                              collection: collection,
-                              busy: updating.contains(collection.subjectId),
-                              onTap: () =>
-                                  _openDetail(context, collection.subject),
-                              onEpisodeGrid: supportsEpisodes
-                                  ? () => showEpisodeGridSheet(
-                                      context,
-                                      ref,
-                                      collection,
-                                    )
-                                  : null,
-                              onNextEpisode: supportsEpisodes
-                                  ? () => _markNext(context, ref, collection)
-                                  : null,
+                            return Stack(
+                              children: [
+                                SubjectPosterCard(
+                                  subject: collection.subject,
+                                  collection: collection,
+                                  busy: updating.contains(collection.subjectId),
+                                  onTap: () =>
+                                      _openDetail(context, collection.subject),
+                                  onEpisodeGrid: supportsEpisodes
+                                      ? () => showEpisodeGridSheet(
+                                          context,
+                                          ref,
+                                          collection,
+                                        )
+                                      : null,
+                                  onNextEpisode: supportsEpisodes
+                                      ? () =>
+                                            _markNext(context, ref, collection)
+                                      : null,
+                                ),
+                                if (user != null)
+                                  Positioned(
+                                    left: 4,
+                                    top: 4,
+                                    child: IconButton.filledTonal(
+                                      tooltip:
+                                          pins.ids.contains(
+                                            collection.subjectId,
+                                          )
+                                          ? '取消置顶'
+                                          : '置顶到首页',
+                                      style: IconButton.styleFrom(
+                                        backgroundColor: Colors.black54,
+                                        foregroundColor:
+                                            pins.ids.contains(
+                                              collection.subjectId,
+                                            )
+                                            ? const Color(0xFFFFD166)
+                                            : Colors.white,
+                                        minimumSize: const Size.square(48),
+                                      ),
+                                      onPressed: pinController?.canEdit != true
+                                          ? null
+                                          : () => pinController!.setPinned(
+                                              collection.subjectId,
+                                              !pins.ids.contains(
+                                                collection.subjectId,
+                                              ),
+                                            ),
+                                      icon: Icon(
+                                        pins.ids.contains(collection.subjectId)
+                                            ? Icons.push_pin_rounded
+                                            : Icons.push_pin_outlined,
+                                        size: 20,
+                                      ),
+                                    ),
+                                  ),
+                              ],
                             );
                           },
                         ),
@@ -239,11 +287,18 @@ class HomePage extends ConsumerWidget {
     WidgetRef ref,
     UserCollection collection,
   ) async {
-    final error = await ref
-        .read(sessionProvider.notifier)
-        .markNextEpisode(collection);
+    EpisodeUndo? undo;
+    final controller = ref.read(sessionProvider.notifier);
+    final error = await controller.markNextEpisode(
+      collection,
+      onUndoReady: (value) => undo = value,
+    );
     if (!context.mounted) return;
-    showAppMessage(context, error ?? '已看完下一集');
+    if (error != null) {
+      showAppMessage(context, error);
+    } else if (undo != null) {
+      showEpisodeUndoMessage(context, controller, undo!);
+    }
   }
 
   void _openDetail(BuildContext context, Subject subject) {
@@ -552,4 +607,54 @@ class _QuickActionCard extends StatelessWidget {
       ),
     ),
   );
+}
+
+class _WatchingHeading extends StatelessWidget {
+  const _WatchingHeading({
+    required this.count,
+    required this.onViewAll,
+    this.onManage,
+  });
+  final int count;
+  final VoidCallback onViewAll;
+  final VoidCallback? onManage;
+  @override
+  Widget build(BuildContext context) {
+    final title = Text('继续追', style: AppLayout.sectionTitleStyle(context));
+    final actions = Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        if (count > 0 && onManage != null)
+          IconButton(
+            tooltip: '管理首页置顶',
+            onPressed: onManage,
+            icon: const Icon(Icons.push_pin_outlined),
+          ),
+        if (count > 0)
+          TextButton(onPressed: onViewAll, child: Text('查看全部（$count）'))
+        else
+          const Text('0 部'),
+      ],
+    );
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        if (constraints.maxWidth < 420 &&
+            MediaQuery.textScalerOf(context).scale(14) > 18) {
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              title,
+              Align(alignment: Alignment.centerRight, child: actions),
+            ],
+          );
+        }
+        return Row(
+          children: [
+            Expanded(child: title),
+            actions,
+          ],
+        );
+      },
+    );
+  }
 }

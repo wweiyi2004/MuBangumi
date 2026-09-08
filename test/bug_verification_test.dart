@@ -378,19 +378,24 @@ class _MemorySnapshotCache extends SnapshotCache {
 
   @override
   Future<List<UserEpisodeCollection>?> readEpisodeCollections(
-    int subjectId,
-  ) async => episodeCollections[subjectId];
+    int subjectId, {
+    String? username,
+  }) async => episodeCollections[subjectId];
 
   @override
   Future<void> writeEpisodeCollections(
     int subjectId,
-    List<UserEpisodeCollection> episodes,
-  ) async {
+    List<UserEpisodeCollection> episodes, {
+    String? username,
+  }) async {
     episodeCollections[subjectId] = episodes;
   }
 
   @override
-  Future<void> clearEpisodeCollections(int subjectId) async {
+  Future<void> clearEpisodeCollections(
+    int subjectId, {
+    String? username,
+  }) async {
     episodeCollections.remove(subjectId);
   }
 }

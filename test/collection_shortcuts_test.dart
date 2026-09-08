@@ -1,3 +1,5 @@
+import 'package:mubangumi/core/storage/browsing_store.dart';
+import 'support/memory_home_pins.dart';
 import 'dart:async';
 import 'dart:io';
 import 'dart:ui' as ui;
@@ -225,6 +227,7 @@ Future<void> _show(
   await tester.pumpWidget(
     ProviderScope(
       overrides: [
+        homePinsRepositoryProvider.overrideWithValue(MemoryHomePins()),
         sessionProvider.overrideWith((ref) => session),
         notifyBadgeProvider.overrideWith(
           (ref) => NotifyBadgeController(

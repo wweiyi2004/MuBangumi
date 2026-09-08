@@ -1,3 +1,4 @@
+import 'support/memory_home_pins.dart';
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -280,6 +281,7 @@ Future<void> _show(
   await tester.pumpWidget(
     ProviderScope(
       overrides: [
+        homePinsRepositoryProvider.overrideWithValue(MemoryHomePins()),
         sessionProvider.overrideWith((ref) => session ?? _Session()),
         bangumiApiProvider.overrideWithValue(api ?? _Api()),
         browsingRepositoryProvider.overrideWithValue(repo),
