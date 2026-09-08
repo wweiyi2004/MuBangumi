@@ -1,0 +1,44 @@
+{
+  "repository": "Xenova/bge-small-zh-v1.5",
+  "revision": "75c43b069aac4d136ba6bc1122f995fedcfd2781",
+  "base_model": "BAAI/bge-small-zh-v1.5",
+  "base_model_license": "MIT",
+  "base_model_revision": "7999e1d3359715c523056ef9478215996d62a620",
+  "files": [
+    {
+      "path": "README.md",
+      "size": 1057,
+      "git_blob": "e26ec7fcc01a7aff66171d44acff0a80fae865e1"
+    },
+    {
+      "path": "config.json",
+      "size": 716,
+      "git_blob": "d590a6643f5dcdd0cfb0477e3c291488c16fc2d7"
+    },
+    {
+      "path": "onnx/model.onnx",
+      "size": 94851877,
+      "sha256": "69a0b846f4f116b5e6aabf9546ea6754d02264f3211a13a1bd69b31b8040749a"
+    },
+    {
+      "path": "onnx/model_int8.onnx",
+      "size": 23903394,
+      "sha256": "b9837c19ce154ff0726d398ee77abbc03a7faf0476c6f93016c84e531be7ebb5"
+    },
+    {
+      "path": "special_tokens_map.json",
+      "size": 125,
+      "git_blob": "a8b3208c2884c4efb86e49300fdd3dc877220cdf"
+    },
+    {
+      "path": "tokenizer.json",
+      "size": 439125,
+      "git_blob": "cdb3043fc938fc918c06e66cf704c2ba58f88747"
+    },
+    {
+      "path": "tokenizer_config.json",
+      "size": 367,
+      "git_blob": "3a59388f0fd1bd22dec2ce7902c1be8e1fb84107"
+    }
+  ]
+}
