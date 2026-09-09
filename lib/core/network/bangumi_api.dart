@@ -318,8 +318,10 @@ class BangumiApi {
     int limit = 24,
     int offset = 0,
     String sort = 'match',
-    int minimumRating = 0,
+    num minimumRating = 0,
+    bool ratingExclusive = false,
     int startYear = 0,
+    int endYear = 0,
     List<String> tags = const [],
     List<String> metaTags = const [],
     SubjectType subjectType = SubjectType.anime,
@@ -327,7 +329,9 @@ class BangumiApi {
     final filter = BangumiSupport.subjectSearchFilter(
       subjectType: subjectType,
       minimumRating: minimumRating,
+      ratingExclusive: ratingExclusive,
       startYear: startYear,
+      endYear: endYear,
       tags: tags,
       metaTags: metaTags,
     );

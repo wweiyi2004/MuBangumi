@@ -1,4 +1,5 @@
 import '../../models/bangumi_models.dart';
+import '../../models/subject_search_filter.dart';
 
 /// Pure helpers for Bangumi OpenAPI payloads/parsers (unit-testable).
 class BangumiSupport {
@@ -13,18 +14,33 @@ class BangumiSupport {
   /// Body `filter` for POST /v0/search/subjects.
   static Map<String, dynamic> subjectSearchFilter({
     required SubjectType subjectType,
-    int minimumRating = 0,
+    num minimumRating = 0,
+    bool ratingExclusive = false,
     int startYear = 0,
+    int endYear = 0,
     List<String> tags = const [],
     List<String> metaTags = const [],
-  }) => {
-    'type': [subjectType.value],
-    'nsfw': false,
-    if (minimumRating > 0) 'rating': ['>=$minimumRating'],
-    if (startYear > 0) 'air_date': ['>=$startYear-01-01'],
-    if (tags.isNotEmpty) 'tag': tags,
-    if (metaTags.isNotEmpty) 'meta_tags': metaTags,
-  };
+  }) {
+    final constraints = SubjectSearchFilter(
+      minimumRating: minimumRating,
+      ratingExclusive: ratingExclusive,
+      startYear: startYear,
+      endYear: endYear,
+    )..validate();
+    return {
+      'type': [subjectType.value],
+      'nsfw': false,
+      if (constraints.hasRating)
+        'rating': ['${ratingExclusive ? '>' : '>='}$minimumRating'],
+      if (startYear > 0 || endYear > 0)
+        'air_date': [
+          if (startYear > 0) '>=${startYear.toString().padLeft(4, '0')}-01-01',
+          if (endYear > 0) '<${(endYear + 1).toString().padLeft(4, '0')}-01-01',
+        ],
+      if (tags.isNotEmpty) 'tag': tags,
+      if (metaTags.isNotEmpty) 'meta_tags': metaTags,
+    };
+  }
 
   /// Payload for POST /v0/users/-/collections/{id}.
   ///
