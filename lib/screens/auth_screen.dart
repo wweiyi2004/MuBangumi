@@ -627,7 +627,11 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
                                         .read(sessionProvider.notifier)
                                         .retrySavedSignIn(),
                                     icon: const Icon(Icons.refresh_rounded),
-                                    label: const Text('重新连接已保存的登录'),
+                                    label: Text(
+                                      session.hasPendingVerification
+                                          ? '重试验证账号'
+                                          : '重新连接已保存的登录',
+                                    ),
                                   ),
                                 ],
                                 if (session.canRetrySignOut && !authBusy) ...[

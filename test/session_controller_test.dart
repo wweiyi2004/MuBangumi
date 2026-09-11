@@ -688,7 +688,7 @@ void main() {
       ..lastUser = cachedUser
       ..collections['tester'] = const [_testCollection];
     final controller = buildController(
-      store: _MemoryTokenStore(config: config),
+      store: _MemoryTokenStore(config: config)..verifiedUser = cachedUser,
       oauth: _FailingOAuth(const BangumiOAuthException('网络暂时不可用')),
       api: api,
       snapshotCache: cache,
@@ -715,6 +715,55 @@ void main() {
     expect(cache.lastUser?.nickname, '新昵称');
   });
 
+  test(
+    'a saved session appears before a slow token refresh finishes',
+    () async {
+      final api = _DelayedMeApi();
+      final oauth = _DeferredRefreshOAuth();
+      const cachedUser = BangumiUser(
+        id: 1,
+        username: 'tester',
+        nickname: '维依',
+        avatarUrl: '',
+      );
+      final cache = _MemorySnapshotCache()
+        ..lastUser = cachedUser
+        ..collections['tester'] = const [_testCollection];
+      final store = _MemoryTokenStore(config: config)
+        ..verifiedUser = cachedUser
+        // Inside the five-minute refresh window, so bootstrap wants to refresh.
+        ..expiresAt = DateTime.now().add(const Duration(minutes: 1));
+      final controller = buildController(
+        store: store,
+        oauth: oauth,
+        api: api,
+        snapshotCache: cache,
+      );
+      addTearDown(controller.dispose);
+
+      // Neither the token refresh nor /me has answered, yet the saved session
+      // must already be usable: waiting on the refresh left the user on the
+      // restore screen for the whole network timeout on a weak link.
+      await _waitFor(() => controller.state.phase == SessionPhase.signedIn);
+      expect(controller.state.user?.nickname, '维依');
+      expect(controller.state.collections, isNotEmpty);
+      expect(oauth.result.isCompleted, isFalse);
+      expect(api.completer.isCompleted, isFalse);
+
+      oauth.result.complete(
+        OAuthTokenBundle(
+          accessToken: 'refreshed-token',
+          refreshToken: 'refreshed-refresh-token',
+          expiresAt: DateTime.now().add(const Duration(days: 7)),
+        ),
+      );
+      await _waitFor(() => store.accessToken == 'refreshed-token');
+
+      api.completer.complete(cachedUser);
+      await _waitFor(() => controller.state.user?.nickname == '维依');
+    },
+  );
+
   test('snapshot survives a transient /me failure', () async {
     final cache = _MemorySnapshotCache()
       ..lastUser = const BangumiUser(
@@ -725,7 +774,7 @@ void main() {
       )
       ..collections['tester'] = const [_testCollection];
     final controller = buildController(
-      store: _MemoryTokenStore(config: config),
+      store: _MemoryTokenStore(config: config)..verifiedUser = cache.lastUser,
       oauth: _FailingOAuth(const BangumiOAuthException('网络暂时不可用')),
       api: _FailingMeApi(const BangumiApiException('网络错误')),
       snapshotCache: cache,
@@ -753,7 +802,7 @@ void main() {
       )
       ..collections['old-user'] = const [_testCollection];
     final controller = buildController(
-      store: _MemoryTokenStore(config: config),
+      store: _MemoryTokenStore(config: config)..verifiedUser = cache.lastUser,
       oauth: _FailingOAuth(const BangumiOAuthException('网络暂时不可用')),
       api: _FakeBangumiApi(),
       snapshotCache: cache,
@@ -1247,6 +1296,180 @@ void main() {
       expect(await syncStore.blockedFor('another'), hasLength(1));
     },
   );
+
+  test(
+    'a completed authorization survives a transient account-check failure',
+    () async {
+      final store = _MemoryTokenStore(config: null)
+        ..accessToken = null
+        ..refreshToken = null
+        ..expiresAt = null;
+      final api = _RecoverableMeApi(); // offline by default
+      final controller = buildController(
+        store: store,
+        oauth: _StubAuthorizeOAuth(),
+        api: api,
+      );
+      addTearDown(controller.dispose);
+      await _waitFor(() => controller.state.phase == SessionPhase.signedOut);
+
+      expect(await controller.signInWithOAuth(config), isFalse);
+      // The browser step already succeeded; the user must not repeat it.
+      expect(controller.state.phase, SessionPhase.signedOut);
+      expect(controller.state.canRetrySignIn, isTrue);
+      expect(controller.state.hasPendingVerification, isTrue);
+      // An unverified token must never replace a saved login.
+      expect(store.accessToken, isNull);
+      expect(store.config, isNull);
+
+      api.offline = false;
+      await controller.retrySavedSignIn();
+      expect(controller.state.phase, SessionPhase.signedIn);
+      expect(controller.state.hasPendingVerification, isFalse);
+      expect(store.accessToken, 'oauth-access-token');
+      expect(store.config, config);
+    },
+  );
+
+  test(
+    'a newly verified login repairs an unreadable old credential record',
+    () async {
+      final store = _CorruptCredentialStore();
+      final controller = buildController(store: store, oauth: BangumiOAuth());
+      addTearDown(controller.dispose);
+      await _waitFor(() => controller.state.phase == SessionPhase.signedOut);
+      expect(await controller.signIn('replacement-token'), isTrue);
+      expect(store.accessToken, 'replacement-token');
+      expect(store.verifiedUser?.username, 'tester');
+    },
+  );
+
+  test('an authorization whose token is rejected is not kept', () async {
+    final store = _MemoryTokenStore(config: null)
+      ..accessToken = null
+      ..refreshToken = null
+      ..expiresAt = null;
+    final controller = buildController(
+      store: store,
+      oauth: _StubAuthorizeOAuth(),
+      api: _RejectingMeApi(),
+    );
+    addTearDown(controller.dispose);
+    await _waitFor(() => controller.state.phase == SessionPhase.signedOut);
+
+    expect(await controller.signInWithOAuth(config), isFalse);
+    // A 401 means the credential itself is bad; retrying it is pointless and
+    // the user genuinely needs to authorize again.
+    expect(controller.state.hasPendingVerification, isFalse);
+    expect(controller.state.canRetrySignIn, isFalse);
+    expect(store.accessToken, isNull);
+  });
+
+  test(
+    'a bundled account snapshot cannot sign in an unbound saved token',
+    () async {
+      final cache = _MemorySnapshotCache()
+        ..lastUser = const BangumiUser(
+          id: 999,
+          username: 'bundled-developer',
+          nickname: 'Developer',
+          avatarUrl: '',
+        )
+        ..collections['bundled-developer'] = const [_testCollection];
+      final store = _MemoryTokenStore(config: null)..refreshToken = null;
+      final controller = buildController(
+        store: store,
+        oauth: BangumiOAuth(),
+        api: _FailingMeApi(const BangumiApiException('offline')),
+        snapshotCache: cache,
+      );
+      addTearDown(controller.dispose);
+      final users = <String>[];
+      controller.addListener((state) {
+        if (state.user != null) users.add(state.user!.username);
+      });
+      await _waitFor(() => controller.state.phase == SessionPhase.signedOut);
+      expect(users, isEmpty);
+      expect(controller.state.collections, isEmpty);
+      expect(controller.state.canRetrySignIn, isTrue);
+      expect(store.accessToken, 'stored-access-token');
+      expect(store.verifiedUser, isNull);
+    },
+  );
+
+  test(
+    'trusted identity wins over an unrelated bundled last-user snapshot',
+    () async {
+      const owner = BangumiUser(
+        id: 1,
+        username: 'tester',
+        nickname: 'Owner',
+        avatarUrl: '',
+      );
+      final cache = _MemorySnapshotCache()
+        ..lastUser = const BangumiUser(
+          id: 999,
+          username: 'bundled',
+          nickname: 'Bundled',
+          avatarUrl: '',
+        )
+        ..collections['bundled'] = const [_testCollection];
+      final controller = buildController(
+        store: _MemoryTokenStore(config: null)..verifiedUser = owner,
+        oauth: BangumiOAuth(),
+        api: _FailingMeApi(const BangumiApiException('offline')),
+        snapshotCache: cache,
+      );
+      addTearDown(controller.dispose);
+      await _waitFor(() => controller.state.phase == SessionPhase.signedIn);
+      expect(controller.state.user?.username, 'tester');
+      expect(controller.state.collections, isEmpty);
+    },
+  );
+
+  test(
+    'successful legacy verification binds identity for the next offline start',
+    () async {
+      final store = _MemoryTokenStore(config: null)..refreshToken = null;
+      final cache = _MemorySnapshotCache();
+      final first = buildController(
+        store: store,
+        oauth: BangumiOAuth(),
+        snapshotCache: cache,
+      );
+      await _waitFor(() => first.state.phase == SessionPhase.signedIn);
+      expect(store.verifiedUser?.username, 'tester');
+      first.dispose();
+      final next = buildController(
+        store: store,
+        oauth: BangumiOAuth(),
+        snapshotCache: cache,
+        api: _FailingMeApi(const BangumiApiException('offline')),
+      );
+      addTearDown(next.dispose);
+      await _waitFor(() => next.state.phase == SessionPhase.signedIn);
+      expect(next.state.user?.username, 'tester');
+    },
+  );
+
+  test('a bundled snapshot without any credential stays signed out', () async {
+    final controller = buildController(
+      store: _MemoryTokenStore(config: null)
+        ..accessToken = null
+        ..refreshToken = null,
+      oauth: BangumiOAuth(),
+      snapshotCache: _MemorySnapshotCache()
+        ..lastUser = const BangumiUser(
+          id: 999,
+          username: 'bundled',
+          nickname: 'Bundled',
+          avatarUrl: '',
+        ),
+    );
+    addTearDown(controller.dispose);
+    await _waitFor(() => controller.state.phase == SessionPhase.signedOut);
+    expect(controller.state.user, isNull);
+  });
 }
 
 const _testSubject = Subject(
@@ -1818,9 +2041,21 @@ class _MemoryTokenStore extends TokenStore {
   OAuthConfig? config;
   int clearCalls = 0;
   bool failClear = false;
+  BangumiUser? verifiedUser;
+
+  @override
+  Future<BangumiUser?> readVerifiedUser(String token) async =>
+      token == accessToken ? verifiedUser : null;
+
+  @override
+  Future<void> bindVerifiedUser(String expectedToken, BangumiUser user) async {
+    if (accessToken != expectedToken) throw StateError('Changed credential');
+    verifiedUser = user;
+  }
 
   @override
   Future<void> write(String token) async {
+    verifiedUser = null;
     accessToken = token;
     refreshToken = null;
     expiresAt = null;
@@ -1831,6 +2066,7 @@ class _MemoryTokenStore extends TokenStore {
     OAuthConfig config,
     OAuthTokenBundle tokens,
   ) async {
+    verifiedUser = null;
     await writeTokens(tokens);
     this.config = config;
   }
@@ -1873,8 +2109,44 @@ class _MemoryTokenStore extends TokenStore {
   Future<void> clear() async {
     clearCalls++;
     if (failClear) throw StateError('storage unavailable');
+    verifiedUser = null;
     accessToken = null;
     refreshToken = null;
     expiresAt = null;
   }
+}
+
+class _CorruptCredentialStore extends _MemoryTokenStore {
+  _CorruptCredentialStore() : super(config: null);
+  bool corrupt = true;
+
+  @override
+  Future<String?> read() async {
+    if (corrupt) throw const FormatException('damaged saved credentials');
+    return super.read();
+  }
+
+  @override
+  Future<void> write(String token) async {
+    await super.write(token);
+    corrupt = false;
+  }
+}
+
+class _StubAuthorizeOAuth extends BangumiOAuth {
+  @override
+  Future<OAuthTokenBundle> authorize(
+    OAuthConfig config, {
+    OAuthAuthorizationLauncher? launchAuthorization,
+  }) async => OAuthTokenBundle(
+    accessToken: 'oauth-access-token',
+    refreshToken: 'oauth-refresh-token',
+    expiresAt: DateTime.now().add(const Duration(days: 7)),
+  );
+}
+
+class _RejectingMeApi extends _FakeBangumiApi {
+  @override
+  Future<BangumiUser> getMe() async =>
+      throw const BangumiApiException('Access Token 鏃犳晥', statusCode: 401);
 }

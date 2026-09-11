@@ -1,0 +1,21 @@
+name: Repository privacy
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify-tracked-files:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      # No path filter: an env-only change must still run this check.
+      - name: Reject tracked private configuration and runtime data
+        run: ./tool/verify_repository_privacy.ps1

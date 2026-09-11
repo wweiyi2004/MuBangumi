@@ -14,6 +14,11 @@ on:
       - "ios/**"
       - "windows/**"
       - "tool/build_release.ps1"
+      - "tool/*windows*package*.ps1"
+      - "tool/package_windows_release.ps1"
+      - "tool/tests/windows_package_safety_test.ps1"
+      - "tool/verify_repository_privacy.ps1"
+      - ".gitignore"
       - ".github/workflows/flutter.yml"
   pull_request:
     paths:
@@ -27,6 +32,11 @@ on:
       - "ios/**"
       - "windows/**"
       - "tool/build_release.ps1"
+      - "tool/*windows*package*.ps1"
+      - "tool/package_windows_release.ps1"
+      - "tool/tests/windows_package_safety_test.ps1"
+      - "tool/verify_repository_privacy.ps1"
+      - ".gitignore"
       - ".github/workflows/flutter.yml"
   workflow_dispatch:
 
@@ -52,3 +62,6 @@ jobs:
 
       - name: Test
         run: flutter test
+
+      - name: Verify Windows packaging safeguards
+        run: ./tool/tests/windows_package_safety_test.ps1

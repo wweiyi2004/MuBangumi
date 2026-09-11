@@ -3,6 +3,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:path/path.dart' as path;
+import 'package:path_provider/path_provider.dart';
 import 'package:sqflite/sqflite.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart' as ffi;
 
@@ -184,11 +185,19 @@ class CommunityCache {
       }
     }
     // Android / iOS use the sqflite plugin factory from package:sqflite.
-    final root = await getDatabasesPath();
+    // Never reopen a cache shipped next to an old Windows executable. This is
+    // disposable data; personal schedules, drafts and pending writes live in
+    // separate stores and are deliberately not migrated or removed here.
+    final root = Platform.isWindows
+        ? path.join((await getApplicationSupportDirectory()).path, 'cache-v2')
+        : await getDatabasesPath();
     final databasePath = path.join(root, 'mubangumi.sqlite');
     return openDatabase(
       databasePath,
-      version: 1,
+      version: 2,
+      onUpgrade: (database, oldVersion, newVersion) async {
+        if (oldVersion < 2) await discardLegacyAccountCache(database);
+      },
       onCreate: (database, _) async {
         await database.execute('''
           CREATE TABLE community_cache (
@@ -201,4 +210,20 @@ class CommunityCache {
       },
     );
   }
+}
+
+/// Account cache from releases without credential-bound identities cannot be
+/// trusted. This migration never touches durable personal-data tables.
+Future<void> discardLegacyAccountCache(DatabaseExecutor database) async {
+  await database.delete(
+    'community_cache',
+    where:
+        'account_scoped = 1 OR cache_key = ? '
+        'OR cache_key LIKE ? OR cache_key LIKE ?',
+    whereArgs: [
+      'session_last_user',
+      'collections_snapshot:%',
+      'episode_collections_snapshot:%',
+    ],
+  );
 }

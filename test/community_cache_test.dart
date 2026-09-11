@@ -85,4 +85,26 @@ void main() {
     );
     expect(await cache.readJson('item:2002'), isNotNull);
   });
+
+  test(
+    'legacy account cleanup keeps public cache and durable user data',
+    () async {
+      await seed('session_last_user');
+      await seed('collections_snapshot:bundled');
+      await seed('episode_collections_snapshot:bundled:12');
+      await seed('public-subject');
+      await db.execute('CREATE TABLE personal_schedules (id INTEGER)');
+      await db.insert('personal_schedules', {'id': 1});
+      await db.transaction(discardLegacyAccountCache);
+      await db.transaction(discardLegacyAccountCache);
+      expect(await cache.readJson('session_last_user'), isNull);
+      expect(await cache.readJson('collections_snapshot:bundled'), isNull);
+      expect(
+        await cache.readJson('episode_collections_snapshot:bundled:12'),
+        isNull,
+      );
+      expect(await cache.readJson('public-subject'), isNotNull);
+      expect(await db.query('personal_schedules'), hasLength(1));
+    },
+  );
 }

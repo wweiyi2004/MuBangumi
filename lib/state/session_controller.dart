@@ -32,6 +32,7 @@ class SessionState {
     this.phase = SessionPhase.booting,
     this.authActivity = AuthActivity.idle,
     this.canRetrySignIn = false,
+    this.hasPendingVerification = false,
     this.canRetrySignOut = false,
     this.isPreparingHome = false,
     this.user,
@@ -49,6 +50,10 @@ class SessionState {
   final SessionPhase phase;
   final AuthActivity authActivity;
   final bool canRetrySignIn;
+
+  /// A browser authorization finished but its account check did not; retrying
+  /// resumes verification instead of restarting the OAuth flow.
+  final bool hasPendingVerification;
   final bool canRetrySignOut;
   final bool isPreparingHome;
   bool get isAuthenticating =>
@@ -78,6 +83,7 @@ class SessionState {
     SessionPhase? phase,
     AuthActivity? authActivity,
     bool? canRetrySignIn,
+    bool? hasPendingVerification,
     bool? canRetrySignOut,
     bool? isPreparingHome,
     BangumiUser? user,
@@ -96,6 +102,8 @@ class SessionState {
     phase: phase ?? this.phase,
     authActivity: authActivity ?? this.authActivity,
     canRetrySignIn: canRetrySignIn ?? this.canRetrySignIn,
+    hasPendingVerification:
+        hasPendingVerification ?? this.hasPendingVerification,
     canRetrySignOut: canRetrySignOut ?? this.canRetrySignOut,
     isPreparingHome: isPreparingHome ?? this.isPreparingHome,
     user: clearUser ? null : user ?? this.user,
@@ -109,6 +117,24 @@ class SessionState {
     isSyncing: isSyncing ?? this.isSyncing,
     message: clearMessage ? null : message ?? this.message,
   );
+}
+
+/// Credentials from a completed browser authorization whose account check has
+/// not succeeded yet. Deliberately in memory only: an unverified token must
+/// never replace a saved login, but throwing it away forces the user through
+/// the entire browser flow again for what is usually a transient failure.
+class _PendingVerification {
+  const _PendingVerification({
+    required this.token,
+    required this.tokens,
+    this.config,
+    this.websiteCookies,
+  });
+
+  final String token;
+  final OAuthTokenBundle tokens;
+  final OAuthConfig? config;
+  final List<WebsiteCookie>? websiteCookies;
 }
 
 class SessionController extends StateNotifier<SessionState> {
@@ -145,6 +171,15 @@ class SessionController extends StateNotifier<SessionState> {
   Future<bool>? _refreshInFlight;
   int _authGeneration = 0;
   bool _hasStoredCredentials = false;
+  _PendingVerification? _pendingVerification;
+  String? _activeAccessToken;
+
+  void _setAccessToken(String? token) {
+    _activeAccessToken = token;
+    _api.setAccessToken(token);
+    CommunityService.shared.setAccessToken(token);
+  }
+
   Future<void> _authWrites = Future<void>.value();
 
   bool _isCurrentAuth(int generation) =>
@@ -215,7 +250,10 @@ class SessionController extends StateNotifier<SessionState> {
               _cachedExpiresAt!.isBefore(
                 DateTime.now().add(const Duration(minutes: 5)),
               ));
-      if (shouldRefresh) {
+      final hasStoredToken = token != null && token.trim().isNotEmpty;
+      if (shouldRefresh && !hasStoredToken) {
+        // Without a token there is nothing to restore, so the refresh has to
+        // finish before the session can be rebuilt.
         try {
           final tokens = await _oauth.refresh(config, refreshToken);
           if (!await _persistTokens(tokens, generation)) return;
@@ -232,8 +270,7 @@ class SessionController extends StateNotifier<SessionState> {
       }
       if (!_isCurrentAuth(generation)) return;
       if (token == null || token.trim().isEmpty) {
-        _api.setAccessToken(null);
-        CommunityService.shared.setAccessToken(null);
+        _setAccessToken(null);
         CommunityService.shared.setCurrentUsername(null);
         state = SessionState(
           phase: SessionPhase.signedOut,
@@ -243,6 +280,12 @@ class SessionController extends StateNotifier<SessionState> {
       }
       final restored = await _restoreSignedInSnapshot(token, generation);
       if (!_isCurrentAuth(generation)) return;
+      // Refresh after restoring trusted identity and installing the saved
+      // token. Starting it earlier can let a late restore overwrite a newly
+      // rotated token. /me shares this refresh through ensureFreshToken.
+      if (shouldRefresh && hasStoredToken) {
+        unawaited(tryRefreshAccessToken());
+      }
       await _authenticate(
         token,
         generation: generation,
@@ -251,8 +294,7 @@ class SessionController extends StateNotifier<SessionState> {
       );
     } catch (error) {
       if (!_isCurrentAuth(generation)) return;
-      _api.setAccessToken(null);
-      CommunityService.shared.setAccessToken(null);
+      _setAccessToken(null);
       state = SessionState(
         phase: SessionPhase.signedOut,
         networkRoute: _networkRoute,
@@ -263,17 +305,35 @@ class SessionController extends StateNotifier<SessionState> {
   }
 
   /// Retry existing credentials without asking the user to authorize again.
+  ///
+  /// When a browser authorization already succeeded but its account check
+  /// failed, this resumes that verification rather than restarting OAuth.
   Future<void> retrySavedSignIn() async {
     if (state.phase != SessionPhase.signedOut ||
         state.authActivity != AuthActivity.idle) {
       return;
     }
-    await _bootstrap();
+    final pending = _pendingVerification;
+    if (pending == null) {
+      await _bootstrap();
+      return;
+    }
+    // _beginLogin clears the stored pending entry; should this attempt fail
+    // transiently, the handler in _authenticate installs it again.
+    final generation = _beginLogin(AuthActivity.verifying);
+    await _authenticate(
+      pending.token,
+      generation: generation,
+      persist: true,
+      tokens: pending.tokens,
+      config: pending.config,
+      websiteCookies: pending.websiteCookies,
+    );
   }
 
   Future<bool> _restoreSignedInSnapshot(String token, int generation) async {
     try {
-      final lastUser = await _snapshotCache.readLastUser();
+      final lastUser = await _tokenStore.readVerifiedUser(token);
       if (lastUser == null || !_isCurrentAuth(generation)) return false;
       final snapshot = await _snapshotCache.readCollections(lastUser.username);
       final cached = await _overlayPendingCollections(
@@ -281,8 +341,7 @@ class SessionController extends StateNotifier<SessionState> {
         snapshot ?? const [],
       );
       if (!_isCurrentAuth(generation)) return false;
-      _api.setAccessToken(token);
-      CommunityService.shared.setAccessToken(token);
+      _setAccessToken(token);
       CommunityService.shared.setCurrentUsername(
         lastUser.username,
         nickname: lastUser.nickname,
@@ -305,6 +364,7 @@ class SessionController extends StateNotifier<SessionState> {
 
   int _beginLogin(AuthActivity activity) {
     final generation = ++_authGeneration;
+    _pendingVerification = null;
     _refreshInFlight = null;
     _cachedRefreshToken = null;
     _cachedExpiresAt = null;
@@ -421,10 +481,23 @@ class SessionController extends StateNotifier<SessionState> {
         clearMessage: true,
       );
     }
-    _api.setAccessToken(token);
-    CommunityService.shared.setAccessToken(token);
+    _setAccessToken(token);
     try {
       final user = await _api.getMe();
+      if (!_isCurrentAuth(generation)) return false;
+      if (user.id <= 0 || user.username.trim().isEmpty) {
+        throw const BangumiApiException('账号信息不完整，请重试验证');
+      }
+      BangumiUser? previousUser;
+      try {
+        final previousToken = await _tokenStore.read();
+        if (previousToken != null) {
+          previousUser = await _tokenStore.readVerifiedUser(previousToken);
+        }
+      } catch (_) {
+        // A newly verified login can repair a damaged old credential record;
+        // unreadable old identity is never used to restore an offline account.
+      }
       if (!_isCurrentAuth(generation)) return false;
       if (persist) {
         if (tokens != null) {
@@ -438,12 +511,17 @@ class SessionController extends StateNotifier<SessionState> {
           _hasStoredCredentials = true;
         }
       }
+      if (!await _writeAuth(
+        generation,
+        () => _tokenStore.bindVerifiedUser(_activeAccessToken ?? token, user),
+      )) {
+        return false;
+      }
 
       List<UserCollection>? snapshot;
       try {
-        final previousUser = await _snapshotCache.readLastUser();
         if (!_isCurrentAuth(generation)) return false;
-        if (previousUser != null && previousUser.username != user.username) {
+        if (previousUser != null && previousUser.id != user.id) {
           if (!await _writeAuth(generation, () async {
             await _websiteSessionStore.clear();
             await onWebsiteSessionCleared?.call();
@@ -522,14 +600,29 @@ class SessionController extends StateNotifier<SessionState> {
       if (!persist && _invalidatesSession(error)) {
         await _forceSignOut(message: '登录已失效，请重新登录：${_messageFor(error)}');
       } else {
-        _api.setAccessToken(null);
-        CommunityService.shared.setAccessToken(null);
+        _setAccessToken(null);
         CommunityService.shared.setCurrentUsername(null);
+        // A browser authorization that succeeded but whose account check was
+        // interrupted must not be thrown away. Hold it in memory so the user
+        // can retry verification; it is never persisted while unverified, so
+        // it can never replace an existing saved login.
+        final retained = tokens != null && !_invalidatesSession(error);
+        if (retained) {
+          _pendingVerification = _PendingVerification(
+            token: token,
+            tokens: tokens,
+            config: config,
+            websiteCookies: websiteCookies,
+          );
+        }
         state = SessionState(
           phase: SessionPhase.signedOut,
           networkRoute: _networkRoute,
-          canRetrySignIn: _hasStoredCredentials,
-          message: _messageFor(error),
+          canRetrySignIn: retained || _hasStoredCredentials,
+          hasPendingVerification: retained,
+          message: retained
+              ? '已授权成功，但暂时无法验证账号，可重试验证：${_messageFor(error)}'
+              : _messageFor(error),
         );
       }
       return false;
@@ -896,8 +989,7 @@ class SessionController extends StateNotifier<SessionState> {
         : tokens.refreshToken;
     _cachedExpiresAt = tokens.expiresAt;
     _hasStoredCredentials = true;
-    _api.setAccessToken(tokens.accessToken);
-    CommunityService.shared.setAccessToken(tokens.accessToken);
+    _setAccessToken(tokens.accessToken);
     return true;
   }
 
@@ -1561,8 +1653,8 @@ class SessionController extends StateNotifier<SessionState> {
     _cachedExpiresAt = null;
     _cachedOAuthConfig = null;
     _hasStoredCredentials = false;
-    _api.setAccessToken(null);
-    CommunityService.shared.setAccessToken(null);
+    _pendingVerification = null;
+    _setAccessToken(null);
     CommunityService.shared.setCurrentUsername(null);
     state = SessionState(
       phase: SessionPhase.signedOut,

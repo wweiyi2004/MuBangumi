@@ -2,6 +2,7 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mubangumi/core/auth/bangumi_oauth.dart';
 import 'package:mubangumi/core/storage/token_store.dart';
+import 'package:mubangumi/models/bangumi_models.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -13,6 +14,12 @@ void main() {
     accessToken: 'new-access',
     refreshToken: 'new-refresh',
     expiresAt: DateTime.utc(2030),
+  );
+  const user = BangumiUser(
+    id: 123,
+    username: 'alice',
+    nickname: 'Alice',
+    avatarUrl: '',
   );
   setUp(
     () => FlutterSecureStorage.setMockInitialValues({
@@ -34,6 +41,66 @@ void main() {
       expect(await restarted.readRefreshToken(), 'new-refresh');
       expect(await restarted.readExpiresAt(), tokens.expiresAt);
       expect((await restarted.readOAuthConfig())!.clientId, 'new-client');
+    },
+  );
+
+  test(
+    'legacy credentials have no trusted identity until /me verifies them',
+    () async {
+      final store = TokenStore();
+      expect(await store.readVerifiedUser('legacy-access'), isNull);
+      await store.bindVerifiedUser((await store.read()) ?? '', user);
+      expect((await TokenStore().readVerifiedUser('legacy-access'))?.id, 123);
+      expect(await store.readRefreshToken(), 'legacy-refresh');
+      expect(await store.readVerifiedUser('another-token'), isNull);
+    },
+  );
+
+  test(
+    'refresh atomically preserves identity and rejects the old token',
+    () async {
+      final store = TokenStore();
+      await store.bindVerifiedUser((await store.read()) ?? '', user);
+      await store.writeTokens(tokens);
+      expect(
+        (await TokenStore().readVerifiedUser('new-access'))?.username,
+        'alice',
+      );
+      expect(await store.readVerifiedUser('legacy-access'), isNull);
+    },
+  );
+
+  test(
+    'replacement OAuth and personal credentials never inherit identity',
+    () async {
+      final store = TokenStore();
+      await store.bindVerifiedUser((await store.read()) ?? '', user);
+      await store.writeOAuthSession(config, tokens);
+      expect(await store.readVerifiedUser('new-access'), isNull);
+      await store.bindVerifiedUser((await store.read()) ?? '', user);
+      await store.write('personal-token');
+      expect(await store.readVerifiedUser('personal-token'), isNull);
+      await store.bindVerifiedUser((await store.read()) ?? '', user);
+      await store.clear();
+      expect(await store.readVerifiedUser('personal-token'), isNull);
+      await expectLater(
+        store.bindVerifiedUser((await store.read()) ?? '', user),
+        throwsStateError,
+      );
+    },
+  );
+
+  test(
+    'a stale verification cannot bind identity to replacement credentials',
+    () async {
+      final store = TokenStore();
+      await store.write('replacement');
+      await expectLater(
+        store.bindVerifiedUser('legacy-access', user),
+        throwsStateError,
+      );
+      expect(await store.readVerifiedUser('replacement'), isNull);
+      expect(await store.read(), 'replacement');
     },
   );
 
