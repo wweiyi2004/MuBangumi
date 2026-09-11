@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 class AppTheme {
@@ -5,6 +6,19 @@ class AppTheme {
   static const ink = Color(0xFF1D2433);
   static const canvas = Color(0xFFFBFAF9);
   static const night = Color(0xFF101014);
+
+  // Use one Windows family for both Latin and CJK glyphs. A CJK fallback
+  // alone mixes the default Latin face with YaHei at different weight metrics.
+  static String? get _fontFamily =>
+      defaultTargetPlatform == TargetPlatform.windows
+      ? 'Microsoft YaHei UI'
+      : null;
+
+  static TextStyle get _controlTextStyle => TextStyle(
+    fontFamily: _fontFamily,
+    fontFamilyFallback: _fontFallback,
+    fontWeight: FontWeight.w600,
+  );
 
   static const _fontFallback = [
     'Microsoft YaHei UI',
@@ -18,8 +32,9 @@ class AppTheme {
     headlineMedium: TextStyle(fontWeight: FontWeight.w700, letterSpacing: -0.5),
     titleLarge: TextStyle(fontWeight: FontWeight.w700, letterSpacing: -0.2),
     titleMedium: TextStyle(fontWeight: FontWeight.w600),
-    bodyLarge: TextStyle(height: 1.55),
-    bodyMedium: TextStyle(height: 1.5),
+    labelLarge: TextStyle(fontWeight: FontWeight.w600),
+    bodyLarge: TextStyle(fontWeight: FontWeight.w400, height: 1.55),
+    bodyMedium: TextStyle(fontWeight: FontWeight.w400, height: 1.5),
   );
 
   static ThemeData get dark {
@@ -43,6 +58,7 @@ class AppTheme {
       useMaterial3: true,
       colorScheme: scheme,
       scaffoldBackgroundColor: night,
+      fontFamily: _fontFamily,
       fontFamilyFallback: _fontFallback,
       textTheme: _textTheme,
       appBarTheme: AppBarTheme(
@@ -74,7 +90,12 @@ class AppTheme {
           borderSide: BorderSide(color: scheme.primary, width: 1.5),
         ),
       ),
+      filledButtonTheme: FilledButtonThemeData(
+        style: FilledButton.styleFrom(textStyle: _controlTextStyle),
+      ),
       chipTheme: ChipThemeData(
+        labelStyle: _controlTextStyle.copyWith(color: scheme.onSurface),
+        secondaryLabelStyle: _controlTextStyle.copyWith(color: scheme.primary),
         backgroundColor: Colors.transparent,
         selectedColor: scheme.primaryContainer.withValues(alpha: .55),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(9)),
@@ -115,6 +136,7 @@ class AppTheme {
       useMaterial3: true,
       colorScheme: scheme,
       scaffoldBackgroundColor: canvas,
+      fontFamily: _fontFamily,
       fontFamilyFallback: _fontFallback,
       textTheme: _textTheme,
       appBarTheme: const AppBarTheme(
@@ -155,7 +177,7 @@ class AppTheme {
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(15),
           ),
-          textStyle: const TextStyle(fontWeight: FontWeight.w700),
+          textStyle: _controlTextStyle,
         ),
       ),
       chipTheme: ChipThemeData(
@@ -165,11 +187,8 @@ class AppTheme {
         checkmarkColor: seed,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(9)),
         side: BorderSide.none,
-        labelStyle: const TextStyle(color: ink, fontWeight: FontWeight.w600),
-        secondaryLabelStyle: const TextStyle(
-          color: seed,
-          fontWeight: FontWeight.w700,
-        ),
+        labelStyle: _controlTextStyle.copyWith(color: ink),
+        secondaryLabelStyle: _controlTextStyle.copyWith(color: seed),
       ),
       navigationBarTheme: const NavigationBarThemeData(
         height: 64,

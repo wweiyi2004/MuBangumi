@@ -216,3 +216,11 @@ lib/
 - netaba.re：`GET https://api.netaba.re/subject/{id}`、`/trending`、`/score-increases`
 
 所有请求统一携带明确的 `User-Agent`；需要登录的请求使用 `Authorization: Bearer ...` 请求头。评分历史为第三方公开数据，与 Bangumi 官方无隶属关系。
+
+## Windows 登录与发布包修复
+
+历史 Windows 包的账号缓存问题、升级方式和验收记录见 [修复记录](docs/qa/LOGIN_PACKAGE_INCIDENT.md)。升级请解压到全新目录；旧版首次启动需要联网验证一次身份。保留旧目录中的个人数据，不要通过覆盖解压清理旧文件。
+
+开发者本地 OAuth 配置、环境变量文件、数据库和 WebView 资料不能提交。共享配置使用不含真实信息的 `.example` 文件。`.gitignore` 只约束 Git，不约束 ZIP 内容；发布必须运行 `tool/package_windows_release.ps1`，并通过 `tool/verify_windows_package.ps1` 检查实际归档。
+
+登录身份验证直接连接 Bangumi 官方接口；内容线路仍按用户选择。第三方线路无法验证登录时，请切换官方线路重试；这种线路错误不会作为凭据已过期的证据。

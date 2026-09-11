@@ -203,6 +203,18 @@ class _MemoryWebsiteSessionStore extends WebsiteSessionStore {
 }
 
 class _MemoryTokenStore extends TokenStore {
+  BangumiUser? verifiedUser;
+
+  @override
+  Future<BangumiUser?> readVerifiedUser(String token) async =>
+      token == accessToken ? verifiedUser : null;
+
+  @override
+  Future<void> bindVerifiedUser(String expectedToken, BangumiUser user) async {
+    if (accessToken != expectedToken) throw StateError('Changed credential');
+    verifiedUser = user;
+  }
+
   _MemoryTokenStore({required this.config});
 
   String? accessToken = 'stored-access-token';

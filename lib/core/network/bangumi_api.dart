@@ -24,7 +24,8 @@ class BangumiApiException implements Exception {
 bool shouldRetryBangumiProxyRequest(DioException error) {
   final request = error.requestOptions;
   if (request.method.toUpperCase() != 'GET' ||
-      request.baseUrl != BangumiNetworkRoute.reverseProxy.apiBaseUrl) {
+      request.uri.host !=
+          Uri.parse(BangumiNetworkRoute.reverseProxy.apiBaseUrl).host) {
     return false;
   }
   if (const {502, 503, 504}.contains(error.response?.statusCode)) return true;
@@ -60,7 +61,13 @@ class BangumiApi {
           // actually reachable; a JSON error body must not shadow them.
           final data = error.response?.data;
           final status = error.response?.statusCode;
+          final usingProxy =
+              error.requestOptions.uri.host ==
+              Uri.parse(BangumiNetworkRoute.reverseProxy.apiBaseUrl).host;
+          // A proxy's 401 cannot establish that the official credential is
+          // invalid: the intermediary may have dropped Authorization.
           final retryable =
+              (status == 401 && usingProxy) ||
               status == 429 ||
               (status != null && status >= 500) ||
               const {
@@ -69,9 +76,6 @@ class BangumiApi {
                 DioExceptionType.receiveTimeout,
                 DioExceptionType.connectionError,
               }.contains(error.type);
-          final usingProxy =
-              error.requestOptions.baseUrl ==
-              BangumiNetworkRoute.reverseProxy.apiBaseUrl;
           var message = usingProxy
               ? 'Bangumi 反代连接失败，请测速或切换线路'
               : '连接 Bangumi 失败，请稍后重试';
@@ -79,7 +83,9 @@ class BangumiApi {
               error.type == DioExceptionType.receiveTimeout) {
             message = usingProxy ? 'Bangumi 反代请求超时，请测速或切换线路' : '请求超时，请检查网络连接';
           } else if (status == 401) {
-            message = 'Access Token 无效或已过期';
+            message = usingProxy
+                ? '第三方线路未能验证登录，请切换官方线路后重试'
+                : 'Bangumi 未接受登录凭据，请重新登录或检查个人令牌';
           } else if (status == 429) {
             message = '请求太频繁了，稍后再试';
           } else if (data is Map) {
@@ -175,7 +181,13 @@ class BangumiApi {
 
   Future<BangumiUser> getMe() async {
     final response = await _request(
-      () => _dio.get<Map<String, dynamic>>('/me'),
+      // Account identity is an authentication decision. Verify it with the
+      // issuer directly; the selected content proxy must not decide whose
+      // credentials are valid or invalidate an otherwise usable login.
+      () => _dio.get<Map<String, dynamic>>(
+        '${BangumiNetworkRoute.official.apiBaseUrl}/me',
+        options: Options(headers: const {'Cache-Control': 'no-store'}),
+      ),
     );
     return BangumiUser.fromJson(response.data ?? const {});
   }
@@ -782,6 +794,8 @@ class BangumiApi {
       }
       if (!authRetried &&
           status == 401 &&
+          error.requestOptions.uri.host ==
+              Uri.parse(BangumiNetworkRoute.official.apiBaseUrl).host &&
           onUnauthorizedRefresh != null &&
           await onUnauthorizedRefresh!()) {
         return _request(
