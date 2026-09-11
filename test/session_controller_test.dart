@@ -1344,6 +1344,48 @@ void main() {
     },
   );
 
+  test('a retryable 401 preserves a saved personal credential', () async {
+    final store = _MemoryTokenStore(config: null)..refreshToken = null;
+    final controller = buildController(
+      store: store,
+      oauth: BangumiOAuth(),
+      api: _FailingMeApi(
+        const BangumiApiException('线路未能验证登录', statusCode: 401, retryable: true),
+      ),
+    );
+    addTearDown(controller.dispose);
+    await _waitFor(() => controller.state.phase == SessionPhase.signedOut);
+    expect(store.accessToken, 'stored-access-token');
+    expect(store.clearCalls, 0);
+    expect(controller.state.canRetrySignIn, isTrue);
+  });
+
+  test(
+    'a retryable 401 retains completed OAuth for verification retry',
+    () async {
+      final store = _MemoryTokenStore(config: null)
+        ..accessToken = null
+        ..refreshToken = null;
+      final controller = buildController(
+        store: store,
+        oauth: _StubAuthorizeOAuth(),
+        api: _FailingMeApi(
+          const BangumiApiException(
+            '线路未能验证登录',
+            statusCode: 401,
+            retryable: true,
+          ),
+        ),
+      );
+      addTearDown(controller.dispose);
+      await _waitFor(() => controller.state.phase == SessionPhase.signedOut);
+      expect(await controller.signInWithOAuth(config), isFalse);
+      expect(controller.state.hasPendingVerification, isTrue);
+      expect(controller.state.canRetrySignIn, isTrue);
+      expect(store.accessToken, isNull);
+    },
+  );
+
   test('an authorization whose token is rejected is not kept', () async {
     final store = _MemoryTokenStore(config: null)
       ..accessToken = null

@@ -1722,6 +1722,7 @@ class SessionController extends StateNotifier<SessionState> {
       (error is BangumiOAuthException && error.invalidatesSession) ||
       (error is BangumiApiException &&
           error.statusCode == 401 &&
+          !error.retryable &&
           (_cachedRefreshToken == null || _cachedRefreshToken!.isEmpty));
 
   @override

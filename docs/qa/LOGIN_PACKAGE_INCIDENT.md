@@ -1,6 +1,6 @@
 # Windows 登录缓存与发布包修复
 
-日期：2026-09-11。修复分支 `fix/login-package-isolation` 基于公开的 `2.1.1`（`6b36f52`），候选版本 `2.1.2+13`。本分支不包含本地 2.2.0 开发功能。
+日期：2026-09-11。修复分支 `fix/login-package-isolation` 基于公开的 `2.1.1`（`6b36f52`），当前候选版本 `2.1.2+14`。本分支不包含本地 2.2.0 开发功能。
 
 ## 已确认的问题
 
@@ -33,12 +33,12 @@ v2.1.0 Windows ZIP 混入 `.dart_tool/sqflite_common_ffi/databases/` 下的 5 �
 
 ## 自动验收
 
-- 本修复分支：`flutter test --no-pub --reporter expanded`，412 项通过。
+- 本修复分支：`flutter test --no-pub --reporter expanded`，419 项通过。
 - Windows 打包防护：13 项回归检查通过。
 - 仓库防护：干净示例配置通过；强制跟踪的 `.env` 和改名 SQLite 均被拒绝，共 3 个实际 Git 场景通过。
 - `flutter analyze --no-pub`：无问题。
 - Windows release 构建成功；暂存目录、最终 ZIP、ZIP CRC 与二进制一致性检查通过。
-- 候选包：`MuBangumi-2.1.2-windows-x64.zip`，18,042,210 字节。SHA-256：`e715010a822f2b1828c5a59137a63e5d132492f5867e7d00d905b5e7c8c6f86e`。
+- 候选包：`MuBangumi-2.1.2-windows-x64.zip`，18,041,231 字节。SHA-256：`0a697b5c2affad0ad0d38296554485ef0acce365e21933724b6ae24254758326`。
 - 候选包由普通 Flutter release 构建；本次没有发布 Shorebird 补丁或 Android 安装包。
 
 ## 发布前人工验收（待完成）
@@ -55,3 +55,22 @@ v2.1.0 Windows ZIP 混入 `.dart_tool/sqflite_common_ffi/databases/` 下的 5 �
 | 授权验证重试 | 授权成功后模拟账号查询网络失败，再恢复网络重试 | 可继续验证，无需重新完成浏览器授权 |
 
 升级说明：使用全新目录解压；覆盖解压不会移除旧文件。保留原目录中的个人数据。旧版尚无身份绑定时，首次升级需要联网核验一次；断网时保留凭据并提供重试，不使用包内账号缓存恢复登录。
+
+## 追加：实际登录反馈与线路验证
+
+用户测试 build 13 时反馈登录显示“Access Token 无效或过期”，因此人工验收未通过。尚未确认该次使用一键授权还是个人令牌，以及当时选择的线路；不能断言已定位用户该次失败的全部原因。
+
+2026-09-11 用专门构造的无效测试令牌进行只读请求，未使用真实用户凭据：
+
+| 请求 | 未携带令牌 | 携带测试令牌 |
+| --- | --- | --- |
+| 官方 `/v0/me` | 401，`need Login` | 401，`access token has been expired or doesn't exist` |
+| 第三方 `/v0/me` | 401，`need Login` | 401，`need Login` |
+
+观察结果与第三方路径未正确转发 Authorization 一致；仅靠该测试不能确认中间服务的内部实现。旧客户端把所有 401 映射成令牌过期，且让账号验证走内容线路，会把线路问题误当成凭据失效。
+
+修复后的身份验证直接请求官方 `/v0/me`，携带 Bearer 与 no-store 请求头，不更改用户选择的内容线路。第三方 401 作为可重试的线路验证错误处理，不触发凭据刷新或清除；官方明确拒绝的凭据仍不允许进入账号。HTTP 错误分类按请求实际目标域名判断，避免绝对官方 URL 被 Dio 的第三方 baseUrl 误分类。依据：[Bangumi 官方授权说明](https://github.com/bangumi/api/blob/master/docs-raw/How-to-Auth.md)。
+
+新增 7 项自动回归，覆盖两条内容线路下的实际请求 URL 与 Bearer、代理 401、官方 401、刷新后的令牌以及保留凭据/授权续试。另以真实 BangumiApi 和无效测试令牌执行网络探测：选中第三方线路时身份请求仍到达官方，官方拒绝无效令牌，探测通过。真实用户登录是否恢复正常仍需复测。
+
+当前 build 14 候选包已重新校验归档和二进制一致性，并替换本机预览窗口供用户复测。用户反馈的登录问题尚未获得修复后实测通过结果，发布继续保持草稿。
