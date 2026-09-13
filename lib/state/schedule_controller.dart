@@ -263,6 +263,7 @@ class ScheduleController extends StateNotifier<ScheduleState> {
     SeasonKey season, {
     int? weekday,
     required bool Function() allowed,
+    Map<int, int> weekdays = const {},
   }) async {
     if (_rejectBusy()) {
       return const ScheduleBatchAddResult(error: '正在保存或切换新番表，请稍后重试');
@@ -271,7 +272,8 @@ class ScheduleController extends StateNotifier<ScheduleState> {
         season.year > 2100 ||
         season.quarter < 0 ||
         season.quarter > 3 ||
-        (weekday != null && (weekday < 1 || weekday > 7))) {
+        (weekday != null && (weekday < 1 || weekday > 7)) ||
+        weekdays.values.any((day) => day < 1 || day > 7)) {
       return const ScheduleBatchAddResult(error: '季度或星期无效');
     }
     final generation = _loadGeneration;
@@ -285,9 +287,10 @@ class ScheduleController extends StateNotifier<ScheduleState> {
       if (!allowed()) return const ScheduleBatchAddResult(stopped: true);
       final added = <int>{}, existing = existingKnown;
       final items = [...current.items];
-      var order = weekday == null
-          ? current.unscheduled.length
-          : current.itemsOn(weekday).length;
+      final orders = <int?, int>{
+        null: current.unscheduled.length,
+        for (var day = 1; day <= 7; day++) day: current.itemsOn(day).length,
+      };
       for (final subject in subjects) {
         if (subject.id <= 0) continue;
         if (added.contains(subject.id)) continue;
@@ -295,13 +298,15 @@ class ScheduleController extends StateNotifier<ScheduleState> {
           existing.add(subject.id);
           continue;
         }
+        final day = weekdays[subject.id] ?? weekday;
         items.add(
           ScheduleItem.fromSubject(
             subject,
-            weekday: weekday,
-            sortOrder: order++,
+            weekday: day,
+            sortOrder: orders[day]!,
           ),
         );
+        orders[day] = orders[day]! + 1;
         added.add(subject.id);
       }
       if (added.isEmpty) return ScheduleBatchAddResult(existing: existing);

@@ -27,4 +27,22 @@ class GithubReleaseSkipStore {
     }
     await _storage!.write(key: key, value: tag);
   }
+
+  Future<DateTime?> remindAfter(String tag) async {
+    final name = 'update_remind_after:$tag';
+    final value = _memory != null
+        ? _memory[name]
+        : await _storage!.read(key: name);
+    return DateTime.tryParse(value ?? '');
+  }
+
+  Future<void> postpone(String tag, DateTime until) async {
+    final name = 'update_remind_after:$tag';
+    final value = until.toUtc().toIso8601String();
+    if (_memory != null) {
+      _memory[name] = value;
+      return;
+    }
+    await _storage!.write(key: name, value: value);
+  }
 }

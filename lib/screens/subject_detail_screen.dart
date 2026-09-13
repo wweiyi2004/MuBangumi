@@ -21,8 +21,11 @@ import '../models/community_models.dart';
 import '../models/netaba_models.dart';
 import '../state/session_controller.dart';
 import '../widgets/collection_editor_sheet.dart';
+import '../widgets/episode_grid_sheet.dart';
+import '../widgets/mobile_subject_actions.dart';
 import '../widgets/score_history_chart.dart';
 import '../widgets/subject_widgets.dart';
+import '../widgets/friend_subject_collection_card.dart';
 import 'character_detail_screen.dart';
 import 'community_topic_screen.dart';
 import 'discover_page.dart';
@@ -126,6 +129,8 @@ class _SubjectDetailScreenState extends ConsumerState<SubjectDetailScreen> {
       _error = null;
       _friendsExpanded = false;
       _friendsLoaded = false;
+      _loadingFriends = false;
+      _friendsError = null;
       _friendStatuses = const [];
       _loadingEpisodes = widget.subject.type.hasEpisodes;
       _episodesError = null;
@@ -377,6 +382,7 @@ class _SubjectDetailScreenState extends ConsumerState<SubjectDetailScreen> {
   Future<void> _loadFriendStatuses(int subjectId) async {
     final me = ref.read(sessionProvider).user;
     if (me == null || _loadingFriends) return;
+    final generation = _loadGeneration;
     setState(() {
       _friendsExpanded = true;
       _loadingFriends = true;
@@ -387,6 +393,7 @@ class _SubjectDetailScreenState extends ConsumerState<SubjectDetailScreen> {
         me.username,
         limit: 20,
       );
+      if (!_isCurrentLoad(generation)) return;
       final statuses = await ref
           .read(bangumiApiProvider)
           .getFriendsSubjectStatus(
@@ -395,7 +402,7 @@ class _SubjectDetailScreenState extends ConsumerState<SubjectDetailScreen> {
             limit: 12,
             concurrency: 3,
           );
-      if (!mounted) return;
+      if (!_isCurrentLoad(generation)) return;
       setState(() {
         _friendStatuses = statuses;
         _loadingFriends = false;
@@ -403,11 +410,11 @@ class _SubjectDetailScreenState extends ConsumerState<SubjectDetailScreen> {
         _friendsError = null;
       });
     } catch (_) {
-      if (!mounted) return;
+      if (!_isCurrentLoad(generation)) return;
       setState(() {
         _loadingFriends = false;
         _friendsLoaded = true;
-        _friendsError = '好友收藏加载失败';
+        _friendsError = '好友动态加载失败';
       });
     }
   }
@@ -477,6 +484,23 @@ class _SubjectDetailScreenState extends ConsumerState<SubjectDetailScreen> {
           const SizedBox(width: 6),
         ],
       ),
+      bottomNavigationBar: narrow
+          ? MobileSubjectActions(
+              key: const ValueKey('subject-mobile-actions'),
+              busy: busy,
+              collectionLabel: collection?.type.labelFor(subject.type) ?? '收藏',
+              onCollection: () => _chooseCollection(subject),
+              onComment: () => showCollectionEditorSheet(
+                context,
+                subject: subject,
+                collection: collection,
+                focusComment: true,
+              ),
+              onProgress: subject.type.hasEpisodes || subject.type.hasVolumes
+                  ? () => _openProgress(subject)
+                  : null,
+            )
+          : null,
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : _error != null
@@ -499,6 +523,7 @@ class _SubjectDetailScreenState extends ConsumerState<SubjectDetailScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       _SubjectHeader(
+                        showActions: !narrow,
                         subject: subject,
                         collection: collection,
                         busy: busy,
@@ -539,7 +564,15 @@ class _SubjectDetailScreenState extends ConsumerState<SubjectDetailScreen> {
                         statuses: _friendStatuses,
                         subjectType: subject.type,
                         error: _friendsError,
-                        onExpand: () => _loadFriendStatuses(subject.id),
+                        onExpand: () {
+                          if (_friendsLoaded && _friendsError == null) {
+                            setState(() => _friendsExpanded = true);
+                          } else {
+                            unawaited(_loadFriendStatuses(subject.id));
+                          }
+                        },
+                        onCollapse: () =>
+                            setState(() => _friendsExpanded = false),
                       ),
                       if (subject.summary.isNotEmpty) ...[
                         SizedBox(height: blockGap),
@@ -864,6 +897,56 @@ class _SubjectDetailScreenState extends ConsumerState<SubjectDetailScreen> {
     return list;
   }
 
+  Future<void> _chooseCollection(Subject subject) async {
+    final controller = ref.read(sessionProvider.notifier);
+    final account = controller.batchAccount;
+    final selected = ref.read(sessionProvider).collectionFor(subject.id)?.type;
+    final type = await showModalBottomSheet<CollectionType>(
+      context: context,
+      showDragHandle: true,
+      useSafeArea: true,
+      builder: (context) => SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            for (final type in CollectionType.values)
+              ListTile(
+                title: Text(type.labelFor(subject.type)),
+                trailing: selected == type
+                    ? const Icon(Icons.check_rounded)
+                    : null,
+                onTap: () => Navigator.pop(context, type),
+              ),
+          ],
+        ),
+      ),
+    );
+    if (!mounted || type == null) return;
+    if (account == null || !controller.isCurrentBatchAccount(account)) {
+      showAppMessage(context, '登录状态已变化，请重新操作');
+      return;
+    }
+    await _changeCollection(subject, type);
+  }
+
+  Future<void> _openProgress(Subject subject) async {
+    final collection = ref.read(sessionProvider).collectionFor(subject.id);
+    if (collection == null) {
+      showAppMessage(context, '请先选择收藏状态，再记录进度');
+      await _chooseCollection(subject);
+      return;
+    }
+    if (subject.type.hasEpisodes) {
+      await showEpisodeGridSheet(context, ref, collection);
+    } else {
+      await showCollectionEditorSheet(
+        context,
+        subject: subject,
+        collection: collection,
+      );
+    }
+  }
+
   Future<void> _changeCollection(Subject subject, CollectionType type) async {
     final hadCollection =
         ref.read(sessionProvider).collectionFor(subject.id) != null;
@@ -948,8 +1031,10 @@ class _SubjectHeader extends StatelessWidget {
     required this.onCollectionChanged,
     required this.onManageCollection,
     this.onTagTap,
+    this.showActions = true,
   });
 
+  final bool showActions;
   final Subject subject;
   final UserCollection? collection;
   final bool busy;
@@ -1239,8 +1324,7 @@ class _SubjectHeader extends StatelessWidget {
                   const SizedBox(height: 10),
                   myCollection,
                 ],
-                const SizedBox(height: 12),
-                actions,
+                if (showActions) ...[const SizedBox(height: 12), actions],
               ],
             ),
           );
@@ -1589,6 +1673,7 @@ class _FriendsWatchingPanel extends StatelessWidget {
     required this.statuses,
     required this.subjectType,
     required this.onExpand,
+    required this.onCollapse,
     this.error,
   });
 
@@ -1598,6 +1683,7 @@ class _FriendsWatchingPanel extends StatelessWidget {
   final List<FriendSubjectStatus> statuses;
   final SubjectType subjectType;
   final VoidCallback onExpand;
+  final VoidCallback onCollapse;
   final String? error;
 
   @override
@@ -1617,13 +1703,13 @@ class _FriendsWatchingPanel extends StatelessWidget {
           children: [
             Row(
               children: [
-                Text(
-                  '好友收藏',
-                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.w600,
+                Expanded(
+                  child: Text(
+                    '好友收藏与评论',
+                    style: Theme.of(context).textTheme.titleMedium,
                   ),
                 ),
-                const Spacer(),
+                const SizedBox(width: 8),
                 if (loading)
                   const SizedBox.square(
                     dimension: 16,
@@ -1635,52 +1721,46 @@ class _FriendsWatchingPanel extends StatelessWidget {
                     icon: const Icon(Icons.people_outline_rounded, size: 18),
                     label: const Text('查看好友'),
                   )
+                else if (error != null)
+                  TextButton.icon(
+                    onPressed: onExpand,
+                    icon: const Icon(Icons.refresh_rounded, size: 18),
+                    label: const Text('重试'),
+                  )
                 else
                   Text(
-                    statuses.isEmpty && error != null
-                        ? error!
-                        : (statuses.isEmpty
-                              ? '暂无好友收藏'
-                              : '${statuses.length} 位好友'),
+                    statuses.isEmpty ? '暂无好友收藏' : '${statuses.length} 位好友',
                     style: TextStyle(
-                      color: statuses.isEmpty && error != null
-                          ? Theme.of(context).colorScheme.error
-                          : Theme.of(context).colorScheme.onSurfaceVariant,
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
                     ),
+                  ),
+                if (expanded && !loading)
+                  IconButton(
+                    tooltip: '收起好友收藏与评论',
+                    onPressed: onCollapse,
+                    icon: const Icon(Icons.expand_less_rounded),
                   ),
               ],
             ),
-            if (loaded && statuses.isNotEmpty) ...[
+            if (expanded && error != null)
+              Text(
+                error!,
+                style: TextStyle(color: Theme.of(context).colorScheme.error),
+              ),
+            if (expanded && loaded && statuses.isNotEmpty) ...[
               const SizedBox(height: 12),
-              Wrap(
-                spacing: 10,
-                runSpacing: 10,
+              Column(
                 children: [
                   for (final status in statuses.take(12))
-                    ActionChip(
-                      avatar: CircleAvatar(
-                        backgroundImage: status.user.avatarUrl.isEmpty
-                            ? null
-                            : CachedNetworkImageProvider(
-                                BangumiEndpoints.imageUrl(
-                                  status.user.avatarUrl,
-                                ),
-                              ),
-                        child: status.user.avatarUrl.isEmpty
-                            ? Text(
-                                status.user.displayName.isEmpty
-                                    ? '?'
-                                    : status.user.displayName.characters.first
-                                          .toUpperCase(),
-                              )
-                            : null,
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 10),
+                      child: FriendSubjectCollectionCard(
+                        key: ValueKey(status.user.id),
+                        status: status,
+                        subjectType: subjectType,
+                        onOpenUser: () =>
+                            openUserProfileFromBangumi(context, status.user),
                       ),
-                      label: Text(
-                        '${status.user.displayName} · ${status.type.labelFor(subjectType)}'
-                        '${status.rate > 0 ? ' ${status.rate}' : ''}',
-                      ),
-                      onPressed: () =>
-                          openUserProfileFromBangumi(context, status.user),
                     ),
                 ],
               ),

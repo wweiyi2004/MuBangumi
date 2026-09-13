@@ -336,19 +336,21 @@ class Subject {
   };
 }
 
-/// Lightweight friend collection status for a subject (garage "好友看？").
+/// A friend's collection status and comment on the same subject.
 class FriendSubjectStatus {
   const FriendSubjectStatus({
     required this.user,
     required this.type,
     this.rate = 0,
     this.episodeStatus = 0,
+    this.comment = '',
   });
 
   final BangumiUser user;
   final CollectionType type;
   final int rate;
   final int episodeStatus;
+  final String comment;
 }
 
 double _sqrt(double value) {

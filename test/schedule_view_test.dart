@@ -11,14 +11,11 @@ import 'package:timezone/timezone.dart' as tz;
 import 'support/memory_schedule_views.dart';
 
 void main() {
-  test(
-    'mobile defaults to today and desktop defaults to the existing board',
-    () {
-      expect(defaultScheduleView(TargetPlatform.android), ScheduleView.today);
-      expect(defaultScheduleView(TargetPlatform.iOS), ScheduleView.today);
-      expect(defaultScheduleView(TargetPlatform.windows), ScheduleView.board);
-    },
-  );
+  test('all platforms default to today', () {
+    expect(defaultScheduleView(TargetPlatform.android), ScheduleView.today);
+    expect(defaultScheduleView(TargetPlatform.iOS), ScheduleView.today);
+    expect(defaultScheduleView(TargetPlatform.windows), ScheduleView.today);
+  });
 
   test(
     'today and week share sorted schedule items and retain the unscheduled pool',

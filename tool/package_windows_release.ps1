@@ -3,13 +3,19 @@ param(
     [ValidatePattern('^\d+\.\d+\.\d+$')]
     [string]$Version,
 
-    [string]$VisualCppRuntimePath
+    [string]$VisualCppRuntimePath,
+
+    [string]$OutputDirectory
 )
 
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'windows_package_safety.ps1')
 $repositoryRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 $releasePath = Join-Path $repositoryRoot 'build\windows\x64\runner\Release'
-$archivePath = Join-Path $repositoryRoot "dist\MuBangumi-$Version-windows-x64.zip"
+if ([string]::IsNullOrWhiteSpace($OutputDirectory)) {
+    $OutputDirectory = Join-Path $repositoryRoot 'dist'
+}
+$archivePath = Join-Path ([IO.Path]::GetFullPath($OutputDirectory)) "MuBangumi-$Version-windows-x64.zip"
 if (Test-Path -LiteralPath $archivePath) {
     throw "Archive already exists: $archivePath"
 }
@@ -70,10 +76,17 @@ $nativeManifest = Join-Path $releasePath 'data\flutter_assets\NativeAssetsManife
 if (Test-Path -LiteralPath $nativeManifest -PathType Leaf) {
     Copy-Item -LiteralPath $nativeManifest -Destination (Join-Path $stagingPath 'native_assets.json')
 }
-$privateFiles = Get-ChildItem -LiteralPath $stagingPath -Recurse -File |
-    Where-Object { $_.Name -match '\.(sqlite|sqlite3|db)(-|$)' -or $_.Name -eq 'oauth.local.json' }
-if ($privateFiles) { throw 'Refusing to package local database or credential files.' }
+Assert-WindowsPackageDirectory $stagingPath
 New-Item -ItemType Directory -Path (Split-Path $archivePath -Parent) -Force | Out-Null
 Add-Type -AssemblyName System.IO.Compression.FileSystem
-[System.IO.Compression.ZipFile]::CreateFromDirectory($stagingPath, $archivePath)
+$pendingArchive = $archivePath + '.' + [guid]::NewGuid().ToString('N') + '.partial'
+try {
+    [System.IO.Compression.ZipFile]::CreateFromDirectory($stagingPath, $pendingArchive)
+    Assert-WindowsPackageArchive $pendingArchive
+    [IO.File]::Move($pendingArchive, $archivePath)
+} finally {
+    if (Test-Path -LiteralPath $pendingArchive) {
+        Remove-Item -LiteralPath $pendingArchive -Force
+    }
+}
 Write-Host "Packaged runtime files: $archivePath"

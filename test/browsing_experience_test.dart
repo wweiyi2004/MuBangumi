@@ -1,3 +1,4 @@
+import 'package:mubangumi/widgets/continue_watching_tile.dart';
 import 'support/memory_recommendation_feedback.dart';
 import 'support/memory_home_pins.dart';
 import 'dart:async';
@@ -70,7 +71,7 @@ void main() {
         repo,
         session: session,
       );
-      expect(find.byType(SubjectPosterCard), findsNWidgets(18));
+      expect(find.byType(ContinueWatchingTile), findsNWidgets(18));
       await tester.tap(find.text('查看全部（20）'));
       await tester.pumpAndSettle();
       expect(find.text('找到 20 部'), findsOneWidget);

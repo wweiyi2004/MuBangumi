@@ -46,6 +46,7 @@ android {
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+        manifestPlaceholders["mubangumiBuildNumber"] = flutter.versionCode.toString()
     }
 
     signingConfigs {

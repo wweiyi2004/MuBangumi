@@ -74,6 +74,7 @@ class ScheduleReminderService implements ScheduleReminderGateway {
   static const _payloadPrefix = 'mubangumi:schedule:';
   static const _channelId = 'bangumi_weekly_updates';
   static const _channelName = '追番更新提醒';
+  static const windowsReminderWeeks = 8;
 
   final FlutterLocalNotificationsPlugin _plugin =
       FlutterLocalNotificationsPlugin();
@@ -91,9 +92,14 @@ class ScheduleReminderService implements ScheduleReminderGateway {
   bool get _supported =>
       !kIsWeb && (Platform.isAndroid || Platform.isIOS || Platform.isWindows);
 
-  Future<void> initialize() {
-    if (_ready || !_supported) return Future.value();
-    return _initializing ??= _initialize();
+  Future<void> initialize() async {
+    if (_ready || !_supported) return;
+    final pending = _initializing ??= _initialize();
+    try {
+      await pending;
+    } finally {
+      if (identical(_initializing, pending)) _initializing = null;
+    }
   }
 
   Future<void> _initialize() async {
@@ -123,12 +129,11 @@ class ScheduleReminderService implements ScheduleReminderGateway {
     if (initialized == false) {
       throw StateError('系统通知初始化失败');
     }
-    _ready = true;
-
     final launch = await _plugin.getNotificationAppLaunchDetails();
     if (launch?.didNotificationLaunchApp == true) {
       _handlePayload(launch?.notificationResponse?.payload);
     }
+    _ready = true;
   }
 
   @override
@@ -226,14 +231,20 @@ class ScheduleReminderService implements ScheduleReminderGateway {
       for (final request in pending)
         if (!ownedIds.contains(request.id)) request.id,
     };
-    final planned = <int, (SeasonKey, ScheduleItem)>{};
+    final planned = <int, (SeasonKey, ScheduleItem, int)>{};
     for (final entry in reminders.values) {
       final (season, item) = entry;
-      var id = _notificationId(season, item.subjectId);
-      while (!usedIds.add(id)) {
-        id = (id + 1) & 0x7fffffff;
+      for (
+        var week = 0;
+        week < (Platform.isWindows ? windowsReminderWeeks : 1);
+        week++
+      ) {
+        var id = _notificationId(season, item.subjectId, week);
+        while (!usedIds.add(id)) {
+          id = (id + 1) & 0x7fffffff;
+        }
+        planned[id] = (season, item, week);
       }
-      planned[id] = entry;
     }
 
     // Persist BEFORE touching the OS. If cancellation/scheduling fails or the
@@ -245,9 +256,16 @@ class ScheduleReminderService implements ScheduleReminderGateway {
         await _plugin.cancel(id: request.id);
       }
     }
+    final now = timezone.TZDateTime.now(timezone.local);
     for (final entry in planned.entries) {
-      final (season, item) = entry.value;
-      await _schedule(id: entry.key, season: season, item: item);
+      final (season, item, week) = entry.value;
+      await _schedule(
+        id: entry.key,
+        season: season,
+        item: item,
+        week: week,
+        now: now,
+      );
     }
     await _store.writeReminderIds(planned.keys.toSet());
   }
@@ -262,10 +280,21 @@ class ScheduleReminderService implements ScheduleReminderGateway {
     required int id,
     required SeasonKey season,
     required ScheduleItem item,
+    required int week,
+    required timezone.TZDateTime now,
   }) async {
-    final now = timezone.TZDateTime.now(timezone.local);
     final next = nextWeeklyReminder(
-      now: now,
+      now: timezone.TZDateTime(
+        now.location,
+        now.year,
+        now.month,
+        now.day + week * 7,
+        now.hour,
+        now.minute,
+        now.second,
+        now.millisecond,
+        now.microsecond,
+      ),
       weekday: item.weekday!,
       hour: item.reminderHour,
       minute: item.reminderMinute,
@@ -280,8 +309,8 @@ class ScheduleReminderService implements ScheduleReminderGateway {
     );
     await _plugin.zonedSchedule(
       id: id,
-      title: '${item.displayName} 更新提醒',
-      body: '${weekdayLabel(item.weekday!)}到了，看看本周新一集吧',
+      title: '${item.displayName} 追番提醒',
+      body: '到了你安排的追番时间，打开新番表查看进度与更新',
       scheduledDate: scheduled,
       notificationDetails: const NotificationDetails(
         android: AndroidNotificationDetails(
@@ -320,9 +349,10 @@ class ScheduleReminderService implements ScheduleReminderGateway {
     }
   }
 
-  int _notificationId(SeasonKey season, int subjectId) {
+  int _notificationId(SeasonKey season, int subjectId, int week) {
     var hash = 0x811c9dc5;
-    for (final unit in '${season.id}:$subjectId'.codeUnits) {
+    for (final unit
+        in '${season.id}:$subjectId${week == 0 ? '' : ':$week'}'.codeUnits) {
       hash ^= unit;
       hash = (hash * 0x01000193) & 0xffffffff;
     }

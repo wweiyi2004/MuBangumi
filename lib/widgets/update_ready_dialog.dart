@@ -85,14 +85,9 @@ class UpdateReadyDialog extends StatelessWidget {
         ),
       ),
       actions: [
-        TextButton(
+        FilledButton(
           onPressed: () => Navigator.of(context).pop(false),
-          child: const Text('稍后'),
-        ),
-        FilledButton.icon(
-          onPressed: () => Navigator.of(context).pop(true),
-          icon: const Icon(Icons.restart_alt_rounded),
-          label: const Text('退出并生效'),
+          child: const Text('下次启动生效'),
         ),
       ],
     );

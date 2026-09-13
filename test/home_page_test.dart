@@ -1,5 +1,6 @@
 import 'package:mubangumi/core/storage/browsing_store.dart';
 import 'support/memory_home_pins.dart';
+import 'support/ux_visuals.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -8,67 +9,98 @@ import 'package:mubangumi/core/network/bangumi_api.dart';
 import 'package:mubangumi/core/network/bangumi_endpoints.dart';
 import 'package:mubangumi/core/storage/token_store.dart';
 import 'package:mubangumi/core/storage/user_preference_store.dart';
-import 'package:mubangumi/core/theme/app_theme.dart';
 import 'package:mubangumi/models/bangumi_models.dart';
 import 'package:mubangumi/screens/home_page.dart';
 import 'package:mubangumi/state/session_controller.dart';
 import 'package:mubangumi/state/user_preferences_controller.dart';
 
+final _homeBoundary = GlobalKey();
+
 void main() {
-  testWidgets(
-    'phone puts ongoing collections first and groups secondary actions',
-    (tester) async {
-      tester.view.physicalSize = const Size(320, 740);
-      tester.view.devicePixelRatio = 1;
-      addTearDown(tester.view.reset);
-      final controller = _StubSessionController();
-      await tester.pumpWidget(
-        ProviderScope(
-          overrides: [
-            homePinsRepositoryProvider.overrideWithValue(MemoryHomePins()),
-            sessionProvider.overrideWith((ref) => controller),
-            userPreferencesProvider.overrideWith(
-              (ref) => UserPreferencesController(_FakePrefRepository()),
-            ),
-          ],
-          child: MaterialApp(
-            theme: AppTheme.light,
-            home: Scaffold(
-              body: HomePage(onDiscover: () {}, onSchedule: () {}),
+  for (final scale in [1.0, 1.8]) {
+    testWidgets(
+      'phone exposes all four shortcuts before ongoing collections at scale $scale',
+      (tester) async {
+        tester.view.physicalSize = const Size(320, 740);
+        tester.view.devicePixelRatio = 1;
+        addTearDown(tester.view.reset);
+        var scheduleOpens = 0;
+        var discoverOpens = 0;
+        final controller = _StubSessionController();
+        await tester.pumpWidget(
+          ProviderScope(
+            overrides: [
+              homePinsRepositoryProvider.overrideWithValue(MemoryHomePins()),
+              sessionProvider.overrideWith((ref) => controller),
+              userPreferencesProvider.overrideWith(
+                (ref) => UserPreferencesController(_FakePrefRepository()),
+              ),
+            ],
+            child: MaterialApp(
+              theme: await uxTheme(tester, dark: false),
+              builder: (context, child) => RepaintBoundary(
+                key: _homeBoundary,
+                child: MediaQuery(
+                  data: MediaQuery.of(
+                    context,
+                  ).copyWith(textScaler: TextScaler.linear(scale)),
+                  child: child!,
+                ),
+              ),
+              home: Scaffold(
+                body: HomePage(
+                  onDiscover: () => discoverOpens++,
+                  onSchedule: () => scheduleOpens++,
+                ),
+              ),
             ),
           ),
-        ),
-      );
-      controller.setSessionState(
-        const SessionState(
-          phase: SessionPhase.signedIn,
-          user: BangumiUser(
-            id: 1,
-            username: 'tester',
-            nickname: '小沐',
-            avatarUrl: '',
+        );
+        controller.setSessionState(
+          const SessionState(
+            phase: SessionPhase.signedIn,
+            user: BangumiUser(
+              id: 1,
+              username: 'tester',
+              nickname: '小沐',
+              avatarUrl: '',
+            ),
+            isLoadingCollections: true,
+            isRefreshing: true,
           ),
-          isLoadingCollections: true,
-          isRefreshing: true,
-        ),
-      );
-      await tester.pump();
-      expect(tester.getTopLeft(find.text('继续追')).dy, lessThan(170));
-      expect(
-        tester
-            .getTopLeft(find.byKey(const ValueKey('home-collection-skeleton')))
-            .dy,
-        lessThan(tester.getTopLeft(find.text('新番表')).dy),
-      );
-      expect(find.byType(CircularProgressIndicator), findsNothing);
-      expect(find.byTooltip('我的二维码'), findsNothing);
-      await tester.tap(find.byTooltip('更多操作'));
-      await tester.pumpAndSettle();
-      expect(find.text('我的二维码'), findsOneWidget);
-      expect(find.text('扫一扫'), findsOneWidget);
-      expect(tester.takeException(), isNull);
-    },
-  );
+        );
+        await tester.pump();
+        expect(tester.getTopLeft(find.text('继续追')).dy, lessThan(300 * scale));
+        expect(
+          tester
+              .getTopLeft(
+                find.byKey(const ValueKey('home-collection-skeleton')),
+              )
+              .dy,
+          greaterThan(
+            tester
+                .getBottomLeft(find.byKey(const Key('home-quick-actions')))
+                .dy,
+          ),
+        );
+        for (final title in ['新番表', '每日放送', '番会荐', '找新番']) {
+          expect(find.text(title).hitTestable(), findsOneWidget);
+        }
+        await captureUx(tester, _homeBoundary, 'home_shortcuts_phone_$scale');
+        await tester.tap(find.text('新番表'));
+        await tester.tap(find.text('找新番'));
+        expect(scheduleOpens, 1);
+        expect(discoverOpens, 1);
+        expect(find.byType(CircularProgressIndicator), findsNothing);
+        expect(find.byTooltip('我的二维码'), findsNothing);
+        await tester.tap(find.byTooltip('更多操作'));
+        await tester.pumpAndSettle();
+        expect(find.text('我的二维码'), findsOneWidget);
+        expect(find.text('扫一扫'), findsOneWidget);
+        expect(tester.takeException(), isNull);
+      },
+    );
+  }
 
   testWidgets(
     'desktop keeps notify and sync pinned at the window top-right while '
@@ -90,7 +122,9 @@ void main() {
             ),
           ],
           child: MaterialApp(
-            theme: AppTheme.light,
+            theme: await uxTheme(tester, dark: false),
+            builder: (context, child) =>
+                RepaintBoundary(key: _homeBoundary, child: child!),
             home: Scaffold(
               body: HomePage(onDiscover: () {}, onSchedule: () {}),
             ),
@@ -132,6 +166,7 @@ void main() {
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 100));
 
+      await captureUx(tester, _homeBoundary, 'home_shortcuts_desktop');
       final notify = find.byTooltip('电波提醒');
       final sync = find.byTooltip('同步收藏');
       final myQr = find.byTooltip('我的二维码');
@@ -140,6 +175,9 @@ void main() {
       expect(sync, findsOneWidget);
       expect(myQr, findsOneWidget);
       expect(scan, findsOneWidget);
+      final actionsBefore = tester.getTopLeft(
+        find.byKey(const Key('home-quick-actions')),
+      );
       final notifyBefore = tester.getTopRight(notify);
       final syncBefore = tester.getTopRight(sync);
       final scanBefore = tester.getTopRight(scan);
@@ -155,6 +193,10 @@ void main() {
       await tester.pump();
 
       // Still pinned at the same spot after the content scrolled.
+      expect(
+        tester.getTopLeft(find.byKey(const Key('home-quick-actions'))),
+        actionsBefore,
+      );
       expect(tester.getTopRight(notify), notifyBefore);
       expect(tester.getTopRight(sync), syncBefore);
       expect(tester.getTopRight(scan), scanBefore);
@@ -175,7 +217,9 @@ void main() {
             ),
           ],
           child: MaterialApp(
-            theme: AppTheme.light,
+            theme: await uxTheme(tester, dark: false),
+            builder: (context, child) =>
+                RepaintBoundary(key: _homeBoundary, child: child!),
             home: Scaffold(
               body: HomePage(onDiscover: () {}, onSchedule: () {}),
             ),

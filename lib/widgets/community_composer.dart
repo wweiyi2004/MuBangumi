@@ -28,6 +28,7 @@ Future<bool> showCommunityComposer(
   bool requireTitle = false,
   String contentLabel = '内容',
   String? warning,
+  String? replyContext,
   int? maxLength,
   CommunityDraft? draft,
   String? draftKey,
@@ -44,6 +45,7 @@ Future<bool> showCommunityComposer(
         requireTitle: requireTitle,
         contentLabel: contentLabel,
         warning: warning,
+        replyContext: replyContext,
         maxLength: maxLength,
         tokenProvider: tokenProvider ?? showTurnstileDialog,
         draft: draft,
@@ -62,6 +64,7 @@ class _CommunityComposerDialog extends StatefulWidget {
     required this.contentLabel,
     required this.tokenProvider,
     this.warning,
+    this.replyContext,
     this.maxLength,
     this.draft,
     this.draftKey,
@@ -75,6 +78,7 @@ class _CommunityComposerDialog extends StatefulWidget {
   final String contentLabel;
   final CommunityTokenProvider tokenProvider;
   final String? warning;
+  final String? replyContext;
   final int? maxLength;
   final CommunityDraft? draft;
   final String? draftKey;
@@ -352,6 +356,23 @@ class _CommunityComposerDialogState extends State<_CommunityComposerDialog> {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               if (_restoring) const LinearProgressIndicator(),
+              if (widget.replyContext case final excerpt?) ...[
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Theme.of(context).colorScheme.surfaceContainerHigh,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Text(
+                    excerpt,
+                    maxLines: 4,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                ),
+                const SizedBox(height: 12),
+              ],
               if (widget.requireTitle) ...[
                 TextField(
                   controller: _titleController,

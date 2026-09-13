@@ -41,6 +41,7 @@ MuBangumi 是一个使用 Flutter 编写的第三方 Bangumi 追番客户端，�
 - 用户收藏口味对比：综合收藏重合、共同评分相关性与评分差，并显示样本置信度
 - 用户主页查看共同好友
 - 网络线路测速；反代 GET 遇到瞬时超时或网关错误会自动重试一次
+- 短评按账号与作品自动保存本机草稿，离开编辑器或重启后恢复，提交成功后清除；原短评变化时先让用户选择，避免覆盖较新的内容
 - 收藏与章节修改离线优先：本地立即落盘并更新界面，联网、回到前台或手动同步后自动补传
 - 已读取的章节状态保留本地快照，断网时仍可点格子；连续修改自动合并为最后一次状态
 - 发现页可手动输入浏览年份，季度浏览支持下一年
@@ -49,14 +50,15 @@ MuBangumi 是一个使用 Flutter 编写的第三方 Bangumi 追番客户端，�
 - 用户本地备注与内容屏蔽（SQLite，仅保存在本机；时间线和话题内容可临时展开）
 - 原生电波提醒列表（P1，支持标已读、应用内打开话题 / 时光机）；「我的」Tab 未读角标
 - 站内短信：原生收件箱 / 会话 / 发送（网站 Cookie；失败可回退网页）；收发件箱支持分页、失败重试，发送后自动刷新
-- Shorebird 热更新检查与重启提示（需 shorebird release 包）
-- 自动检测 GitHub Release 整包更新，Markdown 公告弹窗可前往下载或跳过此版本
+- Shorebird 热更新检查与页内就绪提示，下次启动生效（需 shorebird release 包）
+- GitHub 整包更新提供页内提醒、版本对比、更新摘要、明天提醒和跳过；按设备架构下载，展示进度，支持取消、重试及 SHA256 校验
 - 收藏本地快照与发现页 stale-while-revalidate
 - 应用内 OAuth 授权同步保存网站登录；私信、小组网页共用会话，网页登录后自动保存并返回
 - 深色 / 浅色 / 跟随系统主题
 - 自定义背景图 + 分层毛玻璃（壁纸 / 压暗 / 磨砂强度 / 玻璃不透明度）
 - 借鉴超合金组件：评分详情与争议度、好友看？、看过自动补进度、楼主/好友高亮
 - 本地「新番表」：用 Bangumi 条目信息，自己按周几安排本季追番（本地存储）
+- 新番表季度旁提供“选番”快捷入口，浏览该季度三个月的新番并多选加入；支持分页、去重、按放送日安排或全部待安排，不修改官网收藏
 - 新番表中每部番可独立开启每周系统更新提醒并自选时间（Android / iOS / Windows）
 - 新番表导出为 PNG 海报（浅色 / 深色），桌面保存到下载目录并可打开位置
 - 原生浏览超展开、小组最新话题、所有小组、主题正文与嵌套回复
@@ -64,7 +66,7 @@ MuBangumi 是一个使用 Flutter 编写的第三方 Bangumi 追番客户端，�
 - 社区发帖 / 回复等写操作走 next.bgm.tv P1 + 官方 Turnstile 验证页；私密小组在 P1 成员校验失败时回退官网表单；加组等仍可走内嵌官网
 - 社区编辑器提供 BBCode 工具栏；草稿按账号与回复对象自动保存在本机，离开页面或重启后可继续编辑，发送成功后清除；长内容自动折叠，超过 180 天未更新的话题回复前提示
 - 手机底部导航与 Windows 宽屏侧栏自适应布局
-- 内容优先的海报化首页与发现页；首页提供新番表、每日放送、番会荐和找新番快捷入口
+- 首页采用紧凑的继续追列表，展示封面、已记录进度及操作；保留新番表、每日放送、番会荐和找新番快捷入口，发现页继续使用海报展示
 - 长名称支持点按查看完整名称与选择复制；海报标题最多三行、收藏列表两行，条目详情完整换行显示
 - 「我的」使用大数字收藏统计面板，突出总收藏并并列展示进行中、已完成，支持大字体和深浅主题
 - 点击「我的」统计数字可直达对应状态的全类型收藏；首页和收藏页显示待同步状态，可就地同步或查看失败原因
@@ -95,6 +97,10 @@ flutter run -d android
 iOS 工程已生成，但 iOS 编译和签名必须在安装了 Xcode 的 macOS 上完成。
 
 ## 登录
+
+登录身份现在与当前凭据共同保存在系统安全存储中，离线恢复不再信任 SQLite 中的旧账号快照。旧版升级后首次需要联网核验账号；凭据仍有效时无需再次网页授权。Windows 的可丢弃缓存使用用户目录下的 `cache-v2`，不导入旧解压目录中的缓存；新番表、草稿和待同步修改保留。
+
+2026-09-11 已撤回夹带开发测试数据的历史 Windows 包。受影响版本及处理记录见 [登录与发布包事件记录](docs/qa/LOGIN_PACKAGE_INCIDENT.md)。从受影响版本升级时，请将干净包解压到全新目录，并先保留旧目录中的个人数据，后续按需备份导入。
 
 ### 一键登录（推荐发布方式）
 
@@ -131,9 +137,11 @@ OAuth 的 Token、刷新凭据与应用配置会在账号验证成功后整组�
 
 应用使用 [Shorebird](https://shorebird.dev) 做 **Dart 代码热更新**（Android / Windows 等）。
 
-- 启动后延迟 2 秒在后台检查（登录界面也可接收修复）；回到前台时检查，30 分钟内不重复请求。有 Shorebird patch 时下载并提示重启，可选择稍后应用。
+- 启动后延迟 2 秒在后台检查（登录界面也可接收修复）；回到前台时检查，30 分钟内不重复请求。自动提醒在登录后以页内提示显示，输入时收起，不自动弹窗。有 Shorebird patch 时后台下载，下次完整启动生效。
 - 启动与手动检查合并执行，避免重复下载和重复弹窗。补丁仅在下次完整启动时生效，不会中断当前操作。
-- 若没有可应用的热更新，但 GitHub 上有更新的正式版，会再弹 **Markdown 公告**，可「前往下载 / 稍后 / 跳过此版本」。跳过只作用于该 tag，下一个版本仍会提示。
+- GitHub 正式版支持版本号与构建号比较。点开提示查看摘要与完整 Markdown 公告，可「下载更新 / 明天提醒 / 跳过此版本」。跳过只作用于该 tag；提醒延期持久化 24 小时。网络失败明确提示，不误报为已是最新版。
+- Android 自动匹配 ABI，下载后检查大小与 SHA256，安装前核对包名、版本和签名，再交给系统确认。Windows 下载 x64 便携 ZIP 后打开所在目录，用户解压到新目录启动。关闭面板不取消下载，可从“我的 → 检查更新”返回；退出整个应用后重新下载，不支持跨进程断点续传。
+- 自动下载要求 GitHub 资产包含 SHA256 digest，并使用 `MuBangumi-版本-build构建号-android-架构.apk` 或 `MuBangumi-版本-build构建号-windows-x64.zip` 命名。缺少匹配包或校验信息时保留发布页入口。正式发布使用唯一的 `v版本+构建号` tag，避免替换已发布版本。
 - 「我的」→「检查更新」可手动检查；手动检查仍会展示已跳过的版本。
 - 必须用 Shorebird 打的包用户才能收到 patch；普通 `flutter run` / `flutter build` **不会**启用 updater。
 - 改原生代码、资源或 Flutter 引擎版本时，需要重新 `shorebird release`，不能只 patch。
@@ -151,7 +159,7 @@ OAuth 的 Token、刷新凭据与应用配置会在账号验证成功后整组�
 .\tool\build_release.ps1 -Target apk -Patch -ReleaseVersion '2.1.1+11'
 ```
 
-`shorebird.yaml` 中 `auto_update: false`，由应用内控制检查与下载，以便展示重启弹窗。
+`shorebird.yaml` 中 `auto_update: false`，由应用内控制检查与下载，以便展示更新就绪提示。
 
 发布脚本固定使用 Shorebird Flutter `3.44.7` 创建基线，补丁自动使用服务端记录的对应引擎版本。补丁必须明确指定完整基线版本，避免误发到其他版本。可加 `-DryRun` 只验证构建；不要在补丁中混入原生插件、权限或资源变更。
 
@@ -191,21 +199,64 @@ Android 正式构建需要独立上传密钥，不能使用调试签名。先复
 
 构建产物分别位于 `build/windows/x64/runner/Release/` 和 `build/app/outputs/`。
 
+普通 Flutter 发布脚本默认请求图标裁剪并启用调试符号分离。Android APK 默认按架构生成
+`app-arm64-v8a-release.apk`、`app-armeabi-v7a-release.apk`、`app-x86_64-release.apk`，
+分发时提供适合设备的一份；不要把输出目录中残留的 `app-release.apk` 当作本次产物。
+脚本会逐个校验本次预期产物。此选项不改变已有 Shorebird 基线和补丁的编译方式。
+
+```powershell
+# 显式指定版本，避免从 pubspec.yaml 中使用过时的构建号
+.\tool\build_release.ps1 -Target apk -BuildName 2.2.0 -BuildNumber 25
+.\tool\build_release.ps1 -Target windows -BuildName 2.2.0 -BuildNumber 25
+```
+
+`release-symbols/` 为每次普通构建保存独立的调试符号和 `build.json` 校验记录，已被 Git 忽略，
+必须单独备份且不要放进安装包。排查堆栈时按产物 SHA256 找到对应符号，使用
+`flutter symbolize -i stacktrace.txt -d <对应的符号文件>` 恢复可读堆栈。删除符号会影响历史版本崩溃排查。
+APK 分架构的 versionCode 包含架构偏移，后续发布需保持各架构版本号递增；普通 Flutter 包不支持 Shorebird 热更新。
+体积实测、Windows 图标裁剪限制及验收结果见 [安装包体积优化记录](docs/qa/PACKAGE_SIZE.md)。
+
 ## 项目结构
+
+仓库包含一个 Flutter 主应用和四个相互独立的卫星模块。它们各自构建、各自发布，互不依赖：
+
+```text
+lib/                      Flutter 主应用（Android / iOS / Windows）
+native-android/          独立的 Kotlin + Compose 原生实现（冻结原型，停留 1.7.0）
+website/                 项目主页（React + vinext + Cloudflare Workers → GitHub Pages）
+tool/recommend_dataset/  推荐模型数据管线与基线（Python，尚未接入 Flutter）
+tool/semantic_retrieval/ BGE 中文语义检索原型（Python，尚未接入 Flutter）
+tool/                    发布脚本 build_release.ps1 与打包脚本
+docs/                    长期体验计划（UX_ROADMAP）与各里程碑验收记录
+```
+
+`lib/` 的分层：
 
 ```text
 lib/
-├─ core/
-│  ├─ auth/          # OAuth 授权、回调与 Token 刷新
-│  ├─ insights/      # 收藏对比、评分相似度与个人统计
-│  ├─ network/       # Bangumi API、分页、错误处理
-│  ├─ storage/       # OAuth 配置与登录凭据安全存储
-│  └─ theme/         # Material 3 主题
-├─ models/           # 用户、条目、收藏、章节模型
-├─ screens/          # 登录、首页、收藏、发现、社区、详情、我的
-├─ state/            # 会话、收藏同步、追番进度状态
-└─ widgets/          # 封面、条目卡片、空状态等复用组件
+├─ main.dart          # 入口：初始化本地提醒服务后启动 ProviderScope
+├─ app.dart           # 根组件：按登录阶段分发准备页 / 登录页 / 主界面
+├─ core/              # 无 UI 的基础设施
+│  ├─ network/       # API 客户端、分页、解析器、线路切换与短时缓存
+│  ├─ storage/       # 本地持久化：同步队列、章节快照、草稿、RSS、新番表、偏好
+│  ├─ auth/          # OAuth 授权、回调与 Token 刷新、网站会话与 Cookie 桥接
+│  ├─ backup/        # 本地备份归档、导入预览计划与 SQLite 仓储
+│  ├─ insights/      # 收藏统计、用户对比、公司档案
+│  ├─ recommend/     # 番会荐本地规则推荐引擎
+│  ├─ social/        # 好友二维码生成、导出与共同好友
+│  ├─ notifications/ # 新番表每周更新的本地提醒调度
+│  ├─ update/        # Shorebird 热更新与 GitHub Release 检查
+│  ├─ layout/        # 宽屏侧栏与窄屏自适应布局
+│  ├─ theme/         # Material 3 主题与自定义背景
+│  ├─ shortcuts/     # 桌面快捷方式入口
+│  └─ widget/        # 桌面小组件桥接与同步宿主
+├─ models/           # 条目、收藏、章节、社区、私信、RSS、新番表等模型
+├─ state/            # Riverpod 控制器：会话、同步、新番表、私信、备份、更新…
+├─ screens/          # 登录、首页、收藏、发现、社区、详情、新番表、我的
+└─ widgets/          # 封面、条目卡片、编辑器、图表等复用组件
 ```
+
+两处主线值得先看：`lib/state/session_controller.dart` 是全局状态中枢（登录态、全类型收藏、待同步计数、网络线路）；`lib/core/storage/bangumi_sync_store.dart` 承载离线优先同步——修改先落盘并立即更新界面，再由它在联网、回到前台或手动同步时补传。
 
 主要使用的 API：
 

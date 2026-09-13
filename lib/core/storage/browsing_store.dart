@@ -9,6 +9,7 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart' as ffi;
 import '../../models/bangumi_models.dart';
 import '../../models/schedule_view.dart';
 import '../../models/recommendation_feedback.dart';
+import '../../models/topic_reading_position.dart';
 
 class RecentSearch {
   const RecentSearch({
@@ -67,6 +68,10 @@ final homePinsRepositoryProvider = Provider<HomePinsRepository>(
   (ref) => BrowsingStore.shared,
 );
 
+final topicReadingRepositoryProvider = Provider<TopicReadingRepository>(
+  (ref) => BrowsingStore.shared,
+);
+
 final browsingRepositoryProvider = Provider<BrowsingRepository>(
   (ref) => BrowsingStore.shared,
 );
@@ -82,6 +87,7 @@ class BrowsingStore
         BrowsingRepository,
         HomePinsRepository,
         ScheduleViewRepository,
+        TopicReadingRepository,
         RecommendationFeedbackRepository {
   BrowsingStore({this.databasePath});
   static final shared = BrowsingStore();
@@ -308,6 +314,61 @@ class BrowsingStore
     return (await _open()).path;
   }
 
+  @override
+  Future<TopicReadingPosition?> readTopicPosition(
+    String account,
+    String topic,
+  ) async {
+    if (_account(account).isEmpty) return null;
+    await _writes;
+    final rows = await (await _open()).query(
+      'topic_reading',
+      where: 'account = ? AND topic = ?',
+      whereArgs: [_account(account), topic],
+    );
+    if (rows.isEmpty) return null;
+    return TopicReadingPosition(
+      postId: rows.single['post_id'] as String,
+      index: rows.single['post_index'] as int,
+    );
+  }
+
+  @override
+  Future<void> saveTopicPosition(
+    String account,
+    String topic,
+    TopicReadingPosition position,
+  ) {
+    if (_account(account).isEmpty ||
+        topic.isEmpty ||
+        position.postId.isEmpty ||
+        position.index < 0) {
+      return Future.value();
+    }
+    return _write((db) async {
+      await db.transaction((txn) async {
+        await txn.insert('topic_reading', {
+          'account': _account(account),
+          'topic': topic,
+          'post_id': position.postId,
+          'post_index': position.index,
+          'updated_at': DateTime.now().millisecondsSinceEpoch,
+        }, conflictAlgorithm: ConflictAlgorithm.replace);
+        await txn.rawDelete(
+          'DELETE FROM topic_reading WHERE account = ? AND topic NOT IN '
+          '(SELECT topic FROM topic_reading WHERE account = ? ORDER BY updated_at DESC LIMIT 200)',
+          [_account(account), _account(account)],
+        );
+      });
+    });
+  }
+
+  Future<void> _createTopicReading(Database db) => db.execute(
+    '''CREATE TABLE topic_reading (
+    account TEXT NOT NULL, topic TEXT NOT NULL, post_id TEXT NOT NULL,
+    post_index INTEGER NOT NULL, updated_at INTEGER NOT NULL, PRIMARY KEY(account, topic))''',
+  );
+
   Future<Database> _open() =>
       _database ??= _create().catchError((Object error) {
         _database = null;
@@ -332,13 +393,15 @@ class BrowsingStore
         onConfigure: (db) async {
           await db.rawQuery('PRAGMA journal_mode=DELETE');
         },
-        version: 4,
+        version: 5,
         onUpgrade: (db, oldVersion, _) async {
           if (oldVersion < 2) await _createHomePins(db);
           if (oldVersion < 3) await _createScheduleView(db);
           if (oldVersion < 4) await _createRecommendationFeedback(db);
+          if (oldVersion < 5) await _createTopicReading(db);
         },
         onCreate: (db, _) async {
+          await _createTopicReading(db);
           await _createHomePins(db);
           await _createScheduleView(db);
           await _createRecommendationFeedback(db);

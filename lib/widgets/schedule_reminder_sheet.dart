@@ -1,4 +1,6 @@
 import 'package:flutter/foundation.dart';
+
+import '../core/notifications/schedule_reminder_service.dart';
 import 'package:flutter/material.dart';
 import 'readable_subject_title.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -163,9 +165,9 @@ class _ScheduleReminderSheetState
 
   String get _helpText {
     final platformNote = defaultTargetPlatform == TargetPlatform.windows
-        ? 'Windows 会安排下一次通知，并在应用启动或恢复时续排。'
+        ? 'Windows 会预排未来 ${ScheduleReminderService.windowsReminderWeeks} 周的通知，在应用启动或恢复时补齐；长期不打开应用将不再续排。'
         : '系统会按所选星期和时间每周重复通知。';
-    return '这是本机播出时间提醒，不依赖 RSS 是否已绑定。$platformNote'
+    return '这是你设定的本机追番时间提醒，不依赖 RSS 是否已绑定。$platformNote'
         '受系统省电和勿扰设置影响，送达时间可能略有延迟。';
   }
 

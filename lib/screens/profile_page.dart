@@ -1,3 +1,4 @@
+import '../core/update/update_download.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -47,7 +48,16 @@ class ProfilePage extends ConsumerWidget {
             .length,
     };
     final phone = AppLayout.isPhone(context);
-    final background = ref.watch(backgroundSettingsProvider);
+    final background = ref.watch(
+      backgroundSettingsProvider.select(
+        (settings) => (hasImage: settings.hasImage, enabled: settings.enabled),
+      ),
+    );
+    final backgroundActive =
+        ref.watch(
+          effectiveBackgroundProvider.select((settings) => settings.isActive),
+        ) &&
+        !MediaQuery.highContrastOf(context);
     return SingleChildScrollView(
       padding: EdgeInsets.fromLTRB(
         AppLayout.pagePadding(context),
@@ -335,9 +345,11 @@ class ProfilePage extends ConsumerWidget {
                     title: const Text('背景与毛玻璃'),
                     subtitle: Text(
                       !background.hasImage
-                          ? '自选壁纸 · 分层磨砂效果'
-                          : background.isActive
-                          ? '已启用 · 可调模糊/压暗/玻璃浓度'
+                          ? '自选壁纸 · 清晰阅读 · 导航材质'
+                          : background.enabled && !backgroundActive
+                          ? '已选图 · 当前使用纯色界面'
+                          : backgroundActive
+                          ? '已启用 · 背景模糊/柔化/导航材质'
                           : '已选图 · 未启用',
                     ),
                     trailing: const Icon(Icons.chevron_right_rounded),
@@ -592,28 +604,37 @@ class _UpdateSettingsTile extends ConsumerWidget {
   Future<void> _checkUpdate(BuildContext context, WidgetRef ref) async {
     final messenger = ScaffoldMessenger.of(context);
     final controller = ref.read(updateControllerProvider.notifier);
+    final download = ref.read(updateDownloadProvider);
+    final cached = ref.read(updateControllerProvider).snapshot;
+    if (download.release != null &&
+        cached != null &&
+        (download.busy ||
+            download.phase == UpdateDownloadPhase.ready ||
+            download.phase == UpdateDownloadPhase.error)) {
+      await showGithubReleaseDialog(
+        context,
+        currentVersion: cached.appVersion,
+        currentBuild: cached.buildNumber,
+        release: download.release!,
+      );
+      return;
+    }
     final snapshot = await controller.checkNow(downloadIfOutdated: true);
     if (!context.mounted) return;
 
     if (snapshot.isRestartReady) {
-      final restart = await showUpdateReadyDialog(context, snapshot: snapshot);
-      if (restart == true && context.mounted) {
-        controller.restartApp();
-      }
+      await showUpdateReadyDialog(context, snapshot: snapshot);
       return;
     }
 
     final github = ref.read(updateControllerProvider).githubRelease;
     if (github != null) {
-      final result = await showGithubReleaseDialog(
+      await showGithubReleaseDialog(
         context,
         currentVersion: snapshot.appVersion,
         currentBuild: snapshot.buildNumber,
         release: github,
       );
-      if (result == GithubReleaseDialogResult.skip && context.mounted) {
-        await controller.skipGithubRelease(github);
-      }
       return;
     }
 

@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
+import '../../models/bangumi_models.dart';
 import '../auth/bangumi_oauth.dart';
 import '../network/bangumi_endpoints.dart';
 
@@ -58,11 +59,15 @@ class TokenStore {
   }
 
   Future<void> writeTokens(OAuthTokenBundle tokens) async {
+    final previousToken = await read();
     await _writeSession(
       token: tokens.accessToken,
       refreshToken: tokens.refreshToken,
       expiresAt: tokens.expiresAt,
       config: await readOAuthConfig(),
+      verifiedUser: previousToken == null
+          ? null
+          : await readVerifiedUser(previousToken),
     );
   }
 
@@ -80,6 +85,7 @@ class TokenStore {
     String? refreshToken,
     DateTime? expiresAt,
     OAuthConfig? config,
+    BangumiUser? verifiedUser,
   }) async {
     await _storage.write(
       key: _sessionKey,
@@ -89,7 +95,51 @@ class TokenStore {
         'expires_at': expiresAt?.toIso8601String(),
         'client_id': config?.clientId.trim(),
         'client_secret': config?.clientSecret.trim(),
+        if (verifiedUser != null) 'verified_user': verifiedUser.toJson(),
       }),
+    );
+  }
+
+  /// Only identity stored alongside this exact credential may restore an
+  /// offline account. SQLite's legacy session_last_user is not authentication.
+  Future<BangumiUser?> readVerifiedUser(String token) async {
+    final session = await _readSession();
+    if (token.isEmpty || session?['access_token'] != token) return null;
+    final raw = session?['verified_user'];
+    if (raw is! Map) return null;
+    try {
+      final user = BangumiUser.fromJson(Map<String, dynamic>.from(raw));
+      return user.id > 0 && user.username.trim().isNotEmpty ? user : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Called only after /me succeeds, serialized with refresh/login/logout by
+  /// SessionController. A refresh can rotate the token during /me; the current
+  /// credential still belongs to the verified account within that generation.
+  Future<void> bindVerifiedUser(String expectedToken, BangumiUser user) async {
+    if (user.id <= 0 || user.username.trim().isEmpty) {
+      throw const FormatException('Invalid verified account');
+    }
+    final session = await _readSession();
+    final token = session == null ? await read() : session['access_token'];
+    if (expectedToken.isEmpty || token != expectedToken) {
+      throw StateError('Saved credentials changed before identity binding');
+    }
+    if (session != null) {
+      await _storage.write(
+        key: _sessionKey,
+        value: jsonEncode({...session, 'verified_user': user.toJson()}),
+      );
+      return;
+    }
+    await _writeSession(
+      token: expectedToken,
+      refreshToken: await readRefreshToken(),
+      expiresAt: await readExpiresAt(),
+      config: await readOAuthConfig(),
+      verifiedUser: user,
     );
   }
 

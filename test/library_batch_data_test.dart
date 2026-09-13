@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mubangumi/core/network/bangumi_api.dart';
+import 'package:mubangumi/core/network/bangumi_endpoints.dart';
 import 'package:mubangumi/core/storage/bangumi_sync_store.dart';
 import 'package:mubangumi/models/bangumi_models.dart';
 import 'package:mubangumi/models/library_batch.dart';
@@ -320,17 +321,18 @@ void main() {
     'status-only replay sends PATCH with only the selected status',
     () async {
       final requests = <RequestOptions>[];
-      final dio = Dio()
-        ..interceptors.add(
-          InterceptorsWrapper(
-            onRequest: (options, handler) {
-              requests.add(options);
-              handler.resolve(
-                Response<void>(requestOptions: options, statusCode: 204),
-              );
-            },
-          ),
-        );
+      final dio =
+          Dio(BaseOptions(baseUrl: BangumiNetworkRoute.official.apiBaseUrl))
+            ..interceptors.add(
+              InterceptorsWrapper(
+                onRequest: (options, handler) {
+                  requests.add(options);
+                  handler.resolve(
+                    Response<void>(requestOptions: options, statusCode: 204),
+                  );
+                },
+              ),
+            );
       await BangumiApi(
         dio: dio,
       ).replayPendingMutation(BangumiMutationKind.collection, {
@@ -350,17 +352,18 @@ void main() {
   test('an account guard is rechecked after awaiting token refresh', () async {
     var allowed = true, sent = 0;
     final gate = Completer<void>();
-    final dio = Dio()
-      ..interceptors.add(
-        InterceptorsWrapper(
-          onRequest: (options, handler) {
-            sent++;
-            handler.resolve(
-              Response<void>(requestOptions: options, statusCode: 204),
-            );
-          },
-        ),
-      );
+    final dio =
+        Dio(BaseOptions(baseUrl: BangumiNetworkRoute.official.apiBaseUrl))
+          ..interceptors.add(
+            InterceptorsWrapper(
+              onRequest: (options, handler) {
+                sent++;
+                handler.resolve(
+                  Response<void>(requestOptions: options, statusCode: 204),
+                );
+              },
+            ),
+          );
     final api = BangumiApi(dio: dio)..ensureFreshToken = () => gate.future;
     final request = api.withRequestGuard(
       () => allowed,
@@ -378,25 +381,26 @@ void main() {
     () async {
       var allowed = true, sent = 0, refreshes = 0;
       final gate = Completer<void>();
-      final dio = Dio()
-        ..interceptors.add(
-          InterceptorsWrapper(
-            onRequest: (options, handler) async {
-              sent++;
-              await gate.future;
-              handler.reject(
-                DioException(
-                  requestOptions: options,
-                  response: Response<void>(
-                    requestOptions: options,
-                    statusCode: 401,
-                  ),
-                  type: DioExceptionType.badResponse,
-                ),
-              );
-            },
-          ),
-        );
+      final dio =
+          Dio(BaseOptions(baseUrl: BangumiNetworkRoute.official.apiBaseUrl))
+            ..interceptors.add(
+              InterceptorsWrapper(
+                onRequest: (options, handler) async {
+                  sent++;
+                  await gate.future;
+                  handler.reject(
+                    DioException(
+                      requestOptions: options,
+                      response: Response<void>(
+                        requestOptions: options,
+                        statusCode: 401,
+                      ),
+                      type: DioExceptionType.badResponse,
+                    ),
+                  );
+                },
+              ),
+            );
       final api = BangumiApi(dio: dio)
         ..onUnauthorizedRefresh = () async {
           refreshes++;
@@ -419,30 +423,31 @@ void main() {
     'same-account token refresh still permits one status patch retry',
     () async {
       final requests = <RequestOptions>[];
-      final dio = Dio()
-        ..interceptors.add(
-          InterceptorsWrapper(
-            onRequest: (options, handler) {
-              requests.add(options);
-              if (requests.length == 1) {
-                handler.reject(
-                  DioException(
-                    requestOptions: options,
-                    response: Response<void>(
-                      requestOptions: options,
-                      statusCode: 401,
-                    ),
-                    type: DioExceptionType.badResponse,
-                  ),
-                );
-              } else {
-                handler.resolve(
-                  Response<void>(requestOptions: options, statusCode: 204),
-                );
-              }
-            },
-          ),
-        );
+      final dio =
+          Dio(BaseOptions(baseUrl: BangumiNetworkRoute.official.apiBaseUrl))
+            ..interceptors.add(
+              InterceptorsWrapper(
+                onRequest: (options, handler) {
+                  requests.add(options);
+                  if (requests.length == 1) {
+                    handler.reject(
+                      DioException(
+                        requestOptions: options,
+                        response: Response<void>(
+                          requestOptions: options,
+                          statusCode: 401,
+                        ),
+                        type: DioExceptionType.badResponse,
+                      ),
+                    );
+                  } else {
+                    handler.resolve(
+                      Response<void>(requestOptions: options, statusCode: 204),
+                    );
+                  }
+                },
+              ),
+            );
       final api = BangumiApi(dio: dio)..setAccessToken('old-test-token');
       api.onUnauthorizedRefresh = () async {
         api.setAccessToken('new-test-token');

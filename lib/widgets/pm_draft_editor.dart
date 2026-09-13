@@ -167,6 +167,7 @@ class PmDraftEditor extends ConsumerStatefulWidget {
     this.onOwnerVerified,
     this.onSentCleanup,
     this.sentElsewhere = false,
+    this.onClose,
   });
   final PmService service;
   final PmDraftKind kind;
@@ -185,6 +186,9 @@ class PmDraftEditor extends ConsumerStatefulWidget {
   final VoidCallback? onOwnerVerified;
   final VoidCallback? onSentCleanup;
   final bool sentElsewhere;
+
+  /// Embedded chats close their pane after flushing instead of popping the page.
+  final Future<void> Function()? onClose;
   final Widget Function(BuildContext, PmDraftEditing) builder;
   @override
   ConsumerState<PmDraftEditor> createState() => _PmDraftEditorState();
@@ -517,7 +521,7 @@ class _PmDraftEditorState extends ConsumerState<PmDraftEditor> {
   Widget build(BuildContext context) => PopScope(
     canPop: _allowPop,
     onPopInvokedWithResult: (didPop, _) {
-      if (!didPop) unawaited(_close());
+      if (!didPop) unawaited(widget.onClose?.call() ?? _close());
     },
     child: widget.builder(
       context,

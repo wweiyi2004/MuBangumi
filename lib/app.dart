@@ -8,6 +8,7 @@ import 'screens/login_preparation_screen.dart';
 import 'state/background_controller.dart';
 import 'state/session_controller.dart';
 import 'state/theme_controller.dart';
+import 'state/system_appearance_controller.dart';
 import 'widgets/app_background.dart';
 import 'widgets/app_shortcut_host.dart';
 import 'widgets/login_progress.dart';
@@ -24,18 +25,28 @@ class MuBangumiApp extends ConsumerWidget {
       sessionProvider.select((state) => state.isPreparingHome),
     );
     final themeMode = ref.watch(themeModeProvider);
-    final background = ref.watch(backgroundSettingsProvider);
+    final background = ref.watch(backgroundThemeSettingsProvider);
+    final system = ref.watch(systemAppearanceProvider);
+    final highLight = highContrastBackgroundTheme(AppTheme.light, system);
+    final highDark = highContrastBackgroundTheme(AppTheme.dark, system);
     return AppShortcutHost(
       child: MaterialApp(
         title: 'MuBangumi',
         debugShowCheckedModeBanner: false,
-        theme: applyBackgroundTheme(AppTheme.light, background),
-        darkTheme: applyBackgroundTheme(AppTheme.dark, background),
+        theme: system.highContrast
+            ? highLight
+            : applyBackgroundTheme(AppTheme.light, background),
+        darkTheme: system.highContrast
+            ? highDark
+            : applyBackgroundTheme(AppTheme.dark, background),
+        highContrastTheme: highLight,
+        highContrastDarkTheme: highDark,
         themeMode: themeMode,
         builder: (context, child) {
           return AppBackgroundHost(child: child ?? const SizedBox.shrink());
         },
         home: UpdateCheckHost(
+          allowNotices: phase == SessionPhase.signedIn,
           child: switch (phase) {
             SessionPhase.booting => const LoginPreparationScreen(
               key: ValueKey('restore-login'),

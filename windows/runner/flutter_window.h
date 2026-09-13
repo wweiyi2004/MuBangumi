@@ -3,6 +3,10 @@
 
 #include <flutter/dart_project.h>
 #include <flutter/flutter_view_controller.h>
+#include <flutter/method_channel.h>
+#include <flutter/standard_method_codec.h>
+#include <winrt/Windows.Foundation.h>
+#include <winrt/Windows.UI.ViewManagement.h>
 
 #include <memory>
 
@@ -28,6 +32,11 @@ class FlutterWindow : public Win32Window {
 
   // The Flutter instance hosted by this window.
   std::unique_ptr<flutter::FlutterViewController> flutter_controller_;
+  std::unique_ptr<flutter::MethodChannel<flutter::EncodableValue>> appearance_channel_;
+  winrt::Windows::UI::ViewManagement::UISettings ui_settings_{nullptr};
+  winrt::event_token effects_token_{};
+  HPOWERNOTIFY power_notification_ = nullptr;
+  flutter::EncodableMap ReadAppearance();
 };
 
 #endif  // RUNNER_FLUTTER_WINDOW_H_

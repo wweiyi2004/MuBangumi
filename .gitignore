@@ -48,6 +48,7 @@ app.*.map.json
 
 # Release packaging output
 /dist/
+/release-symbols/
 
 # Local OAuth build credentials (copy from config/oauth.local.json.example)
 /config/oauth.local.json
@@ -72,3 +73,17 @@ tool/recommend_dataset/*.log
 # Baseline model artifacts (feature_matrix.npz, subject_ids.npy, reports)
 tool/recommend_dataset/baseline_artifacts/
 
+
+# Developer environment and portable runtime state
+.env
+.env.*
+!.env.example
+!.env.*.example
+*.sqlite
+*.sqlite3
+*.sqlite-*
+*.sqlite3-*
+mubangumi*.db
+mubangumi*.db-*
+*.exe.WebView2/
+EBWebView/

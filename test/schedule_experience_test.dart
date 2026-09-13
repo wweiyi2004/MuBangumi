@@ -1,4 +1,8 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:mubangumi/core/network/bangumi_api.dart';
+import 'package:mubangumi/core/network/bangumi_support.dart';
+import 'package:mubangumi/models/bangumi_models.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mubangumi/core/network/rss_fetcher.dart';
@@ -22,10 +26,173 @@ final _boundary = GlobalKey();
 const _todayName = '葬送的芙莉莲：旅途中还没有说完的故事与新的约定';
 
 void main() {
+  for (final scale in [1.0, 1.8]) {
+    testWidgets(
+      'season shortcut batches three months with weekdays at scale $scale',
+      (tester) async {
+        final env = _Environment();
+        await _show(tester, env, width: 320, height: 740, scale: scale);
+        await tester.tap(find.byTooltip('挑选本季新番'));
+        await tester.pumpAndSettle();
+        expect(env.searchApi.browseCalls.map((c) => c.$1), [7, 8, 9]);
+        expect(find.textContaining('2026 夏季新番'), findsWidgets);
+        await tester.tap(find.text('全选已加载'));
+        await tester.pumpAndSettle();
+        expect(find.text('已选 3 部'), findsOneWidget);
+        await captureUx(tester, _boundary, 'season27_picker_320_$scale');
+        expect(tester.takeException(), isNull);
+        await tester.tap(find.text('加入新番表'));
+        await tester.pumpAndSettle();
+        final items = env.schedule.state.schedule.items;
+        expect(items.where((i) => i.subjectId >= 21).length, 3);
+        expect(items.firstWhere((i) => i.subjectId == 21).weekday, 5);
+        expect(items.firstWhere((i) => i.subjectId == 22).weekday, isNull);
+        expect(
+          items.firstWhere((i) => i.subjectId == 1).reminderEnabled,
+          isTrue,
+        );
+        expect(find.text('已选 0 部'), findsOneWidget);
+        expect(
+          tester
+              .widget<FilledButton>(find.widgetWithText(FilledButton, '加入新番表'))
+              .onPressed,
+          isNull,
+        );
+        expect(
+          env.session.state.collections.any((i) => i.subjectId == 21),
+          isFalse,
+        );
+        await tester.tap(find.byTooltip('关闭新番挑选'));
+        await tester.pumpAndSettle();
+      },
+    );
+  }
+
+  testWidgets(
+    'season picker retries failed month pages without losing selection',
+    (tester) async {
+      final env = _Environment();
+      env.searchApi.paged = true;
+      await _show(tester, env);
+      await tester.tap(find.byTooltip('挑选本季新番'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('全选已加载'));
+      await tester.pumpAndSettle();
+      expect(find.text('已选 26 部'), findsOneWidget);
+      env.searchApi.failMore = true;
+      await tester.scrollUntilVisible(
+        find.text('加载更多新番'),
+        600,
+        scrollable: find.byType(Scrollable).last,
+      );
+      await tester.tap(find.text('加载更多新番'));
+      await tester.pumpAndSettle();
+      expect(find.text('已选 26 部'), findsOneWidget);
+      expect(find.text('重试列表'), findsOneWidget);
+      env.searchApi.failMore = false;
+      await tester.scrollUntilVisible(
+        find.text('重试列表'),
+        200,
+        scrollable: find.byType(Scrollable).last,
+      );
+      await tester.tap(find.text('重试列表'));
+      await tester.pumpAndSettle();
+      expect(
+        env.searchApi.browseCalls.where((c) => c.$1 == 7).map((c) => c.$2),
+        [0, 24, 24],
+      );
+      expect(find.text('新作 99'), findsOneWidget);
+      expect(find.text('已选 26 部'), findsOneWidget);
+    },
+  );
+
+  testWidgets(
+    'late season browse cannot be used after the target quarter changes',
+    (tester) async {
+      final env = _Environment();
+      final gate = env.searchApi.browseGate = Completer<void>();
+      await _show(tester, env);
+      await tester.tap(find.byTooltip('挑选本季新番'));
+      await tester.pump();
+      await env.schedule.setSeason(const SeasonKey(year: 2026, quarter: 3));
+      gate.complete();
+      await tester.pumpAndSettle();
+      expect(find.text('账号或季度已变化，请关闭后重新打开'), findsOneWidget);
+      expect(find.text('新作 21'), findsNothing);
+      expect(env.schedule.state.schedule.items, isEmpty);
+    },
+  );
+
+  testWidgets(
+    'mark next episode from today and undo without clearing RSS updates',
+    (tester) async {
+      final env = _Environment();
+      await _show(tester, env);
+      final card = find.byKey(const ValueKey('schedule-list-1'));
+      await tester.tap(find.descendant(of: card, matching: find.text('看完一集')));
+      await tester.pumpAndSettle();
+      expect(env.session.state.collections.first.episodeStatus, 1);
+      expect(env.rss.state.unreadFor(1), 2);
+      await tester.tap(find.text('撤销'));
+      await tester.pumpAndSettle();
+      expect(env.session.state.collections.first.episodeStatus, 0);
+    },
+  );
+
+  for (final calendarFails in [false, true]) {
+    testWidgets(
+      'search uses official weekday or unscheduled fallback: $calendarFails',
+      (tester) async {
+        final env = _Environment()..searchApi.calendarFails = calendarFails;
+        await _show(tester, env);
+        await tester.tap(find.byType(FloatingActionButton));
+        await tester.pumpAndSettle();
+        await tester.enterText(find.byType(TextField), '新作');
+        await tester.testTextInput.receiveAction(TextInputAction.search);
+        await tester.pumpAndSettle();
+        final result = find.ancestor(
+          of: find.text('新作 21'),
+          matching: find.byType(ListTile),
+        );
+        await tester.tap(
+          find.descendant(of: result, matching: find.byType(FilledButton)),
+        );
+        await tester.pumpAndSettle();
+        expect(
+          env.schedule.state.schedule.items
+              .firstWhere((item) => item.subjectId == 21)
+              .weekday,
+          calendarFails ? null : 5,
+        );
+        expect(
+          env.session.state.collections.any((item) => item.subjectId == 21),
+          isFalse,
+        );
+        // Manual placement remains available when the calendar fails or disagrees.
+        await tester.tap(find.widgetWithText(ChoiceChip, '周一'));
+        await tester.pumpAndSettle();
+        final second = find.ancestor(
+          of: find.text('新作 22'),
+          matching: find.byType(ListTile),
+        );
+        await tester.tap(
+          find.descendant(of: second, matching: find.byType(FilledButton)),
+        );
+        await tester.pumpAndSettle();
+        expect(
+          env.schedule.state.schedule.items
+              .firstWhere((item) => item.subjectId == 22)
+              .weekday,
+          1,
+        );
+      },
+    );
+  }
+
   testWidgets(
     'board dragging still moves items and an old quarter drag cannot change a new table',
     (tester) async {
-      final env = _Environment();
+      final env = _Environment()..views.views[1] = ScheduleView.board;
       await _show(tester, env, width: 1200, platform: TargetPlatform.windows);
       Finder draggable() => find
           .ancestor(
@@ -140,11 +307,14 @@ void main() {
   );
 
   testWidgets(
-    'Windows defaults to the board and a saved list view survives rebuilding',
+    'Windows defaults to today and a saved list view survives rebuilding',
     (tester) async {
       final env = _Environment();
       await _show(tester, env, platform: TargetPlatform.windows);
-      expect(find.byType(ScheduleListView), findsNothing);
+      expect(
+        tester.widget<ScheduleListView>(find.byType(ScheduleListView)).view,
+        ScheduleView.today,
+      );
       await tester.tap(find.text('本周'));
       await tester.pumpAndSettle();
       expect(env.views.views[1], ScheduleView.week);
@@ -382,6 +552,7 @@ class _Environment {
   final store = MemorySchedules();
   final reminders = MemoryScheduleReminders();
   final MemoryScheduleViews views;
+  final searchApi = _ScheduleSearchApi();
   late final session = ProgressSession(ProgressApi(), ProgressCache());
   late final schedule = ScheduleController(store, reminders);
   late final rss = RssController(ScheduleRssStore(), RssFetcher());
@@ -417,6 +588,7 @@ Future<void> _show(
     ProviderScope(
       key: UniqueKey(),
       overrides: [
+        bangumiApiProvider.overrideWithValue(env.searchApi),
         sessionProvider.overrideWith((ref) => env.session),
         scheduleProvider.overrideWith((ref) => env.schedule),
         rssProvider.overrideWith((ref) => env.rss),
@@ -436,4 +608,66 @@ Future<void> _show(
     ),
   );
   await tester.pumpAndSettle();
+}
+
+class _ScheduleSearchApi extends BangumiApi {
+  final browseCalls = <(int, int)>[];
+  bool paged = false, failMore = false;
+  Completer<void>? browseGate;
+  @override
+  Future<List<Subject>> browseSubjects({
+    required SubjectType type,
+    int? year,
+    int? month,
+    String sort = 'rank',
+    int limit = 24,
+    int offset = 0,
+  }) async {
+    expect(type, SubjectType.anime);
+    expect(year, 2026);
+    browseCalls.add((month!, offset));
+    await browseGate?.future;
+    if (month == 7 && paged) {
+      if (offset > 0 && failMore) throw StateError('network');
+      return offset == 0
+          ? [for (var i = 0; i < 24; i++) subject(30 + i)]
+          : [subject(99)];
+    }
+    return [subject(month + 14)];
+  }
+
+  bool calendarFails = false;
+  Subject subject(int id) => Subject(
+    id: id,
+    name: '新作 $id',
+    nameCn: '',
+    imageUrl: '',
+    summary: '',
+    episodeCount: 12,
+    score: 8,
+    rank: 0,
+    date: '',
+  );
+  @override
+  Future<List<CalendarDay>> getCalendar() async {
+    if (calendarFails) throw StateError('offline');
+    return [
+      CalendarDay(weekday: 5, weekdayLabel: '周五', subjects: [subject(21)]),
+    ];
+  }
+
+  @override
+  Future<List<Subject>> searchSubjects(
+    String keyword, {
+    int limit = 24,
+    int offset = 0,
+    String sort = 'match',
+    num minimumRating = 0,
+    bool ratingExclusive = false,
+    int startYear = 0,
+    int endYear = 0,
+    List<String> tags = const [],
+    List<String> metaTags = const [],
+    SubjectType subjectType = SubjectType.anime,
+  }) async => [subject(21), subject(22)];
 }

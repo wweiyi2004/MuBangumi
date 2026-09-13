@@ -10,24 +10,47 @@ param(
 
     [string]$FlutterVersion = '3.44.7',
 
+    [ValidatePattern('^\d+\.\d+\.\d+$')]
+    [string]$BuildName,
+
+    [ValidateRange(1, 2100000000)]
+    [int]$BuildNumber,
+
     [switch]$DryRun
 )
 
 $ErrorActionPreference = 'Stop'
 if ($Patch) {
     $Shorebird = $true
+    if ($BuildName -or $BuildNumber) {
+        throw '补丁使用既有基线版本，不能覆盖 BuildName 或 BuildNumber。'
+    }
     if ($ReleaseVersion -notmatch '^\d+\.\d+\.\d+\+\d+$') {
         throw '补丁必须指定完整基线版本，例如 -ReleaseVersion 2.1.0+10。'
     }
 }
 $repositoryRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 $oauthConfigPath = Join-Path $repositoryRoot 'config\oauth.local.json'
-$expectedArtifact = switch ($Target) {
-    'apk'       { 'build\app\outputs\flutter-apk\app-release.apk' }
+$expectedArtifacts = @(switch ($Target) {
+    'apk'       {
+        if ($Shorebird) {
+            'build\app\outputs\flutter-apk\app-release.apk'
+        } else {
+            foreach ($abi in @('armeabi-v7a', 'arm64-v8a', 'x86_64')) {
+                "build\app\outputs\flutter-apk\app-$abi-release.apk"
+            }
+        }
+    }
     'appbundle' { 'build\app\outputs\bundle\release\app-release.aab' }
-    'windows'   { 'build\windows\x64\runner\Release\mubangumi.exe' }
-}
-$artifactPath = Join-Path $repositoryRoot $expectedArtifact
+    'windows'   {
+        'build\windows\x64\runner\Release\mubangumi.exe'
+        'build\windows\x64\runner\Release\data\app.so'
+    }
+})
+$artifactPaths = @($expectedArtifacts | ForEach-Object { Join-Path $repositoryRoot $_ })
+$versionArguments = @()
+if ($BuildName) { $versionArguments += "--build-name=$BuildName" }
+if ($BuildNumber) { $versionArguments += "--build-number=$BuildNumber" }
 
 if (-not (Test-Path -LiteralPath $oauthConfigPath -PathType Leaf)) {
     throw @"
@@ -76,10 +99,15 @@ try {
         }
         if ($DryRun) {
             $arguments += '--dry-run'
-        } elseif (-not $Patch -and (Test-Path -LiteralPath $artifactPath -PathType Leaf)) {
-            Remove-Item -LiteralPath $artifactPath -Force
+        } elseif (-not $Patch) {
+            foreach ($artifactPath in $artifactPaths) {
+                if (Test-Path -LiteralPath $artifactPath -PathType Leaf) {
+                    Remove-Item -LiteralPath $artifactPath -Force
+                }
+            }
         }
-        $arguments += @('--', "--dart-define-from-file=$oauthConfigPath")
+        # Keep existing Shorebird base/patch compilation options compatible.
+        $arguments += @('--', "--dart-define-from-file=$oauthConfigPath") + $versionArguments
         Write-Host "使用本地 OAuth 配置构建 Shorebird $platform（不会打印密钥）"
         & shorebird @arguments
     } else {
@@ -89,11 +117,20 @@ try {
         if ($DryRun) {
             throw '-DryRun 仅适用于 Shorebird 构建。'
         }
-        if (Test-Path -LiteralPath $artifactPath -PathType Leaf) {
-            Remove-Item -LiteralPath $artifactPath -Force
+        foreach ($artifactPath in $artifactPaths) {
+            if (Test-Path -LiteralPath $artifactPath -PathType Leaf) {
+                Remove-Item -LiteralPath $artifactPath -Force
+            }
         }
+        # Each build gets a private, unique directory: rebuilding the same version
+        # must not overwrite the symbols needed to diagnose an older artifact.
+        $symbolDirectory = Join-Path $repositoryRoot ('release-symbols\' + $Target + '-' + [guid]::NewGuid().ToString('N'))
+        New-Item -ItemType Directory -Path $symbolDirectory | Out-Null
+        $arguments = @('build', $Target, '--release', '--tree-shake-icons',
+            "--split-debug-info=$symbolDirectory", "--dart-define-from-file=$oauthConfigPath") + $versionArguments
+        if ($Target -eq 'apk') { $arguments += '--split-per-abi' }
         Write-Host "使用本地 OAuth 配置构建 Flutter $Target release（不会打印密钥）"
-        & flutter build $Target --release "--dart-define-from-file=$oauthConfigPath"
+        & flutter @arguments
     }
 
     if ($LASTEXITCODE -ne 0) {
@@ -112,13 +149,41 @@ try {
 
     # The pre-build removal above ensures this cannot accept a stale artifact
     # left by an earlier successful build.
-    if (-not (Test-Path -LiteralPath $artifactPath -PathType Leaf)) {
-        throw "构建成功退出，但未找到预期产物：$artifactPath"
+    foreach ($artifactPath in $artifactPaths) {
+        if (-not (Test-Path -LiteralPath $artifactPath -PathType Leaf)) {
+            throw "构建成功退出，但未找到预期产物：$artifactPath"
+        }
+        if ((Get-Item -LiteralPath $artifactPath).Length -le 0) {
+            throw "构建产物为空文件：$artifactPath"
+        }
+        Write-Host "产物校验通过：$artifactPath"
     }
-    if ((Get-Item -LiteralPath $artifactPath).Length -le 0) {
-        throw "构建产物为空文件：$artifactPath"
+    if (-not $Shorebird) {
+        $symbols = @(Get-ChildItem -LiteralPath $symbolDirectory -File -Filter '*.symbols')
+        if ($symbols.Count -eq 0) { throw "缺少独立调试符号：$symbolDirectory" }
+        if (@($symbols | Where-Object { $_.Length -eq 0 }).Count -gt 0) {
+            throw "调试符号为空文件：$symbolDirectory"
+        }
+        if ($Target -eq 'apk') {
+            foreach ($platform in @('android-arm', 'android-arm64', 'android-x64')) {
+                if ($symbols.Name -notcontains "app.$platform.symbols") {
+                    throw "缺少 $platform 调试符号：$symbolDirectory"
+                }
+            }
+        }
+        $records = @($artifactPaths | ForEach-Object {
+            [ordered]@{ File = [IO.Path]::GetFileName($_); Bytes = (Get-Item -LiteralPath $_).Length; SHA256 = (Get-FileHash -LiteralPath $_ -Algorithm SHA256).Hash }
+        })
+        [ordered]@{
+            CreatedUtc = [DateTime]::UtcNow.ToString('o')
+            Target = $Target
+            Artifacts = $records
+            Symbols = @($symbols | ForEach-Object {
+                [ordered]@{ File = $_.Name; SHA256 = (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash }
+            })
+        } | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath (Join-Path $symbolDirectory 'build.json') -Encoding utf8
+        Write-Host "请单独备份调试符号及产物校验记录（不随安装包发布）：$symbolDirectory"
     }
-    Write-Host "产物校验通过：$artifactPath"
 } finally {
     Pop-Location
 }

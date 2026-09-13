@@ -8,6 +8,54 @@ import 'package:path/path.dart' as path;
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 void main() {
+  for (final corrupt in [
+    '{broken',
+    '[]',
+    '{"season":{"year":2026,"quarter":2},"items":[{}]}',
+    '{"season":{"year":2026,"quarter":2},"items":"lost"}',
+  ]) {
+    test(
+      'damaged schedule is preserved across reads writes deletion and restart: $corrupt',
+      () async {
+        sqfliteFfiInit();
+        final directory = await Directory.systemTemp.createTemp(
+          'schedule-corruption-',
+        );
+        final databasePath = path.join(directory.path, 'schedule.sqlite');
+        final store = ScheduleStore.test(databasePath: databasePath);
+        const season = SeasonKey(year: 2026, quarter: 2);
+        await store.load(season);
+        final database = await databaseFactoryFfi.openDatabase(databasePath);
+        addTearDown(() async {
+          await store.close();
+          await database.close();
+          await directory.delete(recursive: true);
+        });
+        await database.insert('season_schedule', {
+          'season_key': season.id,
+          'payload': corrupt,
+          'updated_at': 123,
+        });
+        await expectLater(store.load(season), throwsStateError);
+        await expectLater(store.loadAllSchedules(), throwsStateError);
+        await expectLater(
+          store.save(SeasonSchedule.empty(season)),
+          throwsStateError,
+        );
+        await expectLater(store.deleteSeason(season), throwsStateError);
+        expect(
+          (await database.query('season_schedule')).single['payload'],
+          corrupt,
+        );
+        expect(
+          (await database.query('season_schedule')).single['updated_at'],
+          123,
+        );
+        await store.close();
+        await expectLater(store.load(season), throwsStateError);
+      },
+    );
+  }
   test(
     'v1 schedules survive upgrade and reminder IDs survive restart and deletion',
     () async {

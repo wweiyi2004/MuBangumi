@@ -1,3 +1,6 @@
+import 'dart:convert';
+
+import 'package:charset/charset.dart';
 import 'package:dio/dio.dart';
 import 'package:xml/xml.dart';
 
@@ -33,13 +36,59 @@ class RssFetcher {
                 'Accept':
                     'application/rss+xml, application/atom+xml, application/xml, text/xml, */*',
               },
-              responseType: ResponseType.plain,
+              // Raw bytes: dio's default transformer always assumes UTF-8,
+              // which silently mangles GBK/GB2312 feeds into replacement
+              // characters. Decoding happens in decodeFeedBytes.
+              responseType: ResponseType.bytes,
               validateStatus: (code) =>
                   code != null && code >= 200 && code < 400,
             ),
           );
 
   final Dio _dio;
+
+  /// Public for unit tests.
+  ///
+  /// Decodes raw feed bytes with the charset declared by the HTTP
+  /// `Content-Type` header, then the feed's own XML declaration, then UTF-8.
+  /// Without this a GBK/GB2312 feed decodes to U+FFFD replacement characters,
+  /// every keyword match fails, and the source silently yields no entries.
+  static String decodeFeedBytes(List<int> bytes, {String? contentType}) {
+    final encoding = _feedEncoding(bytes, contentType);
+    // Keep the long-standing lenient behaviour for the UTF-8 default; a
+    // declared legacy encoding must decode with its own codec, strictly, so a
+    // genuinely broken feed reports an error instead of yielding mojibake.
+    if (identical(encoding, utf8)) {
+      return utf8.decode(bytes, allowMalformed: true);
+    }
+    return encoding.decode(bytes);
+  }
+
+  static final _httpCharset = RegExp(
+    r'charset\s*=\s*"?([A-Za-z0-9_\-]+)',
+    caseSensitive: false,
+  );
+
+  static final _declaredEncoding = RegExp(
+    r'''encoding\s*=\s*["']([A-Za-z0-9_-]+)["']''',
+    caseSensitive: false,
+  );
+
+  static Encoding _feedEncoding(List<int> bytes, String? contentType) {
+    if (contentType != null) {
+      final declared = _httpCharset.firstMatch(contentType)?.group(1);
+      final resolved = declared == null ? null : Charset.getByName(declared);
+      if (resolved != null) return resolved;
+    }
+    // The declaration must sit in the ASCII head of the document.
+    final head = latin1.decode(
+      bytes.length > 256 ? bytes.sublist(0, 256) : bytes,
+      allowInvalid: true,
+    );
+    final sniffed = _declaredEncoding.firstMatch(head)?.group(1);
+    final resolved = sniffed == null ? null : Charset.getByName(sniffed);
+    return resolved ?? utf8;
+  }
 
   Future<RssFetchResult> fetch(
     String url, {
@@ -50,7 +99,7 @@ class RssFetcher {
     if (etag.isNotEmpty) headers['If-None-Match'] = etag;
     if (lastModified.isNotEmpty) headers['If-Modified-Since'] = lastModified;
 
-    final response = await _dio.get<String>(
+    final response = await _dio.get<List<int>>(
       url,
       options: Options(headers: headers),
     );
@@ -64,7 +113,10 @@ class RssFetcher {
       );
     }
 
-    final body = response.data ?? '';
+    final body = decodeFeedBytes(
+      response.data ?? const <int>[],
+      contentType: response.headers.value('content-type'),
+    );
     if (body.trim().isEmpty) {
       throw Exception('RSS 内容为空');
     }

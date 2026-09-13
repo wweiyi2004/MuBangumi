@@ -22,6 +22,11 @@ void main() {
   late ScheduleReminderService service;
   Completer<Object?>? pendingGate;
   Completer<void>? pendingEntered;
+  final horizon = Platform.isWindows
+      ? ScheduleReminderService.windowsReminderWeeks
+      : 1;
+  var failInitialize = false;
+  final scheduledDates = <DateTime>[];
   var failSchedule = false;
   var failCancel = false;
   var deviceZone = 'Asia/Shanghai';
@@ -49,6 +54,8 @@ void main() {
     pending.clear();
     pendingGate = null;
     pendingEntered = null;
+    failInitialize = false;
+    scheduledDates.clear();
     failSchedule = false;
     failCancel = false;
     deviceZone = 'Asia/Shanghai';
@@ -60,7 +67,7 @@ void main() {
     messenger.setMockMethodCallHandler(notificationChannel, (call) async {
       switch (call.method) {
         case 'initialize':
-          return true;
+          return !failInitialize;
         case 'getNotificationAppLaunchDetails':
           return {'notificationLaunchedApp': false};
         case 'pendingNotificationRequests':
@@ -78,6 +85,9 @@ void main() {
         case 'zonedSchedule':
           final args = call.arguments as Map;
           scheduledZones.add(args['timeZoneName'] as String);
+          scheduledDates.add(
+            DateTime.parse(args['scheduledDateTime'] as String),
+          );
           final id = args['id'] as int;
           // Match the Windows plugin: pending requests contain IDs, no payload.
           pending[id] = {
@@ -98,6 +108,34 @@ void main() {
     messenger.setMockMethodCallHandler(notificationChannel, null);
   });
 
+  test('failed initialization can be retried in the same process', () async {
+    failInitialize = true;
+    await expectLater(service.syncSchedules([enabled]), throwsStateError);
+    expect(pending, isEmpty);
+    failInitialize = false;
+    await service.syncSchedules([enabled]);
+    expect(pending, hasLength(horizon));
+  });
+
+  test(
+    'Windows pre-registers eight distinct weekly occurrences',
+    () async {
+      await service.syncSchedules([enabled]);
+      expect(scheduledDates, hasLength(8));
+      for (var i = 1; i < 8; i++) {
+        expect(
+          scheduledDates[i].difference(scheduledDates[i - 1]),
+          const Duration(days: 7),
+        );
+      }
+      expect(
+        scheduledDates.every((date) => date.weekday == 1 && date.hour == 20),
+        isTrue,
+      );
+    },
+    skip: !Platform.isWindows,
+  );
+
   test(
     'reconciliation refreshes the device timezone after initialization',
     () async {
@@ -113,7 +151,7 @@ void main() {
     'removes payload-less notifications after restart and season deletion',
     () async {
       await service.syncSchedules([enabled]);
-      expect(pending, hasLength(1));
+      expect(pending, hasLength(horizon));
       final restarted = ScheduleReminderService.test(store);
       await restarted.syncSchedules([]);
       expect(pending, isEmpty);
@@ -125,14 +163,14 @@ void main() {
     'rescheduling replaces the existing payload-less notification',
     () async {
       await service.syncSchedules([enabled]);
-      final id = pending.keys.single;
+      final ids = pending.keys.toSet();
       await service.syncSchedules([
         enabled.copyWith(
           items: [enabled.items.single.copyWith(reminderHour: 21)],
         ),
       ]);
-      expect(pending.keys, [id]);
-      expect(store.ids, {id});
+      expect(pending.keys.toSet(), ids);
+      expect(store.ids, ids);
       await service.syncSchedules([
         enabled.copyWith(
           items: [enabled.items.single.copyWith(reminderEnabled: false)],
@@ -165,7 +203,8 @@ void main() {
         throwsA(isA<PlatformException>()),
       );
       expect(pending, hasLength(1));
-      expect(store.ids, pending.keys.toSet());
+      expect(store.ids, containsAll(pending.keys));
+      expect(store.ids, hasLength(horizon));
       failSchedule = false;
       await ScheduleReminderService.test(store).syncSchedules([]);
       expect(pending, isEmpty);
@@ -196,7 +235,7 @@ void main() {
       expect(pending, isEmpty);
       store.failWrites = false;
       await service.syncSchedules([enabled]);
-      expect(pending, hasLength(1));
+      expect(pending, hasLength(horizon));
     },
   );
 
@@ -204,14 +243,14 @@ void main() {
     'unrelated notifications survive cancellation and ID collisions',
     () async {
       await service.syncSchedules([enabled]);
-      final foreignId = pending.keys.single;
+      final foreignIds = pending.keys.toSet();
       // Simulate a different producer owning the hash this reminder would use.
       store.ids = {};
       await service.syncSchedules([enabled]);
-      expect(pending, hasLength(2));
-      expect(store.ids, isNot(contains(foreignId)));
+      expect(pending, hasLength(horizon * 2));
+      expect(store.ids!.intersection(foreignIds), isEmpty);
       await service.syncSchedules([]);
-      expect(pending.keys, [foreignId]);
+      expect(pending.keys.toSet(), foreignIds);
     },
   );
 

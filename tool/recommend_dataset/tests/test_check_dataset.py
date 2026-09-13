@@ -174,3 +174,47 @@ def test_missing_key_exit_1(tmp_path):
     result = _run(config)
     assert result.returncode == 1
     assert "missing required key" in result.stderr
+
+
+def _write_interactions_csv(tmp_path: Path, rows: list[tuple[str, str]]) -> None:
+    export_dir = tmp_path / "data" / "export"
+    export_dir.mkdir(parents=True, exist_ok=True)
+    body = "\n".join(f"{split},{updated}" for split, updated in rows)
+    (export_dir / "interactions.csv").write_text(
+        f"split,updated_at\n{body}\n", encoding="utf-8"
+    )
+
+
+def test_recomputed_leakage_from_csv_blocks_readiness(tmp_path):
+    """The report claims zero leakage, but the exported artifact disagrees.
+
+    dataset_report.json carries a count produced by the same splitter that
+    labels the rows, so trusting it makes the gate unfalsifiable. It has to be
+    re-derived from interactions.csv against the configured cutoff.
+    """
+    config = _write_report(tmp_path)
+    _write_interactions_csv(
+        tmp_path,
+        [
+            ("train", "2025-01-01T00:00:00+00:00"),
+            ("train", "2026-01-15T00:00:00+00:00"),  # after the 2025-12-31 cutoff
+            ("validation", "2026-02-01T00:00:00+00:00"),
+        ],
+    )
+    result = _run(config)
+    assert result.returncode == 2, result.stderr
+    assert "[FAIL] temporal_leakage_rows: 1" in result.stdout
+
+
+def test_clean_csv_keeps_leakage_gate_passing(tmp_path):
+    config = _write_report(tmp_path)
+    _write_interactions_csv(
+        tmp_path,
+        [
+            ("train", "2025-01-01T00:00:00+00:00"),
+            ("validation", "2026-02-01T00:00:00+00:00"),
+        ],
+    )
+    result = _run(config)
+    assert result.returncode == 0, result.stderr
+    assert "[PASS] temporal_leakage_rows: 0" in result.stdout

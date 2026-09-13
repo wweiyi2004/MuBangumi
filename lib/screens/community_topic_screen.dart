@@ -2,6 +2,10 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:scrollable_positioned_list/scrollable_positioned_list.dart';
+import '../core/storage/browsing_store.dart';
+import '../models/topic_reading_position.dart';
+import '../state/session_controller.dart';
 
 import '../core/network/community_service.dart';
 import '../models/community_models.dart';
@@ -31,36 +35,194 @@ class _CommunityTopicScreenState extends ConsumerState<CommunityTopicScreen> {
   String? _error;
   Set<String> _friendUsernames = const {};
   final Set<String> _reactionBusyPostIds = {};
+  final _itemScroll = ItemScrollController();
+  final _positions = ItemPositionsListener.create();
+  late final TopicReadingRepository _readingStore;
+  late final AppLifecycleListener _lifecycle;
+  String _readingAccount = '';
+  TopicReadingPosition? _resumePosition, _candidate;
+  Timer? _saveTimer;
+  bool _trackReading = false;
+  int _readingGeneration = 0;
+  String? _readingError;
+  String _filter = 'all';
+  bool _friendsLoading = false;
+  bool _friendsFailed = false;
+  String get _topicKey =>
+      '${widget.topic.kind.name}:${_service.resolveTopicId(widget.topic) ?? widget.topic.url}';
+  bool get _sameReadingAccount =>
+      (_service.currentUsername ?? '') == _readingAccount;
 
   @override
   void initState() {
     super.initState();
+    _readingStore = ref.read(topicReadingRepositoryProvider);
+    _readingAccount = _service.currentUsername ?? '';
+    _positions.itemPositions.addListener(_recordVisiblePost);
+    _lifecycle = AppLifecycleListener(
+      onStateChange: (state) {
+        if (state != AppLifecycleState.resumed) unawaited(_savePosition());
+      },
+    );
+    ref.listenManual(sessionProvider.select((s) => s.user?.username), (_, _) {
+      Future.microtask(() {
+        if (!mounted || _sameReadingAccount) return;
+        _saveTimer?.cancel();
+        setState(() {
+          _readingAccount = _service.currentUsername ?? '';
+          _resumePosition = null;
+          _candidate = null;
+          _trackReading = false;
+          _readingError = null;
+          _filter = 'all';
+          _friendUsernames = const {};
+          _detail = null;
+        });
+        unawaited(_loadReadingPosition());
+        unawaited(_load());
+        unawaited(_loadFriendUsernames());
+      });
+    });
+    unawaited(_loadReadingPosition());
     unawaited(_load());
     unawaited(_loadFriendUsernames());
+  }
+
+  Future<void> _loadReadingPosition() async {
+    final generation = ++_readingGeneration;
+    final account = _readingAccount;
+    if (account.isEmpty) return;
+    try {
+      final saved = await _readingStore.readTopicPosition(account, _topicKey);
+      if (!mounted || generation != _readingGeneration || !_sameReadingAccount) {
+        return;
+      }
+      setState(() {
+        _resumePosition = saved;
+        _readingError = null;
+      });
+    } catch (_) {
+      if (mounted && generation == _readingGeneration && _sameReadingAccount) {
+        setState(() => _readingError = '读取阅读位置失败');
+      }
+    }
+  }
+
+  void _recordVisiblePost() {
+    if (!_trackReading ||
+        _filter != 'all' ||
+        !_sameReadingAccount ||
+        _readingAccount.isEmpty) {
+      return;
+    }
+    final posts = _detail?.posts;
+    if (posts == null || posts.isEmpty) return;
+    final visible =
+        _positions.itemPositions.value
+            .where(
+              (p) =>
+                  p.index > 0 &&
+                  p.itemTrailingEdge > 0 &&
+                  p.itemLeadingEdge < 1,
+            )
+            .toList()
+          ..sort((a, b) => a.index.compareTo(b.index));
+    if (visible.isEmpty) return;
+    final index = visible.first.index - 1;
+    if (index >= posts.length) return;
+    _candidate = TopicReadingPosition(postId: posts[index].id, index: index);
+    _saveTimer?.cancel();
+    _saveTimer = Timer(
+      const Duration(milliseconds: 450),
+      () => unawaited(_savePosition()),
+    );
+  }
+
+  Future<void> _savePosition() async {
+    final position = _candidate;
+    final account = _readingAccount;
+    if (position == null || account.isEmpty || !_sameReadingAccount) return;
+    try {
+      await _readingStore.saveTopicPosition(account, _topicKey, position);
+      if (mounted &&
+          account == _readingAccount &&
+          _sameReadingAccount &&
+          _readingError != null) {
+        setState(() => _readingError = null);
+      }
+    } catch (_) {
+      if (mounted && account == _readingAccount && _sameReadingAccount) {
+        setState(() => _readingError = '阅读位置未保存，请重试');
+      }
+    }
+  }
+
+  void _resumeReading() {
+    final saved = _resumePosition;
+    final posts = _detail?.posts;
+    if (saved == null || posts == null || posts.isEmpty || !_sameReadingAccount) {
+      return;
+    }
+    var index = posts.indexWhere((post) => post.id == saved.postId);
+    final missing = index < 0;
+    if (missing) index = saved.index.clamp(0, posts.length - 1);
+    setState(() {
+      _filter = 'all';
+      _trackReading = false;
+    });
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !_sameReadingAccount || !_itemScroll.isAttached) return;
+      _itemScroll.jumpTo(index: index + 1);
+      _trackReading = true;
+      if (missing) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('原楼层已移除，已定位到附近内容')));
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _saveTimer?.cancel();
+    unawaited(_savePosition());
+    _lifecycle.dispose();
+    _positions.itemPositions.removeListener(_recordVisiblePost);
+    super.dispose();
   }
 
   Future<void> _loadFriendUsernames() async {
     final username = _service.currentUsername;
     if (username == null || username.isEmpty) return;
-    // Defer until after first paint so opening a topic stays snappy.
+    setState(() {
+      _friendsLoading = true;
+      _friendsFailed = false;
+    });
     await Future<void>.delayed(const Duration(milliseconds: 300));
-    if (!mounted) return;
+    if (!mounted || _service.currentUsername != username) return;
     try {
-      final page = await _service.loadFriends(username, limit: 40);
-      if (!mounted) return;
+      final friends = await _service.loadAllFriends(username);
+      if (!mounted || _service.currentUsername != username) return;
       setState(() {
         _friendUsernames = {
-          for (final friend in page.data) friend.username.toLowerCase(),
+          for (final friend in friends) friend.username.toLowerCase(),
         };
+        _friendsLoading = false;
       });
     } catch (_) {
-      // Friend badges are optional enhancement.
+      if (mounted && _service.currentUsername == username) {
+        setState(() {
+          _friendsLoading = false;
+          _friendsFailed = true;
+        });
+      }
     }
   }
 
   Future<void> _load({bool refresh = false, int? requestId}) async {
     if (!mounted) return;
     final activeRequest = requestId ?? ++_requestId;
+    final account = _service.currentUsername;
     if (mounted) {
       setState(() {
         _loading = true;
@@ -69,13 +231,21 @@ class _CommunityTopicScreenState extends ConsumerState<CommunityTopicScreen> {
     }
     try {
       final detail = await _service.loadTopic(widget.topic, refresh: refresh);
-      if (!mounted || activeRequest != _requestId) return;
+      if (!mounted ||
+          activeRequest != _requestId ||
+          account != _service.currentUsername) {
+        return;
+      }
       setState(() {
         _detail = detail;
         _loading = false;
       });
     } catch (error) {
-      if (!mounted || activeRequest != _requestId) return;
+      if (!mounted ||
+          activeRequest != _requestId ||
+          account != _service.currentUsername) {
+        return;
+      }
       setState(() {
         _loading = false;
         _error = error.toString().replaceFirst('Exception: ', '');
@@ -115,6 +285,7 @@ class _CommunityTopicScreenState extends ConsumerState<CommunityTopicScreen> {
         post?.id ?? 'topic',
       ]),
       warning: _oldTopicWarning,
+      replyContext: post == null ? null : '${post.author}：${post.body}',
       onSubmit: (_, content, token) => _service.replyToTopic(
         topic: widget.topic,
         content: content,
@@ -222,6 +393,62 @@ class _CommunityTopicScreenState extends ConsumerState<CommunityTopicScreen> {
                 error: _error,
                 onRetry: () => _load(refresh: true),
               ),
+            if (detail != null)
+              Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 4,
+                ),
+                child: Wrap(
+                  spacing: 8,
+                  runSpacing: 4,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  children: [
+                    for (final entry in const {
+                      'all': '全部',
+                      'op': '只看楼主',
+                      'friends': '只看好友',
+                    }.entries)
+                      ChoiceChip(
+                        label: Text(entry.value),
+                        selected: _filter == entry.key,
+                        onSelected:
+                            entry.key == 'friends' &&
+                                (_readingAccount.isEmpty ||
+                                    _friendsLoading ||
+                                    _friendsFailed)
+                            ? null
+                            : (_) {
+                                unawaited(_savePosition());
+                                _saveTimer?.cancel();
+                                setState(() {
+                                  _filter = entry.key;
+                                  _candidate = null;
+                                  _trackReading = false;
+                                });
+                              },
+                      ),
+                    if (_resumePosition != null)
+                      TextButton.icon(
+                        onPressed: _resumeReading,
+                        icon: const Icon(Icons.history_rounded, size: 18),
+                        label: const Text('继续上次阅读'),
+                      ),
+                    if (_friendsFailed)
+                      TextButton(
+                        onPressed: _loadFriendUsernames,
+                        child: const Text('重试好友加载'),
+                      ),
+                    if (_readingError != null)
+                      TextButton(
+                        onPressed: () => _candidate == null
+                            ? _loadReadingPosition()
+                            : _savePosition(),
+                        child: Text('$_readingError · 重试'),
+                      ),
+                  ],
+                ),
+              ),
             Expanded(child: _buildBody()),
           ],
         ),
@@ -240,82 +467,114 @@ class _CommunityTopicScreenState extends ConsumerState<CommunityTopicScreen> {
     }
     if (detail == null) return const SizedBox.shrink();
     final wide = MediaQuery.sizeOf(context).width >= 900;
+    final original =
+        detail.posts.where((post) => post.isOriginal).firstOrNull ??
+        detail.posts.firstOrNull;
+    final author = original == null
+        ? null
+        : _usernameFromUserUrl(original.userUrl);
+    final posts = detail.posts
+        .where(
+          (post) =>
+              _filter == 'all' ||
+              (_filter == 'op' &&
+                  (post.isOriginal ||
+                      (author != null &&
+                          _usernameFromUserUrl(post.userUrl)?.toLowerCase() ==
+                              author.toLowerCase()))) ||
+              (_filter == 'friends' && _isFriendPost(post)),
+        )
+        .toList();
     return RefreshIndicator(
       onRefresh: () => _load(refresh: true),
-      child: ListView.builder(
-        physics: const AlwaysScrollableScrollPhysics(),
-        padding: EdgeInsets.fromLTRB(wide ? 80 : 14, 16, wide ? 80 : 14, 96),
-        itemCount: detail.posts.length + 1,
-        itemBuilder: (context, index) {
-          if (index == 0) {
+      child: NotificationListener<ScrollNotification>(
+        onNotification: (notification) {
+          if (notification is ScrollStartNotification &&
+              notification.dragDetails != null) {
+            _trackReading = true;
+          }
+          if (notification is ScrollEndNotification) _recordVisiblePost();
+          return false;
+        },
+        child: ScrollablePositionedList.builder(
+          key: ValueKey('topic-reading-$_readingAccount-$_filter'),
+          itemScrollController: _itemScroll,
+          itemPositionsListener: _positions,
+          physics: const AlwaysScrollableScrollPhysics(),
+          padding: EdgeInsets.fromLTRB(wide ? 80 : 14, 16, wide ? 80 : 14, 96),
+          itemCount: posts.length + 1,
+          itemBuilder: (context, index) {
+            if (index == 0) {
+              return Center(
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 920),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Text(
+                        detail.title,
+                        style: Theme.of(context).textTheme.headlineSmall
+                            ?.copyWith(fontWeight: FontWeight.w800),
+                      ),
+                      if (detail.sourceTitle.isNotEmpty) ...[
+                        const SizedBox(height: 7),
+                        Text(
+                          detail.sourceTitle,
+                          style: Theme.of(context).textTheme.titleSmall
+                              ?.copyWith(
+                                color: Theme.of(context).colorScheme.primary,
+                              ),
+                        ),
+                      ],
+                      const SizedBox(height: 18),
+                      if (posts.isEmpty)
+                        const Padding(
+                          padding: EdgeInsets.all(28),
+                          child: Center(child: Text('暂无符合条件的内容')),
+                        ),
+                    ],
+                  ),
+                ),
+              );
+            }
+            final post = posts[index - 1];
+            final username = _usernameFromUserUrl(post.userUrl);
+            final supportsReactions =
+                widget.topic.kind == CommunityTopicKind.group ||
+                widget.topic.kind == CommunityTopicKind.subject;
             return Center(
               child: ConstrainedBox(
                 constraints: const BoxConstraints(maxWidth: 920),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    Text(
-                      detail.title,
-                      style: Theme.of(context).textTheme.headlineSmall
-                          ?.copyWith(fontWeight: FontWeight.w800),
-                    ),
-                    if (detail.sourceTitle.isNotEmpty) ...[
-                      const SizedBox(height: 7),
-                      Text(
-                        detail.sourceTitle,
-                        style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                          color: Theme.of(context).colorScheme.primary,
-                        ),
-                      ),
-                    ],
-                    const SizedBox(height: 18),
-                    if (detail.posts.isEmpty)
-                      const Padding(
-                        padding: EdgeInsets.all(28),
-                        child: Center(child: Text('还没有可显示的回复')),
-                      ),
-                  ],
+                child: BlockedCommunityContent(
+                  key: ValueKey('topic-post-${post.id}'),
+                  username: username ?? post.author,
+                  blocked: preferences.isBlocked(username ?? ''),
+                  child: CommunityPostCard(
+                    post: post,
+                    isFriend: _isFriendPost(post),
+                    currentUsername: _service.currentUsername,
+                    reactionBusy: _reactionBusyPostIds.contains(post.id),
+                    onReactionChanged:
+                        _service.isAuthenticated && supportsReactions
+                        ? (value) => _updateReaction(post, value)
+                        : null,
+                    onReply: _service.isAuthenticated
+                        ? () => _reply(post: post)
+                        : null,
+                    onOpenUser: username == null
+                        ? null
+                        : () => openUserProfile(
+                            context,
+                            username: username,
+                            nickname: post.author,
+                            avatarUrl: post.avatarUrl,
+                          ),
+                  ),
                 ),
               ),
             );
-          }
-          final post = detail.posts[index - 1];
-          final username = _usernameFromUserUrl(post.userUrl);
-          final supportsReactions =
-              widget.topic.kind == CommunityTopicKind.group ||
-              widget.topic.kind == CommunityTopicKind.subject;
-          return Center(
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 920),
-              child: BlockedCommunityContent(
-                key: ValueKey('topic-post-${post.id}'),
-                username: username ?? post.author,
-                blocked: preferences.isBlocked(username ?? ''),
-                child: CommunityPostCard(
-                  post: post,
-                  isFriend: _isFriendPost(post),
-                  currentUsername: _service.currentUsername,
-                  reactionBusy: _reactionBusyPostIds.contains(post.id),
-                  onReactionChanged:
-                      _service.isAuthenticated && supportsReactions
-                      ? (value) => _updateReaction(post, value)
-                      : null,
-                  onReply: _service.isAuthenticated
-                      ? () => _reply(post: post)
-                      : null,
-                  onOpenUser: username == null
-                      ? null
-                      : () => openUserProfile(
-                          context,
-                          username: username,
-                          nickname: post.author,
-                          avatarUrl: post.avatarUrl,
-                        ),
-                ),
-              ),
-            ),
-          );
-        },
+          },
+        ),
       ),
     );
   }

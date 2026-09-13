@@ -9,8 +9,12 @@ import '../core/notifications/schedule_reminder_service.dart';
 import '../core/shortcuts/app_shortcut.dart';
 import '../core/widget/home_widget_sync_host.dart';
 import '../state/app_shortcut_controller.dart';
-import '../state/background_controller.dart';
+import '../state/shared_link_controller.dart';
+import '../core/shortcuts/shared_bangumi_link.dart';
+import 'shared_bangumi_link_page.dart';
+import '../widgets/app_background.dart';
 import '../state/notify_controller.dart';
+import '../state/rss_controller.dart';
 import '../state/schedule_controller.dart';
 import '../state/session_controller.dart';
 import '../widgets/friend_qr_actions.dart';
@@ -34,7 +38,9 @@ class _HomeShellState extends ConsumerState<HomeShell> {
   bool _discoverOpened = false;
   bool _communityOpened = false;
   bool _profileOpened = false;
+  bool _handlingSharedLinks = false;
   late final AppLifecycleListener _lifecycleListener;
+  late final RssController _rssController;
   late final StreamSubscription<ScheduleReminderTarget> _reminderSubscription;
 
   static const _destinations = [
@@ -78,8 +84,10 @@ class _HomeShellState extends ConsumerState<HomeShell> {
   @override
   void initState() {
     super.initState();
+    _rssController = ref.read(rssProvider.notifier);
     _lifecycleListener = AppLifecycleListener(
       onStateChange: (state) {
+        _rssController.setForeground(state == AppLifecycleState.resumed);
         ref
             .read(notifyBadgeProvider.notifier)
             .setForeground(state == AppLifecycleState.resumed);
@@ -99,7 +107,13 @@ class _HomeShellState extends ConsumerState<HomeShell> {
       (target) => unawaited(_openReminderTarget(target)),
     );
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _rssController.setForeground(
+        WidgetsBinding.instance.lifecycleState == null ||
+            WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed,
+      );
       _consumeShortcut();
+      unawaited(_consumeSharedLinks());
       final pending = ScheduleReminderService.shared.takePendingOpen();
       if (pending != null) unawaited(_openReminderTarget(pending));
       unawaited(
@@ -110,6 +124,7 @@ class _HomeShellState extends ConsumerState<HomeShell> {
 
   @override
   void dispose() {
+    _rssController.setForeground(false);
     _reminderSubscription.cancel();
     _lifecycleListener.dispose();
     super.dispose();
@@ -132,6 +147,66 @@ class _HomeShellState extends ConsumerState<HomeShell> {
     if (shortcut != null) unawaited(_openShortcut(shortcut));
   }
 
+  Future<void> _consumeSharedLinks() async {
+    if (!mounted || _handlingSharedLinks) return;
+    _handlingSharedLinks = true;
+    try {
+      while (mounted &&
+          ref.read(sessionProvider).phase == SessionPhase.signedIn) {
+        final request = ref.read(pendingSharedLinksProvider.notifier).take();
+        if (request == null) break;
+        if (request.links.isEmpty) {
+          await showDialog<void>(
+            context: context,
+            builder: (context) => AlertDialog(
+              title: const Text('没有可打开的 Bangumi 链接'),
+              content: const Text('请分享条目、人物、角色或话题的网页链接。'),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text('知道了'),
+                ),
+              ],
+            ),
+          );
+          continue;
+        }
+        final link = request.links.length == 1
+            ? request.links.single
+            : await showModalBottomSheet<SharedBangumiLink>(
+                context: context,
+                showDragHandle: true,
+                useSafeArea: true,
+                builder: (context) => ListView(
+                  shrinkWrap: true,
+                  children: [
+                    const ListTile(title: Text('选择要打开的链接')),
+                    for (final link in request.links)
+                      ListTile(
+                        title: Text(link.label),
+                        subtitle: Text(link.url),
+                        onTap: () => Navigator.pop(context, link),
+                      ),
+                  ],
+                ),
+              );
+        if (!mounted) return;
+        if (link != null &&
+            ref.read(sessionProvider).phase == SessionPhase.signedIn) {
+          unawaited(
+            Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                builder: (_) => SharedBangumiLinkPage(link: link),
+              ),
+            ),
+          );
+        }
+      }
+    } finally {
+      _handlingSharedLinks = false;
+    }
+  }
+
   Future<void> _openShortcut(AppShortcut shortcut) async {
     final user = ref.read(sessionProvider).user;
     switch (shortcut) {
@@ -150,6 +225,9 @@ class _HomeShellState extends ConsumerState<HomeShell> {
 
   @override
   Widget build(BuildContext context) {
+    ref.listen(pendingSharedLinksProvider, (_, next) {
+      if (next.isNotEmpty) unawaited(_consumeSharedLinks());
+    });
     ref.listen(pendingAppShortcutProvider, (previous, next) {
       if (next != null) _consumeShortcut();
     });
@@ -163,13 +241,9 @@ class _HomeShellState extends ConsumerState<HomeShell> {
     ];
     final desktop = AppLayout.isDesktop(context);
     final navHeight = AppLayout.navHeight(context);
-    final glassBg = ref.watch(
-      backgroundSettingsProvider.select((s) => s.isActive),
-    );
     return HomeWidgetSyncHost(
       onOpenSchedule: _openSchedule,
       child: Scaffold(
-        backgroundColor: glassBg ? Colors.transparent : null,
         body: SafeArea(
           child: Row(
             children: [
@@ -178,7 +252,6 @@ class _HomeShellState extends ConsumerState<HomeShell> {
                   index: _index,
                   onChanged: _selectPage,
                   unreadCount: unread,
-                  glass: glassBg,
                   onOpenSchedule: _openSchedule,
                 ),
               Expanded(
@@ -226,20 +299,18 @@ class _DesktopNavigation extends StatelessWidget {
     required this.onChanged,
     required this.unreadCount,
     required this.onOpenSchedule,
-    this.glass = false,
   });
 
   final int index;
   final ValueChanged<int> onChanged;
   final int unreadCount;
   final VoidCallback onOpenSchedule;
-  final bool glass;
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    return Material(
-      color: glass ? scheme.surface.withValues(alpha: 0.55) : scheme.surface,
+    return GlassPanel(
+      borderRadius: 0,
       child: Container(
         width: 190,
         decoration: BoxDecoration(

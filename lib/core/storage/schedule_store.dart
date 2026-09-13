@@ -46,26 +46,56 @@ class ScheduleStore {
       limit: 1,
     );
     if (rows.isEmpty) return SeasonSchedule.empty(season);
+    return _decode(rows.first['payload'], season);
+  }
+
+  SeasonSchedule _decode(Object? payload, SeasonKey season) {
     try {
-      final decoded = jsonDecode(rows.first['payload']! as String);
-      if (decoded is! Map) return SeasonSchedule.empty(season);
-      final schedule = SeasonSchedule.fromJson(
-        Map<String, dynamic>.from(decoded),
-      );
-      // Keep requested season key even if payload is older/corrupt.
-      return schedule.copyWith(season: season);
+      final raw = jsonDecode(payload as String);
+      if (raw is! Map || raw['season'] is! Map || raw['items'] is! List) {
+        throw const FormatException();
+      }
+      final key = raw['season'] as Map;
+      if (key['year'] != season.year || key['quarter'] != season.quarter) {
+        throw const FormatException();
+      }
+      final ids = <int>{};
+      for (final item in raw['items'] as List) {
+        if (item is! Map ||
+            item['subjectId'] is! int ||
+            (item['subjectId'] as int) <= 0 ||
+            !ids.add(item['subjectId'] as int)) {
+          throw const FormatException();
+        }
+        final day = item['weekday'];
+        if (day != null && (day is! int || day < 1 || day > 7)) {
+          throw const FormatException();
+        }
+      }
+      return SeasonSchedule.fromJson(Map<String, dynamic>.from(raw));
     } catch (_) {
-      return SeasonSchedule.empty(season);
+      throw StateError('${season.label}数据损坏，原内容已保留。请从备份恢复后重试');
     }
   }
 
   Future<void> save(SeasonSchedule schedule) => _write(() async {
     final database = await _open();
-    await database.insert('season_schedule', {
-      'season_key': schedule.season.id,
-      'payload': jsonEncode(schedule.toJson()),
-      'updated_at': DateTime.now().millisecondsSinceEpoch,
-    }, conflictAlgorithm: ConflictAlgorithm.replace);
+    final payload = jsonEncode(schedule.toJson());
+    _decode(payload, schedule.season);
+    await database.transaction((transaction) async {
+      final old = await transaction.query(
+        'season_schedule',
+        columns: ['payload'],
+        where: 'season_key = ?',
+        whereArgs: [schedule.season.id],
+      );
+      if (old.isNotEmpty) _decode(old.single['payload'], schedule.season);
+      await transaction.insert('season_schedule', {
+        'season_key': schedule.season.id,
+        'payload': payload,
+        'updated_at': DateTime.now().millisecondsSinceEpoch,
+      }, conflictAlgorithm: ConflictAlgorithm.replace);
+    });
   });
 
   /// All season keys the user has ever saved (newest first).
@@ -86,7 +116,7 @@ class ScheduleStore {
     return result;
   }
 
-  /// All saved schedules, newest first. Corrupt rows are ignored.
+  /// Fail closed so damaged data cannot silently cancel existing reminders.
   Future<List<SeasonSchedule>> loadAllSchedules() async {
     final database = await _open();
     final rows = await database.query(
@@ -96,29 +126,31 @@ class ScheduleStore {
     );
     final result = <SeasonSchedule>[];
     for (final row in rows) {
-      try {
-        final rawKey = row['season_key']?.toString() ?? '';
-        final decoded = jsonDecode(row['payload']! as String);
-        if (rawKey.isEmpty || decoded is! Map) continue;
-        result.add(
-          SeasonSchedule.fromJson(
-            Map<String, dynamic>.from(decoded),
-          ).copyWith(season: SeasonKey.fromId(rawKey)),
-        );
-      } catch (_) {
-        // One broken quarter must not prevent reminders for the other quarters.
+      final rawKey = row['season_key']?.toString() ?? '';
+      if (!RegExp(r'^\d+-Q[0-3]$').hasMatch(rawKey)) {
+        throw StateError('季度索引损坏，原内容已保留');
       }
+      result.add(_decode(row['payload'], SeasonKey.fromId(rawKey)));
     }
     return result;
   }
 
   Future<void> deleteSeason(SeasonKey season) => _write(() async {
     final database = await _open();
-    await database.delete(
-      'season_schedule',
-      where: 'season_key = ?',
-      whereArgs: [season.id],
-    );
+    await database.transaction((transaction) async {
+      final old = await transaction.query(
+        'season_schedule',
+        columns: ['payload'],
+        where: 'season_key = ?',
+        whereArgs: [season.id],
+      );
+      if (old.isNotEmpty) _decode(old.single['payload'], season);
+      await transaction.delete(
+        'season_schedule',
+        where: 'season_key = ?',
+        whereArgs: [season.id],
+      );
+    });
   });
 
   /// Notification ownership survives deleted seasons and application restarts.

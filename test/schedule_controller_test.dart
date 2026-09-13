@@ -8,6 +8,76 @@ import 'package:mubangumi/models/schedule_models.dart';
 import 'package:mubangumi/state/schedule_controller.dart';
 
 void main() {
+  test(
+    'quarter batch keeps existing entries and per-day order, failure is retryable',
+    () async {
+      final season = SeasonKey.current();
+      final store = _FakeScheduleStore({
+        season.id: _schedule(season, weekday: 2),
+      });
+      final controller = ScheduleController(store);
+      addTearDown(controller.dispose);
+      await _waitFor(() => !controller.state.loading);
+      Subject subject(int id) => Subject(
+        id: id,
+        name: 'New $id',
+        nameCn: '',
+        imageUrl: '',
+        summary: '',
+        episodeCount: 12,
+        score: 0,
+        rank: 0,
+        date: '',
+      );
+      final subjects = [
+        subject(1),
+        subject(2),
+        subject(3),
+        subject(3),
+        subject(4),
+      ];
+      store.failSave = true;
+      final failed = await controller.addBatchToSeason(
+        subjects,
+        season,
+        allowed: () => true,
+        weekdays: {1: 7, 2: 2, 3: 2},
+      );
+      expect(failed.error, isNotNull);
+      expect(controller.state.schedule.items, hasLength(1));
+      store.failSave = false;
+      final result = await controller.addBatchToSeason(
+        subjects,
+        season,
+        allowed: () => true,
+        weekdays: {1: 7, 2: 2, 3: 2},
+      );
+      expect(result.added, {2, 3, 4});
+      expect(result.existing, {1});
+      expect(controller.state.schedule.items.first.weekday, 2);
+      expect(controller.state.schedule.itemsOn(2).map((e) => e.sortOrder), [
+        0,
+        1,
+        2,
+      ]);
+      expect(controller.state.schedule.unscheduled.single.subjectId, 4);
+      final again = await controller.addBatchToSeason(
+        subjects,
+        season,
+        allowed: () => true,
+      );
+      expect(again.added, isEmpty);
+      expect(controller.state.schedule.items, hasLength(4));
+      final invalid = await controller.addBatchToSeason(
+        [subject(5)],
+        season,
+        allowed: () => true,
+        weekdays: {5: 8},
+      );
+      expect(invalid.error, isNotNull);
+    },
+  );
+
   test('initial load failure still aligns the empty schedule', () async {
     final current = SeasonKey.current();
     final store = _FakeScheduleStore({})

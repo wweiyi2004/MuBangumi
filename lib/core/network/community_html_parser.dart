@@ -262,7 +262,8 @@ class CommunityHtmlParser {
   }
 
   String _rakuenUrlForGroupTopic(String href) {
-    final id = Uri.parse(href).pathSegments.last;
+    final segments = Uri.parse(href).pathSegments;
+    final id = segments.isEmpty ? '' : segments.last;
     return _baseUri.resolve('/rakuen/topic/group/$id').toString();
   }
 

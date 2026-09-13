@@ -8,7 +8,6 @@ import '../core/network/netaba_api.dart';
 import '../models/bangumi_models.dart';
 import '../models/netaba_models.dart';
 import '../state/session_controller.dart';
-import '../widgets/insight_widgets.dart';
 import '../widgets/score_history_chart.dart';
 import '../widgets/subject_widgets.dart';
 import 'subject_detail_screen.dart';
@@ -16,8 +15,8 @@ import 'subject_detail_screen.dart';
 enum _TrendKind {
   up('涨分', '近期涨分', '近期', Icons.trending_up_rounded),
   down('跌分', '近期跌分', '近期', Icons.trending_down_rounded),
-  done('完结波动', '完结之后，口碑如何变化', '近期', Icons.done_all_rounded),
-  reputation('长期提升', '慢慢积累的好口碑', '开播以来', Icons.auto_awesome_rounded);
+  done('完结波动', '完结评分', '近期', Icons.done_all_rounded),
+  reputation('长期提升', '长期评分', '开播以来', Icons.auto_awesome_rounded);
 
   const _TrendKind(this.label, this.title, this.period, this.icon);
   final String label;
@@ -162,28 +161,31 @@ class _ScoreTrendsPageState extends ConsumerState<ScoreTrendsPage>
             Padding(
               padding: const EdgeInsets.fromLTRB(18, 12, 18, 8),
               child: Align(
-                alignment: Alignment.centerLeft,
-                child: Wrap(
-                  spacing: 8,
-                  runSpacing: 6,
-                  crossAxisAlignment: WrapCrossAlignment.center,
-                  children: [
-                    ChoiceChip(
-                      label: const Text('全部作品'),
-                      selected: !_onlyMine,
-                      onSelected: (_) => setState(() => _onlyMine = false),
-                    ),
-                    ChoiceChip(
-                      avatar: const Icon(
-                        Icons.bookmark_border_rounded,
-                        size: 17,
+                alignment: Alignment.center,
+                child: SizedBox(
+                  width: 1004,
+                  child: Wrap(
+                    spacing: 8,
+                    runSpacing: 6,
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    children: [
+                      ChoiceChip(
+                        label: const Text('全部作品'),
+                        selected: !_onlyMine,
+                        onSelected: (_) => setState(() => _onlyMine = false),
                       ),
-                      label: const Text('我的收藏'),
-                      selected: _onlyMine,
-                      onSelected: (_) => setState(() => _onlyMine = true),
-                    ),
-                    if (session.isLoadingCollections) const Text('收藏同步中…'),
-                  ],
+                      ChoiceChip(
+                        avatar: const Icon(
+                          Icons.bookmark_border_rounded,
+                          size: 17,
+                        ),
+                        label: const Text('我的收藏'),
+                        selected: _onlyMine,
+                        onSelected: (_) => setState(() => _onlyMine = true),
+                      ),
+                      if (session.isLoadingCollections) const Text('收藏同步中…'),
+                    ],
+                  ),
                 ),
               ),
             ),
@@ -249,17 +251,6 @@ class _TrendList extends StatelessWidget {
           (rank: i + 1, item: source[i]),
     ];
     final owned = source.where((item) => mine.containsKey(item.bgmId)).length;
-    NetabaTrendingItem? largest;
-    for (final row in visible) {
-      if (largest == null ||
-          row.item.scoreDelta.abs() > largest.scoreDelta.abs()) {
-        largest = row.item;
-      }
-    }
-    final lead = largest;
-    final description = lead == null
-        ? '看看作品的评分，如何随时间发生变化。'
-        : '${lead.displayName}在这份榜单中的变动最大：${lead.scoreDelta >= 0 ? '+' : ''}${lead.scoreDelta.toStringAsFixed(2)} 分。';
     return Align(
       alignment: Alignment.topCenter,
       child: ConstrainedBox(
@@ -276,33 +267,32 @@ class _TrendList extends StatelessWidget {
                 return Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    InsightHero(
-                      label: '${kind.period}评分变化',
-                      title: kind.title,
-                      description: description,
-                      icon: kind.icon,
+                    Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 10),
                       child: Wrap(
-                        spacing: 8,
+                        spacing: 16,
                         runSpacing: 8,
+                        crossAxisAlignment: WrapCrossAlignment.center,
                         children: [
-                          if (source.isNotEmpty || (!loading && error == null))
-                            Chip(label: Text('${source.length} 部作品')),
+                          Text(
+                            '${kind.title} · ${visible.length} 部',
+                            style: Theme.of(context).textTheme.titleSmall,
+                          ),
                           if (owned > 0)
-                            Chip(
-                              avatar: const Icon(
-                                Icons.bookmark_rounded,
-                                size: 16,
-                              ),
-                              label: Text('已收藏 $owned 部'),
+                            Text(
+                              '已收藏 $owned 部',
+                              style: Theme.of(context).textTheme.bodySmall,
                             ),
+                          Text(
+                            '红涨绿跌 · 数据来自 netaba.re',
+                            style: Theme.of(context).textTheme.bodySmall
+                                ?.copyWith(
+                                  color: Theme.of(
+                                    context,
+                                  ).colorScheme.onSurfaceVariant,
+                                ),
+                          ),
                         ],
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    Text(
-                      '数据来自 netaba.re',
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: Theme.of(context).colorScheme.onSurfaceVariant,
                       ),
                     ),
                     if (loading)
@@ -327,7 +317,7 @@ class _TrendList extends StatelessWidget {
                           ],
                         ),
                       ),
-                    const SizedBox(height: 16),
+                    _QuoteColumns(period: kind.period),
                   ],
                 );
               }
@@ -353,15 +343,12 @@ class _TrendList extends StatelessWidget {
                 );
               }
               final row = visible[index - 1];
-              return Padding(
-                padding: const EdgeInsets.only(bottom: 12),
-                child: _TrendTile(
-                  rank: row.rank,
-                  item: row.item,
-                  mine: mine[row.item.bgmId],
-                  period: kind.period,
-                  onTap: () => onTap(row.item),
-                ),
+              return _TrendTile(
+                rank: row.rank,
+                item: row.item,
+                mine: mine[row.item.bgmId],
+                period: kind.period,
+                onTap: () => onTap(row.item),
               );
             },
           ),
@@ -369,6 +356,51 @@ class _TrendList extends StatelessWidget {
       ),
     );
   }
+}
+
+bool _wideQuotes(BuildContext context, double width) =>
+    width >= 760 && MediaQuery.textScalerOf(context).scale(14) <= 19;
+
+class _QuoteColumns extends StatelessWidget {
+  const _QuoteColumns({required this.period});
+  final String period;
+  @override
+  Widget build(BuildContext context) => LayoutBuilder(
+    builder: (context, constraints) {
+      if (!_wideQuotes(context, constraints.maxWidth)) {
+        return const SizedBox.shrink();
+      }
+      final theme = Theme.of(context);
+      return Container(
+        color: theme.colorScheme.surfaceContainerLow,
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        child: DefaultTextStyle(
+          style: theme.textTheme.labelMedium!.copyWith(
+            color: theme.colorScheme.onSurfaceVariant,
+          ),
+          child: Row(
+            children: [
+              const SizedBox(width: 36, child: Text('#')),
+              const Expanded(child: Text('作品')),
+              const SizedBox(
+                width: 110,
+                child: Text('当前评分', textAlign: TextAlign.right),
+              ),
+              SizedBox(
+                width: 130,
+                child: Text('$period涨跌 / 分', textAlign: TextAlign.right),
+              ),
+              const SizedBox(width: 24),
+              const SizedBox(
+                width: 150,
+                child: Text('评分走势', textAlign: TextAlign.center),
+              ),
+            ],
+          ),
+        ),
+      );
+    },
+  );
 }
 
 class _TrendTile extends StatelessWidget {
@@ -387,187 +419,195 @@ class _TrendTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
     final delta = item.scoreDelta;
     final positive = delta > 0;
     final color = delta == 0
         ? scheme.onSurfaceVariant
         : positive
         ? (scheme.brightness == Brightness.dark
-              ? const Color(0xFF80DDB5)
-              : const Color(0xFF187650))
+              ? const Color(0xFFFF929B)
+              : const Color(0xFFBB3044))
         : (scheme.brightness == Brightness.dark
-              ? const Color(0xFFFFB4A8)
-              : const Color(0xFFB44439));
+              ? const Color(0xFF80DDB5)
+              : const Color(0xFF187650));
     final samples = item.sparkline();
-    return Card(
-      margin: EdgeInsets.zero,
-      clipBehavior: Clip.antiAlias,
+    final numberStyle = theme.textTheme.titleLarge?.copyWith(
+      fontWeight: FontWeight.w600,
+      fontFeatures: const [FontFeature.tabularFigures()],
+    );
+    final score = Text(
+      item.latestScore > 0 ? item.latestScore.toStringAsFixed(2) : '—',
+      style: numberStyle,
+      textAlign: TextAlign.right,
+    );
+    final change = Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(
+          delta == 0
+              ? Icons.trending_flat_rounded
+              : positive
+              ? Icons.trending_up_rounded
+              : Icons.trending_down_rounded,
+          color: color,
+          size: 16,
+        ),
+        const SizedBox(width: 4),
+        Text(
+          '${delta > 0 ? '+' : ''}${delta.toStringAsFixed(2)}',
+          style: numberStyle?.copyWith(color: color, fontSize: 18),
+        ),
+      ],
+    );
+    final identity = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        ReadableSubjectTitle(
+          item.displayName,
+          maxLines: 2,
+          style: theme.textTheme.titleSmall,
+        ),
+        const SizedBox(height: 5),
+        Wrap(
+          spacing: 10,
+          runSpacing: 4,
+          children: [
+            if (item.latestRank > 0)
+              Text(
+                'Bangumi #${item.latestRank}',
+                style: theme.textTheme.labelSmall?.copyWith(
+                  color: scheme.onSurfaceVariant,
+                ),
+              ),
+            if (mine != null)
+              Text(
+                mine!.type.labelFor(mine!.subject.type),
+                style: theme.textTheme.labelSmall?.copyWith(
+                  color: scheme.primary,
+                ),
+              ),
+            if (mine != null && mine!.rate > 0)
+              Text(
+                '你评 ${mine!.rate} 分',
+                style: theme.textTheme.labelSmall?.copyWith(
+                  color: scheme.onSurfaceVariant,
+                ),
+              ),
+          ],
+        ),
+      ],
+    );
+    Widget graph(double width) => Semantics(
+      label: '${item.displayName}的历史评分走势',
+      child: samples.length < 2
+          ? SizedBox(
+              width: width,
+              height: 40,
+              child: Center(
+                child: Text('暂无曲线', style: theme.textTheme.labelSmall),
+              ),
+            )
+          : ScoreSparkline(
+              points: samples,
+              color: color,
+              width: width,
+              height: 40,
+            ),
+    );
+    return Material(
+      key: ValueKey('trend-quote-${item.bgmId}'),
+      color: scheme.surface,
       child: InkWell(
         onTap: onTap,
-        child: Padding(
-          padding: const EdgeInsets.all(18),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+          decoration: BoxDecoration(
+            border: Border(
+              bottom: BorderSide(
+                color: scheme.outlineVariant.withValues(alpha: .6),
+              ),
+            ),
+          ),
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              final rankLabel = Text(
+                '$rank',
+                style: theme.textTheme.labelMedium?.copyWith(
+                  color: scheme.onSurfaceVariant,
+                ),
+              );
+              if (_wideQuotes(context, constraints.maxWidth + 28)) {
+                return Row(
+                  children: [
+                    SizedBox(width: 36, child: rankLabel),
+                    Expanded(child: identity),
+                    SizedBox(width: 110, child: score),
+                    SizedBox(
+                      width: 130,
+                      child: Align(
+                        alignment: Alignment.centerRight,
+                        child: change,
+                      ),
+                    ),
+                    const SizedBox(width: 24),
+                    graph(150),
+                  ],
+                );
+              }
+              final metrics = Wrap(
+                spacing: 18,
+                runSpacing: 8,
+                crossAxisAlignment: WrapCrossAlignment.center,
                 children: [
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 10,
-                      vertical: 6,
-                    ),
-                    decoration: BoxDecoration(
-                      color: rank <= 3
-                          ? scheme.primaryContainer
-                          : scheme.surfaceContainerHighest,
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    child: Text(
-                      '$rank',
-                      style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('当前评分', style: theme.textTheme.labelSmall),
+                      score,
+                    ],
                   ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: ReadableSubjectTitle(
-                      item.displayName,
-                      maxLines: 2,
-                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 6),
-                  Icon(
-                    Icons.chevron_right_rounded,
-                    color: scheme.onSurfaceVariant,
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('$period涨跌 / 分', style: theme.textTheme.labelSmall),
+                      change,
+                    ],
                   ),
                 ],
-              ),
-              if (mine != null)
-                Padding(
-                  padding: const EdgeInsets.only(top: 10),
-                  child: Wrap(
-                    spacing: 8,
-                    runSpacing: 6,
+              );
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Chip(
-                        avatar: const Icon(Icons.bookmark_rounded, size: 15),
-                        label: Text(mine!.type.labelFor(mine!.subject.type)),
-                        visualDensity: VisualDensity.compact,
-                      ),
-                      if (mine!.rate > 0)
-                        Chip(
-                          label: Text('你评 ${mine!.rate} 分'),
-                          visualDensity: VisualDensity.compact,
-                        ),
+                      SizedBox(width: 28, child: rankLabel),
+                      Expanded(child: identity),
                     ],
                   ),
-                ),
-              const SizedBox(height: 16),
-              LayoutBuilder(
-                builder: (context, constraints) {
-                  final metrics = Wrap(
-                    spacing: 22,
-                    runSpacing: 12,
-                    crossAxisAlignment: WrapCrossAlignment.center,
-                    children: [
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            '当前评分',
-                            style: Theme.of(context).textTheme.labelSmall,
-                          ),
-                          Text(
-                            item.latestScore > 0
-                                ? item.latestScore.toStringAsFixed(2)
-                                : '—',
-                            style: Theme.of(context).textTheme.headlineMedium
-                                ?.copyWith(fontWeight: FontWeight.w800),
-                          ),
-                        ],
-                      ),
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            '$period变化',
-                            style: Theme.of(context).textTheme.labelSmall,
-                          ),
-                          Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Icon(
-                                delta == 0
-                                    ? Icons.trending_flat_rounded
-                                    : positive
-                                    ? Icons.trending_up_rounded
-                                    : Icons.trending_down_rounded,
-                                color: color,
-                                size: 21,
-                              ),
-                              const SizedBox(width: 5),
-                              Text(
-                                '${delta > 0 ? '+' : ''}${delta.toStringAsFixed(2)}',
-                                style: Theme.of(context).textTheme.titleLarge
-                                    ?.copyWith(
-                                      color: color,
-                                      fontWeight: FontWeight.w800,
-                                    ),
-                              ),
-                            ],
-                          ),
-                        ],
-                      ),
-                      if (item.latestRank > 0)
-                        Text(
-                          'Bangumi #${item.latestRank}',
-                          style: Theme.of(context).textTheme.labelSmall
-                              ?.copyWith(color: scheme.onSurfaceVariant),
-                        ),
-                    ],
-                  );
-                  Widget graph(double width) => Semantics(
-                    label: '${item.displayName}的历史评分走势',
-                    child: samples.length < 2
-                        ? SizedBox(
-                            width: width,
-                            height: 54,
-                            child: const Center(child: Text('暂无曲线')),
-                          )
-                        : ScoreSparkline(
-                            points: samples,
-                            color: color,
-                            width: width,
-                            height: 54,
-                          ),
-                  );
-                  if (constraints.maxWidth < 620 ||
-                      MediaQuery.textScalerOf(context).scale(14) > 21) {
-                    return Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                  const SizedBox(height: 10),
+                  if (constraints.maxWidth >= 340 &&
+                      MediaQuery.textScalerOf(context).scale(14) <= 19)
+                    Row(
                       children: [
-                        metrics,
-                        const SizedBox(height: 12),
-                        graph(constraints.maxWidth),
+                        Expanded(child: metrics),
+                        const SizedBox(width: 12),
+                        graph(110),
                       ],
-                    );
-                  }
-                  return Row(
-                    children: [
-                      Expanded(child: metrics),
-                      const SizedBox(width: 24),
-                      graph(160),
-                    ],
-                  );
-                },
-              ),
-            ],
+                    )
+                  else ...[
+                    metrics,
+                    const SizedBox(height: 8),
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: graph(constraints.maxWidth),
+                    ),
+                  ],
+                ],
+              );
+            },
           ),
         ),
       ),

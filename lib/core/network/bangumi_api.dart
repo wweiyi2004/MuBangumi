@@ -23,20 +23,27 @@ class BangumiApiException implements Exception {
   String toString() => message;
 }
 
-bool shouldRetryBangumiProxyRequest(DioException error) {
-  final request = error.requestOptions;
-  if (request.method.toUpperCase() != 'GET' ||
-      request.baseUrl != BangumiNetworkRoute.reverseProxy.apiBaseUrl) {
-    return false;
-  }
-  if (const {502, 503, 504}.contains(error.response?.statusCode)) return true;
-  return switch (error.type) {
-    DioExceptionType.connectionTimeout ||
-    DioExceptionType.sendTimeout ||
-    DioExceptionType.receiveTimeout ||
-    DioExceptionType.connectionError => true,
-    _ => false,
-  };
+bool _isTransientTransportFailure(DioException error) => switch (error.type) {
+  DioExceptionType.connectionTimeout ||
+  DioExceptionType.sendTimeout ||
+  DioExceptionType.receiveTimeout ||
+  DioExceptionType.connectionError => true,
+  _ => false,
+};
+
+/// One bounded retry for an idempotent read on **any** route.
+///
+/// This used to be reverse-proxy only, which left the default official route
+/// with no retry at all: a single transient blip failed the request outright.
+/// That included the `/me` call which completes an OAuth sign-in, so a brief
+/// network hiccup could cost the user a whole browser authorization.
+///
+/// Writes are never retried here — a lost response may still have been applied
+/// server-side, so resending is the caller's decision, not a transport detail.
+bool shouldRetryBangumiReadRequest(DioException error) {
+  if (error.requestOptions.method.toUpperCase() != 'GET') return false;
+  if (_isTransientTransportFailure(error)) return true;
+  return const {502, 503, 504}.contains(error.response?.statusCode);
 }
 
 class BangumiApi {
@@ -67,7 +74,13 @@ class BangumiApi {
           // actually reachable; a JSON error body must not shadow them.
           final data = error.response?.data;
           final status = error.response?.statusCode;
+          final usingProxy =
+              error.requestOptions.uri.host ==
+              Uri.parse(BangumiNetworkRoute.reverseProxy.apiBaseUrl).host;
+          // A proxy's 401 cannot establish that the official credential is
+          // invalid: the intermediary may have dropped Authorization.
           final retryable =
+              (status == 401 && usingProxy) ||
               status == 429 ||
               (status != null && status >= 500) ||
               const {
@@ -76,9 +89,6 @@ class BangumiApi {
                 DioExceptionType.receiveTimeout,
                 DioExceptionType.connectionError,
               }.contains(error.type);
-          final usingProxy =
-              error.requestOptions.baseUrl ==
-              BangumiNetworkRoute.reverseProxy.apiBaseUrl;
           var message = usingProxy
               ? 'Bangumi 反代连接失败，请测速或切换线路'
               : '连接 Bangumi 失败，请稍后重试';
@@ -86,7 +96,9 @@ class BangumiApi {
               error.type == DioExceptionType.receiveTimeout) {
             message = usingProxy ? 'Bangumi 反代请求超时，请测速或切换线路' : '请求超时，请检查网络连接';
           } else if (status == 401) {
-            message = 'Access Token 无效或已过期';
+            message = usingProxy
+                ? '第三方线路未能验证登录，请切换官方线路后重试'
+                : 'Bangumi 未接受登录凭据，请重新登录或检查个人令牌';
           } else if (status == 429) {
             message = '请求太频繁了，稍后再试';
           } else if (data is Map) {
@@ -191,7 +203,13 @@ class BangumiApi {
 
   Future<BangumiUser> getMe() async {
     final response = await _request(
-      () => _dio.get<Map<String, dynamic>>('/me'),
+      // Account identity is an authentication decision. Verify it with the
+      // issuer directly; the selected content proxy must not decide whose
+      // credentials are valid or invalidate an otherwise usable login.
+      () => _dio.get<Map<String, dynamic>>(
+        '${BangumiNetworkRoute.official.apiBaseUrl}/me',
+        options: Options(headers: const {'Cache-Control': 'no-store'}),
+      ),
     );
     return BangumiUser.fromJson(response.data ?? const {});
   }
@@ -537,31 +555,35 @@ class BangumiApi {
     return BangumiSupport.parseCalendar(response.data);
   }
 
-  /// Public subject comments (吐槽). Tries HTML page; returns empty if blocked.
+  /// Public subject comments (吐槽), scraped from the bgm.tv website page.
+  ///
+  /// bgm.tv is the website host rather than the OpenAPI host, and the reverse
+  /// proxy only fronts api.bgm.tv, so this deliberately does not follow the
+  /// selected API route.
+  ///
+  /// Failures propagate on purpose: the detail page tells "no comments yet"
+  /// apart from "could not load" and offers a retry, which swallowing the
+  /// error into an empty list would silently defeat.
   Future<List<SubjectComment>> getSubjectComments(
     int subjectId, {
     int page = 1,
   }) async {
-    try {
-      final dio = Dio(
-        BaseOptions(
-          connectTimeout: const Duration(seconds: 15),
-          receiveTimeout: const Duration(seconds: 20),
-          headers: const {
-            'User-Agent': muBangumiUserAgent,
-            'Accept': 'text/html,application/xhtml+xml',
-          },
-          responseType: ResponseType.plain,
-        ),
-      );
-      final response = await dio.get<String>(
-        'https://bgm.tv/subject/$subjectId/comments',
-        queryParameters: {'page': page},
-      );
-      return BangumiSupport.parseSubjectCommentsHtml(response.data ?? '');
-    } catch (_) {
-      return const [];
-    }
+    final dio = Dio(
+      BaseOptions(
+        connectTimeout: const Duration(seconds: 15),
+        receiveTimeout: const Duration(seconds: 20),
+        headers: const {
+          'User-Agent': muBangumiUserAgent,
+          'Accept': 'text/html,application/xhtml+xml',
+        },
+        responseType: ResponseType.plain,
+      ),
+    );
+    final response = await dio.get<String>(
+      'https://bgm.tv/subject/$subjectId/comments',
+      queryParameters: {'page': page},
+    );
+    return BangumiSupport.parseSubjectCommentsHtml(response.data ?? '');
   }
 
   /// [episodeType] defaults to `0` (本篇) so progress tooling stays main-only.
@@ -763,6 +785,7 @@ class BangumiApi {
               type: collection.type,
               rate: collection.rate,
               episodeStatus: collection.episodeStatus,
+              comment: collection.comment,
             ),
           );
         } catch (_) {
@@ -814,7 +837,7 @@ class BangumiApi {
         throw const BangumiApiException('登录已变化，旧请求不再重试', retryable: true);
       }
       final status = error.response?.statusCode;
-      if (!transportRetried && shouldRetryBangumiProxyRequest(error)) {
+      if (!transportRetried && shouldRetryBangumiReadRequest(error)) {
         await Future<void>.delayed(const Duration(milliseconds: 300));
         return _request(
           request,
@@ -825,6 +848,8 @@ class BangumiApi {
       }
       if (!authRetried &&
           status == 401 &&
+          error.requestOptions.uri.host ==
+              Uri.parse(BangumiNetworkRoute.official.apiBaseUrl).host &&
           onUnauthorizedRefresh != null &&
           await onUnauthorizedRefresh!()) {
         return _request(

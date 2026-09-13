@@ -254,10 +254,10 @@ class AppUpdateService {
         githubLatestReleaseUrl,
       );
       final data = response.data;
-      if (data == null) return null;
+      if (data == null) throw const FormatException('empty release');
       return GithubRelease.fromJson(data);
     } catch (_) {
-      return null;
+      throw const UpdateCheckException();
     }
   }
 
@@ -283,4 +283,10 @@ class AppUpdateService {
       return null;
     }
   }
+}
+
+class UpdateCheckException implements Exception {
+  const UpdateCheckException();
+  @override
+  String toString() => '暂时无法连接更新服务，请稍后重试';
 }

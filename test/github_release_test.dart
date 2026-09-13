@@ -1,3 +1,5 @@
+import 'support/ux_visuals.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_markdown_plus/flutter_markdown_plus.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -6,6 +8,45 @@ import 'package:mubangumi/core/update/github_release_store.dart';
 import 'package:mubangumi/widgets/github_release_dialog.dart';
 
 void main() {
+  for (final scale in [1.0, 1.8]) {
+    testWidgets('update panel fits phone at scale $scale', (tester) async {
+      tester.view.physicalSize = const Size(320, 740);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      final boundary = GlobalKey();
+      await tester.pumpWidget(
+        ProviderScope(
+          child: MaterialApp(
+            theme: await uxTheme(tester, dark: false),
+            builder: (context, child) => MediaQuery(
+              data: MediaQuery.of(
+                context,
+              ).copyWith(textScaler: TextScaler.linear(scale)),
+              child: RepaintBoundary(key: boundary, child: child!),
+            ),
+            home: Scaffold(
+              body: GithubReleaseDialog(
+                currentVersion: '2.2.0',
+                currentBuild: '25',
+                release: GithubRelease.fromJson({
+                  'tag_name': 'v2.2.0+26',
+                  'body': '- 追番首页更紧凑\n- 短评草稿自动保存\n- 更新支持下载进度与重试',
+                  'html_url':
+                      'https://github.com/wweiyi2004/MuBangumi/releases/tag/v2.2.0+26',
+                }),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('关闭').hitTestable(), findsOneWidget);
+      expect(find.text('明天提醒').hitTestable(), findsOneWidget);
+      expect(tester.takeException(), isNull);
+      await captureUx(tester, boundary, 'feature26_update_320_$scale');
+    });
+  }
+
   group('parseReleaseVersion', () {
     test('strips a leading v and ignores a build suffix', () {
       expect(parseReleaseVersion('v1.7.0'), '1.7.0');
@@ -121,10 +162,10 @@ void main() {
     });
 
     await tester.pumpWidget(
-      MaterialApp(
-        home: Scaffold(
-          body: GithubReleaseDialog(
-            markdown: buildGithubReleaseMarkdown(
+      ProviderScope(
+        child: MaterialApp(
+          home: Scaffold(
+            body: GithubReleaseDialog(
               currentVersion: '1.6.0',
               currentBuild: '7',
               release: release,
@@ -133,11 +174,12 @@ void main() {
         ),
       ),
     );
+    await tester.pumpAndSettle();
 
     expect(find.text('发现新版本'), findsWidgets);
     expect(find.text('跳过此版本'), findsOneWidget);
-    expect(find.text('稍后'), findsOneWidget);
-    expect(find.text('前往下载'), findsOneWidget);
+    expect(find.text('明天提醒'), findsOneWidget);
+    expect(find.text('前往发布页'), findsOneWidget);
     expect(find.byType(MarkdownBody), findsOneWidget);
     expect(find.textContaining('共同好友'), findsWidgets);
     expect(find.textContaining('线路测速'), findsWidgets);

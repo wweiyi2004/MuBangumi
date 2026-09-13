@@ -19,6 +19,9 @@ class ScheduleListView extends StatelessWidget {
     required this.onAdd,
     this.boundSubjects = const {},
     this.rssAvailable = true,
+    this.onProgress,
+    this.onViewUpdates,
+    this.updatingSubjects = const {},
   });
   final SeasonSchedule schedule;
   final ScheduleView view;
@@ -31,6 +34,8 @@ class ScheduleListView extends StatelessWidget {
   final VoidCallback onAdd;
   final Set<int> boundSubjects;
   final bool rssAvailable;
+  final ValueChanged<ScheduleItem>? onProgress, onViewUpdates;
+  final Set<int> updatingSubjects;
 
   @override
   Widget build(BuildContext context) {
@@ -105,6 +110,11 @@ class ScheduleListView extends StatelessWidget {
                 unread: unreadBySubject[item.subjectId] ?? 0,
                 bound: boundSubjects.contains(item.subjectId),
                 rssAvailable: rssAvailable,
+                onProgress: onProgress == null ? null : () => onProgress!(item),
+                onViewUpdates: onViewUpdates == null
+                    ? null
+                    : () => onViewUpdates!(item),
+                updating: updatingSubjects.contains(item.subjectId),
                 onOpen: () => onOpen(item),
                 onActions: () => onActions(item),
               ),
@@ -137,12 +147,17 @@ class _ScheduleListCard extends StatelessWidget {
     required this.onActions,
     required this.bound,
     required this.rssAvailable,
+    this.onProgress,
+    this.onViewUpdates,
+    this.updating = false,
   });
   final ScheduleItem item;
   final UserCollection? collection;
   final int unread;
   final bool bound, rssAvailable;
   final VoidCallback onOpen, onActions;
+  final VoidCallback? onProgress, onViewUpdates;
+  final bool updating;
 
   @override
   Widget build(BuildContext context) {
@@ -253,6 +268,42 @@ class _ScheduleListCard extends StatelessWidget {
               if (item.note.trim().isNotEmpty) ...[
                 const SizedBox(height: 8),
                 Text(item.note, style: theme.textTheme.bodySmall),
+              ],
+              if (onProgress != null || onViewUpdates != null) ...[
+                const SizedBox(height: 10),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    if (onProgress != null &&
+                        (collection == null ||
+                            (item.type.hasEpisodes &&
+                                (count <= 0 ||
+                                    collection!.episodeStatus < count))))
+                      FilledButton.tonalIcon(
+                        onPressed: updating ? null : onProgress,
+                        icon: Icon(
+                          collection == null
+                              ? Icons.add_rounded
+                              : Icons.check_rounded,
+                          size: 18,
+                        ),
+                        label: Text(
+                          updating
+                              ? '保存中…'
+                              : collection == null
+                              ? '加入在看'
+                              : '看完一集',
+                        ),
+                      ),
+                    if (onViewUpdates != null && (bound || unread > 0))
+                      TextButton.icon(
+                        onPressed: onViewUpdates,
+                        icon: const Icon(Icons.rss_feed_rounded, size: 18),
+                        label: Text(unread > 0 ? '查看更新 ($unread)' : '查看更新'),
+                      ),
+                  ],
+                ),
               ],
             ],
           ),

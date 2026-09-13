@@ -15,12 +15,14 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import csv
 import json
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+from src import splits
 from src.config import load_config
 
 # ALS only needs interaction scale and clean temporal splits. Content metadata
@@ -41,6 +43,31 @@ HYBRID_THRESHOLDS = {
 def _fail(message: str) -> int:
     print(f"[check_dataset] ERROR: {message}", file=sys.stderr)
     return 1
+
+
+def _recompute_temporal_leakage(csv_path: Path, train_end) -> int | None:
+    """Re-derive the train-after-cutoff count from the exported interactions CSV.
+
+    dataset_report.json carries a number produced by the very function that
+    assigned the split labels, so it can never disagree with itself and the
+    threshold can never fire. Re-reading the artifact and re-checking it
+    against the cutoff of the *current* config is what gives this gate teeth:
+    it catches a stale CSV, a changed train_end_date, or a corrupted export.
+
+    Returns None when the CSV is absent so the caller can fall back.
+    """
+    if not csv_path.exists():
+        return None
+    cutoff = splits.split_windows(train_end)["train_end"]
+    leakage = 0
+    with csv_path.open(newline="", encoding="utf-8") as handle:
+        for row in csv.DictReader(handle):
+            if row.get("split") != "train":
+                continue
+            parsed = splits.parse_iso_datetime(row.get("updated_at"))
+            if parsed is None or parsed > cutoff:
+                leakage += 1
+    return leakage
 
 
 def main() -> int:
@@ -94,7 +121,23 @@ def main() -> int:
     content_cold_test_items = int(
         readiness.get("content_cold_test_items", cold_test_items)
     )
-    temporal_leakage = int(temporal["train_interactions_after_cutoff"])
+    reported_leakage = int(temporal["train_interactions_after_cutoff"])
+    measured_leakage = _recompute_temporal_leakage(
+        cfg.export_dir / "interactions.csv", cfg.splits.train_end_date
+    )
+    if measured_leakage is None:
+        print(
+            "[check_dataset] note: interactions.csv not found next to the report; "
+            "using the report's self-reported temporal leakage count"
+        )
+        temporal_leakage = reported_leakage
+    else:
+        temporal_leakage = measured_leakage
+        if measured_leakage != reported_leakage:
+            print(
+                f"[check_dataset] note: recomputed temporal leakage "
+                f"{measured_leakage} differs from reported {reported_leakage}"
+            )
     missing_subjects = int(interactions.get("missing_distinct_subjects", 0))
     future_interactions = int(temporal.get("future_interactions", 0))
     invalid_temporal = int(temporal.get("invalid_temporal_interactions", 0))

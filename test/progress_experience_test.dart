@@ -6,7 +6,7 @@ import 'package:mubangumi/screens/home_page.dart';
 import 'package:mubangumi/state/notify_controller.dart';
 import 'package:mubangumi/state/session_controller.dart';
 import 'package:mubangumi/widgets/episode_grid_sheet.dart';
-import 'package:mubangumi/widgets/subject_widgets.dart';
+import 'package:mubangumi/widgets/continue_watching_tile.dart';
 
 import 'support/memory_home_pins.dart';
 import 'support/progress_fixtures.dart';
@@ -159,8 +159,8 @@ void main() {
           await tester.tap(find.byTooltip('关闭'));
           await tester.pumpAndSettle();
           // Open a real grid through the home card action.
-          await tester.ensureVisible(find.byTooltip('点格子').first);
-          await tester.tap(find.byTooltip('点格子').first);
+          await tester.ensureVisible(find.byTooltip('选择集数').first);
+          await tester.tap(find.byTooltip('选择集数').first);
           await tester.pumpAndSettle();
           await tester.tap(find.text('1').last);
           await tester.pumpAndSettle();
@@ -173,12 +173,12 @@ void main() {
 }
 
 List<int> _homeIds(WidgetTester tester) => tester
-    .widgetList<SubjectPosterCard>(find.byType(SubjectPosterCard))
-    .map((card) => card.subject.id)
+    .widgetList<ContinueWatchingTile>(find.byType(ContinueWatchingTile))
+    .map((card) => card.collection.subject.id)
     .toList();
 Future<void> _next(WidgetTester tester) async {
-  await tester.ensureVisible(find.byTooltip('看完下一集').first);
-  await tester.tap(find.byTooltip('看完下一集').first);
+  await tester.ensureVisible(find.text('看完下一集').first);
+  await tester.tap(find.text('看完下一集').first);
   await tester.pumpAndSettle();
 }
 

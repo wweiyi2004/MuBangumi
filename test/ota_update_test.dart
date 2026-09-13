@@ -148,35 +148,37 @@ void main() {
     expect((await operation).isRestartReady, isTrue);
   });
 
-  testWidgets('OTA runs on a login route and shows one postponable dialog', (
-    tester,
-  ) async {
-    final service = _Service();
-    await tester.pumpWidget(
-      ProviderScope(
-        overrides: [
-          updateControllerProvider.overrideWith(
-            (ref) =>
-                UpdateController(service, GithubReleaseSkipStore(memory: {})),
+  testWidgets(
+    'OTA shows an inline notice without interrupting the current route',
+    (tester) async {
+      final service = _Service();
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            updateControllerProvider.overrideWith(
+              (ref) =>
+                  UpdateController(service, GithubReleaseSkipStore(memory: {})),
+            ),
+          ],
+          child: const MaterialApp(
+            home: UpdateCheckHost(child: Scaffold(body: Text('登录'))),
           ),
-        ],
-        child: const MaterialApp(
-          home: UpdateCheckHost(child: Scaffold(body: Text('登录'))),
         ),
-      ),
-    );
-    expect(find.text('登录'), findsOneWidget);
-    expect(service.calls, 0);
-    await tester.pump(const Duration(seconds: 2));
-    expect(service.calls, 1);
-    service.pending.complete(_ready);
-    await tester.pumpAndSettle();
-    expect(find.byType(AlertDialog), findsOneWidget);
-    await tester.tap(find.text('稍后'));
-    await tester.pumpAndSettle();
-    expect(find.byType(AlertDialog), findsNothing);
-    expect(find.text('登录'), findsOneWidget);
-  });
+      );
+      expect(find.text('登录'), findsOneWidget);
+      expect(service.calls, 0);
+      await tester.pump(const Duration(seconds: 2));
+      expect(service.calls, 1);
+      service.pending.complete(_ready);
+      await tester.pumpAndSettle();
+      expect(find.byType(AlertDialog), findsNothing);
+      expect(find.text('更新已就绪，下次启动生效'), findsOneWidget);
+      await tester.tap(find.byTooltip('稍后提醒'));
+      await tester.pumpAndSettle();
+      expect(find.byType(AlertDialog), findsNothing);
+      expect(find.text('登录'), findsOneWidget);
+    },
+  );
 }
 
 AppUpdateService _service(_Updater updater, {Dio? dio}) {

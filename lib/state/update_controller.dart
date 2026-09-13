@@ -1,12 +1,11 @@
 import 'dart:async';
-import 'dart:io';
 
-import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/update/app_update_service.dart';
 import '../core/update/github_release.dart';
 import '../core/update/github_release_store.dart';
+import '../core/update/update_download.dart';
 
 final appUpdateServiceProvider = Provider<AppUpdateService>((ref) {
   return AppUpdateService();
@@ -170,6 +169,7 @@ class UpdateController extends StateNotifier<UpdateUiState> {
           ? null
           : await _loadGithubOffer(
               currentVersion: snapshot.appVersion,
+              currentBuild: await logicalUpdateBuild(snapshot.buildNumber),
               ignoreSkip: _manualRequested,
             );
       final shouldPresentGithub =
@@ -177,7 +177,11 @@ class UpdateController extends StateNotifier<UpdateUiState> {
           !_manualRequested &&
           github != null &&
           !_promptedGithubTags.contains(github.tagName);
-      if (shouldPresentGithub) {
+      final postponed = github != null && !_manualRequested
+          ? await _readReminder(github.tagName)
+          : null;
+      final remindNow = postponed == null || !postponed.isAfter(DateTime.now());
+      if (shouldPresentGithub && remindNow) {
         _promptedGithubTags.add(github.tagName);
       }
 
@@ -188,7 +192,7 @@ class UpdateController extends StateNotifier<UpdateUiState> {
         githubRelease: github,
         clearGithub: github == null,
         shouldPresentRestartDialog: shouldPresent,
-        shouldPresentGithubDialog: shouldPresentGithub,
+        shouldPresentGithubDialog: shouldPresentGithub && remindNow,
         lastError: snapshot.phase == AppUpdatePhase.error
             ? snapshot.message
             : null,
@@ -199,7 +203,9 @@ class UpdateController extends StateNotifier<UpdateUiState> {
         phase: AppUpdatePhase.error,
         appVersion: mounted ? state.snapshot?.appVersion ?? '?' : '?',
         buildNumber: mounted ? state.snapshot?.buildNumber ?? '?' : '?',
-        message: '检查更新失败：$error',
+        message: error is UpdateCheckException
+            ? error.toString()
+            : '检查更新失败，请稍后重试',
       );
       if (!mounted) return fallback;
       state = state.copyWith(
@@ -216,6 +222,7 @@ class UpdateController extends StateNotifier<UpdateUiState> {
 
   Future<GithubRelease?> _loadGithubOffer({
     required String currentVersion,
+    required String currentBuild,
     required bool ignoreSkip,
   }) async {
     final release = await _service.fetchLatestGithubRelease();
@@ -228,12 +235,21 @@ class UpdateController extends StateNotifier<UpdateUiState> {
     }
     if (!shouldOfferGithubRelease(
       currentVersion: currentVersion,
+      currentBuild: currentBuild,
       release: release,
       skippedTag: _manualRequested ? null : skipped,
     )) {
       return null;
     }
     return release;
+  }
+
+  Future<DateTime?> _readReminder(String tag) async {
+    try {
+      return await _skipStore.remindAfter(tag);
+    } catch (_) {
+      return null;
+    }
   }
 
   void acknowledgeRestartDialog() {
@@ -252,11 +268,17 @@ class UpdateController extends StateNotifier<UpdateUiState> {
     state = state.copyWith(clearGithub: true, shouldPresentGithubDialog: false);
   }
 
-  /// Fully exits so the next cold start loads the downloaded Shorebird patch.
-  void restartApp() {
-    // Process exit is required; Flutter hot-restart would not reload the engine
-    // patch cache on device/desktop release builds.
-    if (kIsWeb) return;
-    exit(0);
+  Future<bool> postponeGithubRelease(GithubRelease release) async {
+    acknowledgeGithubDialog();
+    _promptedGithubTags.remove(release.tagName);
+    try {
+      await _skipStore.postpone(
+        release.tagName,
+        DateTime.now().add(const Duration(days: 1)),
+      );
+      return true;
+    } catch (_) {
+      return false;
+    }
   }
 }

@@ -1,3 +1,4 @@
+import '../widgets/season_anime_picker.dart';
 import 'dart:async';
 import 'dart:math' as math;
 
@@ -5,6 +6,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../models/bangumi_models.dart';
+import '../models/episode_edit.dart';
+import '../widgets/episode_undo_message.dart';
 import '../models/schedule_models.dart';
 import '../models/schedule_view.dart';
 import '../state/schedule_view_controller.dart';
@@ -90,7 +93,7 @@ class SchedulePage extends ConsumerWidget {
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    const Text('新番表读取失败，重试成功后即可继续整理'),
+                    const Text('新番表读取失败，原内容已保留。请重试读取；若数据损坏，请从数据备份恢复。'),
                     const SizedBox(height: 12),
                     FilledButton.icon(
                       onPressed: () => ref
@@ -107,7 +110,6 @@ class SchedulePage extends ConsumerWidget {
           ? const Center(child: CircularProgressIndicator())
           : Stack(
               children: [
-                const _RssAutoRefresh(),
                 Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
@@ -137,11 +139,7 @@ class SchedulePage extends ConsumerWidget {
                           ),
                           const SizedBox(height: 4),
                           Text(
-                            isWide
-                                ? '搜索加番 · 拖拽改期 · 导出海报 · 种子站 RSS 提醒'
-                                : view == ScheduleView.board
-                                ? '拖拽改期 · 导出图片 · RSS 角标'
-                                : '每周安排与 RSS 更新分开显示',
+                            '前台每 30 分钟检查 RSS · 关闭应用后不抓取',
                             style: TextStyle(
                               color: Theme.of(
                                 context,
@@ -159,6 +157,12 @@ class SchedulePage extends ConsumerWidget {
                                 .read(scheduleProvider.notifier)
                                 .setSeason(season),
                             onCreate: () => _createSeasonDialog(context, ref),
+                            onPick: state.saving
+                                ? null
+                                : () => showSeasonAnimePicker(
+                                    context,
+                                    season: state.season,
+                                  ),
                             onDeleteCurrent:
                                 !state.saving && state.schedule.items.isEmpty
                                 ? () => ref
@@ -169,18 +173,40 @@ class SchedulePage extends ConsumerWidget {
                                 : null,
                           ),
                           const SizedBox(height: 8),
-                          SegmentedButton<ScheduleView>(
-                            segments: [
-                              for (final mode in ScheduleView.values)
-                                ButtonSegment(
-                                  value: mode,
-                                  label: Text(mode.label),
+                          Wrap(
+                            spacing: 16,
+                            runSpacing: 8,
+                            crossAxisAlignment: WrapCrossAlignment.center,
+                            children: [
+                              SegmentedButton<ScheduleView>(
+                                segments: [
+                                  for (final mode in ScheduleView.values)
+                                    ButtonSegment(
+                                      value: mode,
+                                      label: Text(mode.label),
+                                    ),
+                                ],
+                                selected: {view},
+                                showSelectedIcon: false,
+                                onSelectionChanged: (selection) =>
+                                    viewController.select(selection.single),
+                              ),
+                              if (isWide)
+                                FilledButton.tonalIcon(
+                                  onPressed: state.saving
+                                      ? null
+                                      : () => showSeasonAnimePicker(
+                                          context,
+                                          season: state.season,
+                                        ),
+                                  icon: const Icon(Icons.playlist_add_rounded),
+                                  label: const Text('挑选本季新番'),
                                 ),
+                              Text(
+                                '共 ${state.schedule.items.length} 部 · 待安排 ${state.schedule.items.where((item) => !item.isScheduled).length} 部',
+                                style: Theme.of(context).textTheme.bodySmall,
+                              ),
                             ],
-                            selected: {view},
-                            showSelectedIcon: false,
-                            onSelectionChanged: (selection) =>
-                                viewController.select(selection.single),
                           ),
                           if (viewState.error != null)
                             Row(
@@ -199,27 +225,6 @@ class SchedulePage extends ConsumerWidget {
                                 ),
                               ],
                             ),
-                          const SizedBox(height: 8),
-                          Wrap(
-                            spacing: 12,
-                            runSpacing: 4,
-                            children: [
-                              for (final label in [
-                                '共 ${state.schedule.items.length} 部',
-                                '已排 ${state.schedule.items.where((item) => item.isScheduled).length} 部',
-                                'RSS 未读 ${rss.totalUnread}',
-                              ])
-                                Text(
-                                  label,
-                                  style: Theme.of(context).textTheme.bodySmall
-                                      ?.copyWith(
-                                        color: Theme.of(
-                                          context,
-                                        ).colorScheme.onSurfaceVariant,
-                                      ),
-                                ),
-                            ],
-                          ),
                         ],
                       ),
                     ),
@@ -236,6 +241,18 @@ class SchedulePage extends ConsumerWidget {
                                   if (binding.enabled) binding.subjectId,
                               },
                               rssAvailable: rss.loaded,
+                              updatingSubjects: ref.watch(
+                                sessionProvider.select(
+                                  (s) => s.updatingSubjects,
+                                ),
+                              ),
+                              onProgress: (item) =>
+                                  _updateScheduleProgress(context, ref, item),
+                              onViewUpdates: (item) => showRssUpdatesSheet(
+                                context,
+                                subjectId: item.subjectId,
+                                subjectName: item.displayName,
+                              ),
                               onOpen: (item) => _openSubject(context, item),
                               onActions: (item) => showScheduleItemActions(
                                 context,
@@ -261,7 +278,7 @@ class SchedulePage extends ConsumerWidget {
                               child: EmptyState(
                                 icon: Icons.calendar_view_week_rounded,
                                 title: '本季课表还是空的',
-                                message: '点右下角搜索加番；加源后可在格子 ⋮ 里绑定 RSS 提醒。',
+                                message: '点“挑选本季新番”批量加入，也可从右下角搜索作品。',
                               ),
                             )
                           : _ScheduleBoard(
@@ -289,48 +306,6 @@ class SchedulePage extends ConsumerWidget {
       constraints: const BoxConstraints(maxWidth: 720),
       builder: (sheetContext) => const _SearchAddSheet(),
     );
-  }
-}
-
-/// Quietly refresh RSS when schedule opens and data looks stale.
-class _RssAutoRefresh extends ConsumerStatefulWidget {
-  const _RssAutoRefresh();
-
-  @override
-  ConsumerState<_RssAutoRefresh> createState() => _RssAutoRefreshState();
-}
-
-class _RssAutoRefreshState extends ConsumerState<_RssAutoRefresh> {
-  var _didRun = false;
-
-  @override
-  void initState() {
-    super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) => _maybeRefresh());
-  }
-
-  void _maybeRefresh() {
-    if (_didRun || !mounted) return;
-    final rss = ref.read(rssProvider);
-    if (!rss.loaded || rss.refreshing || rss.autoRefreshPaused) return;
-    if (rss.bindings.isEmpty || rss.sources.isEmpty) return;
-    final stale = rss.sources.any((source) {
-      final last = source.lastFetchAt;
-      if (last == null) return true;
-      return DateTime.now().difference(last) > const Duration(minutes: 30);
-    });
-    if (!stale) return;
-    _didRun = true;
-    unawaited(ref.read(rssProvider.notifier).refreshAll(automatic: true));
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    // Re-try once sources/bindings finish loading.
-    ref.listen(rssProvider, (previous, next) {
-      if (!_didRun && next.loaded) _maybeRefresh();
-    });
-    return const SizedBox.shrink();
   }
 }
 
@@ -421,7 +396,39 @@ class _SearchAddSheetState extends ConsumerState<_SearchAddSheet> {
   String? _error;
   int _requestId = 0;
   SubjectType _type = SubjectType.anime;
-  late int? _weekday = ref.read(scheduleDayProvider).weekday;
+  int? _weekday;
+  bool _autoDay = true;
+  bool _calendarLoading = true;
+  final Map<int, int> _officialDays = {};
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(_loadCalendar());
+  }
+
+  Future<void> _loadCalendar() async {
+    try {
+      final days = await ref
+          .read(bangumiApiProvider)
+          .getCalendar()
+          .timeout(const Duration(seconds: 8));
+      if (!mounted) return;
+      for (final day in days) {
+        if (day.weekday < 1 || day.weekday > 7) continue;
+        for (final subject in day.subjects) {
+          _officialDays[subject.id] = day.weekday;
+        }
+      }
+    } catch (_) {
+      // An unavailable broadcast calendar never prevents manual arrangement.
+    } finally {
+      if (mounted) setState(() => _calendarLoading = false);
+    }
+  }
+
+  int? _dayFor(Subject subject) =>
+      _autoDay ? _officialDays[subject.id] : _weekday;
 
   @override
   void dispose() {
@@ -431,14 +438,20 @@ class _SearchAddSheetState extends ConsumerState<_SearchAddSheet> {
   }
 
   void _onQueryChanged(String value) {
+    _requestId++;
     _debounce?.cancel();
     _debounce = Timer(const Duration(milliseconds: 400), () {
       unawaited(_search(value.trim()));
     });
-    setState(() {});
+    setState(() {
+      _results = const [];
+      _error = null;
+      _loading = value.trim().isNotEmpty;
+    });
   }
 
   Future<void> _search(String keyword) async {
+    final requestId = ++_requestId;
     if (keyword.isEmpty) {
       setState(() {
         _results = const [];
@@ -447,7 +460,6 @@ class _SearchAddSheetState extends ConsumerState<_SearchAddSheet> {
       });
       return;
     }
-    final requestId = ++_requestId;
     setState(() {
       _loading = true;
       _error = null;
@@ -471,9 +483,10 @@ class _SearchAddSheetState extends ConsumerState<_SearchAddSheet> {
   }
 
   Future<void> _add(Subject subject) async {
+    if (_autoDay && _calendarLoading) return;
     await ref
         .read(scheduleProvider.notifier)
-        .addSubject(subject, weekday: _weekday);
+        .addSubject(subject, weekday: _dayFor(subject));
     // Keep sheet open so multiple titles can be added in one search session.
   }
 
@@ -559,9 +572,18 @@ class _SearchAddSheetState extends ConsumerState<_SearchAddSheet> {
                 Text('放到', style: Theme.of(context).textTheme.labelLarge),
                 const SizedBox(width: 8),
                 ChoiceChip(
+                  label: const Text('按放送日'),
+                  selected: _autoDay,
+                  onSelected: (_) => setState(() => _autoDay = true),
+                ),
+                const SizedBox(width: 8),
+                ChoiceChip(
                   label: const Text('待安排'),
-                  selected: _weekday == null,
-                  onSelected: (_) => setState(() => _weekday = null),
+                  selected: !_autoDay && _weekday == null,
+                  onSelected: (_) => setState(() {
+                    _autoDay = false;
+                    _weekday = null;
+                  }),
                 ),
                 const SizedBox(width: 8),
                 for (
@@ -571,8 +593,11 @@ class _SearchAddSheetState extends ConsumerState<_SearchAddSheet> {
                 ) ...[
                   ChoiceChip(
                     label: Text(weekdayLabel(day)),
-                    selected: _weekday == day,
-                    onSelected: (_) => setState(() => _weekday = day),
+                    selected: !_autoDay && _weekday == day,
+                    onSelected: (_) => setState(() {
+                      _autoDay = false;
+                      _weekday = day;
+                    }),
                   ),
                   const SizedBox(width: 8),
                 ],
@@ -597,7 +622,7 @@ class _SearchAddSheetState extends ConsumerState<_SearchAddSheet> {
                 ? const EmptyState(
                     icon: Icons.search_rounded,
                     title: '搜索作品加入课表',
-                    message: '输入关键词后点选结果；可先选周几，或先放进待安排。',
+                    message: '默认按当前官方放送日安排；未收录的放入待安排，也可以手动选择星期。',
                   )
                 : _results.isEmpty
                 ? const EmptyState(
@@ -613,6 +638,8 @@ class _SearchAddSheetState extends ConsumerState<_SearchAddSheet> {
                     itemBuilder: (context, index) {
                       final subject = _results[index];
                       final exists = schedule.containsSubject(subject.id);
+                      final day = _dayFor(subject);
+                      final waiting = _autoDay && _calendarLoading;
                       return ListTile(
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(14),
@@ -649,15 +676,21 @@ class _SearchAddSheetState extends ConsumerState<_SearchAddSheet> {
                                 ).colorScheme.surfaceContainerHigh,
                               )
                             : FilledButton.tonalIcon(
-                                onPressed: () => unawaited(_add(subject)),
+                                onPressed: waiting
+                                    ? null
+                                    : () => unawaited(_add(subject)),
                                 icon: const Icon(Icons.add_rounded, size: 18),
                                 label: Text(
-                                  _weekday == null
+                                  waiting
+                                      ? '查询中'
+                                      : day == null
                                       ? '待安排'
-                                      : weekdayLabel(_weekday!),
+                                      : weekdayLabel(day),
                                 ),
                               ),
-                        onTap: exists ? null : () => unawaited(_add(subject)),
+                        onTap: exists || waiting
+                            ? null
+                            : () => unawaited(_add(subject)),
                       );
                     },
                   ),
@@ -677,6 +710,7 @@ class _SeasonPicker extends StatelessWidget {
     required this.onChanged,
     required this.onCreate,
     this.onDeleteCurrent,
+    this.onPick,
   });
 
   final SeasonKey season;
@@ -686,6 +720,7 @@ class _SeasonPicker extends StatelessWidget {
   final ValueChanged<SeasonKey> onChanged;
   final VoidCallback onCreate;
   final VoidCallback? onDeleteCurrent;
+  final VoidCallback? onPick;
 
   @override
   Widget build(BuildContext context) {
@@ -743,6 +778,10 @@ class _SeasonPicker extends StatelessWidget {
                 if (option != null) onChanged(option);
               },
             ),
+          ),
+          Tooltip(
+            message: '挑选本季新番',
+            child: TextButton(onPressed: onPick, child: const Text('选番')),
           ),
           PopupMenuButton<String>(
             tooltip: '季度操作',
@@ -1781,6 +1820,17 @@ Future<void> showScheduleItemActions(
   required ValueChanged<int?> onMove,
   required VoidCallback onRemove,
 }) async {
+  final owner = ref.read(sessionProvider).user?.id;
+  final collection = ref
+      .read(sessionProvider)
+      .collections
+      .where((c) => c.subjectId == item.subjectId)
+      .firstOrNull;
+  final canProgress =
+      collection == null ||
+      (item.type.hasEpisodes &&
+          (collection.subject.episodeCount <= 0 ||
+              collection.episodeStatus < collection.subject.episodeCount));
   final value = await showModalBottomSheet<String>(
     context: context,
     showDragHandle: true,
@@ -1808,6 +1858,14 @@ Future<void> showScheduleItemActions(
               title: const Text('打开条目'),
               onTap: () => Navigator.pop(context, 'open'),
             ),
+            if (canProgress)
+              ListTile(
+                leading: Icon(
+                  collection == null ? Icons.add_rounded : Icons.check_rounded,
+                ),
+                title: Text(collection == null ? '加入在看' : '看完一集'),
+                onTap: () => Navigator.pop(context, 'progress'),
+              ),
             ListTile(
               leading: Icon(
                 item.reminderEnabled
@@ -1829,7 +1887,7 @@ Future<void> showScheduleItemActions(
             ListTile(
               leading: const Icon(Icons.rss_feed_rounded),
               title: const Text('绑定更新源'),
-              subtitle: const Text('种子站 RSS → 提醒该看了'),
+              subtitle: const Text('匹配订阅内容，显示未读更新'),
               onTap: () => Navigator.pop(context, 'rss_bind'),
             ),
             ListTile(
@@ -1878,6 +1936,14 @@ Future<void> showScheduleItemActions(
     showAppMessage(context, '安排已变化，请重新打开操作菜单');
     return;
   }
+  if (value == 'progress') {
+    if (ref.read(sessionProvider).user?.id != owner) {
+      showAppMessage(context, '登录状态已变化，请重新操作');
+      return;
+    }
+    await _updateScheduleProgress(context, ref, item);
+    return;
+  }
   if (value == 'open') {
     onOpen();
     return;
@@ -1917,6 +1983,48 @@ Future<void> showScheduleItemActions(
   }
   final day = int.tryParse(value);
   if (day != null) onMove(day);
+}
+
+Future<void> _updateScheduleProgress(
+  BuildContext context,
+  WidgetRef ref,
+  ScheduleItem item,
+) async {
+  final session = ref.read(sessionProvider);
+  if (session.updatingSubjects.contains(item.subjectId)) return;
+  final collection = session.collections
+      .where((c) => c.subjectId == item.subjectId)
+      .firstOrNull;
+  final controller = ref.read(sessionProvider.notifier);
+  EpisodeUndo? undo;
+  final error = collection == null
+      ? await controller.changeCollection(
+          Subject(
+            id: item.subjectId,
+            type: item.type,
+            name: item.name,
+            nameCn: item.nameCn,
+            imageUrl: item.imageUrl,
+            summary: '',
+            episodeCount: item.episodeCount,
+            score: 0,
+            rank: 0,
+            date: '',
+          ),
+          CollectionType.doing,
+        )
+      : await controller.markNextEpisode(
+          collection,
+          onUndoReady: (value) => undo = value,
+        );
+  if (!context.mounted) return;
+  if (error != null) {
+    showAppMessage(context, error);
+  } else if (undo != null) {
+    showEpisodeUndoMessage(context, controller, undo!);
+  } else if (collection == null) {
+    showAppMessage(context, '已加入在看');
+  }
 }
 
 void _openSubject(BuildContext context, ScheduleItem item) {

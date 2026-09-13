@@ -6,6 +6,58 @@ import 'package:mubangumi/models/rss_models.dart';
 import 'package:mubangumi/state/rss_controller.dart';
 
 void main() {
+  testWidgets(
+    'foreground RSS polling repeats, pauses, throttles resumes and disposes',
+    (tester) async {
+      var now = DateTime.now();
+      final store = _FakeRssStore()
+        ..sources.add(const RssSource(id: 1, name: 'Feed', url: '1'))
+        ..bindings.add(
+          const RssBinding(
+            id: 1,
+            sourceId: 1,
+            subjectId: 1,
+            subjectName: '作品',
+            matchKeywords: '作品',
+          ),
+        );
+      final fetcher = _ControlledFetcher();
+      final controller = RssController(store, fetcher, now: () => now);
+      await tester.pump();
+      expect(fetcher.pending, isEmpty);
+      controller.setForeground(true);
+      await tester.pump();
+      expect(fetcher.pending, hasLength(1));
+      fetcher.pending.remove('1')!.complete(_feed);
+      await tester.pump();
+      controller.setForeground(false);
+      controller.setForeground(true);
+      await tester.pump();
+      expect(fetcher.pending, isEmpty);
+      now = now.add(RssController.autoRefreshInterval);
+      await tester.pump(RssController.autoRefreshInterval);
+      expect(fetcher.pending, hasLength(1));
+      fetcher.pending.remove('1')!.complete(_feed);
+      await tester.pump();
+      controller.setForeground(false);
+      now = now.add(RssController.autoRefreshInterval);
+      await tester.pump(RssController.autoRefreshInterval);
+      expect(fetcher.pending, isEmpty);
+      controller.setForeground(true);
+      await tester.pump();
+      expect(fetcher.pending, hasLength(1));
+      fetcher.pending.remove('1')!.complete(_feed);
+      await tester.pump();
+      await controller.pauseForImport();
+      await controller.resumeAfterImport(imported: true);
+      now = now.add(RssController.autoRefreshInterval);
+      await tester.pump(RssController.autoRefreshInterval);
+      expect(fetcher.pending, isEmpty);
+      controller.dispose();
+      await tester.pump(RssController.autoRefreshInterval);
+      expect(fetcher.pending, isEmpty);
+    },
+  );
   test(
     'three workers let fast feeds finish around a slow or failed feed',
     () async {

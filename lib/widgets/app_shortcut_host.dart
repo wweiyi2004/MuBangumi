@@ -6,6 +6,8 @@ import 'package:quick_actions/quick_actions.dart';
 
 import '../core/shortcuts/app_shortcut.dart';
 import '../state/app_shortcut_controller.dart';
+import '../state/shared_link_controller.dart';
+import '../core/shortcuts/shared_link_bridge.dart';
 
 /// Registers launcher shortcuts and parks the tapped one until HomeShell
 /// can open it (after sign-in / first frame).
@@ -20,10 +22,20 @@ class AppShortcutHost extends ConsumerStatefulWidget {
 
 class _AppShortcutHostState extends ConsumerState<AppShortcutHost> {
   final _quickActions = const QuickActions();
+  final _sharedLinks = SharedLinkBridge();
+  late final AppLifecycleListener _lifecycle;
 
   @override
   void initState() {
     super.initState();
+    _lifecycle = AppLifecycleListener(
+      onResume: () => unawaited(_sharedLinks.resume()),
+    );
+    unawaited(
+      _sharedLinks.bind((text) {
+        if (mounted) ref.read(pendingSharedLinksProvider.notifier).offer(text);
+      }),
+    );
     if (AppShortcut.isSupported) unawaited(_bind());
   }
 
@@ -41,4 +53,11 @@ class _AppShortcutHostState extends ConsumerState<AppShortcutHost> {
 
   @override
   Widget build(BuildContext context) => widget.child;
+
+  @override
+  void dispose() {
+    _lifecycle.dispose();
+    _sharedLinks.dispose();
+    super.dispose();
+  }
 }

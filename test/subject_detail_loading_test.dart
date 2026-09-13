@@ -1,6 +1,10 @@
+import 'package:mubangumi/state/short_review_draft.dart';
+import 'support/memory_short_review_drafts.dart';
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:mubangumi/widgets/mobile_subject_actions.dart';
+import 'support/ux_visuals.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mubangumi/core/auth/bangumi_oauth.dart';
@@ -16,6 +20,101 @@ import 'package:mubangumi/screens/subject_detail_screen.dart';
 import 'package:mubangumi/state/session_controller.dart';
 
 void main() {
+  for (final scale in [1.0, 1.8]) {
+    testWidgets(
+      'phone actions stay reachable and comment input focuses at scale $scale',
+      (tester) async {
+        tester.view.physicalSize = const Size(320, 800);
+        tester.view.devicePixelRatio = 1;
+        addTearDown(tester.view.reset);
+        final api = _Api()..episodes.complete([_episode]);
+        final cache = _Cache();
+        final session = _Session(api, cache);
+        final boundary = GlobalKey();
+        final theme = await uxTheme(tester, dark: false);
+        await tester.pumpWidget(
+          ProviderScope(
+            overrides: [
+              shortReviewDraftRepositoryProvider.overrideWithValue(
+                MemoryShortReviewDrafts(),
+              ),
+              bangumiApiProvider.overrideWithValue(api),
+              snapshotCacheProvider.overrideWithValue(cache),
+              netabaApiProvider.overrideWithValue(_History()),
+              sessionProvider.overrideWith((ref) => session),
+            ],
+            child: MaterialApp(
+              theme: theme,
+              builder: (context, child) => MediaQuery(
+                data: MediaQuery.of(
+                  context,
+                ).copyWith(textScaler: TextScaler.linear(scale)),
+                child: RepaintBoundary(key: boundary, child: child!),
+              ),
+              home: const SubjectDetailScreen(subject: _subject),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+        final actions = find.byType(MobileSubjectActions);
+        expect(actions, findsOneWidget);
+        final before = tester.getRect(actions);
+        await tester.drag(
+          find.byType(SingleChildScrollView).first,
+          const Offset(0, -450),
+        );
+        await tester.pumpAndSettle();
+        expect(tester.getRect(actions), before);
+        await captureUx(tester, boundary, 'mobile24_subject_320_$scale');
+        await tester.tap(
+          find.descendant(of: actions, matching: find.text('记进度')),
+        );
+        await tester.pumpAndSettle();
+        expect(find.byTooltip('关闭'), findsOneWidget);
+        await tester.tap(find.byTooltip('关闭'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('写短评'));
+        await tester.pumpAndSettle();
+        final comment = find.byWidgetPredicate(
+          (widget) =>
+              widget is TextField && widget.decoration?.labelText == '吐槽 / 短评',
+        );
+        expect(tester.widget<TextField>(comment).autofocus, isTrue);
+        final editable = find.descendant(
+          of: comment,
+          matching: find.byType(EditableText),
+        );
+        expect(
+          tester.widget<EditableText>(editable).focusNode.hasFocus,
+          isTrue,
+        );
+        tester.view.viewInsets = const FakeViewPadding(bottom: 300);
+        await tester.pumpAndSettle();
+        await tester.enterText(comment, '这是一条测试短评');
+        await tester.pump();
+        await captureUx(tester, boundary, 'mobile24_comment_320_$scale');
+        expect(tester.takeException(), isNull);
+        // Closing before the debounce expires still persists, and reopening restores.
+        tester.view.viewInsets = const FakeViewPadding();
+        await tester.pumpAndSettle();
+        await tester.ensureVisible(find.byTooltip('保存草稿并关闭'));
+        await tester.tap(find.byTooltip('保存草稿并关闭'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('写短评'));
+        await tester.pumpAndSettle();
+        expect(tester.widget<TextField>(comment).controller!.text, '这是一条测试短评');
+        session.switchAccountForTest();
+        await tester.pumpAndSettle();
+        expect(find.text('登录状态已变化，原账号短评草稿会保留'), findsOneWidget);
+        expect(comment, findsNothing);
+        await tester.tap(find.text('保存草稿并关闭'));
+        await tester.pumpAndSettle();
+        await tester.pumpWidget(const SizedBox.shrink());
+        await tester.pump(const Duration(seconds: 1));
+      },
+    );
+  }
+
   testWidgets(
     'slow episodes do not delay fresh details or independent sections',
     (tester) async {
@@ -208,6 +307,14 @@ class _History extends NetabaApi {
 }
 
 class _Session extends SessionController {
+  void switchAccountForTest() => state = state.copyWith(
+    user: const BangumiUser(
+      id: 2,
+      username: 'another',
+      nickname: '另一个账号',
+      avatarUrl: '',
+    ),
+  );
   _Session(BangumiApi api, SnapshotCache cache)
     : super(api, BangumiOAuth(), _Tokens(), snapshotCache: cache) {
     state = const SessionState(

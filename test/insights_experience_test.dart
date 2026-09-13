@@ -20,11 +20,43 @@ import 'package:mubangumi/models/netaba_models.dart';
 import 'package:mubangumi/screens/collection_stats_page.dart';
 import 'package:mubangumi/screens/score_trends_page.dart';
 import 'package:mubangumi/state/session_controller.dart';
+import 'package:mubangumi/widgets/insight_widgets.dart';
+import 'package:mubangumi/widgets/score_history_chart.dart';
 
 const _screenshots = bool.fromEnvironment('INSIGHT_SCREENSHOTS');
 final _boundary = GlobalKey();
 
 void main() {
+  testWidgets('score quotes are compact and use red up, green down', (
+    tester,
+  ) async {
+    await _show(
+      tester,
+      const ScoreTrendsPage(),
+      api: _readyTrends(),
+      size: const Size(1200, 900),
+    );
+    await tester.pumpAndSettle();
+    expect(find.byType(InsightHero), findsNothing);
+    final quote = find.byKey(const ValueKey('trend-quote-1'));
+    expect(tester.getSize(quote).height, lessThan(110));
+    expect(tester.getTopLeft(quote).dy, lessThan(300));
+    final up = tester.widget<Text>(find.text('+0.25').first).style!.color;
+    expect(up, const Color(0xFFBB3044));
+    expect(
+      tester.widget<ScoreSparkline>(find.byType(ScoreSparkline).first).color,
+      up,
+    );
+    await tester.tap(find.text('跌分'));
+    await tester.pumpAndSettle();
+    final down = tester.widget<Text>(find.text('-0.30')).style!.color;
+    expect(down, const Color(0xFF187650));
+    expect(
+      tester.widget<ScoreSparkline>(find.byType(ScoreSparkline)).color,
+      down,
+    );
+  });
+
   test('review groups latest updates locally and excludes missing dates', () {
     final year = CollectionYearReview([
       _collection(1, rate: 10, month: 1),

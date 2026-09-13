@@ -1,17 +1,17 @@
 import 'dart:async';
-import 'dart:ui';
 
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/layout/app_layout.dart';
 import '../core/network/bangumi_endpoints.dart';
 import '../core/network/pm_service.dart';
-import '../core/theme/app_theme.dart';
 import '../models/pm_models.dart';
 import '../state/website_session_controller.dart';
 import '../state/pm_mailbox_controller.dart';
+import '../state/session_controller.dart';
 import '../widgets/community_loading.dart';
 import '../widgets/pm_draft_editor.dart';
 import '../core/storage/pm_draft_store.dart';
@@ -48,6 +48,11 @@ class _PmPageState extends ConsumerState<PmPage> {
 
   int _tab = 0; // 0 inbox, 1 outbox
   String? _pendingComposeTo;
+  PmConversation? _selected;
+  GlobalKey<_PmConversationScreenState> _chatKey = GlobalKey();
+  bool _switching = false;
+  int _selectionGeneration = 0;
+  final _search = TextEditingController();
 
   @override
   void initState() {
@@ -55,6 +60,15 @@ class _PmPageState extends ConsumerState<PmPage> {
     _pendingComposeTo = widget.composeTo?.trim();
     _inbox.addListener(_onMailboxChanged);
     _outbox.addListener(_onMailboxChanged);
+    ref.listenManual(sessionProvider.select((state) => state.user?.id), (
+      previous,
+      next,
+    ) {
+      if (previous == next) return;
+      _chatKey.currentState?._onWebsiteSessionChanged();
+      _selectionGeneration++;
+      setState(() => _selected = null);
+    });
     ref.listenManual(websiteSessionProvider, (previous, next) {
       if (!next.ready ||
           previous?.snapshot?.authenticationKey ==
@@ -63,6 +77,9 @@ class _PmPageState extends ConsumerState<PmPage> {
       }
       _inbox.reset(requireAuth: !next.isSynced);
       _outbox.reset(requireAuth: !next.isSynced);
+      _chatKey.currentState?._onWebsiteSessionChanged();
+      _selectionGeneration++;
+      setState(() => _selected = null);
       if (next.isSynced) {
         unawaited(_inbox.refresh());
         if (_tab == 1) unawaited(_outbox.refresh());
@@ -79,6 +96,7 @@ class _PmPageState extends ConsumerState<PmPage> {
   void dispose() {
     _inbox.dispose();
     _outbox.dispose();
+    _search.dispose();
     super.dispose();
   }
 
@@ -116,18 +134,38 @@ class _PmPageState extends ConsumerState<PmPage> {
   }
 
   Future<void> _openConversation(PmConversation item) async {
-    await Navigator.of(context).push(
-      MaterialPageRoute<void>(
-        builder: (_) => PmConversationScreen(
-          service: _service,
-          conversationId: item.id,
-          title: item.title,
-          peerName: item.peerName,
-          peerAvatar: item.avatarUrl,
-        ),
-      ),
-    );
-    if (mounted) await _refreshMailboxes();
+    if (_selected?.id == item.id || _switching) return;
+    _switching = true;
+    final generation = _selectionGeneration;
+    try {
+      if (!await (_chatKey.currentState?.prepareToLeave() ??
+          Future.value(true))) {
+        return;
+      }
+      if (!mounted || generation != _selectionGeneration) return;
+      setState(() {
+        _selected = item;
+        _chatKey = GlobalKey();
+      });
+    } finally {
+      _switching = false;
+    }
+  }
+
+  Future<void> _closeConversation() async {
+    if (_switching) return;
+    _switching = true;
+    try {
+      if (!await (_chatKey.currentState?.prepareToLeave() ??
+          Future.value(true))) {
+        return;
+      }
+      if (!mounted) return;
+      setState(() => _selected = null);
+      await _refreshMailboxes();
+    } finally {
+      _switching = false;
+    }
   }
 
   Future<void> _openCompose() async {
@@ -166,89 +204,202 @@ class _PmPageState extends ConsumerState<PmPage> {
     final scheme = Theme.of(context).colorScheme;
     final website = ref.watch(websiteSessionProvider);
     final phone = AppLayout.isPhone(context);
-    final pad = AppLayout.pagePadding(context);
     final mailbox = _mailbox;
     final unread = _inbox.items.where((e) => e.isUnread).length;
 
-    return Scaffold(
-      extendBodyBehindAppBar: false,
-      appBar: AppBar(
-        titleSpacing: phone ? 8 : 16,
-        title: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final wide = constraints.maxWidth >= 900;
+        final selection = _selected;
+        final sidebar = Column(
           children: [
-            const Text('站内短信', maxLines: 1, overflow: TextOverflow.ellipsis),
-            Text(
-              website.isSynced
-                  ? (unread > 0 ? '已加载会话中 $unread 条未读' : '已加载会话暂无未读')
-                  : '需同步网站登录后使用',
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                color: scheme.onSurfaceVariant,
-                fontWeight: FontWeight.w500,
+            Padding(
+              padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
+              child: TextField(
+                controller: _search,
+                onChanged: (_) => setState(() {}),
+                decoration: InputDecoration(
+                  hintText: '搜索已加载会话',
+                  prefixIcon: const Icon(Icons.search_rounded),
+                  suffixIcon: _search.text.isEmpty
+                      ? null
+                      : IconButton(
+                          tooltip: '清除搜索',
+                          onPressed: () => setState(_search.clear),
+                          icon: const Icon(Icons.close_rounded),
+                        ),
+                  isDense: true,
+                  filled: true,
+                  fillColor: scheme.surfaceContainerLow,
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(10),
+                    borderSide: BorderSide.none,
+                  ),
+                ),
               ),
             ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
+              child: _PmSegmentedTabs(
+                index: _tab,
+                inboxCount: _inbox.items.length,
+                outboxCount: _outbox.items.length,
+                unread: unread,
+                onChanged: _selectTab,
+              ),
+            ),
+            Expanded(
+              child: _PmListBody(
+                key: ValueKey(_tab),
+                mailbox: mailbox,
+                selectedId: selection?.id,
+                query: _search.text,
+                emptyLabel: _tab == 0 ? '还没有收到短信' : '还没有发出的短信',
+                emptyHint: _tab == 0 ? '和好友互相发送站内短信后会出现在这里' : '写一封新短信开始对话',
+                onRetry: () => mailbox.refresh(),
+                onSyncLogin: _syncWebsiteLogin,
+                onOpenWeb: _openWebFallback,
+                onOpen: _openConversation,
+                onRefresh: () => mailbox.refresh(),
+              ),
+            ),
+            if (wide && !mailbox.needAuth)
+              Padding(
+                padding: const EdgeInsets.all(12),
+                child: SizedBox(
+                  width: double.infinity,
+                  child: FilledButton.tonalIcon(
+                    onPressed: _openCompose,
+                    icon: const Icon(Icons.edit_square),
+                    label: const Text('发起聊天'),
+                  ),
+                ),
+              ),
           ],
-        ),
-        actions: [
-          IconButton(
-            tooltip: '刷新',
-            onPressed: mailbox.refreshing ? null : () => mailbox.refresh(),
-            icon: const Icon(Icons.refresh_rounded),
+        );
+        return Scaffold(
+          extendBodyBehindAppBar: false,
+          appBar: !wide && selection != null
+              ? null
+              : AppBar(
+                  titleSpacing: phone ? 8 : 16,
+                  title: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        '站内短信',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      Text(
+                        website.isSynced
+                            ? (unread > 0 ? '已加载会话中 $unread 条未读' : '已加载会话暂无未读')
+                            : '需同步网站登录后使用',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context).textTheme.labelMedium
+                            ?.copyWith(
+                              color: scheme.onSurfaceVariant,
+                              fontWeight: FontWeight.w500,
+                            ),
+                      ),
+                    ],
+                  ),
+                  actions: [
+                    IconButton(
+                      tooltip: '刷新',
+                      onPressed: mailbox.refreshing
+                          ? null
+                          : () => mailbox.refresh(),
+                      icon: const Icon(Icons.refresh_rounded),
+                    ),
+                    IconButton(
+                      tooltip: website.isSynced ? '网站登录状态' : '登录 Bangumi 网站',
+                      onPressed: _syncWebsiteLogin,
+                      icon: Icon(
+                        website.isSynced
+                            ? Icons.verified_user_rounded
+                            : Icons.shield_outlined,
+                        color: website.isSynced ? scheme.primary : null,
+                      ),
+                    ),
+                    IconButton(
+                      tooltip: '网页版',
+                      onPressed: _openWebFallback,
+                      icon: const Icon(Icons.open_in_new_rounded),
+                    ),
+                    const SizedBox(width: 4),
+                  ],
+                ),
+          floatingActionButton: mailbox.needAuth || selection != null || wide
+              ? null
+              : FloatingActionButton(
+                  onPressed: _openCompose,
+                  elevation: 2,
+                  child: const Icon(Icons.edit_rounded),
+                ),
+          body: Row(
+            children: [
+              SizedBox(
+                width: wide
+                    ? 320
+                    : selection == null
+                    ? constraints.maxWidth
+                    : 0,
+                child: Offstage(
+                  offstage: !wide && selection != null,
+                  child: sidebar,
+                ),
+              ),
+              if (wide)
+                VerticalDivider(
+                  width: 1,
+                  color: scheme.outlineVariant.withValues(alpha: .5),
+                ),
+              Expanded(
+                child: Offstage(
+                  offstage: !wide && selection == null,
+                  child: selection == null
+                      ? ColoredBox(
+                          color: scheme.surfaceContainerLow,
+                          child: Center(
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(
+                                  Icons.forum_outlined,
+                                  size: 56,
+                                  color: scheme.outline,
+                                ),
+                                const SizedBox(height: 16),
+                                const Text('选择一个会话，开始聊天'),
+                                const SizedBox(height: 8),
+                                Text(
+                                  '在这里继续和 Bangumi 好友的对话',
+                                  style: TextStyle(
+                                    color: scheme.onSurfaceVariant,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        )
+                      : PmConversationScreen(
+                          key: _chatKey,
+                          service: _service,
+                          conversationId: selection.id,
+                          title: selection.title,
+                          peerName: selection.peerName,
+                          peerAvatar: selection.avatarUrl,
+                          onClose: _closeConversation,
+                          onMessagesChanged: _refreshMailboxes,
+                        ),
+                ),
+              ),
+            ],
           ),
-          IconButton(
-            tooltip: website.isSynced ? '网站登录状态' : '登录 Bangumi 网站',
-            onPressed: _syncWebsiteLogin,
-            icon: Icon(
-              website.isSynced
-                  ? Icons.verified_user_rounded
-                  : Icons.shield_outlined,
-              color: website.isSynced ? scheme.primary : null,
-            ),
-          ),
-          IconButton(
-            tooltip: '网页版',
-            onPressed: _openWebFallback,
-            icon: const Icon(Icons.open_in_new_rounded),
-          ),
-          const SizedBox(width: 4),
-        ],
-      ),
-      floatingActionButton: mailbox.needAuth
-          ? null
-          : FloatingActionButton(
-              onPressed: _openCompose,
-              elevation: 2,
-              child: const Icon(Icons.edit_rounded),
-            ),
-      body: Column(
-        children: [
-          Padding(
-            padding: EdgeInsets.fromLTRB(pad, 4, pad, 10),
-            child: _PmSegmentedTabs(
-              index: _tab,
-              inboxCount: _inbox.items.length,
-              outboxCount: _outbox.items.length,
-              unread: unread,
-              onChanged: _selectTab,
-            ),
-          ),
-          Expanded(
-            child: _PmListBody(
-              key: ValueKey(_tab),
-              mailbox: mailbox,
-              emptyLabel: _tab == 0 ? '还没有收到短信' : '还没有发出的短信',
-              emptyHint: _tab == 0 ? '和好友互相发送站内短信后会出现在这里' : '写一封新短信开始对话',
-              onRetry: () => mailbox.refresh(),
-              onSyncLogin: _syncWebsiteLogin,
-              onOpenWeb: _openWebFallback,
-              onOpen: _openConversation,
-              onRefresh: () => mailbox.refresh(),
-            ),
-          ),
-        ],
-      ),
+        );
+      },
     );
   }
 }
@@ -329,7 +480,7 @@ class _PmSegmentedTabs extends StatelessWidget {
               Text(
                 label,
                 style: TextStyle(
-                  fontWeight: selected ? FontWeight.w800 : FontWeight.w600,
+                  fontWeight: FontWeight.w600,
                   color: selected ? scheme.primary : scheme.onSurfaceVariant,
                 ),
               ),
@@ -386,6 +537,8 @@ class _PmListBody extends StatelessWidget {
     required this.onOpenWeb,
     required this.onOpen,
     required this.onRefresh,
+    this.selectedId,
+    this.query = '',
   });
 
   final PmMailboxController mailbox;
@@ -396,10 +549,21 @@ class _PmListBody extends StatelessWidget {
   final Future<void> Function() onOpenWeb;
   final Future<void> Function(PmConversation) onOpen;
   final Future<void> Function() onRefresh;
+  final String? selectedId;
+  final String query;
 
   @override
   Widget build(BuildContext context) {
-    final items = mailbox.items;
+    final term = query.trim().toLowerCase();
+    final items = mailbox.items
+        .where(
+          (item) =>
+              term.isEmpty ||
+              '${item.peerName} ${item.title} ${item.preview}'
+                  .toLowerCase()
+                  .contains(term),
+        )
+        .toList();
     final loading = mailbox.refreshing;
     final error = mailbox.error;
     final needAuth = mailbox.needAuth;
@@ -430,7 +594,7 @@ class _PmListBody extends StatelessWidget {
         onSecondary: onOpenWeb,
       );
     }
-    if (items.isEmpty) {
+    if (mailbox.items.isEmpty) {
       return _PmStateCard(
         icon: Icons.mail_outline_rounded,
         title: emptyLabel,
@@ -441,9 +605,13 @@ class _PmListBody extends StatelessWidget {
       );
     }
 
-    final pad = AppLayout.pagePadding(context);
     return Column(
       children: [
+        if (items.isEmpty)
+          const Padding(
+            padding: EdgeInsets.all(20),
+            child: Text('已加载会话中没有匹配结果'),
+          ),
         CommunityRefreshStatus(
           loading: loading,
           error: error,
@@ -455,9 +623,9 @@ class _PmListBody extends StatelessWidget {
             child: ListView.separated(
               key: PageStorageKey(mailbox),
               physics: const AlwaysScrollableScrollPhysics(),
-              padding: EdgeInsets.fromLTRB(pad, 2, pad, 96),
+              padding: const EdgeInsets.fromLTRB(8, 2, 8, 88),
               itemCount: items.length + 1,
-              separatorBuilder: (_, _) => const SizedBox(height: 8),
+              separatorBuilder: (_, _) => const SizedBox(height: 2),
               itemBuilder: (context, index) {
                 if (index == items.length) {
                   return CommunityLoadMoreFooter(
@@ -470,6 +638,7 @@ class _PmListBody extends StatelessWidget {
                 final item = items[index];
                 return _PmConversationTile(
                   item: item,
+                  selected: item.id == selectedId,
                   onTap: () => onOpen(item),
                 );
               },
@@ -482,126 +651,104 @@ class _PmListBody extends StatelessWidget {
 }
 
 class _PmConversationTile extends StatelessWidget {
-  const _PmConversationTile({required this.item, required this.onTap});
+  const _PmConversationTile({
+    required this.item,
+    required this.onTap,
+    this.selected = false,
+  });
 
   final PmConversation item;
   final VoidCallback onTap;
+  final bool selected;
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    final subtitle = [
-      if (item.peerName.isNotEmpty) item.peerName,
-      if (item.preview.isNotEmpty) item.preview,
-    ].join(' · ');
-
     return Material(
-      color: item.isUnread
-          ? scheme.primaryContainer.withValues(alpha: .28)
-          : scheme.surfaceContainerLow,
-      borderRadius: BorderRadius.circular(20),
+      color: selected
+          ? scheme.primaryContainer.withValues(alpha: .6)
+          : Colors.transparent,
+      borderRadius: BorderRadius.circular(10),
       child: InkWell(
-        borderRadius: BorderRadius.circular(20),
         onTap: onTap,
-        child: Container(
-          padding: const EdgeInsets.fromLTRB(12, 12, 14, 12),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(20),
-            border: Border.all(
-              color: item.isUnread
-                  ? scheme.primary.withValues(alpha: .22)
-                  : scheme.outlineVariant.withValues(alpha: .55),
-            ),
-          ),
-          child: Row(
-            children: [
-              _PmAvatar(
-                url: item.avatarUrl,
-                name: item.peerName.isNotEmpty ? item.peerName : item.title,
-                radius: 26,
-                showRing: item.isUnread,
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Expanded(
-                          child: Text(
-                            item.peerName.isNotEmpty
-                                ? item.peerName
-                                : item.title,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                              fontSize: 16,
-                              fontWeight: item.isUnread
-                                  ? FontWeight.w800
-                                  : FontWeight.w700,
-                              letterSpacing: -.2,
+        borderRadius: BorderRadius.circular(10),
+        child: Semantics(
+          selected: selected,
+          label: item.isUnread ? '未读会话' : null,
+          child: Padding(
+            padding: const EdgeInsets.all(12),
+            child: Row(
+              children: [
+                Badge(
+                  isLabelVisible: item.isUnread,
+                  backgroundColor: scheme.error,
+                  child: _PmAvatar(
+                    url: item.avatarUrl,
+                    name: item.peerName,
+                    radius: 23,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              item.peerName.isEmpty
+                                  ? item.title
+                                  : item.peerName,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                fontSize: 15,
+                                fontWeight: FontWeight.w600,
+                              ),
                             ),
                           ),
-                        ),
-                        if (item.timeText.isNotEmpty)
-                          Text(
-                            item.timeText,
-                            style: Theme.of(context).textTheme.labelSmall
-                                ?.copyWith(
-                                  color: item.isUnread
-                                      ? scheme.primary
-                                      : scheme.onSurfaceVariant,
-                                  fontWeight: item.isUnread
-                                      ? FontWeight.w700
-                                      : FontWeight.w500,
-                                ),
+                          if (item.timeText.isNotEmpty) ...[
+                            const SizedBox(width: 8),
+                            ConstrainedBox(
+                              constraints: const BoxConstraints(maxWidth: 90),
+                              child: Text(
+                                item.timeText,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: Theme.of(context).textTheme.labelSmall
+                                    ?.copyWith(color: scheme.onSurfaceVariant),
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
+                      const SizedBox(height: 5),
+                      if (item.title.isNotEmpty && item.title != item.peerName)
+                        Text(
+                          item.title,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontSize: 13,
+                            color: scheme.onSurfaceVariant,
                           ),
-                      ],
-                    ),
-                    const SizedBox(height: 3),
-                    Text(
-                      item.title,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        fontWeight: FontWeight.w600,
-                        color: scheme.onSurface.withValues(alpha: .88),
-                      ),
-                    ),
-                    if (subtitle.isNotEmpty) ...[
-                      const SizedBox(height: 2),
-                      Text(
-                        item.preview.isNotEmpty ? item.preview : subtitle,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color: scheme.onSurfaceVariant,
-                          height: 1.25,
                         ),
-                      ),
-                    ],
-                  ],
-                ),
-              ),
-              if (item.isUnread) ...[
-                const SizedBox(width: 8),
-                Container(
-                  width: 9,
-                  height: 9,
-                  decoration: BoxDecoration(
-                    color: scheme.primary,
-                    shape: BoxShape.circle,
-                    boxShadow: [
-                      BoxShadow(
-                        color: scheme.primary.withValues(alpha: .35),
-                        blurRadius: 6,
-                      ),
+                      if (item.preview.isNotEmpty)
+                        Text(
+                          item.preview,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontSize: 13,
+                            color: scheme.onSurfaceVariant,
+                          ),
+                        ),
                     ],
                   ),
                 ),
               ],
-            ],
+            ),
           ),
         ),
       ),
@@ -701,6 +848,8 @@ class PmConversationScreen extends ConsumerStatefulWidget {
     this.peerName = '',
     this.peerAvatar = '',
     this.service,
+    this.onClose,
+    this.onMessagesChanged,
   });
 
   final String conversationId;
@@ -708,6 +857,8 @@ class PmConversationScreen extends ConsumerStatefulWidget {
   final String peerName;
   final String peerAvatar;
   final PmService? service;
+  final Future<void> Function()? onClose;
+  final Future<void> Function()? onMessagesChanged;
 
   @override
   ConsumerState<PmConversationScreen> createState() =>
@@ -724,6 +875,7 @@ class _PmConversationScreenState extends ConsumerState<PmConversationScreen> {
   PmDraftEditing? _draftEditing;
   bool _loading = true;
   bool _sending = false;
+  bool _showLatest = false;
   String? _error;
   String? _threadId;
   int _requestId = 0;
@@ -731,10 +883,26 @@ class _PmConversationScreenState extends ConsumerState<PmConversationScreen> {
   String? _loadedThread;
   List<PmThreadFilter> _threads = const [];
 
+  Future<bool> prepareToLeave() async {
+    if (_sending) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('正在发送，请稍候再切换会话')));
+      return false;
+    }
+    final draft = _draftEditing?.controller;
+    if (draft?.dirty != true) return true;
+    return await _draftEditing!.flush();
+  }
+
   @override
   void initState() {
     super.initState();
     _watchPmSession(ref, _onWebsiteSessionChanged);
+    _scroll.addListener(() {
+      final show = _scroll.hasClients && _scroll.position.extentBefore > 180;
+      if (mounted && show != _showLatest) setState(() => _showLatest = show);
+    });
     unawaited(_load());
   }
 
@@ -774,6 +942,12 @@ class _PmConversationScreenState extends ConsumerState<PmConversationScreen> {
     // previously-selected thread cannot overwrite the current one (and so
     // _send can never reply through a stale thread's form).
     final requestedThread = _threadId;
+    final followLatest =
+        _detail == null ||
+        requestedThread != _loadedThread ||
+        _sending ||
+        !_scroll.hasClients ||
+        _scroll.position.extentBefore < 120;
     setState(() {
       _loading = true;
       _error = null;
@@ -792,8 +966,11 @@ class _PmConversationScreenState extends ConsumerState<PmConversationScreen> {
         _loading = false;
       });
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (_scroll.hasClients) {
-          _scroll.jumpTo(_scroll.position.maxScrollExtent);
+        if (mounted &&
+            requestId == _requestId &&
+            followLatest &&
+            _scroll.hasClients) {
+          _scroll.jumpTo(0);
         }
       });
     } catch (error) {
@@ -833,6 +1010,9 @@ class _PmConversationScreenState extends ConsumerState<PmConversationScreen> {
       if (!cleared) return;
       await editing.restart();
       if (mounted && !_sessionChanged) await _load();
+      if (mounted && !_sessionChanged) {
+        unawaited(widget.onMessagesChanged?.call());
+      }
     } catch (error) {
       if (!mounted || _sessionChanged) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -875,6 +1055,7 @@ class _PmConversationScreenState extends ConsumerState<PmConversationScreen> {
     return PmDraftEditor(
       service: _service,
       kind: PmDraftKind.reply,
+      onClose: widget.onClose,
       body: _input,
       conversationId: widget.conversationId,
       threadId: canonicalThread,
@@ -895,7 +1076,14 @@ class _PmConversationScreenState extends ConsumerState<PmConversationScreen> {
         _draftEditing = editing;
         return Scaffold(
           appBar: AppBar(
-            titleSpacing: 0,
+            titleSpacing: 12,
+            leading: widget.onClose == null
+                ? null
+                : IconButton(
+                    tooltip: '返回会话列表',
+                    onPressed: widget.onClose,
+                    icon: const Icon(Icons.arrow_back_rounded),
+                  ),
             title: Row(
               children: [
                 _PmAvatar(
@@ -912,7 +1100,10 @@ class _PmConversationScreenState extends ConsumerState<PmConversationScreen> {
                         editing.ownerVerified ? title : '站内短信',
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(fontWeight: FontWeight.w800),
+                        style: const TextStyle(
+                          fontSize: 17,
+                          fontWeight: FontWeight.w600,
+                        ),
                       ),
                       if (editing.ownerVerified &&
                           !_sessionChanged &&
@@ -990,16 +1181,7 @@ class _PmConversationScreenState extends ConsumerState<PmConversationScreen> {
                     Expanded(
                       child: DecoratedBox(
                         decoration: BoxDecoration(
-                          gradient: LinearGradient(
-                            begin: Alignment.topCenter,
-                            end: Alignment.bottomCenter,
-                            colors: [
-                              scheme.surface,
-                              scheme.surfaceContainerLowest.withValues(
-                                alpha: .65,
-                              ),
-                            ],
-                          ),
+                          color: scheme.surfaceContainerLow,
                         ),
                         child: _loading && detail == null
                             ? const Center(
@@ -1007,7 +1189,39 @@ class _PmConversationScreenState extends ConsumerState<PmConversationScreen> {
                                   strokeWidth: 2.4,
                                 ),
                               )
-                            : _messageList(detail),
+                            : Stack(
+                                children: [
+                                  Positioned.fill(child: _messageList(detail)),
+                                  if (_loading)
+                                    const Positioned(
+                                      top: 0,
+                                      left: 0,
+                                      right: 0,
+                                      child: LinearProgressIndicator(
+                                        minHeight: 2,
+                                      ),
+                                    ),
+                                  if (_showLatest)
+                                    Positioned(
+                                      right: 16,
+                                      bottom: 16,
+                                      child: FilledButton.tonalIcon(
+                                        onPressed: () => _scroll.animateTo(
+                                          0,
+                                          duration: const Duration(
+                                            milliseconds: 220,
+                                          ),
+                                          curve: Curves.easeOut,
+                                        ),
+                                        icon: const Icon(
+                                          Icons.arrow_downward_rounded,
+                                          size: 18,
+                                        ),
+                                        label: const Text('回到最新'),
+                                      ),
+                                    ),
+                                ],
+                              ),
                       ),
                     ),
                     Padding(
@@ -1055,129 +1269,142 @@ class _PmConversationScreenState extends ConsumerState<PmConversationScreen> {
     if (messages.isEmpty) {
       return const Center(child: Text('暂无消息'));
     }
+    final selfAvatar = ref.watch(
+      sessionProvider.select((state) => state.user?.avatarUrl ?? ''),
+    );
     return ListView.builder(
       controller: _scroll,
+      reverse: true,
       padding: const EdgeInsets.fromLTRB(14, 14, 14, 18),
       itemCount: messages.length,
       itemBuilder: (context, index) {
-        final msg = messages[index];
-        final prev = index > 0 ? messages[index - 1] : null;
-        final showAvatar = !msg.isSelf && (prev == null || prev.isSelf);
-        return _ChatBubble(message: msg, showAvatar: showAvatar);
+        final messageIndex = messages.length - 1 - index;
+        final msg = messages[messageIndex];
+        final prev = messageIndex > 0 ? messages[messageIndex - 1] : null;
+        final showTime =
+            msg.timeText.isNotEmpty && msg.timeText != prev?.timeText;
+        return Column(
+          children: [
+            if (showTime)
+              Padding(
+                padding: const EdgeInsets.only(top: 8, bottom: 18),
+                child: Text(
+                  msg.timeText,
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  ),
+                ),
+              ),
+            _ChatBubble(
+              message: msg,
+              avatar: msg.avatarUrl.isNotEmpty
+                  ? msg.avatarUrl
+                  : msg.isSelf
+                  ? selfAvatar
+                  : widget.peerAvatar,
+            ),
+          ],
+        );
       },
     );
   }
 }
 
 class _ChatBubble extends StatelessWidget {
-  const _ChatBubble({required this.message, required this.showAvatar});
+  const _ChatBubble({required this.message, required this.avatar});
 
   final PmMessage message;
-  final bool showAvatar;
+  final String avatar;
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    final isSelf = message.isSelf;
-    final radius = BorderRadius.only(
-      topLeft: const Radius.circular(18),
-      topRight: const Radius.circular(18),
-      bottomLeft: Radius.circular(isSelf ? 18 : 5),
-      bottomRight: Radius.circular(isSelf ? 5 : 18),
-    );
-
-    final bubble = ConstrainedBox(
-      constraints: BoxConstraints(
-        maxWidth: MediaQuery.sizeOf(context).width * 0.74,
-      ),
-      child: Container(
-        padding: const EdgeInsets.fromLTRB(13, 10, 13, 8),
-        decoration: BoxDecoration(
-          gradient: isSelf
-              ? const LinearGradient(
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                  colors: [Color(0xFFFF779D), Color(0xFFE7447A)],
-                )
-              : null,
-          color: isSelf ? null : scheme.surfaceContainerHigh,
-          borderRadius: radius,
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: isSelf ? .12 : .05),
-              blurRadius: 10,
-              offset: const Offset(0, 3),
-            ),
-          ],
-          border: isSelf
-              ? null
-              : Border.all(color: scheme.outlineVariant.withValues(alpha: .45)),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            if (!isSelf)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 3),
-                child: Text(
-                  message.name,
-                  style: TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w800,
-                    color: scheme.primary,
-                  ),
-                ),
-              ),
-            SelectableText(
-              message.contentText,
-              style: TextStyle(
-                height: 1.4,
-                color: isSelf ? Colors.white : scheme.onSurface,
-                fontWeight: FontWeight.w500,
-              ),
-            ),
-            if (message.timeText.isNotEmpty) ...[
-              const SizedBox(height: 5),
-              Align(
-                alignment: Alignment.centerRight,
-                child: Text(
-                  message.timeText,
-                  style: TextStyle(
-                    fontSize: 10.5,
-                    color: isSelf
-                        ? Colors.white.withValues(alpha: .78)
-                        : scheme.onSurfaceVariant,
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-              ),
-            ],
-          ],
-        ),
-      ),
-    );
-
+    final self = message.isSelf;
     return Padding(
-      padding: EdgeInsets.only(
-        bottom: 10,
-        left: isSelf ? 36 : 0,
-        right: isSelf ? 0 : 36,
-      ),
-      child: Row(
-        mainAxisAlignment: isSelf
-            ? MainAxisAlignment.end
-            : MainAxisAlignment.start,
-        crossAxisAlignment: CrossAxisAlignment.end,
-        children: [
-          if (!isSelf) ...[
-            if (showAvatar)
-              _PmAvatar(url: message.avatarUrl, name: message.name, radius: 15)
-            else
-              const SizedBox(width: 30),
-            const SizedBox(width: 8),
-          ],
-          Flexible(child: bubble),
-        ],
+      padding: const EdgeInsets.only(bottom: 20),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final bubble = ConstrainedBox(
+            constraints: BoxConstraints(
+              maxWidth: (constraints.maxWidth - 104).clamp(80.0, 560.0),
+            ),
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                color: self
+                    ? scheme.primaryContainer
+                    : scheme.surfaceContainerLowest,
+                border: Border.all(
+                  color: self
+                      ? scheme.primary.withValues(alpha: .12)
+                      : scheme.outlineVariant.withValues(alpha: .35),
+                ),
+                borderRadius: BorderRadius.only(
+                  topLeft: Radius.circular(self ? 12 : 3),
+                  topRight: Radius.circular(self ? 3 : 12),
+                  bottomLeft: const Radius.circular(12),
+                  bottomRight: const Radius.circular(12),
+                ),
+              ),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 14,
+                  vertical: 11,
+                ),
+                child: SelectableText(
+                  message.contentText,
+                  style: TextStyle(
+                    fontSize: 15,
+                    height: 1.5,
+                    fontWeight: FontWeight.w400,
+                    fontFamilyFallback: const [
+                      'Microsoft YaHei UI',
+                      'Segoe UI Emoji',
+                      'Apple Color Emoji',
+                      'Noto Color Emoji',
+                    ],
+                    color: self ? scheme.onPrimaryContainer : scheme.onSurface,
+                  ),
+                ),
+              ),
+            ),
+          );
+          final portrait = _PmAvatar(
+            url: avatar,
+            name: self ? '我' : message.name,
+            radius: 20,
+          );
+          return Row(
+            mainAxisAlignment: self
+                ? MainAxisAlignment.end
+                : MainAxisAlignment.start,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              if (!self) ...[portrait, const SizedBox(width: 10)],
+              Flexible(
+                child: Column(
+                  crossAxisAlignment: self
+                      ? CrossAxisAlignment.end
+                      : CrossAxisAlignment.start,
+                  children: [
+                    if (!self && message.name.isNotEmpty)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 5),
+                        child: Text(
+                          message.name,
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: scheme.onSurfaceVariant,
+                          ),
+                        ),
+                      ),
+                    bubble,
+                  ],
+                ),
+              ),
+              if (self) ...[const SizedBox(width: 10), portrait],
+            ],
+          );
+        },
       ),
     );
   }
@@ -1201,99 +1428,100 @@ class _ComposerBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    return ClipRect(
-      child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
-        child: DecoratedBox(
-          decoration: BoxDecoration(
-            color: scheme.surface.withValues(alpha: .92),
-            border: Border(
-              top: BorderSide(
-                color: scheme.outlineVariant.withValues(alpha: .7),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final desktop = constraints.maxWidth >= 560;
+        return CallbackShortcuts(
+          bindings: {
+            const SingleActivator(LogicalKeyboardKey.enter, control: true): () {
+              if (enabled &&
+                  controller.text.trim().isNotEmpty &&
+                  controller.value.composing.isCollapsed) {
+                onSend();
+              }
+            },
+          },
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              color: scheme.surface,
+              border: Border(
+                top: BorderSide(
+                  color: scheme.outlineVariant.withValues(alpha: .5),
+                ),
               ),
             ),
-          ),
-          child: SafeArea(
-            top: false,
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: [
-                  Expanded(
-                    child: TextField(
+            child: SafeArea(
+              top: false,
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    TextField(
                       controller: controller,
                       focusNode: focusNode,
                       enabled: enabled,
-                      minLines: 1,
-                      maxLines: 5,
+                      minLines: desktop ? 3 : 1,
+                      maxLines: desktop ? 6 : 4,
                       textInputAction: TextInputAction.newline,
                       decoration: InputDecoration(
                         hintText: '输入回复…',
-                        isDense: true,
                         filled: true,
                         fillColor: scheme.surfaceContainerLow,
-                        contentPadding: const EdgeInsets.symmetric(
-                          horizontal: 16,
-                          vertical: 12,
-                        ),
+                        contentPadding: const EdgeInsets.all(12),
                         border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(22),
+                          borderRadius: BorderRadius.circular(10),
                           borderSide: BorderSide.none,
                         ),
                         enabledBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(22),
-                          borderSide: BorderSide(
-                            color: scheme.outlineVariant.withValues(alpha: .5),
-                          ),
-                        ),
-                        focusedBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(22),
-                          borderSide: BorderSide(
-                            color: scheme.primary.withValues(alpha: .7),
-                            width: 1.4,
-                          ),
+                          borderRadius: BorderRadius.circular(10),
+                          borderSide: BorderSide.none,
                         ),
                       ),
                     ),
-                  ),
-                  const SizedBox(width: 10),
-                  AnimatedOpacity(
-                    duration: const Duration(milliseconds: 160),
-                    opacity: enabled ? 1 : .5,
-                    child: Material(
-                      color: scheme.primary,
-                      borderRadius: BorderRadius.circular(18),
-                      child: InkWell(
-                        borderRadius: BorderRadius.circular(18),
-                        onTap: enabled ? onSend : null,
-                        child: SizedBox(
-                          width: 48,
-                          height: 48,
-                          child: Center(
-                            child: sending
-                                ? SizedBox.square(
-                                    dimension: 18,
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: desktop
+                              ? Text(
+                                  'Enter 换行 · Ctrl + Enter 发送',
+                                  style: Theme.of(context).textTheme.bodySmall
+                                      ?.copyWith(
+                                        color: scheme.onSurfaceVariant,
+                                      ),
+                                )
+                              : const SizedBox.shrink(),
+                        ),
+                        ValueListenableBuilder<TextEditingValue>(
+                          valueListenable: controller,
+                          builder: (context, value, _) => FilledButton.icon(
+                            onPressed: enabled && value.text.trim().isNotEmpty
+                                ? onSend
+                                : null,
+                            icon: sending
+                                ? const SizedBox.square(
+                                    dimension: 16,
                                     child: CircularProgressIndicator(
-                                      strokeWidth: 2.2,
-                                      color: scheme.onPrimary,
+                                      strokeWidth: 2,
                                     ),
                                   )
-                                : Icon(
+                                : const Icon(
                                     Icons.arrow_upward_rounded,
-                                    color: scheme.onPrimary,
+                                    size: 18,
                                   ),
+                            label: Text(sending ? '发送中' : '发送'),
                           ),
                         ),
-                      ),
+                      ],
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
             ),
           ),
-        ),
-      ),
+        );
+      },
     );
   }
 }
@@ -1710,17 +1938,10 @@ class _PmComposeScreenState extends ConsumerState<PmComposeScreen> {
 }
 
 class _PmAvatar extends StatelessWidget {
-  const _PmAvatar({
-    required this.url,
-    required this.name,
-    this.radius = 22,
-    this.showRing = false,
-  });
-
+  const _PmAvatar({required this.url, required this.name, this.radius = 22});
   final String url;
   final String name;
   final double radius;
-  final bool showRing;
 
   @override
   Widget build(BuildContext context) {
@@ -1729,43 +1950,38 @@ class _PmAvatar extends StatelessWidget {
     final letter = name.trim().isEmpty
         ? '?'
         : name.trim().characters.first.toUpperCase();
-
-    Widget avatar;
-    if (resolved.isEmpty) {
-      avatar = CircleAvatar(
-        radius: radius,
-        backgroundColor: scheme.primaryContainer,
-        foregroundColor: scheme.onPrimaryContainer,
+    final fallback = ColoredBox(
+      color: scheme.primaryContainer,
+      child: Center(
         child: Text(
           letter,
           style: TextStyle(
-            fontWeight: FontWeight.w800,
-            fontSize: radius * 0.78,
+            color: scheme.onPrimaryContainer,
+            fontSize: radius * .78,
+            fontWeight: FontWeight.w600,
           ),
         ),
-      );
-    } else {
-      avatar = CircleAvatar(
-        radius: radius,
-        backgroundColor: scheme.surfaceContainerHighest,
-        backgroundImage: CachedNetworkImageProvider(resolved),
-        onBackgroundImageError: (_, _) {},
-      );
-    }
-
-    if (!showRing) return avatar;
-    return Container(
-      padding: const EdgeInsets.all(2),
-      decoration: BoxDecoration(
-        shape: BoxShape.circle,
-        gradient: const LinearGradient(
-          colors: [Color(0xFFFF779D), Color(0xFFE7447A)],
-        ),
-        boxShadow: [
-          BoxShadow(color: AppTheme.seed.withValues(alpha: .25), blurRadius: 8),
-        ],
       ),
-      child: avatar,
+    );
+    return Semantics(
+      image: true,
+      label: '${name.isEmpty ? '用户' : name}的头像',
+      child: ExcludeSemantics(
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(10),
+          child: SizedBox.square(
+            dimension: radius * 2,
+            child: resolved.isEmpty
+                ? fallback
+                : CachedNetworkImage(
+                    imageUrl: resolved,
+                    fit: BoxFit.cover,
+                    placeholder: (_, _) => fallback,
+                    errorWidget: (_, _, _) => fallback,
+                  ),
+          ),
+        ),
+      ),
     );
   }
 }

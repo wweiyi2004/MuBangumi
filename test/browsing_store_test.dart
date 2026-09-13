@@ -5,6 +5,7 @@ import 'package:mubangumi/core/storage/browsing_store.dart';
 import 'package:mubangumi/models/bangumi_models.dart';
 import 'package:mubangumi/models/schedule_view.dart';
 import 'package:mubangumi/models/recommendation_feedback.dart';
+import 'package:mubangumi/models/topic_reading_position.dart';
 import 'package:path/path.dart' as path;
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
@@ -52,6 +53,44 @@ void main() {
       expect(await store.readHiddenRecommendations(1), isEmpty);
       expect(await store.readHiddenRecommendations(2), hasLength(1));
       expect(await store.readHiddenRecommendations(0), hasLength(1));
+    },
+  );
+
+  test(
+    'topic positions survive restart and stay separate per account and topic',
+    () async {
+      await store.saveTopicPosition(
+        'Alice',
+        'group:1',
+        const TopicReadingPosition(postId: 'p42', index: 41),
+      );
+      await store.saveTopicPosition(
+        'bob',
+        'group:1',
+        const TopicReadingPosition(postId: 'p7', index: 6),
+      );
+      await store.saveTopicPosition(
+        'alice',
+        'subject:1',
+        const TopicReadingPosition(postId: 'p9', index: 8),
+      );
+      await store.close();
+      expect(
+        (await store.readTopicPosition('ALICE', 'group:1'))!.postId,
+        'p42',
+      );
+      expect((await store.readTopicPosition('bob', 'group:1'))!.index, 6);
+      expect(
+        (await store.readTopicPosition('alice', 'subject:1'))!.postId,
+        'p9',
+      );
+      expect(await store.readTopicPosition('alice', 'group:2'), isNull);
+      await store.saveTopicPosition(
+        '',
+        'group:1',
+        const TopicReadingPosition(postId: 'p1', index: 0),
+      );
+      expect(await store.readTopicPosition('', 'group:1'), isNull);
     },
   );
 

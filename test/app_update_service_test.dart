@@ -59,8 +59,8 @@ void main() {
     );
 
     expect(find.text('发现更新'), findsOneWidget);
-    expect(find.text('退出并生效'), findsOneWidget);
-    expect(find.text('稍后'), findsOneWidget);
+    expect(find.text('退出并生效'), findsNothing);
+    expect(find.text('下次启动生效'), findsOneWidget);
     expect(find.byType(MarkdownBody), findsOneWidget);
 
     // Headings and strong text should be present in the rich text tree.
@@ -119,8 +119,8 @@ void main() {
       );
 
       expect(
-        await AppUpdateService(dio: dio).fetchLatestGithubRelease(),
-        isNull,
+        AppUpdateService(dio: dio).fetchLatestGithubRelease(),
+        throwsA(isA<UpdateCheckException>()),
       );
     },
   );

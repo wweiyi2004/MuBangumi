@@ -11,10 +11,7 @@ enum ScheduleView {
   final String label;
 }
 
-ScheduleView defaultScheduleView(TargetPlatform platform) =>
-    platform == TargetPlatform.android || platform == TargetPlatform.iOS
-    ? ScheduleView.today
-    : ScheduleView.board;
+ScheduleView defaultScheduleView(TargetPlatform platform) => ScheduleView.today;
 
 class ScheduleDaySection {
   const ScheduleDaySection({

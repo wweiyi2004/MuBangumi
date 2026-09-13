@@ -13,6 +13,7 @@ import '../widgets/episode_grid_sheet.dart';
 import '../widgets/friend_qr_actions.dart';
 import '../widgets/subject_widgets.dart';
 import '../widgets/collection_sync_status.dart';
+import '../widgets/continue_watching_tile.dart';
 import 'calendar_page.dart';
 import 'fan_recommend_page.dart';
 import 'notify_page.dart';
@@ -86,6 +87,16 @@ class HomePage extends ConsumerWidget {
       showRefreshProgress: isRefreshing && collections.isNotEmpty,
       phone: phone,
     );
+    final quickActions = _HomeQuickActions(
+      onSchedule: onSchedule,
+      onCalendar: () => Navigator.of(
+        context,
+      ).push(MaterialPageRoute<void>(builder: (_) => const CalendarPage())),
+      onRecommend: () => Navigator.of(
+        context,
+      ).push(MaterialPageRoute<void>(builder: (_) => const FanRecommendPage())),
+      onDiscover: onDiscover,
+    );
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -97,7 +108,10 @@ class HomePage extends ConsumerWidget {
               AppLayout.pagePadding(context),
               0,
             ),
-            child: header,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [header, const SizedBox(height: 12), quickActions],
+            ),
           ),
         Expanded(
           child: RefreshIndicator(
@@ -116,7 +130,11 @@ class HomePage extends ConsumerWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      if (!desktop) header,
+                      if (!desktop) ...[
+                        header,
+                        const SizedBox(height: 12),
+                        quickActions,
+                      ],
                       const CollectionSyncStatus(),
                       if (sessionMessage != null) ...[
                         const SizedBox(height: 12),
@@ -181,67 +199,60 @@ class HomePage extends ConsumerWidget {
                                 ),
                               )
                       else
-                        SubjectPosterGrid(
-                          itemCount: watching.length,
-                          itemBuilder: (context, index) {
-                            final collection = watching[index];
-                            final supportsEpisodes =
-                                collection.subject.type.hasEpisodes;
-                            return Stack(
+                        LayoutBuilder(
+                          builder: (context, constraints) {
+                            final columns = constraints.maxWidth >= 820 ? 2 : 1;
+                            final width =
+                                (constraints.maxWidth - (columns - 1) * 12) /
+                                columns;
+                            return Wrap(
+                              spacing: 12,
+                              runSpacing: 8,
                               children: [
-                                SubjectPosterCard(
-                                  subject: collection.subject,
-                                  collection: collection,
-                                  busy: updating.contains(collection.subjectId),
-                                  onTap: () =>
-                                      _openDetail(context, collection.subject),
-                                  onEpisodeGrid: supportsEpisodes
-                                      ? () => showEpisodeGridSheet(
-                                          context,
-                                          ref,
-                                          collection,
-                                        )
-                                      : null,
-                                  onNextEpisode: supportsEpisodes
-                                      ? () =>
-                                            _markNext(context, ref, collection)
-                                      : null,
-                                ),
-                                if (user != null)
-                                  Positioned(
-                                    left: 4,
-                                    top: 4,
-                                    child: IconButton.filledTonal(
-                                      tooltip:
-                                          pins.ids.contains(
-                                            collection.subjectId,
-                                          )
-                                          ? '取消置顶'
-                                          : '置顶到首页',
-                                      style: IconButton.styleFrom(
-                                        backgroundColor: Colors.black54,
-                                        foregroundColor:
-                                            pins.ids.contains(
-                                              collection.subjectId,
-                                            )
-                                            ? const Color(0xFFFFD166)
-                                            : Colors.white,
-                                        minimumSize: const Size.square(48),
+                                for (final collection in watching)
+                                  SizedBox(
+                                    width: width,
+                                    child: ContinueWatchingTile(
+                                      key: ValueKey(
+                                        'continue-${collection.subjectId}',
                                       ),
-                                      onPressed: pinController?.canEdit != true
+                                      collection: collection,
+                                      busy: updating.contains(
+                                        collection.subjectId,
+                                      ),
+                                      pinned: pins.ids.contains(
+                                        collection.subjectId,
+                                      ),
+                                      onOpen: () => _openDetail(
+                                        context,
+                                        collection.subject,
+                                      ),
+                                      onEpisodes:
+                                          collection.subject.type.hasEpisodes
+                                          ? () => showEpisodeGridSheet(
+                                              context,
+                                              ref,
+                                              collection,
+                                            )
+                                          : null,
+                                      onNext:
+                                          collection.subject.type.hasEpisodes
+                                          ? () => _markNext(
+                                              context,
+                                              ref,
+                                              collection,
+                                            )
+                                          : null,
+                                      onPin:
+                                          pinController == null ||
+                                              !pinController.canEdit
                                           ? null
-                                          : () => pinController!.setPinned(
+                                          : () => pinController.setPinned(
                                               collection.subjectId,
                                               !pins.ids.contains(
                                                 collection.subjectId,
                                               ),
                                             ),
-                                      icon: Icon(
-                                        pins.ids.contains(collection.subjectId)
-                                            ? Icons.push_pin_rounded
-                                            : Icons.push_pin_outlined,
-                                        size: 20,
-                                      ),
                                     ),
                                   ),
                               ],
@@ -249,20 +260,6 @@ class HomePage extends ConsumerWidget {
                           },
                         ),
                       SizedBox(height: AppLayout.blockGap(context)),
-                      _HomeQuickActions(
-                        onSchedule: onSchedule,
-                        onCalendar: () => Navigator.of(context).push(
-                          MaterialPageRoute<void>(
-                            builder: (_) => const CalendarPage(),
-                          ),
-                        ),
-                        onRecommend: () => Navigator.of(context).push(
-                          MaterialPageRoute<void>(
-                            builder: (_) => const FanRecommendPage(),
-                          ),
-                        ),
-                        onDiscover: onDiscover,
-                      ),
                       SizedBox(height: AppLayout.sectionGap(context)),
                       Text(
                         '进行中 ${watchingAll.length} · 已完成 $completed · 总收藏 ${collections.length}',
@@ -515,98 +512,50 @@ class _HomeQuickActions extends StatelessWidget {
     ];
     return LayoutBuilder(
       builder: (context, constraints) {
-        if (constraints.maxWidth < 620) {
-          return SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            clipBehavior: Clip.none,
-            child: Row(
-              children: [
-                for (var i = 0; i < actions.length; i++) ...[
-                  SizedBox(
-                    width: 142,
-                    child: _QuickActionCard(action: actions[i]),
-                  ),
-                  if (i != actions.length - 1) const SizedBox(width: 10),
-                ],
-              ],
-            ),
-          );
-        }
-        return Row(
+        final minWidth = MediaQuery.textScalerOf(context).scale(14) * 4 + 52;
+        final columns = ((constraints.maxWidth + 8) / (minWidth + 8))
+            .floor()
+            .clamp(1, 4);
+        final availableWidth =
+            (constraints.maxWidth - 8 * (columns - 1)) / columns;
+        final width = columns == 4
+            ? availableWidth.clamp(minWidth, minWidth + 40)
+            : availableWidth;
+        return Wrap(
+          key: const Key('home-quick-actions'),
+          spacing: 8,
+          runSpacing: 6,
           children: [
-            for (var i = 0; i < actions.length; i++) ...[
-              Expanded(child: _QuickActionCard(action: actions[i])),
-              if (i != actions.length - 1) const SizedBox(width: 12),
-            ],
+            for (final action in actions)
+              SizedBox(
+                width: width,
+                child: Tooltip(
+                  message: action.subtitle,
+                  child: TextButton.icon(
+                    style: TextButton.styleFrom(
+                      foregroundColor: Theme.of(context).colorScheme.onSurface,
+                      backgroundColor: Theme.of(context).colorScheme.surface,
+                      alignment: Alignment.centerLeft,
+                      minimumSize: const Size(0, 44),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 8,
+                      ),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                    ),
+                    onPressed: action.onTap,
+                    icon: Icon(action.icon, color: action.color, size: 19),
+                    label: Text(action.title),
+                  ),
+                ),
+              ),
           ],
         );
       },
     );
   }
-}
-
-class _QuickActionCard extends StatelessWidget {
-  const _QuickActionCard({required this.action});
-
-  final ({
-    IconData icon,
-    String title,
-    String subtitle,
-    Color color,
-    VoidCallback onTap,
-  })
-  action;
-
-  @override
-  Widget build(BuildContext context) => Material(
-    color: Colors.transparent,
-    child: InkWell(
-      borderRadius: BorderRadius.circular(10),
-      onTap: action.onTap,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
-        child: Row(
-          children: [
-            DecoratedBox(
-              decoration: BoxDecoration(
-                color: action.color.withValues(alpha: .14),
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: SizedBox.square(
-                dimension: 38,
-                child: Icon(action.icon, color: action.color, size: 20),
-              ),
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    action.title,
-                    maxLines: 1,
-                    style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    action.subtitle,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                      color: Theme.of(context).colorScheme.onSurfaceVariant,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
-    ),
-  );
 }
 
 class _WatchingHeading extends StatelessWidget {

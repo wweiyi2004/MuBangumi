@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/network/rss_fetcher.dart';
@@ -54,12 +56,77 @@ class RssState {
 }
 
 class RssController extends StateNotifier<RssState> {
-  RssController(this._store, this._fetcher) : super(const RssState()) {
+  RssController(this._store, this._fetcher, {DateTime Function()? now})
+    : _now = now ?? DateTime.now,
+      super(const RssState()) {
     reload();
   }
 
+  final DateTime Function() _now;
   final RssStore _store;
   final RssFetcher _fetcher;
+  static const autoRefreshInterval = Duration(minutes: 30);
+  Timer? _refreshTimer;
+  bool _foreground = false;
+  bool _checking = false;
+  DateTime? _lastAttempt;
+
+  void setForeground(bool value) {
+    if (!mounted || _foreground == value) return;
+    _foreground = value;
+    _refreshTimer?.cancel();
+    _refreshTimer = null;
+    if (value) {
+      unawaited(checkForUpdates());
+      _refreshTimer = Timer.periodic(autoRefreshInterval, (_) {
+        unawaited(checkForUpdates());
+      });
+    }
+  }
+
+  Future<void> checkForUpdates() async {
+    if (!_foreground ||
+        !_valid(_epoch) ||
+        _checking ||
+        state.refreshing ||
+        state.autoRefreshPaused) {
+      return;
+    }
+    _checking = true;
+    try {
+      if (!state.loaded && !await reload()) return;
+      if (!_foreground || !_valid(_epoch) || state.autoRefreshPaused) return;
+      final now = _now();
+      if (_lastAttempt != null &&
+          now.difference(_lastAttempt!) < autoRefreshInterval) {
+        return;
+      }
+      final sourceIds = {
+        for (final binding in state.bindings)
+          if (binding.enabled) binding.sourceId,
+      };
+      if (!state.sources.any(
+        (source) =>
+            source.enabled &&
+            sourceIds.contains(source.id) &&
+            (source.lastFetchAt == null ||
+                now.difference(source.lastFetchAt!) >= autoRefreshInterval),
+      )) {
+        return;
+      }
+      _lastAttempt = now;
+      await refreshAll(automatic: true);
+    } finally {
+      _checking = false;
+    }
+  }
+
+  @override
+  void dispose() {
+    _refreshTimer?.cancel();
+    super.dispose();
+  }
+
   int _epoch = 0;
   int _loadGeneration = 0;
   bool _pausedForImport = false;
@@ -344,7 +411,7 @@ class RssController extends StateNotifier<RssState> {
         return 0;
       }
 
-      final now = DateTime.now();
+      final now = _now();
       final matched = <RssItem>[];
       for (final entry in result.entries) {
         // v1: only keep entries that match a bound subject.

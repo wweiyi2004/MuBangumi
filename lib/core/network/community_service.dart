@@ -150,8 +150,7 @@ class CommunityService {
     if (!refresh) {
       final cached = _friendsCache[cacheKey];
       if (cached != null &&
-          DateTime.now().difference(cached.createdAt) <
-              const Duration(minutes: 10)) {
+          DateTime.now().difference(cached.createdAt) < _friendsCacheTtl) {
         return cached.page;
       }
     }
@@ -178,7 +177,7 @@ class CommunityService {
       cacheKey,
       _CachedFriends(page, DateTime.now()),
       (value) => value.createdAt,
-      const Duration(minutes: 2),
+      _friendsCacheTtl,
     );
     return page;
   }
@@ -1415,6 +1414,11 @@ class CommunityService {
   /// Bounds the in-memory caches: purge expired entries and cap total size
   /// (Dart maps keep insertion order, so the oldest entries go first).
   static const int _cacheMaxEntries = 400;
+
+  /// Read check and write-time purge must agree: [_storeIn] evicts anything
+  /// older than the TTL it is handed, so a shorter write TTL silently caps the
+  /// window the read check believes it has.
+  static const Duration _friendsCacheTtl = Duration(minutes: 10);
 
   static void _storeIn<T>(
     Map<String, T> cache,

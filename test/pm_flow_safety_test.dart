@@ -95,6 +95,7 @@ void main() {
         ),
       );
       await tester.enterText(find.byType(TextField), 'reply');
+      await tester.pump();
       await tester.tap(find.byIcon(Icons.arrow_upward_rounded));
       await tester.pump();
       expect(service.replyCalls, 1);
