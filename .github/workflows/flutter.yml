@@ -61,15 +61,17 @@ jobs:
       - name: Install dependencies
         run: flutter pub get
 
+      # Root analysis also visits the standalone package's tests. Resolve its
+      # dev dependencies before analysis on clean runners.
+      - name: Install Banjian server dependencies
+        working-directory: packages/banjian_server
+        run: dart pub get
+
       - name: Analyze
         run: flutter analyze
 
       - name: Test
         run: flutter test
-
-      - name: Install Banjian server dependencies
-        working-directory: packages/banjian_server
-        run: dart pub get
 
       - name: Analyze Banjian server
         working-directory: packages/banjian_server
