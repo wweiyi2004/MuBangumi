@@ -17,12 +17,15 @@ class MemoryParticipation implements ParticipationStorage {
   }
 }
 
-Future<void> waitUntil(bool Function() condition) async {
+Future<void> waitUntil(
+  bool Function() condition, {
+  String reason = 'condition did not become true',
+}) async {
   for (var i = 0; i < 200; i++) {
     if (condition()) return;
     await Future<void>.delayed(const Duration(milliseconds: 20));
   }
-  fail('condition did not become true');
+  fail(reason);
 }
 
 void main() {
@@ -105,7 +108,10 @@ void main() {
   test('offline queue survives controller restart and replays once', () async {
     final port = server.port;
     await server.close();
-    await waitUntil(() => !c.online);
+    await waitUntil(
+      () => !c.online,
+      reason: 'participant stayed online after server shutdown',
+    );
     await c.submit('score', score: 6);
     expect(c.pending.length, 1);
     c.dispose();
@@ -119,7 +125,11 @@ void main() {
     );
     await server.start(port: port, address: InternetAddress.loopbackIPv4);
     await c.refresh();
-    await waitUntil(() => c.pending.isEmpty && c.current?['myScore'] == 6);
+    await waitUntil(
+      () => c.pending.isEmpty && c.current?['myScore'] == 6,
+      reason:
+          'restarted participant did not receive queued score acknowledgement',
+    );
     expect(store.view(id, admin: true)['rounds'][0]['count'], 1);
   });
   test(
@@ -127,7 +137,11 @@ void main() {
     () async {
       final port = server.port;
       await server.close();
-      await waitUntil(() => !c.online);
+      await waitUntil(
+        () => !c.online,
+        reason:
+            'participant stayed online after server shutdown before late comment',
+      );
       await c.saveDraft(round, text: '来晚的短评');
       await c.submit('comment', text: '来晚的短评');
       admin('close', {'round': round});
@@ -143,7 +157,10 @@ void main() {
       );
       await server.start(port: port, address: InternetAddress.loopbackIPv4);
       await c.refresh();
-      await waitUntil(() => c.pending.isEmpty);
+      await waitUntil(
+        () => c.pending.isEmpty,
+        reason: 'late comment did not receive its original-round rejection',
+      );
       expect(c.drafts[round]['text'], '来晚的短评');
       expect(store.view(id, admin: true)['rounds'][1]['comments'], isEmpty);
       expect(c.message, contains('原输入已保留'));

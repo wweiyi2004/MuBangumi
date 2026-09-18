@@ -17,7 +17,9 @@ class RoomServer {
     this.autoCacheCovers = true,
     RoomCoverLoader? coverLoader,
     Future<String?> Function(int)? coverLookup,
-  }) : _passwordHash = digest(adminPassword) {
+    Future<WebSocket> Function(HttpRequest)? upgradeWebSocket,
+  }) : _passwordHash = digest(adminPassword),
+       _upgradeWebSocket = upgradeWebSocket ?? WebSocketTransformer.upgrade {
     if (adminPassword.length < 12) throw ArgumentError('管理密码至少 12 位');
     coverCache = RoomCoverCache(
       store,
@@ -32,6 +34,7 @@ class RoomServer {
     );
   }
   final bool autoCacheCovers;
+  final Future<WebSocket> Function(HttpRequest) _upgradeWebSocket;
   late final RoomCoverCache coverCache;
   final _coverJobs = <String, Future<void>>{};
   Timer? _coverRetry;
@@ -235,7 +238,7 @@ class RoomServer {
       if (p == '/ws' && WebSocketTransformer.isUpgradeRequest(r)) {
         _rate('ws:$ip', 100, 60);
         if (_allSockets.length >= 600) reject('连接数已达上限', 503);
-        final ws = await WebSocketTransformer.upgrade(r);
+        final ws = await _upgradeWebSocket(r);
         upgraded = true;
         _watch(ws);
         return;
@@ -446,6 +449,12 @@ class RoomServer {
   }
 
   void _watch(WebSocket ws) {
+    // Upgrading detaches the connection from HttpServer and awaits a handshake.
+    // Shutdown may have already swept the sockets while that await was pending.
+    if (_closed) {
+      unawaited(ws.close(1001, '服务已停止'));
+      return;
+    }
     _allSockets.add(ws);
     ws.pingInterval = const Duration(seconds: 20);
     final timeout = Timer(const Duration(seconds: 8), () {

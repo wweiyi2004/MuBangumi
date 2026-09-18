@@ -5,6 +5,44 @@ import 'package:banjian_server/banjian_server.dart';
 import 'package:test/test.dart';
 
 void main() {
+  test(
+    'shutdown closes an upgrade that finishes after the socket sweep',
+    () async {
+      final store = RoomStore(':memory:');
+      final upgraded = Completer<void>();
+      final release = Completer<void>();
+      final server = RoomServer(
+        store: store,
+        adminPassword: 'test-management-password',
+        assets: {},
+        autoCacheCovers: false,
+        upgradeWebSocket: (request) async {
+          final socket = await WebSocketTransformer.upgrade(request);
+          upgraded.complete();
+          await release.future;
+          return socket;
+        },
+      );
+      await server.start(port: 0, address: InternetAddress.loopbackIPv4);
+      final client = await WebSocket.connect(
+        'ws://127.0.0.1:${server.port}/ws',
+      );
+      final closed = Completer<void>();
+      client.listen((_) {}, onDone: closed.complete);
+      addTearDown(() async {
+        if (!release.isCompleted) release.complete();
+        await client.close();
+        await server.close();
+        store.close();
+      });
+      await upgraded.future;
+      await server.close();
+      release.complete();
+      await closed.future.timeout(const Duration(seconds: 2));
+      expect(client.closeCode, 1001);
+    },
+  );
+
   late Directory temp;
   late RoomStore store;
   late RoomServer server;
