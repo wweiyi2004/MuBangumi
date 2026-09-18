@@ -86,8 +86,10 @@ class DiscoverPage extends ConsumerStatefulWidget {
     super.key,
     this.initialTag = '',
     this.initialSubjectType,
+    this.showTitle = true,
   });
 
+  final bool showTitle;
   final String initialTag;
   final SubjectType? initialSubjectType;
 
@@ -711,7 +713,8 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
   Widget _buildDiscoverHeader(BuildContext context, bool phone) => Column(
     crossAxisAlignment: CrossAxisAlignment.start,
     children: [
-      Text('发现', style: AppLayout.pageTitleStyle(context)),
+      if (widget.showTitle)
+        Text('发现', style: AppLayout.pageTitleStyle(context)),
       SizedBox(height: AppLayout.sectionGap(context)),
       Row(
         children: [

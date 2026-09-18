@@ -4,7 +4,19 @@ enum RakuenMode {
   groupAll('全部', '小组话题', false),
   groupJoined('参加的', '小组话题', true),
   groupCreated('发表的', '小组话题', true),
-  groupReplied('回复的', '小组话题', true);
+  groupReplied('回复的', '小组话题', true),
+  aggregateAll('综合', '其他讨论', false),
+  episodeLatest('章节', '其他讨论', false),
+  characterLatest('角色', '其他讨论', false),
+  personLatest('人物', '其他讨论', false);
+
+  String? get aggregateType => switch (this) {
+    aggregateAll => 'all',
+    episodeLatest => 'episode',
+    characterLatest => 'character',
+    personLatest => 'person',
+    _ => null,
+  };
 
   const RakuenMode(this.label, this.categoryLabel, this.requiresLogin);
 
@@ -75,10 +87,15 @@ class NoticeTimelineDestination {
 }
 
 class CommunityPageResult<T> {
-  const CommunityPageResult({required this.data, required this.total});
+  const CommunityPageResult({
+    required this.data,
+    required this.total,
+    this.rawCount,
+  });
 
   final List<T> data;
   final int total;
+  final int? rawCount;
 }
 
 enum CommunityTopicKind {
@@ -89,6 +106,18 @@ enum CommunityTopicKind {
   person,
   blog,
   unknown;
+
+  bool get isDiscussion => this == group || this == subject;
+  String? get apiArea => switch (this) {
+    group => 'groups',
+    subject => 'subjects',
+    episode => 'episodes',
+    character => 'characters',
+    person => 'persons',
+    blog => 'blogs',
+    unknown => null,
+  };
+  bool get supportsReactions => isDiscussion || this == episode;
 
   String get label => switch (this) {
     group => '小组',
@@ -177,6 +206,7 @@ class CommunityPost {
     this.isOriginal = false,
     this.isNested = false,
     this.reactions = const [],
+    this.canEdit = false,
   });
 
   final String id;
@@ -190,6 +220,9 @@ class CommunityPost {
   final bool isOriginal;
   final bool isNested;
   final List<CommunityReaction> reactions;
+
+  /// Only true when the API provided the original editable source.
+  final bool canEdit;
 }
 
 class CommunityReaction {
@@ -424,6 +457,8 @@ class CommunityTimelineItem {
     this.sourceUrl = '',
     this.isStatus = false,
     this.progress,
+    this.targets = const [],
+    this.reactions = const [],
   });
 
   final int id;
@@ -438,8 +473,13 @@ class CommunityTimelineItem {
   final String sourceUrl;
   final bool isStatus;
   final CommunityTimelineProgress? progress;
+  final List<CommunityTimelineTarget> targets;
+  final List<CommunityReaction> reactions;
 
-  CommunityTimelineItem copyWith({int? replyCount}) => CommunityTimelineItem(
+  CommunityTimelineItem copyWith({
+    int? replyCount,
+    List<CommunityReaction>? reactions,
+  }) => CommunityTimelineItem(
     id: id,
     user: user,
     description: description,
@@ -452,7 +492,57 @@ class CommunityTimelineItem {
     sourceUrl: sourceUrl,
     isStatus: isStatus,
     progress: progress,
+    targets: targets,
+    reactions: reactions ?? this.reactions,
   );
+}
+
+enum CommunityTimelineTargetKind { subject, character, person, blog }
+
+class CommunityTimelineTarget {
+  const CommunityTimelineTarget({
+    required this.kind,
+    required this.id,
+    required this.title,
+    this.imageUrl = '',
+    this.subjectType = 0,
+  });
+  final CommunityTimelineTargetKind kind;
+  final int id;
+  final String title;
+  final String imageUrl;
+  final int subjectType;
+}
+
+class CommunityMonoCollection {
+  const CommunityMonoCollection({required this.collected, required this.count});
+  final bool collected;
+  final int count;
+}
+
+class CommunityBlog {
+  const CommunityBlog({
+    required this.id,
+    required this.title,
+    required this.user,
+    this.content = '',
+    this.summary = '',
+    this.tags = const [],
+    this.isPublic = true,
+    this.replyCount = 0,
+    this.createdAt,
+    this.updatedAt,
+  });
+  final int id;
+  final String title;
+  final CommunityUser user;
+  final String content;
+  final String summary;
+  final List<String> tags;
+  final bool isPublic;
+  final int replyCount;
+  final DateTime? createdAt;
+  final DateTime? updatedAt;
 }
 
 class CommunityTimelineProgress {

@@ -11,6 +11,9 @@ import '../core/network/bangumi_support.dart';
 import '../models/bangumi_models.dart';
 import '../state/session_controller.dart';
 import '../widgets/subject_widgets.dart';
+import '../widgets/mono_collection_button.dart';
+import '../models/community_models.dart';
+import 'community_topic_screen.dart';
 import 'character_detail_screen.dart';
 import 'subject_detail_screen.dart';
 
@@ -38,6 +41,7 @@ class _PersonDetailScreenState extends ConsumerState<PersonDetailScreen> {
   List<MonoLinkedSubject> _subjects = const [];
   List<MonoLinkedCharacter> _characters = const [];
   bool _loading = true;
+  int? _collectionCount;
   String? _error;
   final Map<int, Subject> _companySubjectDetails = {};
   final Set<int> _companyDetailFailures = {};
@@ -425,6 +429,30 @@ class _PersonDetailScreenState extends ConsumerState<PersonDetailScreen> {
       appBar: AppBar(
         title: Text(title),
         actions: [
+          MonoCollectionButton(
+            kind: CommunityTimelineTargetKind.person,
+            id: widget.personId,
+            onChanged: (value) {
+              if (mounted) setState(() => _collectionCount = value.count);
+            },
+          ),
+          IconButton(
+            tooltip: '人物讨论',
+            icon: const Icon(Icons.forum_outlined),
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                builder: (_) => CommunityTopicScreen(
+                  topic: CommunityTopic(
+                    id: widget.personId,
+                    kind: CommunityTopicKind.person,
+                    title: title,
+                    url: 'https://bgm.tv/rakuen/topic/prsn/${widget.personId}',
+                    webUrl: 'https://bgm.tv/person/${widget.personId}',
+                  ),
+                ),
+              ),
+            ),
+          ),
           IconButton(
             tooltip: '在 Bangumi 打开',
             onPressed: () => launchUrl(
@@ -484,8 +512,8 @@ class _PersonDetailScreenState extends ConsumerState<PersonDetailScreen> {
                       if (detail?.type == 3) '团体',
                       ...?detail?.career,
                       if (detail?.gender.isNotEmpty == true) detail!.gender,
-                      if ((detail?.collectCount ?? 0) > 0)
-                        '收藏 ${detail!.collectCount}',
+                      if ((_collectionCount ?? detail?.collectCount ?? 0) > 0)
+                        '收藏 ${_collectionCount ?? detail!.collectCount}',
                     ],
                     isCompany: detail?.type == 2,
                   ),

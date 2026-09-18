@@ -5,10 +5,18 @@ import android.content.Intent
 import android.os.Bundle
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
+import android.content.Context
+import android.os.Build
+import io.flutter.embedding.engine.FlutterEngineCache
 
 class MainActivity : FlutterActivity() {
     private val pendingShares = ArrayDeque<String>()
     private var sharedLinks: MethodChannel? = null
+
+    override fun provideFlutterEngine(context: Context): FlutterEngine? =
+        FlutterEngineCache.getInstance().get(BanjianService.ENGINE)
+
+    override fun shouldDestroyEngineWithHost(): Boolean = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         if (savedInstanceState == null) {
@@ -21,6 +29,26 @@ class MainActivity : FlutterActivity() {
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+        FlutterEngineCache.getInstance().put(BanjianService.ENGINE, flutterEngine)
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, BanjianService.CHANNEL)
+            .setMethodCallHandler { call, result ->
+                try {
+                    when (call.method) {
+                        "start" -> {
+                            if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                                requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 4200)
+                            }
+                            val intent = Intent(this, BanjianService::class.java)
+                            if (Build.VERSION.SDK_INT >= 26) startForegroundService(intent) else startService(intent)
+                            result.success(null)
+                        }
+                        "stop" -> { stopService(Intent(this, BanjianService::class.java)); result.success(null) }
+                        else -> result.notImplemented()
+                    }
+                } catch (error: Exception) {
+                    result.error("banjian_service", error.message, null)
+                }
+            }
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "mubangumi/updates")
             .setMethodCallHandler { call, result -> UpdateInstaller.handle(this, call, result) }
         sharedLinks = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "mubangumi/shared_links").also { channel ->

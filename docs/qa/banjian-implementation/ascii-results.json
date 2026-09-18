@@ -1,0 +1,8 @@
+{
+  "first_load_slides_in": true,
+  "character_frames_loop": true,
+  "short_pull_cancels": true,
+  "released_pull_refreshes_once": true,
+  "banner_retracts": true,
+  "javascript_errors": []
+}

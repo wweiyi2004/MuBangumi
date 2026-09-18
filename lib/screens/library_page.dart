@@ -16,6 +16,7 @@ import '../widgets/episode_grid_sheet.dart';
 import '../widgets/subject_widgets.dart';
 import '../widgets/collection_sync_status.dart';
 import 'subject_detail_screen.dart';
+import 'collection_stats_page.dart';
 
 enum _ProgressFilter { all, notStarted, inProgress, completed }
 
@@ -432,6 +433,68 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
                                           style: AppLayout.pageTitleStyle(
                                             context,
                                           ),
+                                        ),
+                                      if (widget.showTitle)
+                                        TextButton.icon(
+                                          onPressed: () {
+                                            final user = ref
+                                                .read(sessionProvider)
+                                                .user;
+                                            if (user == null) return;
+                                            Navigator.of(context).push(
+                                              MaterialPageRoute<void>(
+                                                builder: (_) => Consumer(
+                                                  builder: (context, ref, _) {
+                                                    final snapshot = ref.watch(
+                                                      sessionProvider.select(
+                                                        (state) => (
+                                                          user: state.user,
+                                                          collections:
+                                                              state.collections,
+                                                          loading: state
+                                                              .isLoadingCollections,
+                                                          cached: state
+                                                              .isUsingCachedCollections,
+                                                        ),
+                                                      ),
+                                                    );
+                                                    if (snapshot
+                                                            .user
+                                                            ?.username !=
+                                                        user.username) {
+                                                      return Scaffold(
+                                                        appBar: AppBar(
+                                                          title: const Text(
+                                                            '统计与回顾',
+                                                          ),
+                                                        ),
+                                                        body: const Center(
+                                                          child: Text(
+                                                            '账号已变更，请返回收藏重新进入',
+                                                          ),
+                                                        ),
+                                                      );
+                                                    }
+                                                    return CollectionStatsPage(
+                                                      displayName: snapshot
+                                                          .user
+                                                          ?.displayName,
+                                                      username: user.username,
+                                                      collections:
+                                                          snapshot.collections,
+                                                      isLoading:
+                                                          snapshot.loading,
+                                                      isCached: snapshot.cached,
+                                                    );
+                                                  },
+                                                ),
+                                              ),
+                                            );
+                                          },
+                                          icon: const Icon(
+                                            Icons.insights_outlined,
+                                          ),
+                                          label: const Text('统计与回顾'),
                                         ),
                                       TextButton.icon(
                                         key: const ValueKey(

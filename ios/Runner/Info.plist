@@ -27,7 +27,14 @@
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 	<key>NSCameraUsageDescription</key>
-	<string>用于扫描好友二维码</string>
+	<string>用于扫描好友、小组和番键会二维码</string>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>用于连接同一 Wi-Fi 或热点内的番键会服务，参与评分和评论。</string>
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsLocalNetworking</key>
+		<true/>
+	</dict>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>用于从相册中选择二维码图片识别</string>
 	<key>UIApplicationSceneManifest</key>

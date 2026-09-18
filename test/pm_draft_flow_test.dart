@@ -252,7 +252,7 @@ void main() {
       (await env.repo.read(1, PmDraft.replyId('42', 'b'))).draft!.body,
       '回复 B',
     );
-    await tester.tap(find.byIcon(Icons.arrow_upward_rounded));
+    await tester.tap(find.text('发送'));
     await tester.pumpAndSettle();
     expect(_texts(tester), ['']);
     expect((await env.repo.read(1, PmDraft.replyId('42', 'a'))).draft, isNull);

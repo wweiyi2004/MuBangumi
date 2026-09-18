@@ -4,6 +4,14 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/auth/website_cookie_bridge.dart';
 import '../core/auth/website_session.dart';
+import '../core/auth/website_identity.dart';
+import '../models/bangumi_models.dart';
+export '../core/auth/website_identity.dart'
+    show WebsiteAccessStatus, WebsiteAccessException;
+
+final websiteIdentityProbeProvider = Provider<WebsiteIdentityProbe>(
+  (ref) => WebsiteIdentityProbe(),
+);
 
 final websiteSessionStoreProvider = Provider<WebsiteSessionStore>((ref) {
   return WebsiteSessionStore();
@@ -11,28 +19,42 @@ final websiteSessionStoreProvider = Provider<WebsiteSessionStore>((ref) {
 
 final websiteSessionProvider =
     StateNotifierProvider<WebsiteSessionController, WebsiteSessionState>((ref) {
-      return WebsiteSessionController(ref.watch(websiteSessionStoreProvider));
+      return WebsiteSessionController(
+        ref.watch(websiteSessionStoreProvider),
+        probe: ref.watch(websiteIdentityProbeProvider),
+      );
     });
 
 class WebsiteSessionState {
-  const WebsiteSessionState({this.ready = false, this.snapshot, this.message});
+  const WebsiteSessionState({
+    this.ready = false,
+    this.snapshot,
+    this.message,
+    this.status = WebsiteAccessStatus.missing,
+  });
 
   final bool ready;
   final WebsiteSessionSnapshot? snapshot;
   final String? message;
+  final WebsiteAccessStatus status;
 
-  bool get isSynced => snapshot?.hasSessionCookies == true;
+  bool get hasStoredSession => snapshot?.hasSessionCookies == true;
+  bool get isSynced =>
+      status == WebsiteAccessStatus.available && hasStoredSession;
 
   String get statusLabel {
     if (!ready) return '检查中…';
-    if (!isSynced) return '需要网站登录';
-    final time = snapshot!.syncedAt;
-    final stamp =
-        '${time.month.toString().padLeft(2, '0')}-'
-        '${time.day.toString().padLeft(2, '0')} '
-        '${time.hour.toString().padLeft(2, '0')}:'
-        '${time.minute.toString().padLeft(2, '0')}';
-    return '登录已保存 · $stamp';
+    return switch (status) {
+      WebsiteAccessStatus.missing => '聊天与小组操作需要补充验证',
+      WebsiteAccessStatus.unverified => '网页登录待核验',
+      WebsiteAccessStatus.checking => '正在核验账号…',
+      WebsiteAccessStatus.available => '聊天与小组操作可用',
+      WebsiteAccessStatus.expired => '网页登录已过期',
+      WebsiteAccessStatus.mismatch => '网页账号与应用账号不一致',
+      WebsiteAccessStatus.challenge => '需要完成网页验证',
+      WebsiteAccessStatus.unavailable => '网络暂不可用，已保留登录',
+      WebsiteAccessStatus.cleanupRequired => '登录会话清理失败，请重试',
+    };
   }
 
   WebsiteSessionState copyWith({
@@ -41,23 +63,193 @@ class WebsiteSessionState {
     String? message,
     bool clearSnapshot = false,
     bool clearMessage = false,
+    WebsiteAccessStatus? status,
   }) => WebsiteSessionState(
     ready: ready ?? this.ready,
     snapshot: clearSnapshot ? null : snapshot ?? this.snapshot,
     message: clearMessage ? null : message ?? this.message,
+    status: status ?? this.status,
   );
 }
 
 class WebsiteSessionController extends StateNotifier<WebsiteSessionState> {
-  WebsiteSessionController(this._store) : super(const WebsiteSessionState()) {
+  WebsiteSessionController(this._store, {WebsiteIdentityProbe? probe})
+    : _probe = probe ?? WebsiteIdentityProbe(),
+      super(const WebsiteSessionState()) {
     unawaited(reload());
   }
 
   final WebsiteSessionStore _store;
+  final WebsiteIdentityProbe _probe;
+  BangumiUser? _expectedUser;
+  Future<bool>? _verification;
+  String? _verificationKey;
+  final _probeRequests = <String, Future<int>>{};
+
+  Future<int> _probeOnce(
+    WebsiteSessionSnapshot snapshot,
+    BangumiUser user,
+    int generation,
+  ) {
+    final key = '$generation:${user.id}:${snapshot.cookieHeader}';
+    final active = _probeRequests[key];
+    if (active != null) return active;
+    final request = _probe.verify(snapshot, user);
+    _probeRequests[key] = request;
+    return request.whenComplete(() {
+      if (identical(_probeRequests[key], request)) _probeRequests.remove(key);
+    });
+  }
 
   /// Each operation supersedes earlier reads and saves, including sign-out.
   int _generation = 0;
   Future<void> _writes = Future<void>.value();
+
+  WebsiteSessionState _snapshotState(
+    WebsiteSessionSnapshot? snapshot, {
+    String? message,
+  }) => WebsiteSessionState(
+    ready: true,
+    snapshot: snapshot,
+    message: message,
+    status: snapshot?.hasSessionCookies != true
+        ? WebsiteAccessStatus.missing
+        : _expectedUser != null &&
+              snapshot!.isVerifiedFor(_expectedUser!.id, DateTime.now())
+        ? WebsiteAccessStatus.available
+        : WebsiteAccessStatus.unverified,
+  );
+
+  Future<void> attachAccount(BangumiUser? user) async {
+    if (_expectedUser?.id == user?.id &&
+        _expectedUser?.username == user?.username) {
+      return;
+    }
+    _expectedUser = user;
+    _generation++;
+    _verification = null;
+    _verificationKey = null;
+    state = _snapshotState(state.snapshot);
+    await reload();
+    if (mounted && _expectedUser?.id == user?.id && user != null) {
+      await ensureVerified();
+    }
+  }
+
+  Future<bool> ensureVerified({bool force = false}) {
+    final user = _expectedUser;
+    final snapshot = state.snapshot;
+    if (user == null) return Future.value(false);
+    if (snapshot?.hasSessionCookies != true) {
+      state = state.copyWith(
+        status: snapshot == null
+            ? WebsiteAccessStatus.missing
+            : WebsiteAccessStatus.expired,
+      );
+      return Future.value(false);
+    }
+    if (!force &&
+        const {
+          WebsiteAccessStatus.expired,
+          WebsiteAccessStatus.mismatch,
+          WebsiteAccessStatus.challenge,
+        }.contains(state.status)) {
+      return Future.value(false);
+    }
+    if (!force &&
+        snapshot!.isVerifiedFor(user.id, DateTime.now()) &&
+        state.status == WebsiteAccessStatus.available) {
+      return Future.value(true);
+    }
+    final key = '$_generation:${user.id}:${snapshot!.authenticationKey}';
+    if (_verification != null && _verificationKey == key) return _verification!;
+    final generation = _generation;
+    _verificationKey = key;
+    final future = _verify(snapshot, user, generation);
+    _verification = future;
+    return future.whenComplete(() {
+      if (identical(_verification, future)) {
+        _verification = null;
+        _verificationKey = null;
+      }
+    });
+  }
+
+  Future<bool> _verify(
+    WebsiteSessionSnapshot snapshot,
+    BangumiUser user,
+    int generation,
+  ) async {
+    state = state.copyWith(
+      status: WebsiteAccessStatus.checking,
+      clearMessage: true,
+    );
+    try {
+      final id = await _probeOnce(snapshot, user, generation);
+      if (!mounted ||
+          generation != _generation ||
+          _expectedUser?.id != user.id) {
+        return false;
+      }
+      final verified = snapshot.withVerifiedUser(id);
+      await _write(() async {
+        if (mounted && generation == _generation) await _store.write(verified);
+      });
+      if (!mounted || generation != _generation) return false;
+      state = _snapshotState(verified);
+      return true;
+    } catch (error) {
+      if (mounted && generation == _generation) {
+        state = state.copyWith(
+          status: error is WebsiteAccessException
+              ? error.status
+              : WebsiteAccessStatus.unavailable,
+          message: error is WebsiteAccessException
+              ? error.message
+              : '账号核验暂时失败，请稍后重试',
+        );
+      }
+      return false;
+    }
+  }
+
+  Future<WebsiteSessionSnapshot> requireVerifiedSession(
+    BangumiUser? user,
+  ) async {
+    if (user == null) {
+      throw const WebsiteAccessException(
+        WebsiteAccessStatus.missing,
+        '请先登录 Bangumi 账号',
+      );
+    }
+    await attachAccount(user);
+    if (!await ensureVerified() ||
+        _expectedUser?.id != user.id ||
+        state.snapshot == null) {
+      throw WebsiteAccessException(
+        state.status,
+        state.message ?? state.statusLabel,
+      );
+    }
+    return state.snapshot!;
+  }
+
+  void reportFailure(WebsiteAccessStatus status, String authenticationKey) {
+    if (state.snapshot?.authenticationKey != authenticationKey) return;
+    final generation = ++_generation;
+    _verification = null;
+    final snapshot = state.snapshot!.withoutVerification();
+    state = state.copyWith(
+      snapshot: snapshot,
+      status: status,
+      clearMessage: true,
+    );
+    unawaited(
+      _write(() async {
+        if (mounted && generation == _generation) await _store.write(snapshot);
+      }).catchError((Object _) {}),
+    );
+  }
 
   Future<void> _write(Future<void> Function() action) {
     final future = _writes.then((_) => action());
@@ -71,7 +263,7 @@ class WebsiteSessionController extends StateNotifier<WebsiteSessionState> {
       await _writes;
       final snapshot = await _store.read();
       if (!mounted || generation != _generation) return;
-      state = WebsiteSessionState(ready: true, snapshot: snapshot);
+      state = _snapshotState(snapshot);
     } catch (_) {
       if (!mounted || generation != _generation) return;
       state = const WebsiteSessionState(
@@ -106,7 +298,11 @@ class WebsiteSessionController extends StateNotifier<WebsiteSessionState> {
       }
       if (snapshot.hasSessionCookies &&
           snapshot.cookieHeader == state.snapshot?.cookieHeader) {
-        return true;
+        return _expectedUser == null
+            ? true
+            : ensureVerified(
+                force: state.status != WebsiteAccessStatus.available,
+              );
       }
       return saveCookies(cookies);
     } catch (_) {
@@ -142,6 +338,43 @@ class WebsiteSessionController extends StateNotifier<WebsiteSessionState> {
     if (previous?.authenticationKey == snapshot.authenticationKey &&
         previous?.verifiedUserId != null) {
       snapshot = snapshot.withVerifiedUser(previous!.verifiedUserId!);
+      snapshot = WebsiteSessionSnapshot(
+        cookies: snapshot.cookies,
+        syncedAt: snapshot.syncedAt,
+        verifiedUserId: previous.verifiedUserId,
+        verifiedAt: previous.verifiedAt,
+        verificationVersion: previous.verificationVersion,
+      );
+    }
+    final expected = _expectedUser;
+    if (expected != null &&
+        !snapshot.isVerifiedFor(expected.id, DateTime.now())) {
+      state = state.copyWith(
+        snapshot: snapshot,
+        status: WebsiteAccessStatus.checking,
+        clearMessage: true,
+      );
+      try {
+        final id = await _probeOnce(snapshot, expected, generation);
+        if (!mounted ||
+            generation != _generation ||
+            _expectedUser?.id != expected.id) {
+          return false;
+        }
+        snapshot = snapshot.withVerifiedUser(id);
+      } catch (error) {
+        if (mounted && generation == _generation) {
+          state = state.copyWith(
+            status: error is WebsiteAccessException
+                ? error.status
+                : WebsiteAccessStatus.unavailable,
+            message: error is WebsiteAccessException
+                ? error.message
+                : '暂时无法核验登录，请稍后重试',
+          );
+        }
+        return false;
+      }
     }
     try {
       await _write(() async {
@@ -149,15 +382,18 @@ class WebsiteSessionController extends StateNotifier<WebsiteSessionState> {
       });
     } catch (_) {
       if (mounted && generation == _generation) {
-        state = state.copyWith(ready: true, message: '保存网站会话失败，请重试');
+        state = state.copyWith(
+          ready: true,
+          status: WebsiteAccessStatus.unavailable,
+          message: '保存网站会话失败，请重试',
+        );
       }
       return false;
     }
     if (!mounted || generation != _generation) return false;
-    state = WebsiteSessionState(
-      ready: true,
-      snapshot: snapshot,
-      message: '网站登录已保存',
+    state = _snapshotState(
+      snapshot,
+      message: expected == null ? '网站会话已保存，等待账号核验' : '账号验证完成',
     );
     return true;
   }
@@ -187,7 +423,7 @@ class WebsiteSessionController extends StateNotifier<WebsiteSessionState> {
         final next = snapshot!.withVerifiedUser(userId);
         await _store.write(next);
         if (!mounted || generation != _generation) return;
-        state = WebsiteSessionState(ready: true, snapshot: next);
+        state = _snapshotState(next);
         bound = true;
       });
     } catch (_) {
@@ -203,10 +439,13 @@ class WebsiteSessionController extends StateNotifier<WebsiteSessionState> {
     state = WebsiteSessionState(ready: true, message: message ?? '已清除网站登录会话');
     try {
       await _write(_store.clear);
-      await WebsiteCookieBridge.clearBgmCookies();
+      await WebsiteCookieBridge.clearBgmCookies(strict: true);
     } catch (_) {
       if (mounted && generation == _generation) {
-        state = state.copyWith(message: '清理网站会话失败，请重试');
+        state = state.copyWith(
+          status: WebsiteAccessStatus.cleanupRequired,
+          message: '清理网站会话失败，请重试',
+        );
       }
     }
   }

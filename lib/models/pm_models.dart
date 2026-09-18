@@ -103,10 +103,7 @@ class PmConversationDetail {
 }
 
 class PmComposeParams {
-  const PmComposeParams({
-    required this.formhash,
-    required this.msgReceivers,
-  });
+  const PmComposeParams({required this.formhash, required this.msgReceivers});
 
   final String formhash;
   final String msgReceivers;
@@ -115,9 +112,7 @@ class PmComposeParams {
 }
 
 class PmAuthException implements Exception {
-  const PmAuthException([
-    this.message = '需要先同步 Bangumi 网站登录才能使用站内短信',
-  ]);
+  const PmAuthException([this.message = '需要先同步 Bangumi 网站登录才能使用站内短信']);
 
   final String message;
 
@@ -132,4 +127,9 @@ class PmException implements Exception {
 
   @override
   String toString() => message;
+}
+
+/// POST may have reached Bangumi; never automatically retry this result.
+class PmDeliveryUncertain extends PmException {
+  const PmDeliveryUncertain() : super('发送结果尚未确认，请先核对会话，避免重复发送');
 }

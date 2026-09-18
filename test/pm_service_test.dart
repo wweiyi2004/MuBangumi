@@ -6,6 +6,22 @@ import 'package:mubangumi/core/network/pm_service.dart';
 import 'package:mubangumi/models/pm_models.dart';
 
 void main() {
+  test('a lost POST response is uncertain rather than safe to retry', () async {
+    final service = _service(
+      (options) => throw DioException(
+        requestOptions: options,
+        type: DioExceptionType.receiveTimeout,
+      ),
+    );
+    await expectLater(
+      service.compose(
+        params: const PmComposeParams(formhash: 'hash', msgReceivers: '42'),
+        title: '标题',
+        body: '内容',
+      ),
+      throwsA(isA<PmDeliveryUncertain>()),
+    );
+  });
   test('challenge-cookie refresh does not invalidate a prepared form', () async {
     final store = _MemoryWebsiteSessionStore()
       ..snapshot = _snapshot('account-a');

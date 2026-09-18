@@ -13,6 +13,7 @@ import 'package:mubangumi/core/network/bangumi_endpoints.dart';
 import 'package:mubangumi/core/network/bangumi_support.dart';
 import 'package:mubangumi/core/network/netaba_api.dart';
 import 'package:mubangumi/core/storage/snapshot_cache.dart';
+import 'package:mubangumi/core/storage/bangumi_sync_store.dart';
 import 'package:mubangumi/core/storage/token_store.dart';
 import 'package:mubangumi/models/bangumi_models.dart';
 import 'package:mubangumi/models/netaba_models.dart';
@@ -316,7 +317,13 @@ class _Session extends SessionController {
     ),
   );
   _Session(BangumiApi api, SnapshotCache cache)
-    : super(api, BangumiOAuth(), _Tokens(), snapshotCache: cache) {
+    : super(
+        api,
+        BangumiOAuth(),
+        _Tokens(),
+        snapshotCache: cache,
+        syncStore: _EmptyQueue(),
+      ) {
     state = const SessionState(
       phase: SessionPhase.signedIn,
       user: BangumiUser(
@@ -337,12 +344,16 @@ class _Session extends SessionController {
       ],
     );
   }
+}
+
+// Inject the storage boundary instead of overriding the session's internal
+// method dispatch, so detail tests exercise the real collection editor.
+class _EmptyQueue extends BangumiSyncStore {
   @override
-  Future<List<UserEpisodeCollection>> applyPendingEpisodeChanges(
-    int subjectId,
-    List<UserEpisodeCollection> source, {
-    int? afterRevision,
-  }) async => source;
+  Future<List<PendingBangumiMutation>> pendingFor(
+    String username, {
+    bool includeBlocked = false,
+  }) async => const [];
 }
 
 class _Tokens extends TokenStore {

@@ -33,7 +33,7 @@ class _FriendQrScanPageState extends State<FriendQrScanPage> {
         systemOverlayStyle: SystemUiOverlayStyle.light,
         backgroundColor: Colors.black,
         foregroundColor: Colors.white,
-        title: const Text('扫描好友二维码'),
+        title: const Text('扫一扫'),
         actions: [
           IconButton(
             tooltip: '从图片识别',
@@ -52,7 +52,7 @@ class _FriendQrScanPageState extends State<FriendQrScanPage> {
             child: Padding(
               padding: const EdgeInsets.fromLTRB(24, 0, 24, 40),
               child: Text(
-                '将对方的 MuBangumi 二维码放入框内',
+                '扫描好友、小组或番键会二维码',
                 textAlign: TextAlign.center,
                 style: Theme.of(
                   context,

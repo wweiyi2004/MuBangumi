@@ -18,6 +18,7 @@ import 'package:mubangumi/core/theme/app_theme.dart';
 import 'package:mubangumi/models/bangumi_models.dart';
 import 'package:mubangumi/models/netaba_models.dart';
 import 'package:mubangumi/screens/collection_stats_page.dart';
+import 'package:mubangumi/screens/library_page.dart';
 import 'package:mubangumi/screens/score_trends_page.dart';
 import 'package:mubangumi/state/session_controller.dart';
 import 'package:mubangumi/widgets/insight_widgets.dart';
@@ -27,6 +28,224 @@ const _screenshots = bool.fromEnvironment('INSIGHT_SCREENSHOTS');
 final _boundary = GlobalKey();
 
 void main() {
+  testWidgets(
+    'library statistics stay live during sync and clear after sign-out',
+    (tester) async {
+      final session = _Session()
+        ..replaceCollections([_collection(1)], loading: true);
+      await _show(
+        tester,
+        const Scaffold(body: LibraryPage()),
+        session: session,
+      );
+      await tester.tap(find.text('统计与回顾'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+      expect(find.textContaining('收藏同步中'), findsOneWidget);
+      session.replaceCollections([
+        _collection(1),
+        _collection(2),
+      ], loading: false);
+      await tester.pumpAndSettle();
+      expect(
+        tester
+            .widget<CollectionStatsPage>(find.byType(CollectionStatsPage))
+            .collections,
+        hasLength(2),
+      );
+      expect(find.textContaining('收藏同步中'), findsNothing);
+      session.clearAccount();
+      await tester.pumpAndSettle();
+      expect(find.byType(CollectionStatsPage), findsNothing);
+      expect(find.text('账号已变更，请返回收藏重新进入'), findsOneWidget);
+    },
+  );
+
+  test(
+    'statistics exclude invalid ratings and retain undated records in overview',
+    () {
+      final items = [
+        _collection(1, rate: 6),
+        _collection(2, rate: 9),
+        _collection(3, rate: 0, dated: false),
+        _collection(4, rate: 99),
+        _collection(5, rate: -1),
+      ];
+      final stats = CollectionStatistics(items);
+      expect(stats.total, 5);
+      expect(stats.ratedTotal, 2);
+      expect(stats.averageRating, 7.5);
+      expect(stats.medianRating, 7.5);
+      expect(stats.highRatedTotal, 1);
+      expect(stats.undatedTotal, 1);
+      expect(stats.completedTotal, 5);
+      expect(stats.commentedTotal, 5);
+      expect(stats.ratingDistribution.values.reduce((a, b) => a + b), 2);
+      expect(CollectionStatistics([]).medianRating, isNull);
+      expect(CollectionStatistics([_collection(1, rate: 7)]).medianRating, 7);
+      expect(CollectionYearReview(items, 2026).items.first.subjectId, 2);
+      expect(CollectionYearReview(items, 2026).items.length, 4);
+    },
+  );
+
+  test(
+    'record sorting, search and date gaps do not mutate collection order',
+    () {
+      final source = [
+        _collection(1, month: 1, rate: 9, tags: ['独特标签']),
+        _collection(2, month: 3, rate: 8),
+        _collection(3, dated: false, rate: 0),
+      ];
+      expect(
+        collectionMemories(
+          source,
+          order: CollectionMemoryOrder.newest,
+        ).map((e) => e.subjectId),
+        [2, 1, 3],
+      );
+      expect(
+        collectionMemories(
+          source,
+          order: CollectionMemoryOrder.oldest,
+        ).map((e) => e.subjectId),
+        [1, 2, 3],
+      );
+      expect(collectionMemories(source, query: ' 独特标签 ').single.subjectId, 1);
+      expect(collectionMemories(source, query: '平静又温柔'), hasLength(3));
+      expect(collectionMemories(source, query: 'missing'), isEmpty);
+      expect(source.map((e) => e.subjectId), [1, 2, 3]);
+    },
+  );
+
+  testWidgets('annual review can search records beyond the ten-item preview', (
+    tester,
+  ) async {
+    await _show(
+      tester,
+      CollectionStatsPage(
+        username: 'tester',
+        collections: [
+          for (var id = 1; id <= 35; id++)
+            _collection(id, rate: id == 35 ? 1 : 8),
+        ],
+      ),
+    );
+    await tester.tap(find.text('年度回顾'));
+    await tester.pumpAndSettle();
+    await tester.scrollUntilVisible(
+      find.text('查看全部 35 条'),
+      400,
+      scrollable: find
+          .descendant(
+            of: find.byType(ListView),
+            matching: find.byType(Scrollable),
+          )
+          .first,
+    );
+    await tester.tap(find.text('查看全部 35 条'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField), '作品 35');
+    await tester.pumpAndSettle();
+    expect(
+      find.byWidgetPredicate(
+        (widget) => widget is Text && widget.data == '作品 35',
+      ),
+      findsOneWidget,
+    );
+    expect(find.text('1 / 35 条记录'), findsOneWidget);
+    await tester.enterText(find.byType(TextField), '不存在');
+    await tester.pumpAndSettle();
+    expect(find.text('没有匹配的收藏记录'), findsOneWidget);
+    await tester.tap(find.byTooltip('清空搜索'));
+    await tester.pumpAndSettle();
+    expect(find.text('35 / 35 条记录'), findsOneWidget);
+    await _capture(tester, 'records');
+  });
+
+  testWidgets('rating chart opens only matching records under type filter', (
+    tester,
+  ) async {
+    await _show(tester, _stats());
+    await tester.tap(find.widgetWithText(ChoiceChip, '书籍'));
+    await tester.pumpAndSettle();
+    final bar = find.byTooltip('8 分 · 1 条收藏');
+    await tester.scrollUntilVisible(
+      bar,
+      300,
+      scrollable: find
+          .descendant(
+            of: find.byType(ListView),
+            matching: find.byType(Scrollable),
+          )
+          .first,
+    );
+    await tester.tap(bar);
+    await tester.pumpAndSettle();
+    expect(find.text('1 / 1 条记录'), findsOneWidget);
+    expect(find.text('作品 3'), findsOneWidget);
+    expect(find.text('作品 1'), findsNothing);
+  });
+
+  testWidgets(
+    'updated snapshots refresh annual totals while preserving selection',
+    (tester) async {
+      final source = ValueNotifier([_collection(1, month: 3)]);
+      addTearDown(source.dispose);
+      await _show(
+        tester,
+        ValueListenableBuilder<List<UserCollection>>(
+          valueListenable: source,
+          builder: (_, items, _) =>
+              CollectionStatsPage(username: 'tester', collections: items),
+        ),
+      );
+      await tester.tap(find.text('年度回顾'));
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.byTooltip('3月 · 1 条更新'));
+      await tester.tap(find.byTooltip('3月 · 1 条更新'));
+      source.value = [
+        _collection(1, month: 3),
+        _collection(2, month: 3, rate: 10),
+      ];
+      await tester.pumpAndSettle();
+      expect(find.text('最高 10 分'), findsOneWidget);
+      expect(find.text('3 月的收藏片段'), findsOneWidget);
+      expect(find.text('查看全部 2 条'), findsOneWidget);
+    },
+  );
+
+  for (final scale in [1.0, 1.8]) {
+    testWidgets(
+      'record search fits 320px phone with keyboard at scale $scale',
+      (tester) async {
+        await _show(
+          tester,
+          _stats(),
+          size: const Size(320, 640),
+          scale: scale,
+          dark: true,
+        );
+        await tester.ensureVisible(find.text('浏览收藏记录'));
+        await tester.tap(find.text('浏览收藏记录'));
+        await tester.pumpAndSettle();
+        tester.view.viewInsets = const FakeViewPadding(bottom: 280);
+        addTearDown(tester.view.resetViewInsets);
+        await tester.enterText(find.byType(TextField), '作品');
+        await tester.pumpAndSettle();
+        expect(tester.takeException(), isNull);
+        expect(find.text('作品 1'), findsOneWidget);
+        expect(
+          find.byType(DropdownButton<CollectionMemoryOrder>),
+          findsNothing,
+        );
+        await _capture(tester, 'records_keyboard_$scale');
+        tester.view.resetViewInsets();
+        await tester.pumpAndSettle();
+        expect(find.text('3 / 3 条记录'), findsOneWidget);
+      },
+    );
+  }
+
   testWidgets('score quotes are compact and use red up, green down', (
     tester,
   ) async {
@@ -275,6 +494,7 @@ Future<void> _show(
   WidgetTester tester,
   Widget page, {
   _Trends? api,
+  _Session? session,
   Size size = const Size(1100, 1100),
   double scale = 1,
   bool dark = false,
@@ -309,7 +529,7 @@ Future<void> _show(
   await tester.pumpWidget(
     ProviderScope(
       overrides: [
-        sessionProvider.overrideWith((ref) => _Session()),
+        sessionProvider.overrideWith((ref) => session ?? _Session()),
         if (api != null) netabaApiProvider.overrideWithValue(api),
       ],
       child: MaterialApp(
@@ -409,9 +629,25 @@ class _Session extends SessionController {
   _Session() : super(BangumiApi(), BangumiOAuth(), _Tokens()) {
     state = SessionState(
       phase: SessionPhase.signedIn,
+      user: const BangumiUser(
+        id: 1,
+        username: 'tester',
+        nickname: '小暮',
+        avatarUrl: '',
+      ),
       collections: [_collection(2)],
     );
   }
+  void replaceCollections(
+    List<UserCollection> items, {
+    required bool loading,
+  }) =>
+      state = state.copyWith(collections: items, isLoadingCollections: loading);
+  void clearAccount() => state = state.copyWith(
+    clearUser: true,
+    collections: [],
+    phase: SessionPhase.signedOut,
+  );
 }
 
 class _Tokens extends TokenStore {

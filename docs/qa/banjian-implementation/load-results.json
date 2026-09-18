@@ -1,0 +1,10 @@
+{
+  "transport": "Windows loopback HTTP + WebSocket",
+  "clients": 50,
+  "durationSeconds": 121,
+  "acknowledgedWrites": 1050,
+  "receivedSnapshots": 53775,
+  "uniqueScores": 50,
+  "p95AcknowledgementAndOwnSnapshotMs": 816.25,
+  "maxMs": 913.268
+}

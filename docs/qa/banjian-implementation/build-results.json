@@ -1,0 +1,13 @@
+{
+  "windowsRelease": "built",
+  "androidRelease": "built",
+  "packagedWebAssetsMatchSource": true,
+  "automaticAddressDiscovery": true,
+  "endedInvitationFix": true,
+  "coverCacheRepair": true,
+  "singleScreenWorkspace": true,
+  "nativeManagement": true,
+  "asciiRefresh": true,
+  "androidApkSha256": "bca008c968c67a0a531db68941bbab8f808e8b4c47c440cc3596c4d41c9c113b",
+  "standaloneZipSha256": "4a5c38c12d33f4b670c49bd2d5950e44940c11b6d95e61fa12071e045835cac8"
+}

@@ -122,8 +122,7 @@ class PmHtmlParser {
           row.classes.contains('pm_new') ||
           row.querySelector('.pm_new') != null ||
           row.querySelector('.pm-conversation-unread') != null;
-      final userId =
-          RegExp(r'/(\d+)\.jpg').firstMatch(avatar)?.group(1) ?? '';
+      final userId = _avatarUserId(avatar);
       items.add(
         PmConversation(
           id: id,
@@ -145,7 +144,8 @@ class PmHtmlParser {
       )) {
         final avatar = row.querySelector('a.avatar');
         final href = avatar?.attributes['href'] ?? '';
-        final id = _conversationId.firstMatch(href)?.group(1) ??
+        final id =
+            _conversationId.firstMatch(href)?.group(1) ??
             RegExp(r'/view/(\d+)').firstMatch(href)?.group(1) ??
             '';
         if (id.isEmpty) continue;
@@ -160,8 +160,10 @@ class PmHtmlParser {
             title: title.isEmpty ? '会话 $id' : title,
             preview: '',
             peerName: user?.text.trim() ?? '',
-            peerUserId:
-                (user?.attributes['href'] ?? '').replaceAll('/user/', ''),
+            peerUserId: (user?.attributes['href'] ?? '').replaceAll(
+              '/user/',
+              '',
+            ),
             avatarUrl: _backgroundUrl(row.querySelector('.avatarNeue')),
             timeText: row.querySelector('small.time')?.text.trim() ?? '',
             isUnread: row.querySelector('td.pm_new') != null,
@@ -176,8 +178,10 @@ class PmHtmlParser {
     final document = html_parser.parse(source);
     final titleStrong = document.querySelector('.pm-chat-title strong a.l');
     final peerName = titleStrong?.text.trim() ?? '';
-    final peerUserId =
-        (titleStrong?.attributes['href'] ?? '').replaceAll('/user/', '');
+    final peerUserId = (titleStrong?.attributes['href'] ?? '').replaceAll(
+      '/user/',
+      '',
+    );
 
     final threads = <PmThreadFilter>[];
     for (final a in document.querySelectorAll('.pm-thread-filter a')) {
@@ -212,8 +216,7 @@ class PmHtmlParser {
       final avatarStyle =
           el.querySelector('span.avatarNeue')?.attributes['style'] ?? '';
       final avatar = _bgUrl.firstMatch(avatarStyle)?.group(1) ?? '';
-      final userHref =
-          el.querySelector('a.avatar')?.attributes['href'] ?? '';
+      final userHref = el.querySelector('a.avatar')?.attributes['href'] ?? '';
       final userId = userHref.replaceAll('/user/', '');
       final isSelf = el.classes.contains('pm-message-self');
       final body = el.querySelector('div.pm-message-body');
@@ -239,8 +242,11 @@ class PmHtmlParser {
 
     // Legacy detail fallback.
     if (messages.isEmpty) {
-      for (final item in document.querySelectorAll('div#comment_box > div.item')) {
-        final name = item.querySelector('div.rr + a.l')?.text.trim() ??
+      for (final item in document.querySelectorAll(
+        'div#comment_box > div.item',
+      )) {
+        final name =
+            item.querySelector('div.rr + a.l')?.text.trim() ??
             item.querySelector('a.l')?.text.trim() ??
             '';
         final userId =
@@ -248,7 +254,9 @@ class PmHtmlParser {
                 .replaceAll('/user/', '');
         final html = item.querySelector('div.text_pm')?.innerHtml ?? '';
         final parts = html.split('</a>:');
-        final content = parts.length > 1 ? parts.sublist(1).join('</a>:') : html;
+        final content = parts.length > 1
+            ? parts.sublist(1).join('</a>:')
+            : html;
         messages.add(
           PmMessage(
             name: name,
@@ -297,6 +305,20 @@ class PmHtmlParser {
   String _backgroundUrl(Element? el) {
     final style = el?.attributes['style'] ?? '';
     return _absolute(_bgUrl.firstMatch(style)?.group(1) ?? '');
+  }
+
+  String _avatarUserId(String avatar) {
+    final uri = Uri.tryParse(_absolute(avatar));
+    if (uri == null ||
+        uri.host.toLowerCase() != 'lain.bgm.tv' ||
+        !uri.path.startsWith('/pic/user/')) {
+      return '';
+    }
+    return RegExp(
+          r'^(\d+)(?:_[^.]*)?\.(?:jpg|jpeg|png|gif|webp)$',
+          caseSensitive: false,
+        ).firstMatch(uri.pathSegments.lastOrNull ?? '')?.group(1) ??
+        '';
   }
 
   String _absolute(String raw) {

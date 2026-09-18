@@ -30,6 +30,11 @@ class FriendQr {
   }
 
   static String? decodeFromImageBytes(Uint8List bytes) {
+    final raw = decodePayloadFromImageBytes(bytes);
+    return raw == null ? null : decode(raw);
+  }
+
+  static String? decodePayloadFromImageBytes(Uint8List bytes) {
     final image = img.decodeImage(bytes);
     if (image == null) return null;
     try {
@@ -40,7 +45,7 @@ class FriendQr {
           .asInt32List();
       final source = RGBLuminanceSource(image.width, image.height, pixels);
       final bitmap = BinaryBitmap(GlobalHistogramBinarizer(source));
-      return decode(QRCodeReader().decode(bitmap).text);
+      return QRCodeReader().decode(bitmap).text;
     } catch (_) {
       return null;
     }
@@ -55,4 +60,7 @@ class FriendQr {
     }
     return compute(decodeFromImageBytes, bytes);
   }
+
+  static Future<String?> decodePayloadFromImageBytesAsync(Uint8List bytes) =>
+      compute(decodePayloadFromImageBytes, bytes);
 }

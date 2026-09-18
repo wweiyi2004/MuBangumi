@@ -16,7 +16,7 @@ publish_to: 'none' # Remove this line if you wish to publish to pub.dev
 # https://developer.apple.com/library/archive/documentation/General/Reference/InfoPlistKeyReference/Articles/CoreFoundationKeys.html
 # In Windows, build-name is used as the major, minor, and patch parts
 # of the product and file versions while build-number is used as the build suffix.
-version: 2.2.0+27
+version: 2.3.0+28
 
 environment:
   sdk: ^3.12.0
@@ -28,6 +28,8 @@ environment:
 # the latest version available on pub.dev. To see which dependencies have newer
 # versions available, run `flutter pub outdated`.
 dependencies:
+  banjian_server:
+    path: packages/banjian_server
   flutter:
     sdk: flutter
 
@@ -35,6 +37,7 @@ dependencies:
   # Use with the CupertinoIcons class for iOS style icons.
   cupertino_icons: ^1.0.8
   dio: ^5.11.0
+  connectivity_plus: ^7.3.1
   crypto: ^3.0.7
   flutter_riverpod: ^2.6.1
   flutter_secure_storage: ^10.3.1
@@ -90,6 +93,9 @@ flutter:
   # the material Icons class.
   assets:
     - shorebird.yaml
+    - packages/banjian_server/web/index.html
+    - packages/banjian_server/web/app.css
+    - packages/banjian_server/web/app.js
   uses-material-design: true
 
 flutter_launcher_icons:

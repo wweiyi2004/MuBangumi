@@ -1,0 +1,4 @@
+# Replace the domain; only the reverse proxy is exposed publicly.
+banjian.example.com {
+    reverse_proxy banjian:43928
+}

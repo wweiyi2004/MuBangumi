@@ -20,14 +20,10 @@ void main() {
       final service = _Service();
       await _show(tester, service);
       expect(find.text('收件1'), findsOneWidget);
-      await tester.tap(find.text('加载更多'));
-      await tester.pumpAndSettle();
       expect(find.text('收件2'), findsOneWidget);
-      expect(service.inboxPages, [1, 2]);
-      await tester.tap(find.text('已发送'));
-      await tester.pumpAndSettle();
+      expect(service.inboxPages, [1, 2, 3]);
       expect(find.text('旧发件'), findsOneWidget);
-      expect(service.outboxPages, [1]);
+      expect(service.outboxPages, [1, 2]);
       await tester.tap(find.byType(FloatingActionButton));
       await tester.pumpAndSettle();
       await tester.enterText(find.byType(TextField).at(0), 'alice');
@@ -39,8 +35,8 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('新发件'), findsOneWidget);
       expect(find.text('旧发件'), findsNothing);
-      expect(service.outboxPages, [1, 1]);
-      expect(service.inboxPages, [1, 2, 1]);
+      expect(service.outboxPages, [1, 2, 1, 2]);
+      expect(service.inboxPages, [1, 2, 3, 1, 2, 3]);
       expect(tester.takeException(), isNull);
     },
   );
@@ -50,18 +46,14 @@ void main() {
     (tester) async {
       final service = _Service()..outboxFails = true;
       await _show(tester, service);
-      await tester.tap(find.text('已发送'));
-      await tester.pumpAndSettle();
-      expect(find.text('加载失败'), findsOneWidget);
-      await tester.tap(find.text('收件箱'));
-      await tester.pumpAndSettle();
+      expect(find.text('私信记录加载失败，已保留当前列表'), findsOneWidget);
       expect(find.text('收件1'), findsOneWidget);
       expect(find.text('加载失败'), findsNothing);
       service.inboxFails = true;
       await tester.tap(find.byTooltip('刷新'));
       await tester.pumpAndSettle();
       expect(find.text('收件1'), findsOneWidget);
-      expect(find.text('刷新失败，已保留当前内容'), findsOneWidget);
+      expect(find.text('私信记录加载失败，已保留当前列表'), findsOneWidget);
     },
   );
 
@@ -86,7 +78,9 @@ void main() {
       pending.complete([_item('old-account-private')]);
       await tester.pumpAndSettle();
       expect(find.text('old-account-private'), findsNothing);
-      expect(find.text('收件1'), findsOneWidget);
+      // A replacement Cookie is not usable until its owner is verified.
+      expect(find.text('收件1'), findsNothing);
+      expect(find.textContaining('需要补充账号验证'), findsOneWidget);
     },
   );
 }
@@ -111,7 +105,9 @@ Future<ProviderContainer> _show(
   await tester.pumpWidget(
     UncontrolledProviderScope(
       container: container,
-      child: MaterialApp(home: PmPage(service: service)),
+      child: MaterialApp(
+        home: PmPage(service: service, friendsLoader: (_) async => []),
+      ),
     ),
   );
   if (settle) await tester.pumpAndSettle();

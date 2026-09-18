@@ -1,0 +1,16 @@
+{
+  "verified_at": "2026-09-18T16:53:59.9988007+08:00",
+  "related_tests_passed": 29,
+  "static_analysis": "passed",
+  "windows": {
+    "executable": "build/windows/x64/runner/Release/mubangumi.exe",
+    "app_so_sha256": "20BBBF8AE15A5463D2C4805F44E005217C50E7D3139D0A764D127CCF6E40C9C5",
+    "process_id": 43132
+  },
+  "android": {
+    "apk": "build/app/outputs/flutter-apk/app-release.apk",
+    "sha256": "06A12C32F38BCC713DE0DD8EF437622D3342B9AE7EC306513C96FA7A35E8AFDD"
+  },
+  "extra_regression": "3 legacy profile shortcut tests failed before reaching LibraryPage; see README.md",
+  "visual_revision_tests_passed": 25
+}

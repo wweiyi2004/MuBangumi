@@ -9,6 +9,9 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mubangumi/core/network/pm_service.dart';
+import 'package:mubangumi/core/auth/website_identity.dart';
+import 'package:mubangumi/core/auth/website_session.dart';
+import 'package:mubangumi/models/bangumi_models.dart';
 import 'package:mubangumi/core/storage/pm_draft_store.dart';
 import 'package:mubangumi/core/theme/app_theme.dart';
 import 'package:mubangumi/models/pm_models.dart';
@@ -23,6 +26,28 @@ const _captureEnabled = bool.fromEnvironment('PM_CHAT_SCREENSHOTS');
 final _boundary = GlobalKey();
 
 void main() {
+  testWidgets(
+    'verified supplemental login restores the previous conversation and draft',
+    (tester) async {
+      final env = _Env(probe: _AllowWebsiteProbe());
+      await _show(tester, env);
+      await tester.tap(find.text('本周新番'));
+      await tester.pumpAndSettle();
+      await tester.enterText(_input, '验证后继续写的草稿');
+      await tester.pump(const Duration(milliseconds: 500));
+      final website = env.container.read(websiteSessionProvider.notifier);
+      website.reportFailure(
+        WebsiteAccessStatus.expired,
+        (await env.store.read())!.authenticationKey,
+      );
+      await tester.pumpAndSettle();
+      expect(find.byType(PmConversationScreen), findsNothing);
+      await website.attachAccount(env.container.read(sessionProvider).user);
+      await tester.pumpAndSettle();
+      expect(find.byType(PmConversationScreen), findsOneWidget);
+      expect(_body(tester), '验证后继续写的草稿');
+    },
+  );
   testWidgets(
     'reading history survives refresh and latest button returns to bottom',
     (tester) async {
@@ -156,20 +181,19 @@ void main() {
     },
   );
 
-  testWidgets(
-    'search filters loaded conversations and clearing restores list',
-    (tester) async {
-      final env = _Env();
-      await _show(tester, env);
-      await tester.enterText(find.byType(TextField), '周末');
-      await tester.pumpAndSettle();
-      expect(find.text('本周新番'), findsNothing);
-      expect(find.text('周末计划'), findsOneWidget);
-      await tester.tap(find.byTooltip('清除搜索'));
-      await tester.pumpAndSettle();
-      expect(find.text('本周新番'), findsOneWidget);
-    },
-  );
+  testWidgets('search filters people by nickname and clearing restores list', (
+    tester,
+  ) async {
+    final env = _Env();
+    await _show(tester, env);
+    await tester.enterText(find.byType(TextField), '阿月');
+    await tester.pumpAndSettle();
+    expect(find.text('本周新番'), findsNothing);
+    expect(find.text('周末计划'), findsOneWidget);
+    await tester.tap(find.byTooltip('清除搜索'));
+    await tester.pumpAndSettle();
+    expect(find.text('本周新番'), findsOneWidget);
+  });
 
   testWidgets(
     'account replacement during a pending switch never reopens old chat',
@@ -283,7 +307,7 @@ Future<void> _show(
           ).copyWith(textScaler: TextScaler.linear(scale)),
           child: RepaintBoundary(key: _boundary, child: child!),
         ),
-        home: PmPage(service: env.service),
+        home: PmPage(service: env.service, friendsLoader: (_) async => []),
       ),
     ),
   );
@@ -291,6 +315,8 @@ Future<void> _show(
 }
 
 class _Env {
+  _Env({this.probe});
+  final WebsiteIdentityProbe? probe;
   final repo = MemoryPmDraftRepository();
   final store = PmTestWebsiteStore();
   late final service = _Service(store);
@@ -299,8 +325,17 @@ class _Env {
       sessionProvider.overrideWith((ref) => PmTestSession()),
       pmDraftRepositoryProvider.overrideWithValue(repo),
       websiteSessionStoreProvider.overrideWithValue(store),
+      if (probe != null) websiteIdentityProbeProvider.overrideWithValue(probe!),
     ],
   );
+}
+
+class _AllowWebsiteProbe extends WebsiteIdentityProbe {
+  @override
+  Future<int> verify(
+    WebsiteSessionSnapshot snapshot,
+    BangumiUser expected,
+  ) async => expected.id;
 }
 
 class _Service extends PmService {

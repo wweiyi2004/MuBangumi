@@ -16,6 +16,8 @@ import 'collection_comparison_page.dart';
 import 'common_friends_page.dart';
 import 'pm_page.dart';
 import 'subject_detail_screen.dart';
+import 'community_blog_screen.dart';
+import 'community_target_navigation.dart';
 
 /// Opens a Bangumi user profile with collection / progress overview.
 void openUserProfile(
@@ -524,6 +526,17 @@ class _UserProfilePageState extends ConsumerState<UserProfilePage> {
                                     label: const Text('共同好友'),
                                   ),
                                   OutlinedButton.icon(
+                                    onPressed: () => Navigator.of(context).push(
+                                      MaterialPageRoute<void>(
+                                        builder: (_) => CommunityBlogListScreen(
+                                          username: _friendUsername,
+                                        ),
+                                      ),
+                                    ),
+                                    icon: const Icon(Icons.article_outlined),
+                                    label: const Text('日志'),
+                                  ),
+                                  OutlinedButton.icon(
                                     onPressed: () =>
                                         _editLocalNote(preference.note),
                                     icon: const Icon(Icons.edit_note_rounded),
@@ -572,6 +585,8 @@ class _UserProfilePageState extends ConsumerState<UserProfilePage> {
                         for (final item in _timeline.take(6))
                           CommunityTimelineCard(
                             item: item,
+                            onOpenTarget: (target) =>
+                                openCommunityTimelineTarget(context, target),
                             onOpenSubject: item.progress == null
                                 ? null
                                 : () {

@@ -1,5 +1,11 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
+    <uses-permission android:name="android.permission.CHANGE_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
@@ -7,10 +13,12 @@
         android:name="android.hardware.camera"
         android:required="false" />
     <application
+        android:usesCleartextTraffic="true"
         android:label="MuBangumi"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher"
         android:allowBackup="false">
+        <service android:name=".BanjianService" android:exported="false" android:foregroundServiceType="connectedDevice" android:stopWithTask="false" />
         <meta-data android:name="mubangumi.buildNumber" android:value="${mubangumiBuildNumber}" />
         <provider
             android:name="androidx.core.content.FileProvider"

@@ -4,6 +4,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/auth/website_session.dart';
+import '../core/auth/website_cookie_bridge.dart';
+import '../state/account_access_controller.dart';
+import '../state/session_controller.dart';
+import '../state/website_session_controller.dart';
 import 'community_page.dart';
 
 /// Lets the user log into bgm.tv once and persist WebView cookies for
@@ -39,6 +43,7 @@ class _WebsiteLoginScreenState extends ConsumerState<WebsiteLoginScreen> {
       _seedError = null;
     });
     try {
+      await WebsiteCookieBridge.waitForPendingCleanup();
       final cookies = await (widget.cookieLoader ?? loadWebsiteSeedCookies)();
       if (!mounted) return;
       setState(() => _seedCookies = cookies);
@@ -56,7 +61,7 @@ class _WebsiteLoginScreenState extends ConsumerState<WebsiteLoginScreen> {
     final error = _seedError;
     if (error != null) {
       return Scaffold(
-        appBar: AppBar(title: const Text('同步网站登录')),
+        appBar: AppBar(title: const Text('补充账号验证')),
         body: Center(
           child: Padding(
             padding: const EdgeInsets.all(24),
@@ -83,11 +88,11 @@ class _WebsiteLoginScreenState extends ConsumerState<WebsiteLoginScreen> {
     }
     return CommunityWebScreen(
       initialUrl: WebsiteLoginScreen.loginUrl,
-      title: '登录 Bangumi 网站',
+      title: '验证 Bangumi 账号',
       showSectionSwitcher: false,
       seedCookies: cookies,
       enableCookieCapture: true,
-      captureActionLabel: '保存网站会话',
+      captureActionLabel: '核验登录',
       loginHint: '使用与应用相同的 Bangumi 账号，登录成功后自动返回。',
       onSessionSaved: () {
         if (context.mounted) Navigator.of(context).maybePop(true);
@@ -96,10 +101,51 @@ class _WebsiteLoginScreenState extends ConsumerState<WebsiteLoginScreen> {
   }
 }
 
-Future<bool?> openWebsiteLoginScreen(BuildContext context) {
-  return Navigator.of(context).push<bool>(
-    MaterialPageRoute<bool>(builder: (_) => const WebsiteLoginScreen()),
-  );
+Future<bool?> openWebsiteLoginScreen(BuildContext context) =>
+    ensureWebsiteAccess(context, forceLogin: true);
+
+Future<bool> ensureWebsiteAccess(
+  BuildContext context, {
+  bool forceLogin = false,
+}) async {
+  final container = ProviderScope.containerOf(context, listen: false);
+  final access = container.read(accountAccessProvider);
+  if (container.read(sessionProvider).user == null) {
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(const SnackBar(content: Text('请先登录 Bangumi 账号')));
+    return false;
+  }
+  if (await access.verify()) return true;
+  if (!context.mounted) return false;
+  final state = container.read(websiteSessionProvider);
+  if (!forceLogin && state.status == WebsiteAccessStatus.unavailable) {
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(state.message ?? state.statusLabel)));
+    return false;
+  }
+  return access.runLogin(() async {
+    if (state.status == WebsiteAccessStatus.mismatch ||
+        state.status == WebsiteAccessStatus.expired ||
+        state.status == WebsiteAccessStatus.cleanupRequired) {
+      try {
+        await WebsiteCookieBridge.clearBgmCookies(strict: true);
+      } catch (_) {
+        if (context.mounted) {
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(const SnackBar(content: Text('登录会话清理失败，请稍后重试')));
+        }
+        return false;
+      }
+    }
+    if (!context.mounted) return false;
+    return await Navigator.of(context).push<bool>(
+          MaterialPageRoute<bool>(builder: (_) => const WebsiteLoginScreen()),
+        ) ??
+        false;
+  });
 }
 
 /// Loads persisted website cookies for WebView injection.
@@ -116,6 +162,7 @@ Future<void> openSeededCommunityWeb(
   bool showSectionSwitcher = true,
   String? loginHint,
 }) async {
+  if (!await ensureWebsiteAccess(context) || !context.mounted) return;
   final cookies = await loadWebsiteSeedCookies();
   if (!context.mounted) return;
   await Navigator.of(context).push(

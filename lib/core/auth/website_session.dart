@@ -47,11 +47,17 @@ class WebsiteCookie {
   );
 
   bool get looksLikeSession =>
-      name.toLowerCase().contains('chii') ||
-      name.toLowerCase().contains('auth') ||
-      name.toLowerCase().contains('sid') ||
-      name.toLowerCase().contains('session') ||
-      name.toLowerCase().contains('token');
+      const {
+        'chii_auth',
+        'chii_sid',
+        'chii_cvlet_session',
+        'chiinextsessionid',
+      }.contains(name.toLowerCase()) &&
+      const {
+        'bgm.tv',
+        'bangumi.tv',
+        'chii.in',
+      }.contains(domain.toLowerCase().replaceFirst(RegExp(r'^\.'), ''));
 
   bool get isExpired =>
       expiresAt != null && !expiresAt!.isAfter(DateTime.now());
@@ -63,6 +69,8 @@ class WebsiteSessionSnapshot {
     required this.cookies,
     required this.syncedAt,
     this.verifiedUserId,
+    this.verifiedAt,
+    this.verificationVersion = 0,
   });
 
   final List<WebsiteCookie> cookies;
@@ -71,12 +79,28 @@ class WebsiteSessionSnapshot {
   /// Identity established by the same embedded OAuth flow or website chrome.
   /// Cookie capture alone must never assign this field.
   final int? verifiedUserId;
+  final DateTime? verifiedAt;
+  final int verificationVersion;
 
-  WebsiteSessionSnapshot withVerifiedUser(int userId) => WebsiteSessionSnapshot(
-    cookies: cookies,
-    syncedAt: syncedAt,
-    verifiedUserId: userId,
-  );
+  bool isVerifiedFor(int userId, DateTime now) =>
+      hasSessionCookies &&
+      verificationVersion == 2 &&
+      verifiedUserId == userId &&
+      verifiedAt != null &&
+      !verifiedAt!.isAfter(now) &&
+      now.difference(verifiedAt!) < const Duration(minutes: 10);
+
+  WebsiteSessionSnapshot withVerifiedUser(int userId, {DateTime? at}) =>
+      WebsiteSessionSnapshot(
+        cookies: cookies,
+        syncedAt: syncedAt,
+        verifiedUserId: userId,
+        verifiedAt: at ?? DateTime.now(),
+        verificationVersion: 2,
+      );
+
+  WebsiteSessionSnapshot withoutVerification() =>
+      WebsiteSessionSnapshot(cookies: cookies, syncedAt: syncedAt);
 
   bool get hasSessionCookies => cookies.any(
     (cookie) =>
@@ -120,6 +144,8 @@ class WebsiteSessionSnapshot {
     'synced_at': syncedAt.toIso8601String(),
     'cookies': [for (final cookie in cookies) cookie.toJson()],
     if (verifiedUserId != null) 'verified_user_id': verifiedUserId,
+    if (verifiedAt != null) 'verified_at': verifiedAt!.toIso8601String(),
+    'verification_version': verificationVersion,
   };
 
   factory WebsiteSessionSnapshot.fromJson(Map<String, dynamic> json) {
@@ -145,6 +171,10 @@ class WebsiteSessionSnapshot {
       syncedAt:
           DateTime.tryParse(json['synced_at']?.toString() ?? '') ??
           DateTime.fromMillisecondsSinceEpoch(0),
+      verifiedAt: DateTime.tryParse(json['verified_at']?.toString() ?? ''),
+      verificationVersion: json['verification_version'] is int
+          ? json['verification_version'] as int
+          : 0,
     );
   }
 

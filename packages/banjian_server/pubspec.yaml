@@ -1,0 +1,12 @@
+name: banjian_server
+description: MuBangumi anime appreciation room server and protocol.
+publish_to: none
+version: 1.0.0
+environment:
+  sdk: ^3.12.0
+dependencies:
+  crypto: ^3.0.7
+  sqlite3: ^3.5.1
+  qr: ^3.0.2
+dev_dependencies:
+  test: ^1.25.0

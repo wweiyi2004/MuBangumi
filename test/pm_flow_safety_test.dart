@@ -96,7 +96,7 @@ void main() {
       );
       await tester.enterText(find.byType(TextField), 'reply');
       await tester.pump();
-      await tester.tap(find.byIcon(Icons.arrow_upward_rounded));
+      await tester.tap(find.text('发送'));
       await tester.pump();
       expect(service.replyCalls, 1);
       await tester.pumpWidget(const SizedBox.shrink());
@@ -122,15 +122,10 @@ void main() {
       await tester.enterText(find.byType(TextField), 'reply');
       await tester.tap(find.text('Thread B'));
       await tester.pumpAndSettle();
-      final send = tester.widget<InkWell>(
-        find
-            .ancestor(
-              of: find.byIcon(Icons.arrow_upward_rounded),
-              matching: find.byType(InkWell),
-            )
-            .first,
+      final send = tester.widget<FilledButton>(
+        find.widgetWithText(FilledButton, '发送'),
       );
-      expect(send.onTap, isNull);
+      expect(send.onPressed, isNull);
       expect(find.textContaining('thread failed'), findsOneWidget);
     },
   );

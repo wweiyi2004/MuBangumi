@@ -34,6 +34,52 @@ class CommunityP1Parser {
           .whereType<CommunityTopic>()
           .toList();
 
+  List<CommunityTopic> parseRakuenTopics(
+    Map<String, dynamic> page,
+  ) => _pageData(page)
+      .map((json) {
+        final kind = switch (_string(json['type'])) {
+          'group' => CommunityTopicKind.group,
+          'subject' => CommunityTopicKind.subject,
+          'episode' => CommunityTopicKind.episode,
+          'character' => CommunityTopicKind.character,
+          'person' => CommunityTopicKind.person,
+          _ => CommunityTopicKind.unknown,
+        };
+        if (kind.isDiscussion) return _parseTopic(json, kind);
+        final id = _integer(json['id']);
+        if (id <= 0 || kind == CommunityTopicKind.unknown) return null;
+        final episode = _map(json['episode']);
+        final subject = _map(json['subject']);
+        final title = episode == null
+            ? _subjectTitle(json)
+            : '${_episodeTypeName(_integer(episode['type']))}.${_number(_double(episode['sort']))} ${_subjectTitle(episode)}'
+                  .trim();
+        final path = kind == CommunityTopicKind.episode ? 'ep' : kind.name;
+        final rakuenPath = switch (kind) {
+          CommunityTopicKind.character => 'crt',
+          CommunityTopicKind.person => 'prsn',
+          _ => 'ep',
+        };
+        final updated = _dateTime(json['updatedAt']);
+        return CommunityTopic(
+          id: id,
+          kind: kind,
+          title: title,
+          url: 'https://bgm.tv/rakuen/topic/$rakuenPath/$id',
+          webUrl: 'https://bgm.tv/$path/$id',
+          sourceTitle: episode == null ? kind.label : _subjectTitle(subject),
+          sourceUrl: episode == null
+              ? 'https://bgm.tv/$path/$id'
+              : _subjectUrl(subject),
+          replyCount: _integer(episode?['comment'] ?? json['comment']),
+          updatedAt: updated,
+          updatedText: updated == null ? '' : _formatDateTime(updated),
+        );
+      })
+      .whereType<CommunityTopic>()
+      .toList();
+
   List<CommunityGroup> parseGroups(Map<String, dynamic> page) =>
       _pageData(page).map(_parseGroup).whereType<CommunityGroup>().toList();
 
@@ -176,6 +222,41 @@ class CommunityP1Parser {
     );
   }
 
+  CommunityTopicDetail parseCommentThread(
+    List<dynamic> data,
+    CommunityTopic topic,
+  ) {
+    final posts = <CommunityPost>[];
+    void add(Map<String, dynamic> json, int floor, {int? nestedFloor}) {
+      posts.add(
+        _parsePost(
+          {...json, 'creator': json['user'] ?? json['creator']},
+          floor: floor,
+          nestedFloor: nestedFloor,
+          isNested: nestedFloor != null,
+        ),
+      );
+      final children = _list(
+        json['replies'],
+      ).map(_map).whereType<Map<String, dynamic>>();
+      var index = 0;
+      for (final child in children) {
+        add(child, floor, nestedFloor: ++index);
+      }
+    }
+
+    var floor = 0;
+    for (final json in data.map(_map).whereType<Map<String, dynamic>>()) {
+      add(json, ++floor);
+    }
+    return CommunityTopicDetail(
+      title: topic.title,
+      sourceTitle: topic.sourceTitle,
+      sourceUrl: topic.sourceUrl,
+      posts: posts,
+    );
+  }
+
   CommunityTopic? _parseTopic(
     Map<String, dynamic> json,
     CommunityTopicKind kind,
@@ -268,6 +349,7 @@ class CommunityP1Parser {
       isOriginal: isOriginal,
       isNested: isNested,
       reactions: _parseReactions(json['reactions']),
+      canEdit: _integer(json['state']) == 0 && json['content'] is String,
     );
   }
 
@@ -380,6 +462,84 @@ class CommunityP1Parser {
       sourceUrl: _string(source?['url']),
       isStatus: cat == 5 && type == 1,
       progress: parsed.progress,
+      targets: _timelineTargets(cat, memo),
+      reactions: _parseReactions(json['reactions']),
+    );
+  }
+
+  List<CommunityTimelineTarget> _timelineTargets(
+    int cat,
+    Map<String, dynamic> memo,
+  ) {
+    final result = <CommunityTimelineTarget>[];
+    void add(CommunityTimelineTargetKind kind, Map<String, dynamic>? data) {
+      final id = _integer(data?['id']);
+      if (data == null || id <= 0) return;
+      final images = _map(data['images']);
+      final title = kind == CommunityTimelineTargetKind.blog
+          ? _string(data['title'])
+          : _subjectTitle(data);
+      result.add(
+        CommunityTimelineTarget(
+          kind: kind,
+          id: id,
+          title: title.isEmpty ? '#$id' : title,
+          imageUrl: _string(images?['small'] ?? images?['medium']),
+          subjectType: _integer(data['type']),
+        ),
+      );
+    }
+
+    if (cat == 2) {
+      add(
+        CommunityTimelineTargetKind.subject,
+        _map(_map(memo['wiki'])?['subject']),
+      );
+    }
+    if (cat == 3) {
+      for (final item in _list(memo['subject']).map(_map)) {
+        add(CommunityTimelineTargetKind.subject, _map(item?['subject']));
+      }
+    }
+    if (cat == 6) add(CommunityTimelineTargetKind.blog, _map(memo['blog']));
+    if (cat == 8) {
+      final mono = _map(memo['mono']);
+      for (final item in _list(mono?['characters']).map(_map)) {
+        add(CommunityTimelineTargetKind.character, item);
+      }
+      for (final item in _list(mono?['persons']).map(_map)) {
+        add(CommunityTimelineTargetKind.person, item);
+      }
+    }
+    return result;
+  }
+
+  CommunityBlog parseBlog(
+    Map<String, dynamic> json, {
+    String? fallbackUsername,
+  }) {
+    final id = _integer(json['id']);
+    if (id <= 0) throw const FormatException('日志编号无效');
+    final user =
+        _parseUser(_map(json['user'])) ??
+        CommunityUser(
+          id: _integer(json['uid']),
+          username: fallbackUsername ?? '',
+          nickname: fallbackUsername ?? '',
+        );
+    return CommunityBlog(
+      id: id,
+      title: _string(json['title']),
+      user: user,
+      content: _string(json['content']),
+      summary: _string(json['summary']),
+      tags: _list(
+        json['tags'],
+      ).map(_string).where((tag) => tag.isNotEmpty).toList(),
+      isPublic: json['public'] != false,
+      replyCount: _integer(json['replies']),
+      createdAt: _dateTime(json['createdAt']),
+      updatedAt: _dateTime(json['updatedAt']),
     );
   }
 
@@ -487,10 +647,10 @@ class CommunityP1Parser {
               14: '抛弃了',
             }[type] ??
             '更新了收藏';
-        final label = batch
+        final label = names.isEmpty
+            ? '一个条目（详情暂不可用）'
+            : batch
             ? '${names.take(3).join('、')} 等 ${subjects.length} 个条目'
-            : names.isEmpty
-            ? '一个条目'
             : names.first;
         final first = collections.isEmpty ? null : collections.first;
         final comment = _string(first?['comment']);
@@ -565,7 +725,41 @@ class CommunityP1Parser {
           '${type == 0 ? '创建了' : '收藏了'}目录 ${_string(index['title'])}',
         );
       case 8:
-        return _TimelineContent(type == 0 ? '创建了新人物或角色' : '收藏了人物或角色');
+        final mono = _map(memo['mono']);
+        final characters = _list(
+          mono?['characters'],
+        ).map(_map).whereType<Map<String, dynamic>>().toList();
+        final persons = _list(
+          mono?['persons'],
+        ).map(_map).whereType<Map<String, dynamic>>().toList();
+        final targets = [...characters, ...persons];
+        final labels = <String>[];
+        for (final (kind, entries) in [('角色', characters), ('人物', persons)]) {
+          final names = entries
+              .map(_subjectTitle)
+              .where((name) => name.isNotEmpty)
+              .toList();
+          if (names.isNotEmpty) labels.add('$kind ${names.join('、')}');
+        }
+        final action = type == 0 ? '创建了' : '收藏了';
+        return _TimelineContent(
+          labels.isEmpty
+              ? '$action人物或角色（详情暂不可用）'
+              : '$action${labels.join('、')}',
+          images: targets
+              .map((target) => _map(target['images']))
+              .whereType<Map<String, dynamic>>()
+              .map((images) {
+                for (final key in ['small', 'medium', 'large', 'grid']) {
+                  final url = _string(images[key]);
+                  if (url.isNotEmpty) return _absolute(url);
+                }
+                return '';
+              })
+              .where((url) => url.isNotEmpty)
+              .take(5)
+              .toList(),
+        );
       default:
         return const _TimelineContent('进行了新的活动');
     }

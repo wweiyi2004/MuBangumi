@@ -205,6 +205,7 @@ class _PmDraftEditorState extends ConsumerState<PmDraftEditor> {
   String? _error;
   int _generation = 0;
   String? _lastDraftId;
+  Object? _lastDraftUiState;
   int? _lastOwnerId;
   late final AppLifecycleListener _lifecycle;
   List<TextEditingController> get _fields => [
@@ -262,12 +263,25 @@ class _PmDraftEditorState extends ConsumerState<PmDraftEditor> {
   }
 
   void _tick() {
+    final draft = _draft;
+    final signature = (
+      draft?.ready,
+      draft?.loading,
+      draft?.saving,
+      draft?.saved,
+      draft?.sent,
+      draft?.dirty,
+      draft?.error,
+    );
+    if (signature == _lastDraftUiState) return;
+    _lastDraftUiState = signature;
     if (mounted) setState(() {});
   }
 
   void _detach() {
     final old = _draft;
     _draft = null;
+    _lastDraftUiState = null;
     old?.removeListener(_tick);
     old?.dispose();
   }

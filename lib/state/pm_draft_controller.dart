@@ -2,6 +2,8 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 import '../core/storage/pm_draft_store.dart';
+import '../core/storage/pm_outbox_repository.dart';
+import '../models/pm_send_command.dart';
 
 /// Owns immutable snapshots so saving and clearing remain safe after a route
 /// closes or a different conversation takes over its text fields.
@@ -142,6 +144,55 @@ class PmDraftController extends ChangeNotifier {
       } catch (_) {
         error = '短信已发送，但草稿未能清除，请重试清除，勿重复发送';
         return false;
+      } finally {
+        saving = false;
+        _notify();
+      }
+    });
+    _operations = operation.then<void>((_) {});
+    return operation;
+  }
+
+  /// Durably transfers the captured draft into the outbox in one transaction.
+  /// Later edits belong to the next message and must survive this handoff.
+  Future<PmSendCommand?> enqueue({
+    required String receiver,
+    String related = '',
+  }) {
+    final store = repository;
+    if (store is! PmOutboxRepository || !ready || sent || _abandoned) {
+      return Future.value();
+    }
+    _timer?.cancel();
+    final snapshot = data;
+    final edit = _edit;
+    saving = true;
+    _notify();
+    final operation = _operations.then<PmSendCommand?>((_) async {
+      try {
+        final result = await (store as PmOutboxRepository).enqueueDraft(
+          snapshot,
+          expectedRevision: _revision,
+          receiver: receiver,
+          related: related,
+        );
+        _revision = result.revision;
+        if (_edit == edit) {
+          data = snapshot.edited(
+            recipient: snapshot.recipient,
+            title: snapshot.title,
+            body: '',
+          );
+          dirty = false;
+          saved = false;
+        }
+        error = null;
+        return result.command;
+      } catch (failure) {
+        error = failure is PmDraftConflict
+            ? failure.toString()
+            : '消息未能保存到发送队列，请重试；输入已保留';
+        return null;
       } finally {
         saving = false;
         _notify();

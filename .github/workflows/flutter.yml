@@ -6,6 +6,7 @@ on:
     paths:
       - "lib/**"
       - "test/**"
+      - "packages/banjian_server/**"
       - "pubspec.yaml"
       - "pubspec.lock"
       - "analysis_options.yaml"
@@ -25,6 +26,7 @@ on:
     paths:
       - "lib/**"
       - "test/**"
+      - "packages/banjian_server/**"
       - "pubspec.yaml"
       - "pubspec.lock"
       - "analysis_options.yaml"
@@ -64,6 +66,18 @@ jobs:
 
       - name: Test
         run: flutter test
+
+      - name: Install Banjian server dependencies
+        working-directory: packages/banjian_server
+        run: dart pub get
+
+      - name: Analyze Banjian server
+        working-directory: packages/banjian_server
+        run: dart analyze
+
+      - name: Test Banjian server
+        working-directory: packages/banjian_server
+        run: dart test
 
       - name: Verify Windows packaging safeguards
         run: ./tool/tests/windows_package_safety_test.ps1

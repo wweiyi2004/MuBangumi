@@ -109,11 +109,13 @@ class CommunityCache {
     late final Future<void> operation;
     operation = database
         .transaction((txn) async {
-          // This small identity snapshot supports offline session restoration.
-          // It is removed by logout, not ordinary cache eviction.
+          // Personal collection/episode snapshots remain readable offline even
+          // when old. They still share the bounded entry/byte budget below.
           await txn.delete(
             'community_cache',
-            where: 'cache_key != ? AND updated_at < ?',
+            where: '''cache_key != ? AND updated_at < ?
+              AND cache_key NOT GLOB 'collections_snapshot:*'
+              AND cache_key NOT GLOB 'episode_collections_snapshot:*' ''',
             whereArgs: [
               'session_last_user',
               now.subtract(maxAge).millisecondsSinceEpoch,
@@ -123,7 +125,9 @@ class CommunityCache {
             '''
         SELECT cache_key, length(CAST(payload AS BLOB)) AS bytes
         FROM community_cache WHERE cache_key != ?
-        ORDER BY updated_at DESC, cache_key ASC
+        ORDER BY CASE WHEN cache_key GLOB 'collections_snapshot:*'
+          OR cache_key GLOB 'episode_collections_snapshot:*' THEN 0 ELSE 1 END,
+          updated_at DESC, cache_key ASC
       ''',
             ['session_last_user'],
           );

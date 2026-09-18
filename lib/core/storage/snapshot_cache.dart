@@ -1,11 +1,17 @@
+import 'dart:collection';
+
 import '../../models/bangumi_models.dart';
 import 'community_cache.dart';
 
-/// Local-first snapshots for list UIs (inspired by Pixiv-Shaft feed first page).
-///
-/// Only stores small JSON payloads via [CommunityCache]. Network refresh stays
-/// authoritative; cache is best-effort for cold-start / tab reopen smoothness.
-/// Account-scoped keys are wiped by [CommunityCache.clearAccountData] on logout.
+/// Timestamp travels with the exact read, including through concurrent reads.
+class SnapshotItems<T> extends UnmodifiableListView<T> {
+  SnapshotItems(super.source, {required this.savedAt});
+  final DateTime savedAt;
+}
+
+/// Local snapshots remain readable regardless of age within the cache budget.
+/// Account-scoped keys are still wiped by logout; timestamps describe local
+/// snapshot saves, not confirmation that every queued edit reached the server.
 class SnapshotCache {
   SnapshotCache({CommunityCache? cache})
     : _cache = cache ?? CommunityCache.shared;
@@ -16,11 +22,6 @@ class SnapshotCache {
 
   /// Max age for discover browse snapshots (7 days, same spirit as Shaft feeds).
   static const discoverMaxAge = Duration(days: 7);
-
-  /// Collections can be older; still better than an empty library on cold start.
-  static const collectionsMaxAge = Duration(days: 30);
-
-  static const episodeCollectionsMaxAge = Duration(days: 30);
 
   static const lastUserKey = 'session_last_user';
 
@@ -69,18 +70,15 @@ class SnapshotCache {
     final json = await _cache.readJson(collectionsKey(username));
     if (json == null) return null;
     final savedAt = DateTime.tryParse(json['saved_at']?.toString() ?? '');
-    if (savedAt == null ||
-        DateTime.now().difference(savedAt) > collectionsMaxAge) {
-      return null;
-    }
+    if (savedAt == null) return null;
     final items = json['items'];
     if (items is! List || items.isEmpty) return null;
     try {
-      return [
+      return SnapshotItems([
         for (final item in items)
           if (item is Map)
             UserCollection.fromJson(Map<String, dynamic>.from(item)),
-      ];
+      ], savedAt: savedAt);
     } catch (_) {
       return null;
     }
@@ -115,18 +113,15 @@ class SnapshotCache {
     );
     if (json == null) return null;
     final savedAt = DateTime.tryParse(json['saved_at']?.toString() ?? '');
-    if (savedAt == null ||
-        DateTime.now().difference(savedAt) > episodeCollectionsMaxAge) {
-      return null;
-    }
+    if (savedAt == null) return null;
     final items = json['items'];
     if (items is! List || items.isEmpty) return null;
     try {
-      return [
+      return SnapshotItems([
         for (final item in items)
           if (item is Map)
             UserEpisodeCollection.fromJson(Map<String, dynamic>.from(item)),
-      ];
+      ], savedAt: savedAt);
     } catch (_) {
       return null;
     }

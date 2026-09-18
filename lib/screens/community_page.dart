@@ -70,12 +70,19 @@ class _CommunityWebScreenState extends ConsumerState<CommunityWebScreen> {
   bool _capturing = false;
   late final WebsiteSessionController _session;
   int? _accountId;
+  bool _accountChanged = false;
 
   @override
   void initState() {
     super.initState();
     _session = ref.read(websiteSessionProvider.notifier);
     _accountId = ref.read(sessionProvider).user?.id;
+    ref.listenManual(sessionProvider.select((state) => state.user?.id), (
+      _,
+      next,
+    ) {
+      if (next != _accountId && mounted) setState(() => _accountChanged = true);
+    });
     if (widget.initialUrl.contains('/group/discover')) {
       _section = _CommunitySection.discover;
     } else if (widget.initialUrl.endsWith('/group')) {
@@ -113,12 +120,16 @@ class _CommunityWebScreenState extends ConsumerState<CommunityWebScreen> {
     }
     _capturing = true;
     try {
+      await _session.attachAccount(ref.read(sessionProvider).user);
+      if (!sameAccount()) return;
       final saved = await _session.captureCookies(() async {
         final cookies = await browser.captureCookies();
         return sameAccount() ? cookies : const [];
       }, automatic: automatic);
       if (!mounted || !sameAccount()) return;
-      if (saved) {
+      final verified = saved && await _session.ensureVerified();
+      if (!mounted || !sameAccount()) return;
+      if (verified) {
         widget.onSessionSaved?.call();
       } else if (!automatic) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -136,8 +147,15 @@ class _CommunityWebScreenState extends ConsumerState<CommunityWebScreen> {
 
   @override
   Widget build(BuildContext context) {
+    if (_accountChanged) {
+      return Scaffold(
+        appBar: AppBar(title: const Text('账号已变化')),
+        body: const Center(child: Text('请返回后重新打开此页面')),
+      );
+    }
     final compact = MediaQuery.sizeOf(context).width < 620;
     final phone = MediaQuery.sizeOf(context).width < 420;
+    final accountStatus = ref.watch(websiteSessionProvider);
     return ColoredBox(
       color: Theme.of(context).scaffoldBackgroundColor,
       child: SafeArea(
@@ -224,6 +242,32 @@ class _CommunityWebScreenState extends ConsumerState<CommunityWebScreen> {
                   ),
                 ),
               ],
+              if (widget.enableCookieCapture &&
+                  (accountStatus.message != null ||
+                      accountStatus.status == WebsiteAccessStatus.checking))
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 8),
+                  child: Row(
+                    children: [
+                      if (accountStatus.status == WebsiteAccessStatus.checking)
+                        const SizedBox.square(
+                          dimension: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          accountStatus.message ?? accountStatus.statusLabel,
+                        ),
+                      ),
+                      if (accountStatus.status != WebsiteAccessStatus.checking)
+                        TextButton(
+                          onPressed: () => _captureCookies(),
+                          child: const Text('重新核验'),
+                        ),
+                    ],
+                  ),
+                ),
               if (_showLoginHint) ...[
                 const SizedBox(height: 12),
                 Material(

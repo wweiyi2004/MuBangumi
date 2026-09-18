@@ -1,6 +1,7 @@
 import 'package:dio/dio.dart';
 
 import '../auth/website_session.dart';
+import '../auth/website_identity.dart';
 import '../../models/pm_models.dart';
 import '../../models/bangumi_models.dart';
 import 'bangumi_user_agent.dart';
@@ -29,6 +30,9 @@ class PmService {
           );
 
   static final shared = PmService();
+  Future<WebsiteSessionSnapshot> Function()? websiteSessionGuard;
+  void Function(WebsiteAccessStatus status, String authenticationKey)?
+  onWebsiteSessionFailure;
 
   final WebsiteSessionStore _sessionStore;
   final PmHtmlParser _parser;
@@ -179,7 +183,18 @@ class PmService {
         ),
       );
       final body = response.data ?? '';
+      if (WebsiteIdentityProbe.isChallenge(body)) {
+        onWebsiteSessionFailure?.call(
+          WebsiteAccessStatus.challenge,
+          session.authenticationKey,
+        );
+        throw const PmAuthException('Bangumi 需要网页验证，请补充账号验证后继续');
+      }
       if (_parser.looksLikeLoginPage(body) || response.statusCode == 401) {
+        onWebsiteSessionFailure?.call(
+          WebsiteAccessStatus.expired,
+          session.authenticationKey,
+        );
         throw const PmAuthException();
       }
       final submissionError = _parser.parseSubmissionError(body);
@@ -196,7 +211,10 @@ class PmService {
       // URL and form presence are not reliable failure signals. Success is
       // decided by the notice parsing and status code above.
     } on DioException catch (error) {
-      throw PmException('发送失败：${error.message ?? error}');
+      if (error.response == null || (error.response?.statusCode ?? 0) >= 500) {
+        throw const PmDeliveryUncertain();
+      }
+      throw PmException('发送失败（HTTP ${error.response?.statusCode}）');
     }
   }
 
@@ -222,9 +240,20 @@ class PmService {
       }
       final html = response.data ?? '';
       final location = response.realUri.toString();
+      if (WebsiteIdentityProbe.isChallenge(html)) {
+        onWebsiteSessionFailure?.call(
+          WebsiteAccessStatus.challenge,
+          session.authenticationKey,
+        );
+        throw const PmAuthException('Bangumi 需要网页验证，请补充账号验证后继续');
+      }
       if (response.statusCode == 401 ||
           location.contains('/login') ||
           _parser.looksLikeLoginPage(html)) {
+        onWebsiteSessionFailure?.call(
+          WebsiteAccessStatus.expired,
+          session.authenticationKey,
+        );
         throw const PmAuthException();
       }
       if (response.statusCode != null && response.statusCode! >= 400) {
@@ -238,6 +267,17 @@ class PmService {
   }
 
   Future<WebsiteSessionSnapshot> _requireSession() async {
+    final guard = websiteSessionGuard;
+    if (guard != null) {
+      try {
+        return await guard();
+      } on WebsiteAccessException catch (error) {
+        if (error.status == WebsiteAccessStatus.unavailable) {
+          throw PmException(error.message);
+        }
+        throw PmAuthException(error.message);
+      }
+    }
     final snapshot = await _sessionStore.read();
     final header = snapshot?.cookieHeader.trim() ?? '';
     if (snapshot == null || header.isEmpty || !snapshot.hasSessionCookies) {

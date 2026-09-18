@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import '../widgets/social_chat_style.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:scrollable_positioned_list/scrollable_positioned_list.dart';
 import '../core/storage/browsing_store.dart';
@@ -35,6 +36,7 @@ class _CommunityTopicScreenState extends ConsumerState<CommunityTopicScreen> {
   String? _error;
   Set<String> _friendUsernames = const {};
   final Set<String> _reactionBusyPostIds = {};
+  final Set<String> _mutationBusyPostIds = {};
   final _itemScroll = ItemScrollController();
   final _positions = ItemPositionsListener.create();
   late final TopicReadingRepository _readingStore;
@@ -94,7 +96,9 @@ class _CommunityTopicScreenState extends ConsumerState<CommunityTopicScreen> {
     if (account.isEmpty) return;
     try {
       final saved = await _readingStore.readTopicPosition(account, _topicKey);
-      if (!mounted || generation != _readingGeneration || !_sameReadingAccount) {
+      if (!mounted ||
+          generation != _readingGeneration ||
+          !_sameReadingAccount) {
         return;
       }
       setState(() {
@@ -160,7 +164,10 @@ class _CommunityTopicScreenState extends ConsumerState<CommunityTopicScreen> {
   void _resumeReading() {
     final saved = _resumePosition;
     final posts = _detail?.posts;
-    if (saved == null || posts == null || posts.isEmpty || !_sameReadingAccount) {
+    if (saved == null ||
+        posts == null ||
+        posts.isEmpty ||
+        !_sameReadingAccount) {
       return;
     }
     var index = posts.indexWhere((post) => post.id == saved.postId);
@@ -254,6 +261,10 @@ class _CommunityTopicScreenState extends ConsumerState<CommunityTopicScreen> {
   }
 
   Future<void> _reply({CommunityPost? post}) async {
+    if (widget.topic.kind.apiArea == null) {
+      await _openWeb();
+      return;
+    }
     if (!_service.isAuthenticated) {
       ScaffoldMessenger.of(
         context,
@@ -326,6 +337,87 @@ class _CommunityTopicScreenState extends ConsumerState<CommunityTopicScreen> {
     }
   }
 
+  Future<void> _editPost(CommunityPost post) async {
+    if (!_service.canManagePost(widget.topic, post)) return;
+    final account = _service.currentUsername;
+    final original = post.isOriginal && widget.topic.kind.isDiscussion;
+    final saved = await showCommunityComposer(
+      context,
+      heading: original ? '编辑话题' : '编辑回复',
+      requireTitle: original,
+      initialTitle: _detail?.title ?? widget.topic.title,
+      initialContent: post.rawBody,
+      requireVerification: false,
+      submitLabel: '保存',
+      isAccountCurrent: () =>
+          _service.currentUsername == account && _service.isAuthenticated,
+      draftKey: communityDraftKey(account, [
+        'edit',
+        widget.topic.kind.name,
+        post.id,
+      ]),
+      onSubmit: (title, content, _) => _service.editPost(
+        topic: widget.topic,
+        post: post,
+        title: title,
+        content: content,
+      ),
+    );
+    if (saved && mounted && account == _service.currentUsername) {
+      await _load(refresh: true);
+    }
+  }
+
+  Future<void> _deletePost(CommunityPost post) async {
+    if (!_service.canManagePost(widget.topic, post) ||
+        _mutationBusyPostIds.contains(post.id)) {
+      return;
+    }
+    final account = _service.currentUsername;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('删除这条回复？'),
+        content: const Text('删除后无法恢复。'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('删除'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted || account != _service.currentUsername) {
+      return;
+    }
+    setState(() => _mutationBusyPostIds.add(post.id));
+    try {
+      await _service.deletePost(topic: widget.topic, post: post);
+      if (mounted && account == _service.currentUsername) {
+        await _load(refresh: true);
+      }
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              error
+                  .toString()
+                  .replaceFirst('Exception: ', '')
+                  .replaceFirst('FormatException: ', ''),
+            ),
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _mutationBusyPostIds.remove(post.id));
+    }
+  }
+
   String? get _oldTopicWarning {
     final lastUpdated = widget.topic.updatedAt;
     if (lastUpdated == null) return null;
@@ -361,9 +453,18 @@ class _CommunityTopicScreenState extends ConsumerState<CommunityTopicScreen> {
   @override
   Widget build(BuildContext context) {
     final detail = _detail;
+    final groupDiscussion = widget.topic.kind == CommunityTopicKind.group;
     return Scaffold(
+      backgroundColor: groupDiscussion ? SocialChatStyle.canvas(context) : null,
+      bottomNavigationBar:
+          groupDiscussion && _service.isAuthenticated && detail != null
+          ? DiscussionReplyBar(onReply: _reply)
+          : null,
       appBar: AppBar(
-        title: Text(widget.topic.kind.label),
+        backgroundColor: groupDiscussion
+            ? SocialChatStyle.paper(context)
+            : null,
+        title: Text(groupDiscussion ? '小组讨论' : widget.topic.kind.label),
         actions: [
           IconButton(
             tooltip: '刷新',
@@ -377,11 +478,12 @@ class _CommunityTopicScreenState extends ConsumerState<CommunityTopicScreen> {
           ),
         ],
       ),
-      floatingActionButton: _service.isAuthenticated && detail != null
+      floatingActionButton:
+          !groupDiscussion && _service.isAuthenticated && detail != null
           ? FloatingActionButton.extended(
               onPressed: _reply,
               icon: const Icon(Icons.reply_rounded),
-              label: const Text('回复'),
+              label: Text(widget.topic.kind.apiArea == null ? '官网回复' : '回复'),
             )
           : null,
       body: SafeArea(
@@ -404,12 +506,19 @@ class _CommunityTopicScreenState extends ConsumerState<CommunityTopicScreen> {
                   runSpacing: 4,
                   crossAxisAlignment: WrapCrossAlignment.center,
                   children: [
-                    for (final entry in const {
+                    for (final entry in {
                       'all': '全部',
-                      'op': '只看楼主',
+                      if (detail.posts.any((post) => post.isOriginal))
+                        'op': '只看楼主',
                       'friends': '只看好友',
                     }.entries)
                       ChoiceChip(
+                        showCheckmark: !groupDiscussion,
+                        selectedColor: groupDiscussion
+                            ? SocialChatStyle.accent(
+                                context,
+                              ).withValues(alpha: .12)
+                            : null,
                         label: Text(entry.value),
                         selected: _filter == entry.key,
                         onSelected:
@@ -514,7 +623,13 @@ class _CommunityTopicScreenState extends ConsumerState<CommunityTopicScreen> {
                       Text(
                         detail.title,
                         style: Theme.of(context).textTheme.headlineSmall
-                            ?.copyWith(fontWeight: FontWeight.w800),
+                            ?.copyWith(
+                              fontWeight: FontWeight.w700,
+                              fontSize:
+                                  widget.topic.kind == CommunityTopicKind.group
+                                  ? 20
+                                  : null,
+                            ),
                       ),
                       if (detail.sourceTitle.isNotEmpty) ...[
                         const SizedBox(height: 7),
@@ -522,7 +637,11 @@ class _CommunityTopicScreenState extends ConsumerState<CommunityTopicScreen> {
                           detail.sourceTitle,
                           style: Theme.of(context).textTheme.titleSmall
                               ?.copyWith(
-                                color: Theme.of(context).colorScheme.primary,
+                                color:
+                                    widget.topic.kind ==
+                                        CommunityTopicKind.group
+                                    ? SocialChatStyle.accent(context)
+                                    : Theme.of(context).colorScheme.primary,
                               ),
                         ),
                       ],
@@ -539,9 +658,10 @@ class _CommunityTopicScreenState extends ConsumerState<CommunityTopicScreen> {
             }
             final post = posts[index - 1];
             final username = _usernameFromUserUrl(post.userUrl);
-            final supportsReactions =
-                widget.topic.kind == CommunityTopicKind.group ||
-                widget.topic.kind == CommunityTopicKind.subject;
+            final supportsReactions = widget.topic.kind.supportsReactions;
+            final canManage =
+                _service.canManagePost(widget.topic, post) &&
+                !_mutationBusyPostIds.contains(post.id);
             return Center(
               child: ConstrainedBox(
                 constraints: const BoxConstraints(maxWidth: 920),
@@ -551,6 +671,15 @@ class _CommunityTopicScreenState extends ConsumerState<CommunityTopicScreen> {
                   blocked: preferences.isBlocked(username ?? ''),
                   child: CommunityPostCard(
                     post: post,
+                    discussionStyle:
+                        widget.topic.kind == CommunityTopicKind.group,
+                    onEdit: canManage ? () => _editPost(post) : null,
+                    onDelete: canManage && !post.isOriginal
+                        ? () => _deletePost(post)
+                        : null,
+                    onDeleteTopicOnWeb: canManage && post.isOriginal
+                        ? _openWeb
+                        : null,
                     isFriend: _isFriendPost(post),
                     currentUsername: _service.currentUsername,
                     reactionBusy: _reactionBusyPostIds.contains(post.id),

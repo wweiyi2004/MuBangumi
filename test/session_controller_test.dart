@@ -457,7 +457,8 @@ void main() {
       expect(store.accessToken, 'verified-oauth-token');
       expect(store.config, config);
       expect(website.snapshot!.cookieHeader, 'chii_auth=website-login');
-      expect(website.snapshot!.verifiedUserId, 1);
+      // OAuth validates the API identity; the website Cookie is verified separately.
+      expect(website.snapshot!.verifiedUserId, isNull);
     },
   );
 
@@ -680,6 +681,7 @@ void main() {
 
   test('bootstrap shows cached collections before /me returns', () async {
     final api = _DelayedMeApi();
+    final savedAt = DateTime(2026, 1, 2);
     const cachedUser = BangumiUser(
       id: 1,
       username: 'tester',
@@ -688,7 +690,9 @@ void main() {
     );
     final cache = _MemorySnapshotCache()
       ..lastUser = cachedUser
-      ..collections['tester'] = const [_testCollection];
+      ..collections['tester'] = SnapshotItems([
+        _testCollection,
+      ], savedAt: savedAt);
     final controller = buildController(
       store: _MemoryTokenStore(config: config)..verifiedUser = cachedUser,
       oauth: _FailingOAuth(const BangumiOAuthException('网络暂时不可用')),
@@ -704,6 +708,8 @@ void main() {
     expect(controller.state.isRefreshing, isFalse);
     expect(api.meCalls, 1);
     expect(api.completer.isCompleted, isFalse);
+    expect(controller.state.isUsingCachedCollections, isTrue);
+    expect(controller.state.collectionsSavedAt, savedAt);
 
     api.completer.complete(
       const BangumiUser(
@@ -715,6 +721,9 @@ void main() {
     );
     await _waitFor(() => controller.state.user?.nickname == '新昵称');
     expect(cache.lastUser?.nickname, '新昵称');
+    await _waitFor(() => !controller.state.isLoadingCollections);
+    expect(controller.state.isUsingCachedCollections, isFalse);
+    expect(controller.state.collectionsSavedAt, isNull);
   });
 
   test(

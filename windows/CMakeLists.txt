@@ -57,6 +57,12 @@ add_subdirectory("runner")
 # them to the application.
 include(flutter/generated_plugins.cmake)
 
+# This plugin ships UTF-8 sources. Avoid the host Windows code page (e.g. 936)
+# turning non-ASCII comments into C4819 errors under /WX.
+if(MSVC AND TARGET connectivity_plus_plugin)
+  target_compile_options(connectivity_plus_plugin PRIVATE /utf-8)
+endif()
+
 
 # === Installation ===
 # Support files are copied into place next to the executable, so that it can

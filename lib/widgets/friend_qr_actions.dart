@@ -6,10 +6,14 @@ import 'package:flutter/material.dart';
 
 import '../core/network/community_service.dart';
 import '../core/social/friend_qr.dart';
+import '../core/social/community_qr.dart';
 import '../models/bangumi_models.dart';
 import '../screens/friend_qr_scan_page.dart';
+import '../screens/community_group_screen.dart';
 import 'friend_qr_sheet.dart';
 import 'subject_widgets.dart';
+import 'package:banjian_server/banjian_server.dart';
+import '../features/anime_appreciation/room_pages.dart';
 
 bool friendQrSupportsCamera() {
   if (kIsWeb) return false;
@@ -29,29 +33,65 @@ Future<void> showFriendQr(BuildContext context, BangumiUser user) {
 Future<bool> scanAndAddFriend(
   BuildContext context, {
   required String myUsername,
+  CommunityService? service,
+  Future<String?> Function(BuildContext context)? reader,
 }) async {
-  final raw = await _readQrPayload(context);
+  final backend = service ?? CommunityService.shared;
+  final revision = backend.identityRevision;
+  final raw = await (reader ?? _readQrPayload)(context);
   if (!context.mounted || raw == null || raw.isEmpty) return false;
+  if (revision != backend.identityRevision) return false;
 
-  final username = FriendQr.decode(raw);
-  if (username == null) {
-    showAppMessage(context, '这不是 MuBangumi 的好友二维码');
+  final room = RoomInvite.parse(raw);
+  if (room != null) {
+    await openRoomInvite(context, room);
     return false;
   }
+  final target = CommunityQr.decode(raw);
+  if (target == null) {
+    showAppMessage(context, '未识别到好友、小组或番键会二维码');
+    return false;
+  }
+  if (target.kind == CommunityQrKind.group) {
+    try {
+      final detail = await backend.loadGroupPreview(target.identifier);
+      if (!context.mounted || revision != backend.identityRevision) {
+        return false;
+      }
+      await Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          builder: (_) => CommunityGroupScreen(
+            group: detail.group,
+            initialDetail: detail,
+            service: backend,
+          ),
+        ),
+      );
+    } catch (error) {
+      if (context.mounted) {
+        showAppMessage(
+          context,
+          '无法打开小组：${error.toString().replaceFirst('Exception: ', '')}',
+        );
+      }
+    }
+    return false;
+  }
+  final username = target.identifier;
   if (username.toLowerCase() == myUsername.trim().toLowerCase()) {
     showAppMessage(context, '不能添加自己为好友');
     return false;
   }
 
   try {
-    if (await CommunityService.shared.isFriend(username)) {
+    if (await backend.isFriend(username)) {
       if (context.mounted) showAppMessage(context, '@$username 已经是好友');
       return false;
     }
   } catch (_) {
     // Fall through to the confirm + add path.
   }
-  if (!context.mounted) return false;
+  if (!context.mounted || revision != backend.identityRevision) return false;
 
   final confirmed = await showDialog<bool>(
     context: context,
@@ -70,10 +110,14 @@ Future<bool> scanAndAddFriend(
       ],
     ),
   );
-  if (confirmed != true || !context.mounted) return false;
+  if (confirmed != true ||
+      !context.mounted ||
+      revision != backend.identityRevision) {
+    return false;
+  }
 
   try {
-    await CommunityService.shared.addFriend(username);
+    await backend.addFriend(username);
     if (context.mounted) showAppMessage(context, '已发送 / 添加好友');
     return true;
   } catch (error) {
@@ -112,10 +156,10 @@ Future<String?> _readQrFromPickedImage(BuildContext context) async {
     if (context.mounted) showAppMessage(context, '无法读取所选图片');
     return null;
   }
-  final username = await FriendQr.decodeFromImageBytesAsync(bytes);
-  if (username == null) {
-    if (context.mounted) showAppMessage(context, '没有识别到 MuBangumi 好友二维码');
+  final raw = await FriendQr.decodePayloadFromImageBytesAsync(bytes);
+  if (raw == null) {
+    if (context.mounted) showAppMessage(context, '没有识别到二维码');
     return null;
   }
-  return FriendQr.encode(username);
+  return raw;
 }

@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mubangumi/core/network/community_service.dart';
+import 'package:mubangumi/core/network/community_p1_parser.dart';
 import 'package:mubangumi/models/community_models.dart';
 import 'package:mubangumi/screens/community_hub_page.dart';
 import 'package:mubangumi/screens/community_group_screen.dart';
@@ -11,6 +12,82 @@ import 'package:mubangumi/screens/community_topic_screen.dart';
 import 'package:mubangumi/widgets/community_widgets.dart';
 
 void main() {
+  for (final mode in CommunityTimelineMode.values) {
+    testWidgets(
+      '${mode.name} timeline reaches games and mono collections after short pages',
+      (tester) async {
+        final parser = CommunityP1Parser();
+        List<CommunityTimelineItem> page(
+          int id,
+          int cat,
+          int type,
+          Map<String, dynamic> memo,
+        ) => parser.parseTimeline([
+          {
+            'id': id,
+            'uid': 1,
+            'cat': cat,
+            'type': type,
+            'createdAt': 1789567904,
+            'memo': memo,
+          },
+        ], fallbackUsername: 'alice');
+        final service = _Service()
+          ..timelinePages = {
+            null: page(30, 5, 1, {
+              'status': {'tsukkomi': '最近动态'},
+            }),
+            30: page(20, 3, 8, {
+              'subject': [
+                {
+                  'subject': {'id': 207203, 'nameCN': '皇牌空战7：未知天空', 'type': 4},
+                },
+              ],
+            }),
+            20: page(10, 8, 1, {
+              'mono': {
+                'characters': [
+                  {'id': 169542, 'nameCN': '瑟拉'},
+                ],
+                'persons': [
+                  {'id': 3, 'name': '示例声优'},
+                ],
+              },
+            }),
+            10: [],
+          };
+        await _show(
+          tester,
+          CommunityTimelinePage(service: service, initialMode: mode),
+        );
+        expect(find.text('最近动态'), findsOneWidget);
+        expect(find.text('加载更多'), findsOneWidget);
+        await tester.tap(find.text('加载更多'));
+        await tester.pumpAndSettle();
+        expect(
+          find.textContaining('玩过 皇牌空战7：未知天空', findRichText: true),
+          findsOneWidget,
+        );
+        await tester.tap(find.text('加载更多'));
+        await tester.pumpAndSettle();
+        expect(
+          find.textContaining('收藏了角色 瑟拉、人物 示例声优', findRichText: true),
+          findsOneWidget,
+        );
+        await tester.drag(find.byType(ListView).first, const Offset(0, -700));
+        await tester.pumpAndSettle();
+        if (find.text('加载更多').evaluate().isNotEmpty) {
+          await tester.ensureVisible(find.text('加载更多'));
+          await tester.tap(find.text('加载更多'));
+          await tester.pumpAndSettle();
+        }
+        expect(service.timelineCursors, [null, 30, 20, 10]);
+        expect(find.text('已经到底了'), findsOneWidget);
+        await tester.pumpWidget(const SizedBox.shrink());
+      },
+    );
+  }
+
   testWidgets('reply refreshes its thread without reloading the timeline', (
     tester,
   ) async {
@@ -65,12 +142,12 @@ void main() {
         final service = _Service()..groups = [_group];
         await _show(tester, CommunityPage(service: service), textScale: 1.8);
         expect(tester.takeException(), isNull);
-        await tester.tap(find.text('小组'));
+        await tester.tap(find.text('找小组'));
         await tester.pumpAndSettle();
         expect(find.text('测试小组'), findsOneWidget);
         expect(tester.takeException(), isNull);
-        await tester.ensureVisible(find.text('时光机'));
-        await tester.tap(find.text('时光机'));
+        await tester.ensureVisible(find.text('全站动态'));
+        await tester.tap(find.text('全站动态'));
         await tester.pumpAndSettle();
         expect(find.text('暂时没有动态'), findsOneWidget);
         expect(tester.takeException(), isNull);
@@ -101,6 +178,8 @@ void main() {
       final service = _Service()
         ..topicCache = Completer<CommunityPageResult<CommunityTopic>?>();
       await _show(tester, CommunityPage(service: service));
+      await tester.tap(find.byTooltip('条目讨论筛选'));
+      await tester.pumpAndSettle();
       await tester.tap(find.text('最新'));
       await tester.pump();
       expect(service.topicModes, [
@@ -182,6 +261,8 @@ void main() {
   ) async {
     final service = _Service()..groupCache = Completer<CommunityGroupDetail?>();
     await _show(tester, CommunityGroupScreen(group: _group, service: service));
+    await tester.tap(find.text('小组资料'));
+    await tester.pumpAndSettle();
     expect(find.text('新的小组介绍'), findsOneWidget);
     service.groupCache!.complete(
       const CommunityGroupDetail(group: _group, description: '旧介绍'),
@@ -285,6 +366,8 @@ class _Service extends CommunityService {
   };
   List<CommunityGroup> groups = [];
   List<CommunityTimelineItem> timelineItems = [];
+  Map<int?, List<CommunityTimelineItem>>? timelinePages;
+  final timelineCursors = <int?>[];
   bool authenticated = false;
   int? repliedTo;
   @override
@@ -359,7 +442,8 @@ class _Service extends CommunityService {
     bool refresh = false,
   }) async {
     timelineCalls++;
-    return timelineItems;
+    timelineCursors.add(until);
+    return timelinePages == null ? timelineItems : timelinePages![until] ?? [];
   }
 
   @override

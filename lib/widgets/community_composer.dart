@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/material.dart';
 
@@ -6,6 +7,7 @@ import '../core/storage/community_draft_store.dart';
 export '../core/storage/community_draft_store.dart' show communityDraftKey;
 
 import 'turnstile_dialog.dart';
+import 'community_rich_content.dart';
 
 typedef CommunitySubmit =
     Future<void> Function(String title, String content, String token);
@@ -18,6 +20,33 @@ class CommunityDraft {
   void clear() {
     title = '';
     content = '';
+  }
+}
+
+/// Blog-only fields share the same versioned draft write as its BBCode body.
+class CommunityBlogDraft {
+  CommunityBlogDraft({this.tags = const [], this.isPublic = true});
+  List<String> tags;
+  bool isPublic;
+  String encode(String content) => jsonEncode({
+    'version': 1,
+    'body': content,
+    'tags': tags,
+    'public': isPublic,
+  });
+  String restore(String encoded) {
+    final json = jsonDecode(encoded);
+    if (json is! Map ||
+        json['version'] != 1 ||
+        json['body'] is! String ||
+        json['tags'] is! List ||
+        !(json['tags'] as List).every((tag) => tag is String) ||
+        json['public'] is! bool) {
+      throw const FormatException('日志草稿格式无效');
+    }
+    tags = List<String>.from(json['tags'] as List);
+    isPublic = json['public'] as bool;
+    return json['body'] as String;
   }
 }
 
@@ -35,6 +64,11 @@ Future<bool> showCommunityComposer(
   CommunityDraftRepository? draftStore,
   bool Function()? isAccountCurrent,
   CommunityTokenProvider? tokenProvider,
+  String initialTitle = '',
+  String initialContent = '',
+  bool requireVerification = true,
+  String submitLabel = '发送',
+  CommunityBlogDraft? blogDraft,
 }) async =>
     await showDialog<bool>(
       context: context,
@@ -48,6 +82,11 @@ Future<bool> showCommunityComposer(
         replyContext: replyContext,
         maxLength: maxLength,
         tokenProvider: tokenProvider ?? showTurnstileDialog,
+        initialTitle: initialTitle,
+        initialContent: initialContent,
+        requireVerification: requireVerification,
+        submitLabel: submitLabel,
+        blogDraft: blogDraft,
         draft: draft,
         draftKey: draftKey,
         draftStore: draftStore ?? CommunityDraftStore.shared,
@@ -70,10 +109,20 @@ class _CommunityComposerDialog extends StatefulWidget {
     this.draftKey,
     required this.draftStore,
     this.isAccountCurrent,
+    required this.initialTitle,
+    required this.initialContent,
+    required this.requireVerification,
+    required this.submitLabel,
+    this.blogDraft,
   });
 
   final String heading;
   final CommunitySubmit onSubmit;
+  final String initialTitle;
+  final String initialContent;
+  final bool requireVerification;
+  final String submitLabel;
+  final CommunityBlogDraft? blogDraft;
   final bool requireTitle;
   final String contentLabel;
   final CommunityTokenProvider tokenProvider;
@@ -92,12 +141,17 @@ class _CommunityComposerDialog extends StatefulWidget {
 
 class _CommunityComposerDialogState extends State<_CommunityComposerDialog> {
   late final _titleController = TextEditingController(
-    text: widget.draft?.title,
+    text: widget.draft?.title ?? widget.initialTitle,
   );
   late final _contentController = TextEditingController(
-    text: widget.draft?.content,
+    text: widget.draft?.content ?? widget.initialContent,
   );
+  late final _tagsController = TextEditingController(
+    text: widget.blogDraft?.tags.join(' '),
+  );
+  String _lastBlogMetadata = '';
   bool _sent = false;
+  bool _preview = false;
   bool _submitting = false;
   String? _error;
   String? _draftError;
@@ -125,6 +179,7 @@ class _CommunityComposerDialogState extends State<_CommunityComposerDialog> {
     _restoring = widget.draftKey != null;
     _lastTitle = _titleController.text;
     _lastContent = _contentController.text;
+    _lastBlogMetadata = widget.blogDraft?.encode('') ?? '';
     _titleController.addListener(_onEdit);
     _contentController.addListener(_onEdit);
     _lifecycle = AppLifecycleListener(
@@ -141,15 +196,18 @@ class _CommunityComposerDialogState extends State<_CommunityComposerDialog> {
       final draft = slot.data;
       if (!mounted) return;
       _storedRevision = slot.revision;
-      _loadedDraft = true;
       if (draft != null) {
+        final body = widget.blogDraft?.restore(draft.content) ?? draft.content;
         _titleController.text = draft.title;
-        _contentController.text = draft.content;
+        _contentController.text = body;
+        _tagsController.text = widget.blogDraft?.tags.join(' ') ?? '';
         _draftSaved = true;
       }
+      _loadedDraft = true;
       _draftError = null;
       _lastTitle = _titleController.text;
       _lastContent = _contentController.text;
+      _lastBlogMetadata = widget.blogDraft?.encode('') ?? '';
     } catch (_) {
       if (mounted) _draftError = '草稿读取失败，可重试读取';
     } finally {
@@ -160,11 +218,13 @@ class _CommunityComposerDialogState extends State<_CommunityComposerDialog> {
   void _onEdit() {
     if (_restoring || _sent) return;
     if (_lastTitle == _titleController.text &&
-        _lastContent == _contentController.text) {
+        _lastContent == _contentController.text &&
+        _lastBlogMetadata == (widget.blogDraft?.encode('') ?? '')) {
       return;
     }
     _lastTitle = _titleController.text;
     _lastContent = _contentController.text;
+    _lastBlogMetadata = widget.blogDraft?.encode('') ?? '';
     _dirty = true;
     _draftRevision++;
     _draftSaved = false;
@@ -202,7 +262,9 @@ class _CommunityComposerDialogState extends State<_CommunityComposerDialog> {
     final revision = _draftRevision;
     final draft = (
       title: _titleController.text,
-      content: _contentController.text,
+      content:
+          widget.blogDraft?.encode(_contentController.text) ??
+          _contentController.text,
     );
     if (mounted) setState(() => _savingDraft = true);
     try {
@@ -266,10 +328,13 @@ class _CommunityComposerDialogState extends State<_CommunityComposerDialog> {
     });
     try {
       _checkAccount();
-      final token = await widget.tokenProvider(context);
+      final token = widget.requireVerification
+          ? await widget.tokenProvider(context)
+          : '';
       if (!mounted) return;
       _checkAccount();
-      if (token == null || token.trim().isEmpty) {
+      if (widget.requireVerification &&
+          (token == null || token.trim().isEmpty)) {
         setState(() {
           _submitting = false;
           _error = '未完成人机验证，请重新点击发送';
@@ -279,7 +344,7 @@ class _CommunityComposerDialogState extends State<_CommunityComposerDialog> {
       await widget.onSubmit(
         _titleController.text.trim(),
         _contentController.text.trim(),
-        token.trim(),
+        token?.trim() ?? '',
       );
       _sent = true;
       _saveTimer?.cancel();
@@ -321,13 +386,16 @@ class _CommunityComposerDialogState extends State<_CommunityComposerDialog> {
 
   @override
   void dispose() {
+    _tagsController.dispose();
     _saveTimer?.cancel();
     _lifecycle.dispose();
     if (!_sent && _dirty && _loadedDraft && widget.draftKey != null) {
       unawaited(
         _persistDraft(widget.draftKey!, (
           title: _titleController.text,
-          content: _contentController.text,
+          content:
+              widget.blogDraft?.encode(_contentController.text) ??
+              _contentController.text,
         )).catchError((Object _) {}),
       );
     }
@@ -404,27 +472,69 @@ class _CommunityComposerDialogState extends State<_CommunityComposerDialog> {
                 ),
                 const SizedBox(height: 10),
               ],
+              if (widget.blogDraft case final blog?) ...[
+                TextField(
+                  controller: _tagsController,
+                  enabled: _editable,
+                  decoration: const InputDecoration(
+                    labelText: '标签',
+                    helperText: '空格分隔，最多 10 个',
+                  ),
+                  onChanged: (value) {
+                    blog.tags = value
+                        .split(RegExp(r'\s+'))
+                        .where((tag) => tag.isNotEmpty)
+                        .toList();
+                    _onEdit();
+                  },
+                ),
+                SwitchListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('公开日志'),
+                  subtitle: Text(blog.isPublic ? '所有人可见' : '仅好友可见'),
+                  value: blog.isPublic,
+                  onChanged: !_editable
+                      ? null
+                      : (value) {
+                          setState(() => blog.isPublic = value);
+                          _onEdit();
+                        },
+                ),
+              ],
               BbCodeToolbar(
                 controller: _contentController,
                 enabled: _editable,
                 onChanged: () => setState(() {}),
               ),
-              const SizedBox(height: 8),
-              TextField(
-                controller: _contentController,
-                enabled: _editable,
-                autofocus: !widget.requireTitle,
-                minLines: 5,
-                maxLines: 12,
-                maxLength: widget.maxLength,
-                decoration: InputDecoration(
-                  labelText: widget.contentLabel,
-                  alignLabelWithHint: true,
-                  border: const OutlineInputBorder(),
-                  helperText: '支持 Bangumi BBCode',
+              Align(
+                alignment: Alignment.centerRight,
+                child: TextButton.icon(
+                  onPressed: () => setState(() => _preview = !_preview),
+                  icon: Icon(
+                    _preview ? Icons.edit_outlined : Icons.preview_outlined,
+                  ),
+                  label: Text(_preview ? '继续编辑' : '预览正文'),
                 ),
-                onChanged: (_) => setState(() {}),
               ),
+              const SizedBox(height: 8),
+              if (_preview)
+                CommunityRichContent(_contentController.text)
+              else
+                TextField(
+                  controller: _contentController,
+                  enabled: _editable,
+                  autofocus: !widget.requireTitle,
+                  minLines: 5,
+                  maxLines: 12,
+                  maxLength: widget.maxLength,
+                  decoration: InputDecoration(
+                    labelText: widget.contentLabel,
+                    alignLabelWithHint: true,
+                    border: const OutlineInputBorder(),
+                    helperText: '支持 Bangumi BBCode',
+                  ),
+                  onChanged: (_) => setState(() {}),
+                ),
               if (widget.draftKey != null) ...[
                 const SizedBox(height: 8),
                 if (_draftError != null)
@@ -506,7 +616,9 @@ class _CommunityComposerDialogState extends State<_CommunityComposerDialog> {
                   child: CircularProgressIndicator(strokeWidth: 2),
                 )
               : const Icon(Icons.send_rounded),
-          label: Text(_submitting ? '发送中' : '发送'),
+          label: Text(
+            _submitting ? '${widget.submitLabel}中' : widget.submitLabel,
+          ),
         ),
       ],
     ),
@@ -573,6 +685,54 @@ class BbCodeToolbar extends StatelessWidget {
             _BbButton(label: '链接', tooltip: '链接', onTap: () => _apply('url')),
             _BbButton(label: '图片', tooltip: '图片', onTap: () => _apply('img')),
             _BbButton(label: '引用', tooltip: '引用', onTap: () => _apply('quote')),
+            PopupMenuButton<String>(
+              tooltip: '文字颜色',
+              child: const Padding(
+                padding: EdgeInsets.symmetric(horizontal: 8),
+                child: Text('颜色'),
+              ),
+              onSelected: (color) {
+                applyBbCode(
+                  controller,
+                  tag: 'color=$color',
+                  closingTag: 'color',
+                );
+                onChanged?.call();
+              },
+              itemBuilder: (_) => [
+                for (final entry in const {
+                  'red': '红色',
+                  'green': '绿色',
+                  'blue': '蓝色',
+                  'orange': '橙色',
+                  'purple': '紫色',
+                }.entries)
+                  PopupMenuItem(value: entry.key, child: Text(entry.value)),
+              ],
+            ),
+            PopupMenuButton<String>(
+              tooltip: '文字对齐',
+              child: const Padding(
+                padding: EdgeInsets.symmetric(horizontal: 8),
+                child: Text('对齐'),
+              ),
+              onSelected: (value) {
+                applyBbCode(
+                  controller,
+                  tag: 'align=$value',
+                  closingTag: 'align',
+                );
+                onChanged?.call();
+              },
+              itemBuilder: (_) => [
+                for (final entry in const {
+                  'left': '左对齐',
+                  'center': '居中',
+                  'right': '右对齐',
+                }.entries)
+                  PopupMenuItem(value: entry.key, child: Text(entry.value)),
+              ],
+            ),
             _BbButton(
               label: '剧透',
               tooltip: '剧透遮罩',

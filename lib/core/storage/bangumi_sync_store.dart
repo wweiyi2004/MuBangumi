@@ -5,39 +5,12 @@ import 'package:path/path.dart' as path;
 import 'package:sqflite/sqflite.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart' as ffi;
 
-enum BangumiMutationKind { episode, collection, episodesBatch }
+import '../../features/sync/domain/pending_mutation.dart';
+
+// Keep existing callers source-compatible while the model lives with sync.
+export '../../features/sync/domain/pending_mutation.dart';
 
 typedef _SubjectVersions = ({int anyId, int collectionId, int completionId});
-
-class PendingBangumiMutation {
-  const PendingBangumiMutation({
-    required this.id,
-    required this.username,
-    required this.kind,
-    required this.mutationKey,
-    required this.payload,
-    required this.createdAt,
-    required this.updatedAt,
-    required this.revision,
-    required this.attempts,
-    required this.blocked,
-    this.lastError,
-    this.superseded = false,
-  });
-
-  final int id;
-  final String username;
-  final BangumiMutationKind kind;
-  final String mutationKey;
-  final Map<String, dynamic> payload;
-  final DateTime createdAt;
-  final DateTime updatedAt;
-  final int revision;
-  final int attempts;
-  final bool blocked;
-  final String? lastError;
-  final bool superseded;
-}
 
 class BangumiSyncStore {
   BangumiSyncStore({this.databasePath});

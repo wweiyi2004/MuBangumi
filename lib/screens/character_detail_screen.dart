@@ -7,6 +7,9 @@ import '../core/network/bangumi_endpoints.dart';
 import '../core/network/bangumi_support.dart';
 import '../state/session_controller.dart';
 import '../widgets/subject_widgets.dart';
+import '../widgets/mono_collection_button.dart';
+import '../models/community_models.dart';
+import 'community_topic_screen.dart';
 import 'person_detail_screen.dart';
 import 'subject_detail_screen.dart';
 
@@ -32,6 +35,7 @@ class _CharacterDetailScreenState extends ConsumerState<CharacterDetailScreen> {
   List<MonoLinkedSubject> _subjects = const [];
   List<MonoLinkedPerson> _persons = const [];
   bool _loading = true;
+  int? _collectionCount;
   String? _error;
 
   @override
@@ -93,6 +97,31 @@ class _CharacterDetailScreenState extends ConsumerState<CharacterDetailScreen> {
       appBar: AppBar(
         title: Text(title),
         actions: [
+          MonoCollectionButton(
+            kind: CommunityTimelineTargetKind.character,
+            id: widget.characterId,
+            onChanged: (value) {
+              if (mounted) setState(() => _collectionCount = value.count);
+            },
+          ),
+          IconButton(
+            tooltip: '角色讨论',
+            icon: const Icon(Icons.forum_outlined),
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                builder: (_) => CommunityTopicScreen(
+                  topic: CommunityTopic(
+                    id: widget.characterId,
+                    kind: CommunityTopicKind.character,
+                    title: title,
+                    url:
+                        'https://bgm.tv/rakuen/topic/crt/${widget.characterId}',
+                    webUrl: 'https://bgm.tv/character/${widget.characterId}',
+                  ),
+                ),
+              ),
+            ),
+          ),
           IconButton(
             tooltip: '在 Bangumi 打开',
             onPressed: () => launchUrl(
@@ -149,8 +178,8 @@ class _CharacterDetailScreenState extends ConsumerState<CharacterDetailScreen> {
                         : widget.seedImageUrl,
                     meta: [
                       if (detail?.gender.isNotEmpty == true) detail!.gender,
-                      if ((detail?.collectCount ?? 0) > 0)
-                        '收藏 ${detail!.collectCount}',
+                      if ((_collectionCount ?? detail?.collectCount ?? 0) > 0)
+                        '收藏 ${_collectionCount ?? detail!.collectCount}',
                       if ((detail?.commentCount ?? 0) > 0)
                         '吐槽 ${detail!.commentCount}',
                     ],

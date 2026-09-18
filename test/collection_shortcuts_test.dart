@@ -22,6 +22,7 @@ import 'package:mubangumi/screens/profile_page.dart';
 import 'package:mubangumi/state/notify_controller.dart';
 import 'package:mubangumi/state/session_controller.dart';
 import 'package:mubangumi/widgets/collection_sync_status.dart';
+import 'package:mubangumi/widgets/profile_home_layout.dart';
 import 'package:mubangumi/widgets/profile_collection_summary.dart';
 import 'package:mubangumi/widgets/subject_widgets.dart';
 import 'package:mubangumi/widgets/sync_issues_sheet.dart';
@@ -33,7 +34,7 @@ void main() {
   for (final target in [
     (label: '进行中', ids: {1, 2}, filter: '进行中'),
     (label: '已完成', ids: {3, 4}, filter: '已完成'),
-    (label: '总收藏', ids: {1, 2, 3, 4, 5}, filter: '全部状态'),
+    (label: '收藏', ids: {1, 2, 3, 4, 5}, filter: '全部状态'),
   ]) {
     testWidgets(
       'profile ${target.label} opens matching collections across all types',
@@ -47,14 +48,20 @@ void main() {
         );
         if (target.label == '进行中') await _capture(tester, 'profile');
         final link = find.descendant(
-          of: find.byType(ProfileCollectionSummary),
-          matching: find.text(target.label),
+          of: find.byType(ProfileHomeLayout),
+          matching: find.text(target.label == '已完成' ? '收藏' : target.label),
         );
         await tester.ensureVisible(link);
         await tester.pumpAndSettle();
         await tester.tap(link);
         await tester.pumpAndSettle();
         expect(find.byType(LibraryPage), findsOneWidget);
+        // The compact profile now exposes all collections and doing. Completed
+        // items remain available through the collection status filter.
+        if (target.label == '已完成') {
+          await tester.tap(find.widgetWithText(ChoiceChip, '已完成'));
+          await tester.pumpAndSettle();
+        }
         expect(
           tester
               .widgetList<SubjectTile>(find.byType(SubjectTile))

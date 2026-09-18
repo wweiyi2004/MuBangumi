@@ -4,6 +4,32 @@ import 'package:mubangumi/core/network/pm_html_parser.dart';
 void main() {
   final parser = PmHtmlParser();
 
+  test(
+    'custom avatar suffix resolves the peer UID, not the conversation ID',
+    () {
+      final result = parser.parseConversationList('''
+      <a class="pm-conversation-item" href="/pm/conversation/987.chii">
+        <span class="avatarNeue" style="background-image:url('//lain.bgm.tv/pic/user/l/000/01/23/123_suffix.png?r=1')"></span>
+        <div class="pm-conversation-name">Alice</div>
+      </a>''');
+      expect(result.single.id, '987');
+      expect(result.single.peerUserId, '123');
+    },
+  );
+
+  test('default or foreign avatars cannot invent a peer identity', () {
+    for (final avatar in [
+      '//lain.bgm.tv/img/no_icon.jpg',
+      'https://other.example/pic/user/l/123.jpg',
+    ]) {
+      final result = parser.parseConversationList('''
+        <a class="pm-conversation-item" href="/pm/conversation/987.chii">
+          <span class="avatarNeue" style="background-image:url('$avatar')"></span>
+        </a>''');
+      expect(result.single.peerUserId, isEmpty);
+    }
+  });
+
   test('parses conversation list v2 markup', () {
     const html = '''
 <div class="pm-conversation-list">
@@ -71,7 +97,10 @@ void main() {
       parser.looksLikeLoginPage('<form id="loginForm"><input name="password">'),
       isTrue,
     );
-    expect(parser.looksLikeLoginPage('<div class="pm-conversation-list">'), isFalse);
+    expect(
+      parser.looksLikeLoginPage('<div class="pm-conversation-list">'),
+      isFalse,
+    );
     // Bare "guest" chrome must not force an auth wall.
     expect(
       parser.looksLikeLoginPage('<div class="guest-tip">welcome guest</div>'),

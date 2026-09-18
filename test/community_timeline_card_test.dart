@@ -1,10 +1,70 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:mubangumi/core/network/community_p1_parser.dart';
 import 'package:mubangumi/models/community_models.dart';
 import 'package:mubangumi/widgets/community_widgets.dart';
 
 void main() {
   const user = CommunityUser(id: 1, username: 'alice', nickname: '爱丽丝');
+
+  testWidgets('renders played games and collected characters and persons', (
+    tester,
+  ) async {
+    final items = CommunityP1Parser().parseTimeline([
+      {
+        'id': 20,
+        'uid': 1,
+        'cat': 3,
+        'type': 8,
+        'createdAt': 1789567904,
+        'memo': {
+          'subject': [
+            {
+              'subject': {'id': 207203, 'nameCN': '皇牌空战7：未知天空', 'type': 4},
+            },
+          ],
+        },
+      },
+      {
+        'id': 21,
+        'uid': 1,
+        'cat': 8,
+        'type': 1,
+        'createdAt': 1789567904,
+        'memo': {
+          'mono': {
+            'characters': [
+              {'id': 169542, 'name': 'セーラ', 'nameCN': '瑟拉'},
+            ],
+            'persons': [
+              {'id': 3, 'name': '示例声优'},
+            ],
+          },
+        },
+      },
+    ], fallbackUsername: 'alice');
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: ListView(
+            children: [
+              for (final item in items) CommunityTimelineCard(item: item),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    expect(
+      find.textContaining('玩过 皇牌空战7：未知天空', findRichText: true),
+      findsOneWidget,
+    );
+    expect(
+      find.textContaining('收藏了角色 瑟拉、人物 示例声优', findRichText: true),
+      findsOneWidget,
+    );
+  });
 
   testWidgets('shows the exact episode grid and opens the native subject', (
     tester,

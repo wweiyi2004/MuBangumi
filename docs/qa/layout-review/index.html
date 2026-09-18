@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>MuBangumi · 布局审核</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#f6f7fa;color:#222839;font:15px/1.7 "Microsoft YaHei UI",sans-serif}header{background:#fff;border-bottom:1px solid #e7e8ed;padding:25px max(24px,calc((100vw - 1440px)/2));}h1{font-size:26px;line-height:1.3;margin:8px 0}h2{font-size:19px;margin:0 0 14px}.kicker{color:#ef5287;font-size:12px;letter-spacing:2px;font-weight:bold}.sub{color:#747988;margin:0}.tabs{display:flex;gap:10px;margin-top:22px;flex-wrap:wrap}button{font:inherit;cursor:pointer;background:#f5f6f9;color:#545b6b;border:0;border-radius:11px;padding:9px 20px}button[aria-selected=true]{background:#ffe7ef;color:#d92f69;font-weight:bold}main{max-width:1488px;margin:auto;padding:25px 24px 45px}.panel{display:none}.panel.active{display:block}.note{padding:16px 20px;border-radius:14px;background:#fff;border:1px solid #e7e8ed;margin:0 0 24px}.screens{display:grid;grid-template-columns:minmax(0,1fr) 300px;gap:24px;align-items:start}.single{display:block}.phones{display:flex;gap:28px;justify-content:center;align-items:start;flex-wrap:wrap}figure{margin:0;background:white;border:1px solid #e5e6eb;border-radius:18px;padding:14px;box-shadow:0 10px 35px #18203906}figure img{width:100%;display:block;border-radius:10px}.phones figure{width:340px}figcaption{display:flex;justify-content:space-between;color:#737887;font-size:12px;margin-bottom:10px}a{color:#d92f69;text-decoration:none}.map{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:20px}.map span{background:#fff;border:1px solid #e7e8ed;border-radius:10px;padding:8px 16px}.map b{color:#d92f69}.foot{color:#838895;font-size:12px;margin-top:24px}@media(max-width:850px){.screens{grid-template-columns:1fr}.screens figure:last-child{max-width:390px;margin:auto}h1{font-size:23px}main{padding:18px 12px}}
+</style>
+<header><div class="kicker">MUBANGUMI / LAYOUT REVIEW 03</div><h1>个人空间、私聊与小组讨论</h1>
+<p class="sub">实际应用组件渲染 · 全部为演示数据 · 供审核页面结构与入口</p>
+<nav class="tabs" aria-label="审核页面"><button data-tab="profile" aria-selected="true">我的 · 个人主页</button><button data-tab="chat">消息 · 好友聊天</button><button data-tab="groups">小组 · 讨论</button><button data-tab="discovery">发现 · 超展开</button><button data-tab="large">大字体检查</button></nav></header>
+<main><div class="map"><span>追番</span><span>收藏 <b>＋统计</b></span><span>发现 <b>＋超展开</b></span><span>消息 <b>聊天 / 小组 / 通知</b></span><span>我的 <b>动态 / 日志</b></span></div>
+<section class="panel active" id="profile"><div class="note"><b>个人空间视觉稿 02。</b>封面与头像、个人资料融合，统计收成一行；图标分类栏下是统一字体、间距和互动样式的动态信息流。已启用的自定义背景可作为封面，桌面阅读区同时收窄。发布入口在右下角。</div><div class="screens">
+<figure><figcaption>桌面 · 我的<a href="desktop-profile.png" target="_blank">查看原图 ↗</a></figcaption><img src="desktop-profile.png" alt="桌面个人主页布局"></figure>
+<figure><figcaption>手机 · 我的<a href="phone-profile.png" target="_blank">查看原图 ↗</a></figcaption><img src="phone-profile.png" alt="手机个人主页布局"></figure></div>
+<div class="note">向下浏览动态时，顶部个人信息逐渐淡出并收起，为列表腾出空间；分类切换栏保留，滚回顶部恢复个人信息。</div><div class="screens">
+<figure><figcaption>桌面 · 滚动收起后<a href="desktop-profile-collapsed.png" target="_blank">查看原图 ↗</a></figcaption><img src="desktop-profile-collapsed.png" alt="桌面顶部收起后的动态列表"></figure>
+<figure><figcaption>手机 · 滚动收起后<a href="phone-profile-collapsed.png" target="_blank">查看原图 ↗</a></figcaption><img src="phone-profile-collapsed.png" alt="手机顶部收起后的动态列表"></figure></div></section>
+<section class="panel" id="chat"><div class="note"><b>按好友组织私聊。</b>完整好友列表可按昵称与用户名搜索，没聊过的好友也能直接发起私聊；收发记录合并到同一人的入口，非好友历史私信保留在「其他会话」。桌面左右分栏，手机输入栏与发送同排，草稿与原有会话主题保留。</div><div class="screens">
+<figure><figcaption>桌面 · 好友私信<a href="desktop-chat.png" target="_blank">查看原图 ↗</a></figcaption><img src="desktop-chat.png" alt="桌面消息与私信聊天布局"></figure>
+<figure><figcaption>手机 · 私聊<a href="phone-chat.png" target="_blank">查看原图 ↗</a></figcaption><img src="phone-chat.png" alt="手机私聊气泡及输入栏"></figure></div></section>
+<section class="panel" id="groups"><div class="note"><b>小组像群，每个话题是一场独立讨论。</b>先从已加入的小组进入，首页优先列出讨论；简介和成员信息收起，右下角“发起讨论”。</div><div class="phones">
+<figure><figcaption>手机 · 我的小组<a href="phone-groups.png" target="_blank">查看原图 ↗</a></figcaption><img src="phone-groups.png" alt="消息中的小组列表"></figure>
+<figure><figcaption>手机 · 小组内讨论<a href="phone-discussion.png" target="_blank">查看原图 ↗</a></figcaption><img src="phone-discussion.png" alt="小组内讨论列表及发起讨论按钮"></figure>
+<figure><figcaption>手机 · 讨论中的对话<a href="phone-thread.png" target="_blank">查看原图 ↗</a></figcaption><img src="phone-thread.png" alt="小组话题内的成员对话与回复入口"></figure></div></section>
+<section class="panel" id="discovery"><div class="note"><b>“发现”负责找作品和找社区。</b>超展开可以找话题、找小组、看全站动态；过长的筛选栏改成分类菜单。</div>
+<figure><figcaption>桌面 · 发现 / 超展开<a href="desktop-discovery.png" target="_blank">查看原图 ↗</a></figcaption><img src="desktop-discovery.png" alt="发现中的超展开页面"></figure></section>
+<section class="panel" id="large"><div class="note">同一手机布局以 1.6 倍字体检查：分类仍完整，动态内容继续滚动查看。</div><div class="phones"><figure><figcaption>手机 · 大字体<a href="phone-large.png" target="_blank">查看原图 ↗</a></figcaption><img src="phone-large.png" alt="大字体下的个人主页"></figure></div></section>
+<div class="note">另可查看<a href="phone-dark.png" target="_blank">深色个人空间</a>和<a href="phone-dark-collapsed.png" target="_blank">深色滚动收起态</a>。</div>
+<div class="foot">这是一版待审核布局，尚未作为正式版本发布。这里的按钮用于切换预览图，不会执行发消息、收藏或其他账号操作。</div>
+</main>
+<script>document.querySelectorAll('[data-tab]').forEach(button=>button.onclick=()=>{document.querySelectorAll('[data-tab]').forEach(b=>b.setAttribute('aria-selected',String(b===button)));document.querySelectorAll('.panel').forEach(p=>p.classList.toggle('active',p.id===button.dataset.tab));});</script>
+</html>

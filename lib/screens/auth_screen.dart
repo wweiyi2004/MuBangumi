@@ -10,6 +10,7 @@ import '../app.dart';
 import '../core/auth/bangumi_oauth.dart';
 import '../core/auth/oauth_builtin.dart';
 import '../core/auth/website_session.dart';
+import '../core/auth/website_cookie_bridge.dart';
 import '../state/session_controller.dart';
 import '../widgets/network_route_picker.dart';
 import '../widgets/oauth_authorization_dialog.dart';
@@ -130,6 +131,11 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
     Future<Uri> callback, {
     ValueChanged<List<WebsiteCookie>>? onCookiesCaptured,
   }) async {
+    try {
+      await WebsiteCookieBridge.waitForPendingCleanup();
+    } catch (_) {
+      throw const BangumiOAuthException('上次网页登录清理失败，请先点击“重试清理登录数据”');
+    }
     if (Platform.isWindows || Platform.isAndroid || Platform.isIOS) {
       if (!mounted) return false;
       return showOAuthAuthorizationDialog(
@@ -471,9 +477,9 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
       AuthActivity.signingOut => '正在退出登录…',
       AuthActivity.idle =>
         OAuthBuiltin.isConfigured
-            ? '使用 Bangumi 一键登录'
+            ? '登录 Bangumi'
             : _hasSavedOAuthConfig == true
-            ? '使用已保存配置登录'
+            ? '登录 Bangumi'
             : _hasSavedOAuthConfig == false
             ? '配置 Bangumi 登录'
             : '正在检查登录配置…',
@@ -634,13 +640,27 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
                                     ),
                                   ),
                                 ],
-                                if (session.canRetrySignOut && !authBusy) ...[
+                                if ((session.canRetrySignOut ||
+                                        WebsiteCookieBridge
+                                            .cleanupNeedsRetry) &&
+                                    !authBusy) ...[
                                   const SizedBox(height: 12),
                                   OutlinedButton.icon(
                                     key: const Key('retry-sign-out-button'),
-                                    onPressed: () => ref
-                                        .read(sessionProvider.notifier)
-                                        .signOut(),
+                                    onPressed: () async {
+                                      await ref
+                                          .read(sessionProvider.notifier)
+                                          .signOut();
+                                      if (WebsiteCookieBridge
+                                          .cleanupNeedsRetry) {
+                                        try {
+                                          await WebsiteCookieBridge.clearBgmCookies(
+                                            strict: true,
+                                          );
+                                        } catch (_) {}
+                                      }
+                                      if (mounted) setState(() {});
+                                    },
                                     icon: const Icon(Icons.delete_outline),
                                     label: const Text('重试清理登录数据'),
                                   ),

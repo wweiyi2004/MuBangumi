@@ -1,0 +1,25 @@
+services:
+  banjian:
+    build: .
+    restart: unless-stopped
+    environment:
+      BANJIAN_ADMIN_PASSWORD: ${BANJIAN_ADMIN_PASSWORD:?Set a strong password of at least 12 characters}
+      BANJIAN_PUBLIC_ORIGIN: https://${BANJIAN_DOMAIN:?Set your domain}
+    volumes:
+      - room-data:/data
+    expose:
+      - "43928"
+  proxy:
+    image: caddy:2
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+volumes:
+  room-data:
+  caddy-data:
+  caddy-config:

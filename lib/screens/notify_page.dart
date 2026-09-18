@@ -10,12 +10,14 @@ import '../core/network/community_service.dart';
 import '../models/community_models.dart';
 import '../state/notify_controller.dart';
 import '../widgets/subject_widgets.dart';
+import '../widgets/social_chat_style.dart';
 import 'community_timeline_page.dart';
 import 'community_topic_screen.dart';
 import 'user_profile_page.dart';
 
 class NotifyPage extends ConsumerStatefulWidget {
-  const NotifyPage({super.key});
+  const NotifyPage({super.key, this.embedded = false});
+  final bool embedded;
 
   @override
   ConsumerState<NotifyPage> createState() => _NotifyPageState();
@@ -283,8 +285,18 @@ class _NotifyPageState extends ConsumerState<NotifyPage> {
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     return Scaffold(
+      backgroundColor: SocialChatStyle.paper(context),
       appBar: AppBar(
-        title: const Text('电波提醒'),
+        automaticallyImplyLeading: !widget.embedded,
+        toolbarHeight: widget.embedded ? 48 : null,
+        backgroundColor: SocialChatStyle.paper(context),
+        surfaceTintColor: Colors.transparent,
+        title: Text(
+          '电波提醒',
+          style: widget.embedded
+              ? TextStyle(fontSize: 14, color: scheme.onSurfaceVariant)
+              : null,
+        ),
         actions: [
           IconButton(
             tooltip: _unreadOnly ? '显示全部' : '仅未读',
@@ -397,9 +409,14 @@ class _NotifyPageState extends ConsumerState<NotifyPage> {
                     notice.id,
                   );
                   return Card(
+                    elevation: 0,
+                    margin: const EdgeInsets.symmetric(vertical: 2),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10),
+                    ),
                     color: notice.unread
-                        ? scheme.primaryContainer.withValues(alpha: 0.35)
-                        : null,
+                        ? SocialChatStyle.accent(context).withValues(alpha: .07)
+                        : SocialChatStyle.paper(context),
                     child: ListTile(
                       leading: CircleAvatar(
                         backgroundColor: scheme.surfaceContainerHighest,
@@ -442,8 +459,7 @@ class _NotifyPageState extends ConsumerState<NotifyPage> {
                                   vertical: 8,
                                 ),
                                 decoration: BoxDecoration(
-                                  color: scheme.surfaceContainerHighest
-                                      .withValues(alpha: 0.6),
+                                  color: SocialChatStyle.canvas(context),
                                   borderRadius: BorderRadius.circular(8),
                                 ),
                                 child: Text(

@@ -1,22 +1,33 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/cupertino.dart';
+import '../widgets/social_group_widgets.dart';
+import '../widgets/social_chat_style.dart';
 
 import '../core/network/community_service.dart';
 import '../models/community_models.dart';
 import '../widgets/community_composer.dart';
 import '../widgets/community_widgets.dart';
 import '../widgets/community_loading.dart';
+import '../widgets/group_qr_sheet.dart';
 import 'community_page.dart';
 import 'community_topic_screen.dart';
+import 'community_group_browse_screen.dart';
 import 'user_profile_page.dart';
 import 'website_login_screen.dart';
 
 class CommunityGroupScreen extends StatefulWidget {
-  const CommunityGroupScreen({super.key, required this.group, this.service});
+  const CommunityGroupScreen({
+    super.key,
+    required this.group,
+    this.service,
+    this.initialDetail,
+  });
   final CommunityService? service;
 
   final CommunityGroup group;
+  final CommunityGroupDetail? initialDetail;
 
   @override
   State<CommunityGroupScreen> createState() => _CommunityGroupScreenState();
@@ -37,13 +48,32 @@ class _CommunityGroupScreenState extends State<CommunityGroupScreen> {
   @override
   void initState() {
     super.initState();
+    _detail = widget.initialDetail;
+    _service.accountChanges.addListener(_resetAccount);
     unawaited(_loadCacheThenRefresh());
+  }
+
+  void _resetAccount() {
+    _requestId++;
+    scheduleMicrotask(() {
+      if (!mounted) return;
+      setState(() => _detail = null);
+      unawaited(_load(refresh: true));
+    });
+  }
+
+  @override
+  void dispose() {
+    _requestId++;
+    _service.accountChanges.removeListener(_resetAccount);
+    super.dispose();
   }
 
   Future<void> _loadCacheThenRefresh() async {
     final requestId = ++_requestId;
     final network = _load(requestId: requestId);
     Future<void> restore() async {
+      if (widget.initialDetail != null) return;
       try {
         final cached = await _service.readCachedGroupDetail(_slug);
         if (!mounted ||
@@ -94,6 +124,8 @@ class _CommunityGroupScreenState extends State<CommunityGroupScreen> {
   Future<void> _openMembershipOnWeb() async {
     // P1 暂无加入/退出小组写接口；应用内 WebView 完成网站会话操作后可返回刷新。
     if (!mounted) return;
+    final identity = _service.identityRevision;
+    if (!await ensureWebsiteAccess(context) || !mounted) return;
     final cookies = await loadWebsiteSeedCookies();
     if (!mounted) return;
     await Navigator.of(context).push(
@@ -107,8 +139,17 @@ class _CommunityGroupScreenState extends State<CommunityGroupScreen> {
         ),
       ),
     );
-    if (!mounted) return;
-    await _load(refresh: true);
+    if (!mounted || identity != _service.identityRevision) return;
+    try {
+      final preview = await _service.loadGroupPreview(_slug);
+      if (!mounted || identity != _service.identityRevision) return;
+      setState(() => _detail = preview);
+    } catch (_) {
+      /* The full reload below retains the existing error UI. */
+    }
+    if (mounted && identity == _service.identityRevision) {
+      await _load(refresh: true);
+    }
   }
 
   Future<void> _createTopic() async {
@@ -142,6 +183,18 @@ class _CommunityGroupScreenState extends State<CommunityGroupScreen> {
     );
   }
 
+  void _openAll({bool members = false}) {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => CommunityGroupBrowseScreen(
+          group: _detail?.group ?? widget.group,
+          service: _service,
+          members: members,
+        ),
+      ),
+    );
+  }
+
   Future<void> _openWeb() async {
     await openSeededCommunityWeb(
       context,
@@ -155,9 +208,38 @@ class _CommunityGroupScreenState extends State<CommunityGroupScreen> {
   Widget build(BuildContext context) {
     final detail = _detail;
     return Scaffold(
+      backgroundColor: SocialChatStyle.paper(context),
       appBar: AppBar(
-        title: Text(detail?.group.name ?? widget.group.name),
+        backgroundColor: SocialChatStyle.paper(context),
+        surfaceTintColor: Colors.transparent,
+        title: Row(
+          children: [
+            CommunityAvatar(
+              imageUrl: detail?.group.imageUrl ?? widget.group.imageUrl,
+              radius: 17,
+              fallbackIcon: CupertinoIcons.person_3,
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                detail?.group.name ?? widget.group.name,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  fontSize: 17,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+          ],
+        ),
         actions: [
+          IconButton(
+            tooltip: '小组二维码',
+            onPressed: () =>
+                showGroupQr(context, detail?.group ?? widget.group),
+            icon: const Icon(Icons.qr_code_rounded),
+          ),
           IconButton(
             tooltip: '刷新',
             onPressed: _loading ? null : () => _load(refresh: true),
@@ -174,8 +256,12 @@ class _CommunityGroupScreenState extends State<CommunityGroupScreen> {
           _service.isAuthenticated && detail?.canCreateTopic == true
           ? FloatingActionButton.extended(
               onPressed: _createTopic,
-              icon: const Icon(Icons.edit_rounded),
-              label: const Text('发帖'),
+              backgroundColor: SocialChatStyle.accent(context),
+              foregroundColor: SocialChatStyle.dark(context)
+                  ? Colors.black
+                  : Colors.white,
+              icon: const Icon(CupertinoIcons.chat_bubble_2),
+              label: const Text('发起讨论'),
             )
           : null,
       body: SafeArea(
@@ -212,7 +298,7 @@ class _CommunityGroupScreenState extends State<CommunityGroupScreen> {
           Align(
             alignment: Alignment.topCenter,
             child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 920),
+              constraints: const BoxConstraints(maxWidth: 800),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
@@ -220,35 +306,62 @@ class _CommunityGroupScreenState extends State<CommunityGroupScreen> {
                     detail: detail,
                     onOpenMembershipPage: _openMembershipOnWeb,
                   ),
-                  if (detail.description.isNotEmpty) ...[
-                    const SizedBox(height: 14),
-                    Card(
-                      child: Padding(
-                        padding: const EdgeInsets.all(16),
-                        child: SelectableText(detail.description),
+                  ExpansionTile(
+                    title: const Text('小组资料'),
+                    tilePadding: EdgeInsets.zero,
+                    children: [
+                      if (detail.description.isNotEmpty) ...[
+                        const SizedBox(height: 14),
+                        Card(
+                          child: Padding(
+                            padding: const EdgeInsets.all(16),
+                            child: SelectableText(detail.description),
+                          ),
+                        ),
+                      ],
+                      if (detail.moderators.isNotEmpty) ...[
+                        const SizedBox(height: 20),
+                        _SectionTitle(
+                          title: '管理员',
+                          count: detail.moderators.length,
+                        ),
+                        const SizedBox(height: 9),
+                        _MemberStrip(users: detail.moderators),
+                      ],
+                      if (detail.members.isNotEmpty) ...[
+                        const SizedBox(height: 20),
+                        _SectionTitle(
+                          title: '新成员',
+                          count: detail.group.memberCount,
+                        ),
+                        const SizedBox(height: 9),
+                        _MemberStrip(users: detail.members),
+                      ],
+                      const SizedBox(height: 20),
+                    ],
+                  ),
+                  Wrap(
+                    spacing: 12,
+                    children: [
+                      TextButton.icon(
+                        style: TextButton.styleFrom(
+                          foregroundColor: SocialChatStyle.accent(context),
+                        ),
+                        onPressed: () => _openAll(),
+                        icon: const Icon(Icons.forum_outlined),
+                        label: const Text('全部话题'),
                       ),
-                    ),
-                  ],
-                  if (detail.moderators.isNotEmpty) ...[
-                    const SizedBox(height: 20),
-                    _SectionTitle(
-                      title: '管理员',
-                      count: detail.moderators.length,
-                    ),
-                    const SizedBox(height: 9),
-                    _MemberStrip(users: detail.moderators),
-                  ],
-                  if (detail.members.isNotEmpty) ...[
-                    const SizedBox(height: 20),
-                    _SectionTitle(
-                      title: '新成员',
-                      count: detail.group.memberCount,
-                    ),
-                    const SizedBox(height: 9),
-                    _MemberStrip(users: detail.members),
-                  ],
-                  const SizedBox(height: 20),
-                  _SectionTitle(title: '最近话题', count: detail.group.topicCount),
+                      TextButton.icon(
+                        style: TextButton.styleFrom(
+                          foregroundColor: SocialChatStyle.accent(context),
+                        ),
+                        onPressed: () => _openAll(members: true),
+                        icon: const Icon(Icons.people_outline),
+                        label: const Text('全部成员'),
+                      ),
+                    ],
+                  ),
+                  _SectionTitle(title: '小组讨论', count: detail.group.topicCount),
                   const SizedBox(height: 9),
                   if (detail.recentTopics.isEmpty)
                     const Card(
@@ -259,7 +372,7 @@ class _CommunityGroupScreenState extends State<CommunityGroupScreen> {
                     )
                   else
                     for (final topic in detail.recentTopics)
-                      CommunityTopicCard(
+                      GroupDiscussionTile(
                         topic: topic,
                         onTap: () => _openTopic(topic),
                       ),
@@ -278,57 +391,30 @@ class _GroupHeader extends StatelessWidget {
     required this.detail,
     required this.onOpenMembershipPage,
   });
-
   final CommunityGroupDetail detail;
   final VoidCallback onOpenMembershipPage;
-
   @override
-  Widget build(BuildContext context) => Card(
-    child: Padding(
-      padding: const EdgeInsets.all(18),
-      child: Wrap(
-        spacing: 16,
-        runSpacing: 14,
-        crossAxisAlignment: WrapCrossAlignment.center,
-        children: [
-          CommunityAvatar(
-            imageUrl: detail.group.imageUrl,
-            radius: 36,
-            fallbackIcon: Icons.groups_rounded,
-          ),
-          SizedBox(
-            width: 460,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  detail.group.name,
-                  style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
-                const SizedBox(height: 7),
-                Text(
-                  '${detail.group.memberCount} 位成员 · '
-                  '${detail.group.topicCount} 个话题 · ${detail.postCount} 条回复',
-                  style: Theme.of(context).textTheme.bodySmall,
-                ),
-              ],
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.only(bottom: 8),
+    child: Row(
+      children: [
+        Expanded(
+          child: Text(
+            '${detail.group.memberCount} 位成员 · ${detail.group.topicCount} 个讨论',
+            style: TextStyle(
+              fontSize: 13,
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
             ),
           ),
-          detail.isJoined
-              ? OutlinedButton.icon(
-                  onPressed: onOpenMembershipPage,
-                  icon: const Icon(Icons.logout_rounded),
-                  label: const Text('退出小组'),
-                )
-              : FilledButton.icon(
-                  onPressed: onOpenMembershipPage,
-                  icon: const Icon(Icons.group_add_rounded),
-                  label: const Text('加入小组'),
-                ),
-        ],
-      ),
+        ),
+        TextButton(
+          onPressed: onOpenMembershipPage,
+          style: TextButton.styleFrom(
+            foregroundColor: SocialChatStyle.accent(context),
+          ),
+          child: Text(detail.isJoined ? '已加入' : '加入'),
+        ),
+      ],
     ),
   );
 }

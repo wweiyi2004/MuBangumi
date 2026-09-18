@@ -846,7 +846,7 @@ void main() {
           isA<FormatException>().having(
             (error) => error.message,
             'message',
-            contains('同步网站登录'),
+            contains('Bangumi 账号'),
           ),
         ),
       );
@@ -1026,7 +1026,7 @@ void main() {
           isA<FormatException>().having(
             (error) => error.message,
             'message',
-            contains('同步网站登录'),
+            contains('Bangumi 账号'),
           ),
         ),
       );
@@ -1080,7 +1080,7 @@ void main() {
         isA<FormatException>().having(
           (error) => error.message,
           'message',
-          contains('同步网站登录'),
+          contains('Bangumi 账号'),
         ),
       ),
     );

@@ -1,9 +1,12 @@
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/cupertino.dart';
 
 import '../core/network/bangumi_endpoints.dart';
 import '../core/network/bangumi_smiles.dart';
 import '../models/community_models.dart';
+import 'community_rich_content.dart';
+import 'social_chat_style.dart';
 
 class CommunityAvatar extends StatelessWidget {
   const CommunityAvatar({
@@ -249,9 +252,17 @@ class CommunityPostCard extends StatelessWidget {
     this.onReactionChanged,
     this.reactionBusy = false,
     this.isFriend = false,
+    this.onEdit,
+    this.onDelete,
+    this.onDeleteTopicOnWeb,
+    this.discussionStyle = false,
   });
 
   final CommunityPost post;
+  final bool discussionStyle;
+  final VoidCallback? onEdit;
+  final VoidCallback? onDelete;
+  final VoidCallback? onDeleteTopicOnWeb;
   final VoidCallback? onReply;
   final VoidCallback? onOpenUser;
   final String? currentUsername;
@@ -263,6 +274,7 @@ class CommunityPostCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    if (discussionStyle) return _discussionMessage(context);
     final colors = Theme.of(context).colorScheme;
     final highlight = post.isOriginal || isFriend;
     return Padding(
@@ -322,17 +334,54 @@ class CommunityPostCard extends StatelessWidget {
                           ),
                         ),
                         if (post.meta.isNotEmpty)
-                          Text(
-                            post.meta,
-                            style: Theme.of(context).textTheme.labelSmall,
+                          Flexible(
+                            child: Text(
+                              post.meta,
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: Theme.of(context).textTheme.labelSmall,
+                            ),
+                          ),
+                        if (onEdit != null ||
+                            onDelete != null ||
+                            onDeleteTopicOnWeb != null)
+                          PopupMenuButton<String>(
+                            tooltip: '管理我的内容',
+                            onSelected: (value) {
+                              if (value == 'edit') onEdit?.call();
+                              if (value == 'delete') onDelete?.call();
+                              if (value == 'web') onDeleteTopicOnWeb?.call();
+                            },
+                            itemBuilder: (_) => [
+                              if (onEdit != null)
+                                PopupMenuItem(
+                                  value: 'edit',
+                                  child: Text(
+                                    post.isOriginal ? '编辑话题' : '编辑回复',
+                                  ),
+                                ),
+                              if (onDelete != null)
+                                const PopupMenuItem(
+                                  value: 'delete',
+                                  child: Text('删除回复'),
+                                ),
+                              if (onDeleteTopicOnWeb != null)
+                                const PopupMenuItem(
+                                  value: 'web',
+                                  child: Text('在官网删除话题'),
+                                ),
+                            ],
                           ),
                       ],
                     ),
-                    if (post.body.isNotEmpty) ...[
+                    if (post.rawBody.isNotEmpty || post.body.isNotEmpty) ...[
                       const SizedBox(height: 9),
-                      CollapsibleCommunityText(post.body),
+                      if (post.rawBody.isNotEmpty)
+                        CommunityRichContent(post.rawBody)
+                      else
+                        CollapsibleCommunityText(post.body),
                     ],
-                    if (post.images.isNotEmpty) ...[
+                    if (post.rawBody.isEmpty && post.images.isNotEmpty) ...[
                       const SizedBox(height: 10),
                       _ImageStrip(urls: post.images),
                     ],
@@ -357,6 +406,161 @@ class CommunityPostCard extends StatelessWidget {
       ),
     );
   }
+
+  Widget _discussionMessage(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    final authorPath = Uri.tryParse(post.userUrl)?.pathSegments;
+    final self =
+        currentUsername?.isNotEmpty == true &&
+        authorPath?.lastOrNull?.toLowerCase() == currentUsername!.toLowerCase();
+    final avatar = CommunityAvatar(
+      imageUrl: post.avatarUrl,
+      radius: 20,
+      onTap: onOpenUser,
+    );
+    return Padding(
+      padding: EdgeInsets.only(
+        left: post.isNested && !self ? 16 : 0,
+        right: post.isNested && self ? 16 : 0,
+        bottom: 20,
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisAlignment: self
+            ? MainAxisAlignment.end
+            : MainAxisAlignment.start,
+        children: [
+          if (!self) ...[avatar, const SizedBox(width: 10)],
+          Flexible(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 640),
+              child: Column(
+                crossAxisAlignment: self
+                    ? CrossAxisAlignment.end
+                    : CrossAxisAlignment.start,
+                children: [
+                  Wrap(
+                    spacing: 7,
+                    runSpacing: 4,
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    children: [
+                      InkWell(
+                        onTap: onOpenUser,
+                        child: Text(
+                          post.author,
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                            color: SocialChatStyle.accent(context),
+                          ),
+                        ),
+                      ),
+                      if (post.isOriginal)
+                        const Text('楼主', style: TextStyle(fontSize: 11)),
+                      if (isFriend)
+                        const Text('好友', style: TextStyle(fontSize: 11)),
+                      if (post.isNested)
+                        const Icon(
+                          CupertinoIcons.arrow_turn_down_right,
+                          size: 12,
+                        ),
+                      if (post.meta.isNotEmpty)
+                        Text(
+                          post.meta,
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: colors.onSurfaceVariant,
+                          ),
+                        ),
+                      if (onEdit != null ||
+                          onDelete != null ||
+                          onDeleteTopicOnWeb != null)
+                        PopupMenuButton<String>(
+                          tooltip: '管理我的内容',
+                          padding: EdgeInsets.zero,
+                          icon: const Icon(Icons.more_horiz, size: 18),
+                          onSelected: (value) {
+                            if (value == 'edit') onEdit?.call();
+                            if (value == 'delete') onDelete?.call();
+                            if (value == 'web') onDeleteTopicOnWeb?.call();
+                          },
+                          itemBuilder: (_) => [
+                            if (onEdit != null)
+                              PopupMenuItem(
+                                value: 'edit',
+                                child: Text(post.isOriginal ? '编辑话题' : '编辑回复'),
+                              ),
+                            if (onDelete != null)
+                              const PopupMenuItem(
+                                value: 'delete',
+                                child: Text('删除回复'),
+                              ),
+                            if (onDeleteTopicOnWeb != null)
+                              const PopupMenuItem(
+                                value: 'web',
+                                child: Text('在官网删除话题'),
+                              ),
+                          ],
+                        ),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  Container(
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      color: self
+                          ? SocialChatStyle.ownBubble(context)
+                          : SocialChatStyle.paper(context),
+                      borderRadius: BorderRadius.only(
+                        topLeft: Radius.circular(self ? 16 : 4),
+                        topRight: Radius.circular(self ? 4 : 16),
+                        bottomLeft: const Radius.circular(16),
+                        bottomRight: const Radius.circular(16),
+                      ),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        DefaultTextStyle.merge(
+                          style: const TextStyle(fontSize: 15, height: 1.6),
+                          child: post.rawBody.isNotEmpty
+                              ? CommunityRichContent(post.rawBody)
+                              : CollapsibleCommunityText(post.body),
+                        ),
+                        if (post.rawBody.isEmpty && post.images.isNotEmpty) ...[
+                          const SizedBox(height: 10),
+                          _ImageStrip(urls: post.images),
+                        ],
+                      ],
+                    ),
+                  ),
+                  if (post.reactions.isNotEmpty ||
+                      onReply != null ||
+                      onReactionChanged != null)
+                    _CommunityPostActions(
+                      reactions: post.reactions,
+                      currentUsername: currentUsername,
+                      onReply: null,
+                      onReactionChanged: onReactionChanged,
+                      reactionBusy: reactionBusy,
+                      feedStyle: true,
+                      trailing: onReply == null
+                          ? null
+                          : IconButton(
+                              tooltip: '回复',
+                              onPressed: onReply,
+                              icon: const Icon(CupertinoIcons.reply, size: 20),
+                            ),
+                    ),
+                ],
+              ),
+            ),
+          ),
+          if (self) ...[const SizedBox(width: 10), avatar],
+        ],
+      ),
+    );
+  }
 }
 
 class _CommunityPostActions extends StatelessWidget {
@@ -366,6 +570,9 @@ class _CommunityPostActions extends StatelessWidget {
     required this.onReply,
     required this.onReactionChanged,
     required this.reactionBusy,
+    this.leading,
+    this.trailing,
+    this.feedStyle = false,
   });
 
   final List<CommunityReaction> reactions;
@@ -373,6 +580,8 @@ class _CommunityPostActions extends StatelessWidget {
   final VoidCallback? onReply;
   final Future<void> Function(int? value)? onReactionChanged;
   final bool reactionBusy;
+  final Widget? leading, trailing;
+  final bool feedStyle;
 
   @override
   Widget build(BuildContext context) {
@@ -390,6 +599,7 @@ class _CommunityPostActions extends StatelessWidget {
             scrollDirection: Axis.horizontal,
             child: Row(
               children: [
+                if (leading != null) ...[leading!, const SizedBox(width: 10)],
                 for (
                   var index = 0;
                   index < visibleReactions.length;
@@ -408,7 +618,27 @@ class _CommunityPostActions extends StatelessWidget {
             icon: const Icon(Icons.reply_rounded, size: 18),
             label: const Text('回复'),
           ),
-        if (onReactionChanged != null)
+        if (onReactionChanged != null && feedStyle)
+          IconButton(
+            key: const ValueKey('post-reaction-picker'),
+            tooltip: '贴贴',
+            onPressed: reactionBusy ? null : () => _showPicker(context),
+            color: reactions.any((r) => r.isSelectedBy(currentUsername))
+                ? Theme.of(context).colorScheme.primary
+                : Theme.of(context).colorScheme.onSurface,
+            icon: reactionBusy
+                ? const SizedBox.square(
+                    dimension: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : Icon(
+                    reactions.any((r) => r.isSelectedBy(currentUsername))
+                        ? CupertinoIcons.heart_fill
+                        : CupertinoIcons.heart,
+                    size: 25,
+                  ),
+          ),
+        if (onReactionChanged != null && !feedStyle)
           TextButton.icon(
             key: const ValueKey('post-reaction-picker'),
             onPressed: reactionBusy ? null : () => _showPicker(context),
@@ -420,6 +650,7 @@ class _CommunityPostActions extends StatelessWidget {
                 : const Icon(Icons.favorite_border_rounded, size: 18),
             label: const Text('贴贴'),
           ),
+        ?trailing,
       ],
     );
   }
@@ -600,9 +831,19 @@ class CommunityTimelineCard extends StatelessWidget {
     this.onToggleReplies,
     this.onReloadReplies,
     this.onReplyTo,
+    this.onOpenTarget,
+    this.onDelete,
+    this.onReactionChanged,
+    this.currentUsername,
+    this.reactionBusy = false,
   });
 
   final CommunityTimelineItem item;
+  final ValueChanged<CommunityTimelineTarget>? onOpenTarget;
+  final VoidCallback? onDelete;
+  final Future<void> Function(int? value)? onReactionChanged;
+  final String? currentUsername;
+  final bool reactionBusy;
   final VoidCallback? onReply;
   final VoidCallback? onOpenSubject;
   final ValueChanged<CommunityUser>? onOpenUser;
@@ -615,148 +856,316 @@ class CommunityTimelineCard extends StatelessWidget {
   final CommunityTimelineReplyCallback? onReplyTo;
 
   @override
-  Widget build(BuildContext context) => Card(
-    margin: const EdgeInsets.only(bottom: 10),
-    child: Padding(
-      padding: const EdgeInsets.all(14),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colors = theme.colorScheme;
+    final inset = Color.alphaBlend(
+      colors.onSurface.withValues(alpha: .035),
+      colors.surface,
+    );
+    return Padding(
+      padding: const EdgeInsets.only(top: 24),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          CommunityAvatar(
-            imageUrl: item.user.avatarUrl,
-            radius: 21,
-            onTap: onOpenUser == null ? null : () => onOpenUser!(item.user),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text.rich(
-                  TextSpan(
-                    children: [
-                      WidgetSpan(
-                        alignment: PlaceholderAlignment.baseline,
-                        baseline: TextBaseline.alphabetic,
-                        child: GestureDetector(
-                          onTap: onOpenUser == null
-                              ? null
-                              : () => onOpenUser!(item.user),
-                          child: Text(
-                            item.user.displayName,
-                            style: TextStyle(
-                              fontWeight: FontWeight.w700,
-                              color: onOpenUser == null
-                                  ? null
-                                  : Theme.of(context).colorScheme.primary,
-                            ),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              CommunityAvatar(
+                imageUrl: item.user.avatarUrl,
+                radius: 22,
+                onTap: onOpenUser == null ? null : () => onOpenUser!(item.user),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    InkWell(
+                      onTap: onOpenUser == null
+                          ? null
+                          : () => onOpenUser!(item.user),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 3),
+                        child: Text(
+                          item.user.displayName,
+                          style: theme.textTheme.titleMedium?.copyWith(
+                            fontWeight: FontWeight.w600,
+                            fontSize: 16,
+                            color: theme.brightness == Brightness.dark
+                                ? const Color(0xFFB2C9E5)
+                                : const Color(0xFF385675),
                           ),
                         ),
                       ),
-                      TextSpan(text: '  ${item.description}'),
-                    ],
-                  ),
-                ),
-                if (item.content.isNotEmpty) ...[
-                  const SizedBox(height: 9),
-                  Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.all(11),
-                    decoration: BoxDecoration(
-                      color: Theme.of(
-                        context,
-                      ).colorScheme.surfaceContainerHighest,
-                      borderRadius: BorderRadius.circular(11),
                     ),
-                    child: CollapsibleCommunityText(item.content),
-                  ),
-                ],
-                if (item.imageUrls.isNotEmpty) ...[
-                  const SizedBox(height: 10),
-                  _ImageStrip(urls: item.imageUrls),
-                ],
-                if (item.progress case final progress?) ...[
-                  const SizedBox(height: 10),
-                  _TimelineProgressPanel(
-                    progress: progress,
-                    onOpenSubject: onOpenSubject,
-                  ),
-                ],
-                const SizedBox(height: 9),
-                Row(
-                  children: [
-                    Text(
-                      communityRelativeTime(item.createdAt),
-                      style: Theme.of(context).textTheme.labelSmall,
-                    ),
-                    const Spacer(),
-                    if (item.isStatus &&
-                        (item.replyCount > 0 || repliesExpanded))
-                      TextButton.icon(
-                        onPressed: onToggleReplies,
-                        icon: Icon(
-                          repliesExpanded
-                              ? Icons.expand_less_rounded
-                              : Icons.chat_bubble_outline_rounded,
-                          size: 17,
+                    if (!item.isStatus && item.description.isNotEmpty)
+                      Text(
+                        item.description,
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: colors.onSurfaceVariant,
                         ),
-                        label: Text(
-                          repliesExpanded ? '收起回复' : '${item.replyCount} 条回复',
-                        ),
-                      ),
-                    if (onReply != null)
-                      IconButton(
-                        tooltip: '回复这条动态',
-                        visualDensity: VisualDensity.compact,
-                        onPressed: onReply,
-                        icon: const Icon(Icons.reply_rounded, size: 19),
                       ),
                   ],
                 ),
-                if (repliesExpanded) ...[
-                  const Divider(height: 16),
-                  if (repliesLoading)
-                    const Center(
-                      child: Padding(
-                        padding: EdgeInsets.all(12),
-                        child: CircularProgressIndicator(strokeWidth: 2),
+              ),
+              if (onDelete != null || onOpenUser != null)
+                PopupMenuButton<String>(
+                  tooltip: '更多动态操作',
+                  icon: const Icon(Icons.more_horiz),
+                  onSelected: (action) {
+                    if (action == 'delete') onDelete?.call();
+                    if (action == 'profile') onOpenUser?.call(item.user);
+                  },
+                  itemBuilder: (_) => [
+                    if (onOpenUser != null)
+                      const PopupMenuItem(
+                        value: 'profile',
+                        child: Text('查看主页'),
                       ),
-                    )
-                  else if (repliesError != null)
-                    Row(
-                      children: [
-                        Expanded(
-                          child: Text(
-                            repliesError!,
-                            style: TextStyle(
-                              color: Theme.of(context).colorScheme.error,
+                    if (onDelete != null)
+                      const PopupMenuItem(
+                        value: 'delete',
+                        child: Text('删除这条动态'),
+                      ),
+                  ],
+                ),
+            ],
+          ),
+          if (item.content.isNotEmpty || item.rawContent.isNotEmpty) ...[
+            const SizedBox(height: 14),
+            DefaultTextStyle.merge(
+              style: theme.textTheme.bodyLarge?.copyWith(
+                fontSize: 17,
+                height: 1.65,
+              ),
+              child: item.rawContent.isNotEmpty
+                  ? CommunityRichContent(item.rawContent)
+                  : CollapsibleCommunityText(item.content),
+            ),
+          ],
+          if (item.targets.isNotEmpty) ...[
+            const SizedBox(height: 14),
+            _TimelineTargets(targets: item.targets, onOpen: onOpenTarget),
+          ],
+          if (item.targets.isEmpty && item.imageUrls.isNotEmpty) ...[
+            const SizedBox(height: 14),
+            _TimelineImages(urls: item.imageUrls),
+          ],
+          if (item.progress case final progress?) ...[
+            const SizedBox(height: 14),
+            _TimelineProgressPanel(
+              progress: progress,
+              onOpenSubject: onOpenSubject,
+            ),
+          ],
+          const SizedBox(height: 8),
+          _CommunityPostActions(
+            feedStyle: true,
+            leading: Text(
+              communityRelativeTime(item.createdAt),
+              style: theme.textTheme.labelSmall?.copyWith(
+                fontSize: 12,
+                color: colors.onSurfaceVariant,
+              ),
+            ),
+            trailing: item.replyCount > 0 || repliesExpanded
+                ? Tooltip(
+                    message: repliesExpanded
+                        ? '收起回复'
+                        : '${item.replyCount} 条回复',
+                    child: TextButton.icon(
+                      onPressed: onToggleReplies,
+                      style: TextButton.styleFrom(
+                        foregroundColor: colors.onSurface,
+                        padding: const EdgeInsets.symmetric(horizontal: 10),
+                      ),
+                      icon: const Icon(CupertinoIcons.chat_bubble, size: 24),
+                      label: Text(
+                        '${item.replyCount}',
+                        style: const TextStyle(fontSize: 13),
+                      ),
+                    ),
+                  )
+                : onReply == null
+                ? null
+                : IconButton(
+                    tooltip: '回复这条动态',
+                    onPressed: onReply,
+                    icon: const Icon(CupertinoIcons.chat_bubble, size: 24),
+                  ),
+            reactions: item.reactions,
+            currentUsername: currentUsername,
+            onReply: null,
+            onReactionChanged: onReactionChanged,
+            reactionBusy: reactionBusy,
+          ),
+          if ((item.isStatus && (onReply != null || item.replyCount > 0)) ||
+              repliesExpanded)
+            Container(
+              margin: const EdgeInsets.only(top: 2, bottom: 8),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+              decoration: BoxDecoration(
+                color: inset,
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  if (repliesExpanded) ...[
+                    if (repliesLoading)
+                      const Center(
+                        child: Padding(
+                          padding: EdgeInsets.all(12),
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        ),
+                      )
+                    else if (repliesError != null)
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              repliesError!,
+                              style: TextStyle(color: colors.error),
                             ),
                           ),
+                          TextButton(
+                            onPressed: onReloadReplies ?? onToggleReplies,
+                            child: const Text('重试'),
+                          ),
+                        ],
+                      )
+                    else if (replies == null || replies!.isEmpty)
+                      const Padding(
+                        padding: EdgeInsets.symmetric(vertical: 8),
+                        child: Text('暂时没有回复'),
+                      )
+                    else
+                      _TimelineReplyList(
+                        replies: replies!,
+                        onReply: onReplyTo,
+                        onOpenUser: onOpenUser,
+                      ),
+                  ],
+                  if (onReply != null)
+                    InkWell(
+                      onTap: onReply,
+                      borderRadius: BorderRadius.circular(8),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(
+                          vertical: 12,
+                          horizontal: 4,
                         ),
-                        TextButton(
-                          onPressed: onReloadReplies ?? onToggleReplies,
-                          child: const Text('重试'),
+                        child: Text(
+                          '说点什么…',
+                          style: theme.textTheme.bodyMedium?.copyWith(
+                            color: colors.onSurfaceVariant,
+                          ),
                         ),
-                      ],
-                    )
-                  else if (replies == null || replies!.isEmpty)
-                    const Padding(
-                      padding: EdgeInsets.symmetric(vertical: 8),
-                      child: Text('暂时没有回复'),
-                    )
-                  else
-                    _TimelineReplyList(
-                      replies: replies!,
-                      onReply: onReplyTo,
-                      onOpenUser: onOpenUser,
+                      ),
                     ),
                 ],
-              ],
+              ),
             ),
+          Divider(
+            height: 24,
+            thickness: .6,
+            color: colors.outlineVariant.withValues(alpha: .5),
           ),
         ],
       ),
-    ),
+    );
+  }
+}
+
+class _TimelineTargets extends StatefulWidget {
+  const _TimelineTargets({required this.targets, this.onOpen});
+  final List<CommunityTimelineTarget> targets;
+  final ValueChanged<CommunityTimelineTarget>? onOpen;
+  @override
+  State<_TimelineTargets> createState() => _TimelineTargetsState();
+}
+
+class _TimelineTargetsState extends State<_TimelineTargets> {
+  bool _expanded = false;
+  @override
+  Widget build(BuildContext context) => Column(
+    crossAxisAlignment: CrossAxisAlignment.stretch,
+    children: [
+      for (final target in widget.targets.take(
+        _expanded ? widget.targets.length : 5,
+      ))
+        Padding(
+          padding: const EdgeInsets.only(bottom: 8),
+          child: Material(
+            color: Color.alphaBlend(
+              Theme.of(context).colorScheme.onSurface.withValues(alpha: .035),
+              Theme.of(context).colorScheme.surface,
+            ),
+            borderRadius: BorderRadius.circular(12),
+            clipBehavior: Clip.antiAlias,
+            child: InkWell(
+              onTap: widget.onOpen == null
+                  ? null
+                  : () => widget.onOpen!(target),
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: Row(
+                  children: [
+                    _TimelineCover(
+                      imageUrl: target.imageUrl,
+                      icon: switch (target.kind) {
+                        CommunityTimelineTargetKind.subject =>
+                          Icons.book_outlined,
+                        CommunityTimelineTargetKind.blog =>
+                          Icons.article_outlined,
+                        _ => Icons.person_outline,
+                      },
+                    ),
+                    const SizedBox(width: 14),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            target.title,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: Theme.of(context).textTheme.titleSmall
+                                ?.copyWith(fontWeight: FontWeight.w700),
+                          ),
+                          const SizedBox(height: 6),
+                          Text(
+                            switch (target.kind) {
+                              CommunityTimelineTargetKind.subject => '作品',
+                              CommunityTimelineTargetKind.blog => '日志',
+                              CommunityTimelineTargetKind.character => '角色',
+                              CommunityTimelineTargetKind.person => '人物',
+                            },
+                            style: Theme.of(context).textTheme.bodySmall
+                                ?.copyWith(
+                                  color: Theme.of(
+                                    context,
+                                  ).colorScheme.onSurfaceVariant,
+                                ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    if (widget.onOpen != null)
+                      const Icon(Icons.chevron_right, size: 18),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      if (widget.targets.length > 5)
+        TextButton(
+          onPressed: () => setState(() => _expanded = !_expanded),
+          child: Text(_expanded ? '收起' : '展开全部 ${widget.targets.length} 项'),
+        ),
+    ],
   );
 }
 
@@ -787,28 +1196,9 @@ class _TimelineProgressPanel extends StatelessWidget {
               Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(7),
-                    child: progress.imageUrl.isEmpty
-                        ? Container(
-                            width: 42,
-                            height: 56,
-                            color: colors.surfaceContainerHighest,
-                            child: const Icon(Icons.movie_outlined, size: 20),
-                          )
-                        : CachedNetworkImage(
-                            imageUrl: BangumiEndpoints.imageUrl(
-                              progress.imageUrl,
-                            ),
-                            width: 42,
-                            height: 56,
-                            fit: BoxFit.cover,
-                            errorWidget: (_, _, _) => const SizedBox(
-                              width: 42,
-                              height: 56,
-                              child: Icon(Icons.broken_image_outlined),
-                            ),
-                          ),
+                  _TimelineCover(
+                    imageUrl: progress.imageUrl,
+                    icon: Icons.movie_outlined,
                   ),
                   const SizedBox(width: 10),
                   Expanded(
@@ -1112,6 +1502,7 @@ class _CollapsibleCommunityTextState extends State<CollapsibleCommunityText> {
         SelectableText.rich(
           TextSpan(children: _spansFor(context, visible)),
           maxLines: collapsed ? 14 : null,
+          scrollPhysics: const NeverScrollableScrollPhysics(),
         ),
         if (_isLong)
           TextButton.icon(
@@ -1197,6 +1588,69 @@ String _batchProgressText(CommunityTimelineProgress progress) {
       '第 $episode${progress.episodeTotal.isEmpty ? '' : '/${progress.episodeTotal}'} 话',
   ];
   return parts.isEmpty ? '更新了章节进度' : '进度 ${parts.join(' · ')}';
+}
+
+class _TimelineCover extends StatelessWidget {
+  const _TimelineCover({required this.imageUrl, required this.icon});
+  final String imageUrl;
+  final IconData icon;
+  @override
+  Widget build(BuildContext context) => ClipRRect(
+    borderRadius: BorderRadius.circular(7),
+    child: SizedBox(
+      width: 64,
+      height: 84,
+      child: ColoredBox(
+        color: Theme.of(context).colorScheme.onSurface.withValues(alpha: .06),
+        child: imageUrl.isEmpty
+            ? Icon(icon, size: 26)
+            : CachedNetworkImage(
+                imageUrl: BangumiEndpoints.imageUrl(imageUrl),
+                fit: BoxFit.cover,
+                errorWidget: (_, _, _) => Icon(icon, size: 26),
+              ),
+      ),
+    ),
+  );
+}
+
+class _TimelineImages extends StatelessWidget {
+  const _TimelineImages({required this.urls});
+  final List<String> urls;
+  @override
+  Widget build(BuildContext context) => LayoutBuilder(
+    builder: (context, constraints) {
+      final columns = urls.length == 1
+          ? 1
+          : (urls.length == 2 || urls.length == 4 ? 2 : 3);
+      final width = constraints.maxWidth.clamp(
+        0.0,
+        urls.length == 1 ? 420.0 : 640.0,
+      );
+      final tile = (width - (columns - 1) * 6) / columns;
+      return Wrap(
+        spacing: 6,
+        runSpacing: 6,
+        children: [
+          for (final url in urls)
+            ClipRRect(
+              borderRadius: BorderRadius.circular(8),
+              child: CachedNetworkImage(
+                imageUrl: BangumiEndpoints.imageUrl(url),
+                width: tile,
+                height: columns == 1 ? tile * .75 : tile,
+                fit: BoxFit.cover,
+                errorWidget: (_, _, _) => SizedBox(
+                  width: tile,
+                  height: columns == 1 ? tile * .75 : tile,
+                  child: const Icon(Icons.broken_image_outlined),
+                ),
+              ),
+            ),
+        ],
+      );
+    },
+  );
 }
 
 class _ImageStrip extends StatelessWidget {

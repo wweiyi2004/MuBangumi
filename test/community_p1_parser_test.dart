@@ -153,6 +153,115 @@ void main() {
     expect(items.last.imageUrls, ['https://lain.bgm.tv/subject.jpg']);
   });
 
+  test('keeps game collection details and identifies unavailable subjects', () {
+    final items = parser.parseTimeline([
+      for (final type in [4, 8, 12])
+        {
+          'id': 200 + type,
+          'uid': 7,
+          'cat': 3,
+          'type': type,
+          'createdAt': 1789567927,
+          'memo': {
+            'subject': [
+              {
+                'subject': {
+                  'id': 207203,
+                  'type': 4,
+                  'name': 'ACE COMBAT 7 SKIES UNKNOWN',
+                  'nameCN': '皇牌空战7：未知天空',
+                  'images': {'small': 'https://lain.bgm.tv/game.jpg'},
+                },
+                'comment': '很喜欢',
+              },
+            ],
+          },
+        },
+      for (final batch in [false, true])
+        {
+          'id': batch ? 222 : 221,
+          'uid': 7,
+          'cat': 3,
+          'type': 8,
+          'batch': batch,
+          'createdAt': 1789567966,
+          'memo': {'subject': <dynamic>[]},
+        },
+    ], fallbackUsername: 'alice');
+
+    expect(items, hasLength(5));
+    expect(items.take(3).map((item) => item.description), [
+      '想玩 皇牌空战7：未知天空',
+      '玩过 皇牌空战7：未知天空',
+      '在玩 皇牌空战7：未知天空',
+    ]);
+    expect(items[1].content, '很喜欢');
+    expect(items[1].imageUrls, ['https://lain.bgm.tv/game.jpg']);
+    for (final item in items.skip(3)) {
+      expect(item.description, '玩过 一个条目（详情暂不可用）');
+    }
+  });
+
+  test('parses character and person names and portraits from mono memo', () {
+    final items = parser.parseTimeline([
+      for (final type in [0, 1])
+        {
+          'id': 300 + type,
+          'uid': 7,
+          'cat': 8,
+          'type': type,
+          'batch': true,
+          'createdAt': 1789567904,
+          'memo': {
+            'mono': {
+              'characters': [
+                {
+                  'id': 169542,
+                  'name': 'セーラ',
+                  'nameCN': '瑟拉',
+                  'images': {'small': 'https://lain.bgm.tv/character.jpg'},
+                },
+                {'id': 2, 'name': '另一位角色'},
+              ],
+              'persons': [
+                {
+                  'id': 3,
+                  'name': '示例声优',
+                  'images': {'medium': '//lain.bgm.tv/person.jpg'},
+                },
+              ],
+            },
+          },
+        },
+    ], fallbackUsername: 'alice');
+
+    expect(items, hasLength(2));
+    expect(items.first.description, '创建了角色 瑟拉、另一位角色、人物 示例声优');
+    expect(items.last.description, '收藏了角色 瑟拉、另一位角色、人物 示例声优');
+    expect(items.last.imageUrls, [
+      'https://lain.bgm.tv/character.jpg',
+      'https://lain.bgm.tv/person.jpg',
+    ]);
+  });
+
+  test('keeps mono events when their details are unavailable', () {
+    final items = parser.parseTimeline([
+      {
+        'id': 310,
+        'uid': 7,
+        'cat': 8,
+        'type': 1,
+        'createdAt': 1789567904,
+        'memo': {
+          'mono': {'characters': <dynamic>[], 'persons': <dynamic>[]},
+        },
+      },
+    ], fallbackUsername: 'alice');
+
+    expect(items.single.description, '收藏了人物或角色（详情暂不可用）');
+    expect(items.single.imageUrls, isEmpty);
+  });
+
   test('parses single and batch episode progress timeline items', () {
     final items = parser.parseTimeline([
       {

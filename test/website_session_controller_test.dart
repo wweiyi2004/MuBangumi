@@ -92,7 +92,8 @@ void main() {
         isTrue,
       );
       expect(store.writes, 1);
-      expect(controller.state.isSynced, isTrue);
+      expect(controller.state.hasStoredSession, isTrue);
+      expect(controller.state.isSynced, isFalse);
     },
   );
 
@@ -237,7 +238,8 @@ void main() {
     expect(saved, isTrue);
     expect(store.snapshot, isNotNull);
     expect(controller.state.snapshot, isNotNull);
-    expect(controller.state.isSynced, isTrue);
+    expect(controller.state.hasStoredSession, isTrue);
+    expect(controller.state.isSynced, isFalse);
   });
 }
 

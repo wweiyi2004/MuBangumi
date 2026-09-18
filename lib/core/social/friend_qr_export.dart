@@ -14,6 +14,7 @@ class FriendQrExporter {
     required String username,
     required Uint8List bytes,
     Directory? directory,
+    bool group = false,
   }) async {
     final dir = directory ?? await exportDirectory();
     await dir.create(recursive: true);
@@ -29,7 +30,12 @@ class FriendQrExporter {
         .trim()
         .replaceAll(RegExp(r'[\\/:*?"<>|]'), '_')
         .replaceAll(' ', '');
-    final file = File(p.join(dir.path, 'MuBangumi_friend_${safe}_$stamp.png'));
+    final file = File(
+      p.join(
+        dir.path,
+        'MuBangumi_${group ? 'group' : 'friend'}_${safe}_$stamp.png',
+      ),
+    );
     await file.writeAsBytes(bytes, flush: true);
     return file;
   }

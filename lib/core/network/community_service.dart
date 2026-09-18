@@ -6,7 +6,9 @@ import 'package:flutter/foundation.dart';
 import '../../core/storage/community_cache.dart';
 import '../../models/bangumi_models.dart';
 import '../../models/community_models.dart';
+import '../../models/account_content_preferences.dart';
 import '../auth/website_session.dart';
+import '../auth/website_identity.dart';
 import 'bangumi_smiles.dart';
 import 'async_cache.dart';
 import 'bangumi_user_agent.dart';
@@ -72,6 +74,17 @@ class CommunityService {
            );
 
   static final shared = CommunityService._();
+  Future<WebsiteSessionSnapshot> Function()? websiteSessionGuard;
+  void Function(WebsiteAccessStatus status, String authenticationKey)?
+  onWebsiteSessionFailure;
+
+  void _websiteFailed(WebsiteAccessStatus status, String cookieHeader) {
+    final snapshot = WebsiteSessionSnapshot(
+      cookies: WebsiteSessionSnapshot.parseDocumentCookie(cookieHeader),
+      syncedAt: DateTime.now(),
+    );
+    onWebsiteSessionFailure?.call(status, snapshot.authenticationKey);
+  }
 
   @visibleForTesting
   CommunityService.test({
@@ -98,6 +111,64 @@ class CommunityService {
   String? _currentUsername;
   String _currentNickname = '';
   String _currentAvatarUrl = '';
+  final _accountChanges = ValueNotifier<String?>(null);
+  int _identityRevision = 0;
+  int get identityRevision => _identityRevision;
+
+  ValueListenable<String?> get accountChanges => _accountChanges;
+  final _contentPreferencesChanges = ValueNotifier<int>(0);
+  int _contentRevision = 0;
+  ValueListenable<int> get contentPreferencesChanges =>
+      _contentPreferencesChanges;
+
+  Future<AccountContentPreferences> loadContentPreferences() async {
+    _requireAuthentication();
+    final identity = _identityRevision;
+    // Account settings must never be inferred from a stale content cache.
+    final json = await _fetchJson('/privacy');
+    if (identity != _identityRevision || !isAuthenticated) {
+      throw const FormatException('登录账号已变化，请重新读取设置');
+    }
+    return AccountContentPreferences.fromJson(json);
+  }
+
+  Future<AccountContentPreferences> setNsfwPreference(bool enabled) async {
+    final identity = _identityRevision;
+    final response = await _nativeWrite(
+      'PATCH',
+      '/privacy',
+      data: {
+        'preferences': {'showNsfwSubject': enabled},
+      },
+      accountPreferences: true,
+    );
+    if (identity != _identityRevision || !isAuthenticated) {
+      throw const FormatException('登录账号已变化，请重新读取设置');
+    }
+    await refreshContentAfterPreferenceChange();
+    if (identity != _identityRevision || !isAuthenticated) {
+      throw const FormatException('登录账号已变化，请重新读取设置');
+    }
+    if (response is! Map) {
+      throw const FormatException('设置提交后未收到完整结果，请重新读取');
+    }
+    return AccountContentPreferences.fromJson(
+      Map<String, dynamic>.from(response),
+    );
+  }
+
+  /// Also used after the user saves through the official website fallback.
+  Future<void> refreshContentAfterPreferenceChange() async {
+    _requireAuthentication();
+    final identity = _identityRevision;
+    _contentRevision++;
+    _jsonCache.clear();
+    _htmlCache.clear();
+    await _removeTimelineSnapshots();
+    if (identity == _identityRevision && isAuthenticated) {
+      _contentPreferencesChanges.value++;
+    }
+  }
 
   /// Called once on HTTP 401; return true if a new token was applied.
   Future<bool> Function()? onUnauthorizedRefresh;
@@ -124,6 +195,7 @@ class CommunityService {
   }) {
     final value = username?.trim() ?? '';
     if ((_currentUsername ?? '') != value) {
+      _identityRevision++;
       _jsonCache.clear();
       _htmlCache.clear();
       _friendsCache.clear();
@@ -131,6 +203,7 @@ class CommunityService {
     _currentUsername = value.isEmpty ? null : value;
     _currentNickname = value.isEmpty ? '' : nickname.trim();
     _currentAvatarUrl = value.isEmpty ? '' : avatarUrl.trim();
+    _accountChanges.value = _currentUsername;
   }
 
   Future<void> clearAccountCache() async {
@@ -138,6 +211,203 @@ class CommunityService {
     _htmlCache.clear();
     await _persistentCache.clearAccountData();
     _friendsCache.clear();
+  }
+
+  String _monoArea(CommunityTimelineTargetKind kind) => switch (kind) {
+    CommunityTimelineTargetKind.character => 'characters',
+    CommunityTimelineTargetKind.person => 'persons',
+    _ => throw const FormatException('不是人物或角色'),
+  };
+
+  Future<CommunityMonoCollection> loadMonoCollection(
+    CommunityTimelineTargetKind kind,
+    int id, {
+    bool refresh = false,
+  }) async {
+    _requireAuthentication();
+    if (id <= 0) throw const FormatException('编号无效');
+    final json = await _getJson('/${_monoArea(kind)}/$id', refresh: refresh);
+    return CommunityMonoCollection(
+      collected: (json['collectedAt'] as num? ?? 0) > 0,
+      count: (json['collects'] as num? ?? 0).toInt(),
+    );
+  }
+
+  Future<void> setMonoCollection(
+    CommunityTimelineTargetKind kind,
+    int id, {
+    required bool collected,
+  }) async {
+    if (id <= 0) throw const FormatException('编号无效');
+    await _nativeWrite(
+      collected ? 'PUT' : 'DELETE',
+      '/collections/${_monoArea(kind)}/$id',
+    );
+    _jsonCache.clear();
+    await _removeTimelineSnapshots();
+  }
+
+  Future<void> updateTimelineReaction(
+    CommunityTimelineItem item,
+    int? value,
+  ) async {
+    if (!item.isStatus || item.id <= 0) throw const FormatException('此动态不支持贴贴');
+    if (value != null && !BangumiReactions.accepts(value)) {
+      throw const FormatException('不支持这个贴贴表情');
+    }
+    await _nativeWrite(
+      value == null ? 'DELETE' : 'PUT',
+      '/timeline/${item.id}/like',
+      data: value == null ? const {} : {'value': value},
+    );
+    _jsonCache.clear();
+    await _removeTimelineSnapshots();
+  }
+
+  bool canDeleteTimeline(CommunityTimelineItem item) =>
+      isAuthenticated &&
+      _currentUsername != null &&
+      item.user.username.toLowerCase() == _currentUsername!.toLowerCase();
+
+  Future<void> deleteTimeline(CommunityTimelineItem item) async {
+    if (item.id <= 0 || !canDeleteTimeline(item)) {
+      throw const FormatException('只能删除自己的动态');
+    }
+    await _nativeWrite('DELETE', '/timeline/${item.id}');
+    _jsonCache.clear();
+    await _removeTimelineSnapshots();
+  }
+
+  Future<void> _removeTimelineSnapshots() async {
+    for (final mode in CommunityTimelineMode.values) {
+      await _persistentCache.remove('timeline:${mode.name}');
+    }
+  }
+
+  Future<CommunityPageResult<CommunityBlog>> loadUserBlogs(
+    String username, {
+    int offset = 0,
+    int limit = 20,
+    bool refresh = false,
+  }) async {
+    final name = username.trim();
+    if (name.isEmpty) throw const FormatException('用户名不能为空');
+    final page = await _getJson(
+      '/users/${Uri.encodeComponent(name)}/blogs',
+      query: {'offset': offset, 'limit': limit.clamp(1, 100)},
+      refresh: refresh,
+    );
+    final rows = page['data'] as List? ?? const [];
+    return CommunityPageResult(
+      data: rows
+          .whereType<Map>()
+          .map(
+            (row) => _p1Parser.parseBlog(
+              Map<String, dynamic>.from(row),
+              fallbackUsername: name,
+            ),
+          )
+          .toList(),
+      total: _pageTotal(page),
+      rawCount: rows.length,
+    );
+  }
+
+  Future<CommunityBlog> loadBlog(int id, {bool refresh = false}) async {
+    if (id <= 0) throw const FormatException('日志编号无效');
+    return _p1Parser.parseBlog(await _getJson('/blogs/$id', refresh: refresh));
+  }
+
+  bool canEditBlog(CommunityBlog blog) =>
+      isAuthenticated &&
+      _currentUsername != null &&
+      blog.user.username.toLowerCase() == _currentUsername!.toLowerCase();
+
+  Future<void> saveBlog({
+    CommunityBlog? original,
+    required String title,
+    required String content,
+    required List<String> tags,
+    required bool isPublic,
+    String? turnstileToken,
+  }) async {
+    if (title.trim().isEmpty || title.trim().runes.length > 80) {
+      throw const FormatException('标题需为 1 至 80 个字');
+    }
+    if (content.trim().isEmpty || content.trim().runes.length > 100000) {
+      throw const FormatException('正文需为 1 至 100000 个字');
+    }
+    if (original != null && !canEditBlog(original)) {
+      throw const FormatException('只能编辑自己的日志');
+    }
+    final cleanedTags = tags
+        .map((tag) => tag.trim())
+        .where((tag) => tag.isNotEmpty)
+        .toSet()
+        .toList();
+    if (cleanedTags.length > 10) throw const FormatException('最多填写 10 个标签');
+    final data = <String, dynamic>{
+      'title': title.trim(),
+      'content': content.trim(),
+      'tags': cleanedTags,
+      'public': isPublic,
+    };
+    if (original == null) {
+      data['turnstileToken'] = _requireTurnstileToken(turnstileToken ?? '');
+    }
+    // Omitting subjectIDs preserves existing associations on PATCH.
+    await _nativeWrite(
+      original == null ? 'POST' : 'PATCH',
+      original == null ? '/blogs' : '/blogs/${original.id}',
+      data: data,
+    );
+    _jsonCache.clear();
+    await _removeTimelineSnapshots();
+  }
+
+  /// Retry only a rejected credential, never a timeout or an uncertain write.
+  Future<Object?> _nativeWrite(
+    String method,
+    String path, {
+    Map<String, dynamic> data = const {},
+    bool accountPreferences = false,
+  }) async {
+    _requireAuthentication();
+    final identity = _identityRevision;
+    for (var attempt = 0; attempt < 2; attempt++) {
+      if (identity != _identityRevision || !isAuthenticated) {
+        throw const FormatException('登录账号已变化，请重新操作');
+      }
+      try {
+        final response = await _p1Dio.request<Object?>(
+          '/p1$path',
+          data: method == 'DELETE' ? null : data,
+          options: Options(
+            method: method,
+            contentType: Headers.jsonContentType,
+            validateStatus: (status) =>
+                status != null && status >= 200 && status < 300,
+          ),
+        );
+        return response.data;
+      } on DioException catch (error) {
+        if (attempt == 0 &&
+            identity == _identityRevision &&
+            _isRefreshableAuthFailure(error) &&
+            onUnauthorizedRefresh != null &&
+            await onUnauthorizedRefresh!()) {
+          continue;
+        }
+        if (method == 'POST' && error.response == null) {
+          throw Exception('提交结果尚未确认，请先查看日志列表，确认没有发布后再重试');
+        }
+        if (accountPreferences) {
+          throw AccountContentPreferencesException(error.response?.statusCode);
+        }
+        throw Exception(_postErrorMessage(error));
+      }
+    }
+    throw const FormatException('未能完成请求，请重新操作');
   }
 
   Future<CommunityPageResult<BangumiUser>> loadFriends(
@@ -217,6 +487,7 @@ class CommunityService {
   ) async {
     final json = await _persistentCache.readJson(_topicCacheKey(mode));
     if (json == null) return null;
+    if (mode.aggregateType != null) return _aggregatePage(json, 0, 20);
     return _parseTopicPage(mode, json);
   }
 
@@ -226,6 +497,23 @@ class CommunityService {
     int offset = 0,
     bool refresh = false,
   }) async {
+    if (mode.aggregateType case final type?) {
+      // This API has a limit but no offset. Keep a fixed recent window and
+      // paginate that snapshot locally rather than repeatedly fetching page 1.
+      final json = await _getJson(
+        '/rakuen/topics',
+        query: {'type': type, 'limit': 200},
+        refresh: refresh,
+      );
+      if (offset == 0) {
+        await _persistentCache.writeJson(
+          _topicCacheKey(mode),
+          json,
+          accountScoped: true,
+        );
+      }
+      return _aggregatePage(json, offset, limit);
+    }
     final path = switch (mode) {
       RakuenMode.subjectTrending => '/trending/subjects/topics',
       RakuenMode.subjectLatest => '/subjects/-/topics',
@@ -245,6 +533,18 @@ class CommunityService {
       );
     }
     return _parseTopicPage(mode, json);
+  }
+
+  CommunityPageResult<CommunityTopic> _aggregatePage(
+    Map<String, dynamic> json,
+    int offset,
+    int limit,
+  ) {
+    final topics = _p1Parser.parseRakuenTopics(json);
+    return CommunityPageResult(
+      data: topics.skip(offset).take(limit).toList(),
+      total: topics.length,
+    );
   }
 
   Future<CommunityPageResult<CommunityGroup>?> readCachedGroups(
@@ -293,6 +593,135 @@ class CommunityService {
     final bundle = await _persistentCache.readJson('group:$slug');
     if (bundle == null) return null;
     return _parseGroupBundle(bundle);
+  }
+
+  Future<CommunityGroupDetail> loadGroupPreview(String slug) async =>
+      _p1Parser.parseGroupDetail(
+        await _getJson('/groups/${Uri.encodeComponent(slug)}', refresh: true),
+      );
+
+  Future<CommunityPageResult<CommunityTopic>> loadGroupTopics(
+    String slug, {
+    int offset = 0,
+    int limit = 20,
+    bool refresh = false,
+  }) async {
+    final page = await _getJson(
+      '/groups/${Uri.encodeComponent(slug)}/topics',
+      query: {'limit': limit.clamp(1, 100), 'offset': offset},
+      refresh: refresh,
+    );
+    return CommunityPageResult(
+      data: _p1Parser.parseGroupTopics(page),
+      total: _pageTotal(page),
+      rawCount: (page['data'] as List?)?.length ?? 0,
+    );
+  }
+
+  Future<CommunityPageResult<CommunityUser>> loadGroupMembers(
+    String slug, {
+    int offset = 0,
+    int limit = 20,
+    int? role,
+    bool refresh = false,
+  }) async {
+    final page = await _getJson(
+      '/groups/${Uri.encodeComponent(slug)}/members',
+      query: {'limit': limit.clamp(1, 100), 'offset': offset, 'role': ?role},
+      refresh: refresh,
+    );
+    return CommunityPageResult(
+      data: _p1Parser.parseMembers(page),
+      total: _pageTotal(page),
+      rawCount: (page['data'] as List?)?.length ?? 0,
+    );
+  }
+
+  Future<void> createSubjectTopic({
+    required int subjectId,
+    required String title,
+    required String content,
+    required String turnstileToken,
+  }) async {
+    _requireAuthentication();
+    if (subjectId <= 0 || title.trim().isEmpty || content.trim().isEmpty) {
+      throw const FormatException('请填写标题和正文');
+    }
+    await _postJson(
+      '/subjects/$subjectId/topics',
+      data: {
+        'title': title.trim(),
+        'content': content.trim(),
+        'turnstileToken': _requireTurnstileToken(turnstileToken),
+      },
+    );
+    _jsonCache.removeWhere((key) => key.contains('/topics'));
+  }
+
+  bool canManagePost(CommunityTopic topic, CommunityPost post) {
+    final username = _currentUsername;
+    final author = Uri.tryParse(post.userUrl)?.pathSegments;
+    return isAuthenticated &&
+        username != null &&
+        post.canEdit &&
+        topic.kind.apiArea != null &&
+        author != null &&
+        author.length == 2 &&
+        author.first == 'user' &&
+        author.last.toLowerCase() == username.toLowerCase();
+  }
+
+  Future<void> editPost({
+    required CommunityTopic topic,
+    required CommunityPost post,
+    required String content,
+    String? title,
+  }) async {
+    _requireAuthentication();
+    if (!canManagePost(topic, post)) throw const FormatException('只能编辑自己的内容');
+    if (content.trim().isEmpty) throw const FormatException('正文不能为空');
+    final area = topic.kind.apiArea!;
+    if (post.isOriginal && topic.kind.isDiscussion) {
+      final id = resolveTopicId(topic);
+      if (id == null || title == null || title.trim().isEmpty) {
+        throw const FormatException('请填写话题标题');
+      }
+      await _putJson(
+        '/$area/-/topics/$id',
+        data: {'title': title.trim(), 'content': content.trim()},
+      );
+    } else {
+      final id = parseReplyId(post.id);
+      if (id == null) throw const FormatException('无法识别回复编号');
+      final resource = topic.kind.isDiscussion ? 'posts' : 'comments';
+      await _putJson(
+        '/$area/-/$resource/$id',
+        data: {'content': content.trim()},
+      );
+    }
+    _invalidateThread(topic);
+  }
+
+  Future<void> deletePost({
+    required CommunityTopic topic,
+    required CommunityPost post,
+  }) async {
+    _requireAuthentication();
+    if (!canManagePost(topic, post)) throw const FormatException('只能删除自己的回复');
+    // Deleting a topic's first post does not delete the topic itself.
+    if (post.isOriginal) throw const FormatException('请在官网删除整个话题');
+    final id = parseReplyId(post.id);
+    if (id == null) throw const FormatException('无法识别回复编号');
+    final resource = topic.kind.isDiscussion ? 'posts' : 'comments';
+    await _deleteJson('/${topic.kind.apiArea}/-/$resource/$id');
+    _invalidateThread(topic);
+  }
+
+  void _invalidateThread(CommunityTopic topic) {
+    _jsonCache.clear();
+    _htmlCache.removeWhere(
+      (key) => key.contains(topic.webUrl) || key.contains('/topic/'),
+    );
   }
 
   Future<CommunityGroupDetail> loadGroupDetail(
@@ -368,6 +797,8 @@ class CommunityService {
     int? until,
     bool refresh = false,
   }) async {
+    final identity = _identityRevision;
+    final contentRevision = _contentRevision;
     final path = mode == CommunityTimelineMode.me
         ? '/users/${Uri.encodeComponent(_requireCurrentUsername())}/timeline'
         : '/timeline';
@@ -380,10 +811,18 @@ class CommunityService {
       },
       refresh: refresh,
     );
+    if (identity != _identityRevision || contentRevision != _contentRevision) {
+      throw const FormatException('账号或内容偏好已变化，请刷新动态');
+    }
     if (until == null) {
       await _persistentCache.writeJson('timeline:${mode.name}', {
         'data': data,
       }, accountScoped: mode != CommunityTimelineMode.all);
+      if (identity != _identityRevision ||
+          contentRevision != _contentRevision) {
+        await _removeTimelineSnapshots();
+        throw const FormatException('账号或内容偏好已变化，请刷新动态');
+      }
     }
     return decodeCachedTimeline(mode, data);
   }
@@ -397,6 +836,8 @@ class CommunityService {
     String? fallbackAvatarUrl,
     String? fallbackNickname,
   }) async {
+    final identity = _identityRevision;
+    final contentRevision = _contentRevision;
     final value = username.trim();
     if (value.isEmpty) return const [];
     final data = await _getJsonList(
@@ -404,6 +845,9 @@ class CommunityService {
       query: {'limit': limit.clamp(1, 30), 'until': ?until},
       refresh: refresh,
     );
+    if (identity != _identityRevision || contentRevision != _contentRevision) {
+      throw const FormatException('账号或内容偏好已变化，请刷新动态');
+    }
     // Same shape as the own-timeline endpoint: no `user` object per item.
     return _p1Parser.parseTimeline(
       data,
@@ -431,6 +875,7 @@ class CommunityService {
     required String turnstileToken,
   }) async {
     _requireAuthentication();
+    final identity = _identityRevision;
     final trimmedTitle = title.trim();
     final trimmedContent = content.trim();
     if (trimmedTitle.isEmpty) {
@@ -451,6 +896,9 @@ class CommunityService {
         },
       );
     } on PrivateGroupMembershipException {
+      if (identity != _identityRevision) {
+        throw const FormatException('账号已变化，请重新发起讨论');
+      }
       // Same P1 membership-id swap as replies: the official create-topic
       // endpoint rejects even the group owner. The classic website form
       // checks membership correctly.
@@ -484,26 +932,23 @@ class CommunityService {
     required int? value,
   }) async {
     _requireAuthentication();
-    final area = switch (topic.kind) {
-      CommunityTopicKind.group => 'groups',
-      CommunityTopicKind.subject => 'subjects',
-      _ => throw const FormatException('暂不支持给此类话题贴贴'),
-    };
+    if (!topic.kind.supportsReactions) {
+      throw const FormatException('此类讨论暂不支持贴贴');
+    }
+    final area = topic.kind.apiArea!;
     final postId = parseReplyId(post.id);
     if (postId == null) throw const FormatException('无法识别回复编号');
     if (value != null && !BangumiReactions.accepts(value)) {
       throw const FormatException('不支持这个贴贴表情');
     }
-    final path = '/$area/-/posts/$postId/like';
+    final resource = topic.kind.isDiscussion ? 'posts' : 'comments';
+    final path = '/$area/-/$resource/$postId/like';
     if (value == null) {
       await _deleteJson(path);
     } else {
       await _putJson(path, data: {'value': value});
     }
-    final topicId = resolveTopicId(topic);
-    if (topicId != null) {
-      _jsonCache.removeWhere((key) => key.contains('/$area/-/topics/$topicId'));
-    }
+    _invalidateThread(topic);
   }
 
   Future<void> _replyToTopicViaP1({
@@ -513,11 +958,9 @@ class CommunityService {
     int? replyTo,
   }) async {
     _requireAuthentication();
-    final area = switch (topic.kind) {
-      CommunityTopicKind.group => 'groups',
-      CommunityTopicKind.subject => 'subjects',
-      _ => throw const FormatException('暂不支持回复此类话题'),
-    };
+    final identity = _identityRevision;
+    final area = topic.kind.apiArea;
+    if (area == null) throw const FormatException('请在官网回复此类话题');
     final id = resolveTopicId(topic);
     if (id == null) {
       throw const FormatException('无法识别话题编号，请从话题列表重新打开后再试');
@@ -529,7 +972,9 @@ class CommunityService {
     final token = _requireTurnstileToken(turnstileToken);
     try {
       await _postJson(
-        '/$area/-/topics/$id/replies',
+        topic.kind.isDiscussion
+            ? '/$area/-/topics/$id/replies'
+            : '/$area/$id/comments',
         data: {
           'content': trimmed,
           'turnstileToken': token,
@@ -537,6 +982,9 @@ class CommunityService {
         },
       );
     } on PrivateGroupMembershipException {
+      if (identity != _identityRevision) {
+        throw const FormatException('账号已变化，请重新回复');
+      }
       // The P1 server currently checks private-group membership with the
       // user/group ids swapped, so even the group owner is rejected. Fall
       // back to the classic website form, which validates membership
@@ -547,10 +995,7 @@ class CommunityService {
         replyTo: replyTo,
       );
     }
-    _jsonCache.removeWhere(
-      (key) => key.contains('/topics/$id') || key.contains('topic'),
-    );
-    _htmlCache.removeWhere((key) => key.contains('/group/topic/$id'));
+    _invalidateThread(topic);
   }
 
   /// Creates a group topic through the classic website form
@@ -560,9 +1005,11 @@ class CommunityService {
     required String title,
     required String content,
   }) async {
+    final identity = _identityRevision;
     final cookie = await _requireWebsiteCookieHeader();
     final path = '/group/${Uri.encodeComponent(slug)}/new_topic';
     final formhash = await _loadWebsiteFormhash(path, cookie);
+    await _verifyWebsiteWriteContext(identity, cookie);
     final response = await _htmlDio.post<String>(
       path,
       data: {
@@ -590,6 +1037,7 @@ class CommunityService {
     }
     final body = response.data ?? '';
     if (status == 401 || looksLikeWebsiteLoginPage(body)) {
+      _websiteFailed(WebsiteAccessStatus.expired, cookie);
       throw const FormatException('网页版登录已过期，请重新登录网页版后再发帖');
     }
     Object? decoded;
@@ -627,11 +1075,13 @@ class CommunityService {
     required String content,
     int? replyTo,
   }) async {
+    final identity = _identityRevision;
     final cookie = await _requireWebsiteCookieHeader();
     final topicPath = '/group/topic/$topicId';
     // The topic page carries the session-wide formhash the form needs; the
     // GET also proves the website session can actually see the group.
     final formhash = await _loadWebsiteFormhash(topicPath, cookie);
+    await _verifyWebsiteWriteContext(identity, cookie);
     final response = await _htmlDio.post<String>(
       '$topicPath/new_reply?ajax=1',
       data: {
@@ -657,6 +1107,7 @@ class CommunityService {
     );
     final body = response.data ?? '';
     if (response.statusCode == 401 || looksLikeWebsiteLoginPage(body)) {
+      _websiteFailed(WebsiteAccessStatus.expired, cookie);
       throw const FormatException('网页版登录已过期，请重新登录网页版后再回复');
     }
     // With ?ajax=1 the classic site answers JSON: {"posts": …} on success.
@@ -684,7 +1135,7 @@ class CommunityService {
 
   Future<String> _loadWebsiteFormhash(String path, String cookie) async {
     final html = await _fetchWebsiteHtml(path, cookie);
-    _throwIfWebsiteLoginPage(html);
+    _throwIfWebsiteLoginPage(html, cookie);
     final fromPage = _htmlParser.parseFormhash(html);
     if (fromPage != null) return fromPage;
     // Private-group / permission pages omit the reply form. The homepage
@@ -692,11 +1143,28 @@ class CommunityService {
     // actually authenticated.
     if (path != '/') {
       final home = await _fetchWebsiteHtml('/', cookie);
-      _throwIfWebsiteLoginPage(home);
+      _throwIfWebsiteLoginPage(home, cookie);
       final fromHome = _htmlParser.parseFormhash(home);
       if (fromHome != null) return fromHome;
     }
-    throw const FormatException('网页版看起来没有登录成功，请到「我的 → 同步网站登录」重新登录后再试');
+    throw const FormatException('网页版看起来没有登录成功，请到「我的 → 设置 → Bangumi 账号」重新登录后再试');
+  }
+
+  Future<void> _verifyWebsiteWriteContext(
+    int identity,
+    String originalCookie,
+  ) async {
+    if (identity != _identityRevision) {
+      throw const FormatException('账号已变化，请重新操作');
+    }
+    final current = await _requireWebsiteCookieHeader();
+    String key(String header) => WebsiteSessionSnapshot(
+      cookies: WebsiteSessionSnapshot.parseDocumentCookie(header),
+      syncedAt: DateTime.now(),
+    ).authenticationKey;
+    if (identity != _identityRevision || key(current) != key(originalCookie)) {
+      throw const FormatException('网页登录已变化，请刷新页面后再提交');
+    }
   }
 
   Future<String> _fetchWebsiteHtml(String path, String cookie) async {
@@ -707,23 +1175,35 @@ class CommunityService {
       ),
     );
     if (response.statusCode == 401) {
+      _websiteFailed(WebsiteAccessStatus.expired, cookie);
       throw const FormatException('网页版登录已过期，请重新登录网页版后再试');
     }
     return response.data ?? '';
   }
 
-  void _throwIfWebsiteLoginPage(String html) {
+  void _throwIfWebsiteLoginPage(String html, String cookie) {
+    if (WebsiteIdentityProbe.isChallenge(html)) {
+      _websiteFailed(WebsiteAccessStatus.challenge, cookie);
+      throw const WebsiteAccessException(
+        WebsiteAccessStatus.challenge,
+        'Bangumi 需要网页验证，请补充账号验证后继续',
+      );
+    }
     if (looksLikeWebsiteLoginPage(html)) {
+      _websiteFailed(WebsiteAccessStatus.expired, cookie);
       throw const FormatException('网页版登录已过期，请重新登录网页版后再试');
     }
   }
 
   Future<String> _requireWebsiteCookieHeader() async {
+    if (websiteSessionGuard case final guard?) {
+      return (await guard()).cookieHeader;
+    }
     final snapshot = await _sessionStore.read();
     final header = snapshot?.cookieHeader.trim() ?? '';
     if (snapshot == null || header.isEmpty || !snapshot.hasSessionCookies) {
       throw const FormatException(
-        '该小组为私密小组，需要走网站通道发帖或回复：请先在「我的」→「同步网站登录」中完成登录后重试',
+        '该小组为私密小组，需要走网站通道发帖或回复：请先在「我的 → 设置 → Bangumi 账号」中完成登录后重试',
       );
     }
     return header;
@@ -868,6 +1348,37 @@ class CommunityService {
     CommunityTopic topic, {
     bool refresh = false,
   }) async {
+    if (!topic.kind.isDiscussion && topic.kind.apiArea != null) {
+      final id = resolveTopicId(topic);
+      if (id == null) throw const FormatException('无法识别讨论编号');
+      final comments = await _getJsonList(
+        '/${topic.kind.apiArea}/$id/comments',
+        refresh: refresh,
+      );
+      final thread = _p1Parser.parseCommentThread(comments, topic);
+      if (topic.kind == CommunityTopicKind.blog) {
+        final blog = await _getJson('/blogs/$id', refresh: refresh);
+        final user = blog['user'] is Map ? blog['user'] as Map : const {};
+        final username = user['username']?.toString() ?? '';
+        return CommunityTopicDetail(
+          title: blog['title']?.toString() ?? topic.title,
+          posts: [
+            CommunityPost(
+              id: 'entry',
+              author: user['nickname']?.toString() ?? topic.author,
+              userUrl: username.isEmpty
+                  ? ''
+                  : 'https://bgm.tv/user/${Uri.encodeComponent(username)}',
+              body: blog['content']?.toString() ?? '',
+              rawBody: blog['content']?.toString() ?? '',
+              isOriginal: true,
+            ),
+            ...thread.posts,
+          ],
+        );
+      }
+      return thread;
+    }
     if (topic.kind == CommunityTopicKind.group ||
         topic.kind == CommunityTopicKind.subject) {
       try {

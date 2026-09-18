@@ -19,6 +19,18 @@ class WebsiteCookieBridge {
   static const _cookieOrigins = [bgmOrigin];
 
   static Future<void> _cookieWrites = Future<void>.value();
+  static Future<void>? _pendingCleanup;
+  static bool _cleanupFailed = false;
+  static bool get cleanupNeedsRetry => _cleanupFailed;
+
+  static Future<void> waitForPendingCleanup() async {
+    try {
+      await _pendingCleanup?.timeout(const Duration(seconds: 8));
+    } catch (_) {
+      throw StateError('上次网页会话清理尚未完成，请重试清理后登录');
+    }
+    if (_cleanupFailed) throw StateError('上次网页会话清理失败，请重试清理后登录');
+  }
 
   static Future<void> _writeCookies(Future<void> Function() action) {
     final next = _cookieWrites.then((_) => action());
@@ -30,24 +42,32 @@ class WebsiteCookieBridge {
   }
 
   /// Logout stays responsive; subsequent injection must wait for the cleanup.
-  static Future<void> clearBgmCookies() async {
+  static Future<void> clearBgmCookies({bool strict = false}) async {
     final cleanup = _writeCookies(() async {
-      if (Platform.isWindows) {
-        await _clearWindowsCookies();
-      } else if (Platform.isAndroid) {
-        await _androidCookieManager().clearCookies();
-      } else if (Platform.isIOS || Platform.isMacOS) {
-        await mobile.WebViewCookieManager().clearCookies();
+      try {
+        if (Platform.isWindows) {
+          await _clearWindowsCookies();
+        } else if (Platform.isAndroid) {
+          await _androidCookieManager().clearCookies();
+        } else if (Platform.isIOS || Platform.isMacOS) {
+          await mobile.WebViewCookieManager().clearCookies();
+        }
+        _cleanupFailed = false;
+      } catch (_) {
+        _cleanupFailed = true;
+        rethrow;
       }
     });
-    if (Platform.isWindows) {
+    _pendingCleanup = cleanup;
+    if (Platform.isWindows && !strict) {
       runDetachedBestEffort(() => cleanup);
       return;
     }
     try {
-      await cleanup;
+      await cleanup.timeout(const Duration(seconds: 8));
     } catch (error, stack) {
       _reportCleanupFailure(error, stack);
+      if (strict) rethrow;
     }
   }
 
@@ -74,7 +94,7 @@ class WebsiteCookieBridge {
   static void _reportCleanupFailure(Object error, StackTrace stack) {
     debugPrint(
       '$_cleanupFailurePrefix WebsiteCookieBridge.clearBgmCookies failed; '
-      'stale bgm.tv website session may survive sign-out: $error\n$stack',
+      'stale bgm.tv website session may survive sign-out: ${error.runtimeType}\n$stack',
     );
   }
 
@@ -82,9 +102,15 @@ class WebsiteCookieBridge {
     final controller = windows.WebviewController();
     try {
       await controller.initialize();
-      final cookies = await controller.getCookies(bgmOrigin);
-      for (final name in cookies.map((cookie) => cookie.name).toSet()) {
-        await controller.deleteCookies(name, uri: bgmOrigin);
+      for (final origin in const [
+        bgmOrigin,
+        'https://bangumi.tv',
+        'https://chii.in',
+      ]) {
+        final cookies = await controller.getCookies(origin);
+        for (final name in cookies.map((cookie) => cookie.name).toSet()) {
+          await controller.deleteCookies(name, uri: origin);
+        }
       }
     } finally {
       try {
@@ -129,7 +155,9 @@ class WebsiteCookieBridge {
         );
       }
     } catch (error, stack) {
-      debugPrint('WebsiteCookieBridge.injectMobile failed: $error\n$stack');
+      debugPrint(
+        'WebsiteCookieBridge.injectMobile failed: ${error.runtimeType}\n$stack',
+      );
     }
   });
 
@@ -154,7 +182,9 @@ class WebsiteCookieBridge {
         );
       }
     } catch (error, stack) {
-      debugPrint('WebsiteCookieBridge.injectWindows failed: $error\n$stack');
+      debugPrint(
+        'WebsiteCookieBridge.injectWindows failed: ${error.runtimeType}\n$stack',
+      );
     }
   });
 
@@ -220,7 +250,9 @@ class WebsiteCookieBridge {
       }
       return byName.values.toList();
     } catch (error, stack) {
-      debugPrint('WebsiteCookieBridge._captureWindows failed: $error\n$stack');
+      debugPrint(
+        'WebsiteCookieBridge._captureWindows failed: ${error.runtimeType}\n$stack',
+      );
       return const [];
     }
   }
@@ -241,7 +273,9 @@ class WebsiteCookieBridge {
             ),
       ];
     } catch (error, stack) {
-      debugPrint('WebsiteCookieBridge._captureAndroid failed: $error\n$stack');
+      debugPrint(
+        'WebsiteCookieBridge._captureAndroid failed: ${error.runtimeType}\n$stack',
+      );
       return const [];
     }
   }
@@ -263,7 +297,7 @@ class WebsiteCookieBridge {
       return WebsiteSessionSnapshot.parseDocumentCookie(text);
     } catch (error, stack) {
       debugPrint(
-        'WebsiteCookieBridge._captureDocumentCookie failed: $error\n$stack',
+        'WebsiteCookieBridge._captureDocumentCookie failed: ${error.runtimeType}\n$stack',
       );
       return const [];
     }

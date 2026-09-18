@@ -1,0 +1,19 @@
+{
+  "browser_checks": "passed",
+  "responsive_cases": 15,
+  "single_screen_participant_sizes": [
+    "390x844",
+    "360x640",
+    "352x700",
+    "768x900"
+  ],
+  "single_screen_admin_sizes": [
+    "1440x900",
+    "1280x720",
+    "1100x800",
+    "1280x640",
+    "1024x640"
+  ],
+  "theme_switch": "passed",
+  "javascript_errors": []
+}

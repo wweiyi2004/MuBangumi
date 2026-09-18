@@ -8,15 +8,17 @@ import '../core/network/community_service.dart';
 import '../models/community_models.dart';
 import '../widgets/community_widgets.dart';
 import '../widgets/community_loading.dart';
+import '../widgets/social_group_widgets.dart';
+import '../widgets/social_chat_style.dart';
 import 'community_group_screen.dart';
 import 'community_timeline_page.dart';
 import 'community_topic_screen.dart';
 import 'website_login_screen.dart';
 
 enum _CommunityArea {
-  rakuen('超展开', Icons.forum_outlined, 'https://bgm.tv/rakuen'),
-  groups('小组', Icons.groups_outlined, 'https://bgm.tv/group'),
-  timeline('时光机', Icons.dynamic_feed_outlined, 'https://bgm.tv/timeline');
+  rakuen('话题', Icons.forum_outlined, 'https://bgm.tv/rakuen'),
+  groups('找小组', Icons.groups_outlined, 'https://bgm.tv/group'),
+  timeline('全站动态', Icons.dynamic_feed_outlined, 'https://bgm.tv/timeline');
 
   const _CommunityArea(this.label, this.icon, this.webUrl);
 
@@ -26,8 +28,9 @@ enum _CommunityArea {
 }
 
 class CommunityPage extends StatefulWidget {
-  const CommunityPage({super.key, this.service});
+  const CommunityPage({super.key, this.service, this.showTitle = true});
   final CommunityService? service;
+  final bool showTitle;
 
   @override
   State<CommunityPage> createState() => _CommunityPageState();
@@ -65,21 +68,22 @@ class _CommunityPageState extends State<CommunityPage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            children: [
-              Expanded(
-                child: Text('社区', style: AppLayout.pageTitleStyle(context)),
-              ),
-              IconButton(
-                visualDensity: phone
-                    ? VisualDensity.compact
-                    : VisualDensity.standard,
-                tooltip: '在 Bangumi 网页查看',
-                onPressed: _openWeb,
-                icon: const Icon(Icons.language_rounded),
-              ),
-            ],
-          ),
+          if (widget.showTitle)
+            Row(
+              children: [
+                Expanded(
+                  child: Text('超展开', style: AppLayout.pageTitleStyle(context)),
+                ),
+                IconButton(
+                  visualDensity: phone
+                      ? VisualDensity.compact
+                      : VisualDensity.standard,
+                  tooltip: '在 Bangumi 网页查看',
+                  onPressed: _openWeb,
+                  icon: const Icon(Icons.language_rounded),
+                ),
+              ],
+            ),
           SizedBox(height: phone ? 10 : 13),
           SingleChildScrollView(
             scrollDirection: Axis.horizontal,
@@ -104,10 +108,14 @@ class _CommunityPageState extends State<CommunityPage> {
               children: [
                 _RakuenPage(service: widget.service),
                 _opened.contains(_CommunityArea.groups)
-                    ? _GroupBrowser(service: widget.service)
+                    ? CommunityGroupBrowser(service: widget.service)
                     : const SizedBox.shrink(),
                 _opened.contains(_CommunityArea.timeline)
-                    ? CommunityTimelinePage(service: widget.service)
+                    ? CommunityTimelinePage(
+                        service: widget.service,
+                        initialMode: CommunityTimelineMode.all,
+                        showModeSelector: false,
+                      )
                     : const SizedBox.shrink(),
               ],
             ),
@@ -385,6 +393,27 @@ class _RakuenPageState extends State<_RakuenPage> {
                 child: Center(child: Text('暂时没有话题')),
               );
             }
+            if (_mode.aggregateType != null &&
+                !_hasMore &&
+                !_loadingMore &&
+                _loadMoreError == null) {
+              return Padding(
+                padding: const EdgeInsets.all(12),
+                child: Column(
+                  children: [
+                    Text('已显示最近 ${_topics.length} 个讨论'),
+                    TextButton(
+                      onPressed: () => openSeededCommunityWeb(
+                        context,
+                        initialUrl: 'https://bgm.tv/rakuen',
+                        title: '超展开',
+                      ),
+                      child: const Text('在官网查看更多讨论'),
+                    ),
+                  ],
+                ),
+              );
+            }
             return CommunityLoadMoreFooter(
               loading: _loadingMore,
               hasMore: _hasMore,
@@ -409,40 +438,60 @@ class _RakuenModePicker extends StatelessWidget {
     required this.authenticated,
     required this.onChanged,
   });
-
   final RakuenMode mode;
   final bool authenticated;
   final ValueChanged<RakuenMode> onChanged;
-
   @override
-  Widget build(BuildContext context) => SingleChildScrollView(
-    scrollDirection: Axis.horizontal,
-    child: Row(
-      children: [
-        for (var index = 0; index < RakuenMode.values.length; index++) ...[
-          if (index == 0 ||
-              RakuenMode.values[index - 1].isSubject !=
-                  RakuenMode.values[index].isSubject) ...[
-            if (index > 0) const SizedBox(width: 8),
-            Padding(
-              padding: const EdgeInsets.only(right: 6),
-              child: Text(
-                RakuenMode.values[index].categoryLabel,
-                style: Theme.of(context).textTheme.labelMedium,
+  Widget build(BuildContext context) => Wrap(
+    spacing: 8,
+    runSpacing: 6,
+    children: [
+      for (final (category, short) in const [
+        ('条目讨论', '条目'),
+        ('小组话题', '小组'),
+        ('其他讨论', '更多'),
+      ])
+        PopupMenuButton<RakuenMode>(
+          tooltip: '$category筛选',
+          onSelected: onChanged,
+          itemBuilder: (_) => [
+            for (final value in RakuenMode.values.where(
+              (value) => value.categoryLabel == category,
+            ))
+              PopupMenuItem(
+                value: value,
+                enabled: !value.requiresLogin || authenticated,
+                child: Row(
+                  children: [
+                    Expanded(child: Text(value.label)),
+                    if (value == mode) const Icon(Icons.check, size: 18),
+                  ],
+                ),
               ),
-            ),
           ],
-          ChoiceChip(
-            label: Text(RakuenMode.values[index].label),
-            selected: mode == RakuenMode.values[index],
-            onSelected: !RakuenMode.values[index].requiresLogin || authenticated
-                ? (_) => onChanged(RakuenMode.values[index])
-                : null,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(12),
+              color: category == mode.categoryLabel
+                  ? Theme.of(context).colorScheme.primaryContainer
+                  : Theme.of(context).colorScheme.surfaceContainerLow,
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  category == mode.categoryLabel
+                      ? '$short · ${mode.label}'
+                      : short,
+                ),
+                const SizedBox(width: 4),
+                const Icon(Icons.expand_more, size: 18),
+              ],
+            ),
           ),
-          const SizedBox(width: 7),
-        ],
-      ],
-    ),
+        ),
+    ],
   );
 }
 
@@ -490,19 +539,28 @@ class _HotGroups extends StatelessWidget {
   );
 }
 
-class _GroupBrowser extends StatefulWidget {
-  const _GroupBrowser({this.service});
+class CommunityGroupBrowser extends StatefulWidget {
+  const CommunityGroupBrowser({
+    super.key,
+    this.service,
+    this.joinedOnly = false,
+  });
+  final bool joinedOnly;
   final CommunityService? service;
 
   @override
-  State<_GroupBrowser> createState() => _GroupBrowserState();
+  State<CommunityGroupBrowser> createState() => CommunityGroupBrowserState();
 }
 
-class _GroupBrowserState extends State<_GroupBrowser> {
+class CommunityGroupBrowserState extends State<CommunityGroupBrowser> {
   late final _service = widget.service ?? CommunityService.shared;
   final _scrollController = ScrollController();
-  CommunityGroupMode _mode = CommunityGroupMode.all;
-  CommunityGroupSort _sort = CommunityGroupSort.members;
+  late CommunityGroupMode _mode = widget.joinedOnly
+      ? CommunityGroupMode.joined
+      : CommunityGroupMode.all;
+  late CommunityGroupSort _sort = widget.joinedOnly
+      ? CommunityGroupSort.updated
+      : CommunityGroupSort.members;
   List<CommunityGroup> _groups = const [];
   int _total = 0;
   bool _loading = true;
@@ -692,50 +750,66 @@ class _GroupBrowserState extends State<_GroupBrowser> {
   Widget build(BuildContext context) => Column(
     crossAxisAlignment: CrossAxisAlignment.stretch,
     children: [
-      Row(
-        children: [
-          Expanded(
-            child: SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              child: Row(
-                children: [
-                  for (final mode in CommunityGroupMode.values) ...[
-                    ChoiceChip(
-                      label: Text(mode.label),
-                      selected: _mode == mode,
-                      onSelected:
-                          !mode.requiresLogin || _service.isAuthenticated
-                          ? (_) => _changeFilter(mode: mode)
-                          : null,
-                    ),
-                    const SizedBox(width: 7),
+      Padding(
+        padding: EdgeInsets.fromLTRB(
+          widget.joinedOnly ? 16 : 0,
+          10,
+          widget.joinedOnly ? 8 : 0,
+          0,
+        ),
+        child: Row(
+          children: [
+            Expanded(
+              child: SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: Row(
+                  children: [
+                    for (final mode in CommunityGroupMode.values.where(
+                      (mode) =>
+                          !widget.joinedOnly || mode != CommunityGroupMode.all,
+                    )) ...[
+                      ChoiceChip(
+                        showCheckmark: false,
+                        selectedColor: SocialChatStyle.accent(
+                          context,
+                        ).withValues(alpha: .12),
+                        side: BorderSide.none,
+                        label: Text(mode.label),
+                        selected: _mode == mode,
+                        onSelected:
+                            !mode.requiresLogin || _service.isAuthenticated
+                            ? (_) => _changeFilter(mode: mode)
+                            : null,
+                      ),
+                      const SizedBox(width: 7),
+                    ],
                   ],
-                ],
+                ),
               ),
             ),
-          ),
-          const SizedBox(width: 8),
-          PopupMenuButton<CommunityGroupSort>(
-            tooltip: '排序',
-            initialValue: _sort,
-            onSelected: (sort) => _changeFilter(sort: sort),
-            itemBuilder: (context) => [
-              for (final sort in CommunityGroupSort.values)
-                PopupMenuItem(value: sort, child: Text(sort.label)),
-            ],
-            child: Chip(
-              avatar: const Icon(Icons.sort_rounded, size: 18),
-              label: Text(_sort.label),
+            const SizedBox(width: 8),
+            PopupMenuButton<CommunityGroupSort>(
+              tooltip: '排序',
+              initialValue: _sort,
+              onSelected: (sort) => _changeFilter(sort: sort),
+              itemBuilder: (context) => [
+                for (final sort in CommunityGroupSort.values)
+                  PopupMenuItem(value: sort, child: Text(sort.label)),
+              ],
+              child: Chip(
+                avatar: const Icon(Icons.sort_rounded, size: 18),
+                label: Text(_sort.label),
+              ),
             ),
-          ),
-          IconButton(
-            tooltip: '刷新小组',
-            onPressed: _loading ? null : () => _load(refresh: true),
-            icon: const Icon(Icons.refresh_rounded),
-          ),
-        ],
+            IconButton(
+              tooltip: '刷新小组',
+              onPressed: _loading ? null : () => _load(refresh: true),
+              icon: const Icon(Icons.refresh_rounded),
+            ),
+          ],
+        ),
       ),
-      const SizedBox(height: 11),
+      const SizedBox(height: 6),
       if (_groups.isNotEmpty)
         CommunityRefreshStatus(
           loading: _loading,
@@ -754,6 +828,45 @@ class _GroupBrowserState extends State<_GroupBrowser> {
       return CommunityErrorView(
         message: _error!,
         onRetry: () => _load(refresh: true),
+      );
+    }
+    if (widget.joinedOnly) {
+      return RefreshIndicator(
+        onRefresh: () => _load(refresh: true),
+        child: ListView.separated(
+          controller: _scrollController,
+          physics: const AlwaysScrollableScrollPhysics(),
+          padding: const EdgeInsets.only(bottom: 28),
+          itemCount: _groups.length + 1,
+          separatorBuilder: (_, _) => Divider(
+            height: 1,
+            indent: 84,
+            endIndent: 18,
+            color: Theme.of(
+              context,
+            ).colorScheme.outlineVariant.withValues(alpha: .3),
+          ),
+          itemBuilder: (context, index) {
+            if (index == _groups.length) {
+              if (_groups.isEmpty) {
+                return const Padding(
+                  padding: EdgeInsets.all(32),
+                  child: Center(child: Text('暂时没有小组')),
+                );
+              }
+              return CommunityLoadMoreFooter(
+                loading: _loadingMore,
+                hasMore: _hasMore,
+                error: _loadMoreError,
+                onLoad: _loading ? null : () => _loadMore(),
+              );
+            }
+            return GroupConversationTile(
+              group: _groups[index],
+              onTap: () => _openGroup(_groups[index]),
+            );
+          },
+        ),
       );
     }
     return RefreshIndicator(

@@ -7,18 +7,24 @@ import 'screens/home_shell.dart';
 import 'screens/login_preparation_screen.dart';
 import 'state/background_controller.dart';
 import 'state/session_controller.dart';
+import 'state/account_access_controller.dart';
+import 'state/pm_send_queue_controller.dart';
+import 'core/network/pm_service.dart';
 import 'state/theme_controller.dart';
 import 'state/system_appearance_controller.dart';
 import 'widgets/app_background.dart';
 import 'widgets/app_shortcut_host.dart';
 import 'widgets/login_progress.dart';
 import 'widgets/update_check_host.dart';
+import 'widgets/network_recovery_host.dart';
 
 class MuBangumiApp extends ConsumerWidget {
   const MuBangumiApp({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    ref.watch(accountAccessProvider);
+    ref.watch(pmSendQueueProvider(PmService.shared).select((_) => true));
     // Collection updates do not rebuild the root; only entry state does.
     final phase = ref.watch(sessionProvider.select((state) => state.phase));
     final preparing = ref.watch(
@@ -43,7 +49,9 @@ class MuBangumiApp extends ConsumerWidget {
         highContrastDarkTheme: highDark,
         themeMode: themeMode,
         builder: (context, child) {
-          return AppBackgroundHost(child: child ?? const SizedBox.shrink());
+          return AppBackgroundHost(
+            child: NetworkRecoveryHost(child: child ?? const SizedBox.shrink()),
+          );
         },
         home: UpdateCheckHost(
           allowNotices: phase == SessionPhase.signedIn,
