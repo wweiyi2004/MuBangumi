@@ -56,6 +56,7 @@ app.*.map.json
 /config/oauth.local.json
 
 android/build/
+android/.kotlin/
 android/key.properties
 android/*.jks
 android/*.keystore
