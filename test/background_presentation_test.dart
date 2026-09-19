@@ -1,3 +1,5 @@
+import 'package:mubangumi/navigation/app_destination.dart';
+import 'package:mubangumi/navigation/app_router.dart';
 import 'dart:io';
 import 'dart:ui' as ui;
 
@@ -325,7 +327,12 @@ Future<void> showSettings(
   if (controller.state.hasImage) {
     // Start file decoding outside fake async before Image creates a pending
     // cache entry. Awaiting that old entry inside runAsync would deadlock.
-    await tester.pumpWidget(const MaterialApp(home: SizedBox.shrink()));
+    await tester.pumpWidget(
+      const AppRouteScope(
+        resolve: AppRouter.resolve,
+        child: MaterialApp(home: SizedBox.shrink()),
+      ),
+    );
     final context = tester.element(find.byType(MaterialApp));
     await tester.runAsync(() async {
       for (final imageWidth in [
@@ -372,27 +379,31 @@ Future<void> showSettings(
           final settings = ref.watch(effectiveBackgroundProvider);
           final native = ref.watch(systemAppearanceProvider);
           final base = dark ? AppTheme.dark : AppTheme.light;
-          return MaterialApp(
-            theme: native.highContrast
-                ? highContrastBackgroundTheme(base, native)
-                : applyBackgroundTheme(base, settings),
-            highContrastTheme: highContrastBackgroundTheme(base, native),
-            builder: (context, child) => MediaQuery(
-              data: MediaQuery.of(
-                context,
-              ).copyWith(textScaler: TextScaler.linear(scale)),
-              child: RepaintBoundary(
-                key: boundaryKey,
-                child: AppBackgroundHost(child: child!),
+          return AppRouteScope(
+            resolve: AppRouter.resolve,
+            child: MaterialApp(
+              theme: native.highContrast
+                  ? highContrastBackgroundTheme(base, native)
+                  : applyBackgroundTheme(base, settings),
+              highContrastTheme: highContrastBackgroundTheme(base, native),
+              builder: (context, child) => MediaQuery(
+                data: MediaQuery.of(
+                  context,
+                ).copyWith(textScaler: TextScaler.linear(scale)),
+                child: RepaintBoundary(
+                  key: boundaryKey,
+                  child: AppBackgroundHost(child: child!),
+                ),
               ),
-            ),
-            home: Scaffold(
-              appBar: AppBar(title: const Text('背景效果检查')),
-              body: Center(
-                child: Builder(
-                  builder: (context) => FilledButton(
-                    onPressed: () => showBackgroundSettingsSheet(context, ref),
-                    child: const Text('打开设置'),
+              home: Scaffold(
+                appBar: AppBar(title: const Text('背景效果检查')),
+                body: Center(
+                  child: Builder(
+                    builder: (context) => FilledButton(
+                      onPressed: () =>
+                          showBackgroundSettingsSheet(context, ref),
+                      child: const Text('打开设置'),
+                    ),
                   ),
                 ),
               ),

@@ -1,3 +1,5 @@
+import 'package:mubangumi/navigation/app_destination.dart';
+import 'package:mubangumi/navigation/app_router.dart';
 import 'package:mubangumi/state/short_review_draft.dart';
 import 'support/memory_short_review_drafts.dart';
 import 'dart:async';
@@ -44,15 +46,18 @@ void main() {
               netabaApiProvider.overrideWithValue(_History()),
               sessionProvider.overrideWith((ref) => session),
             ],
-            child: MaterialApp(
-              theme: theme,
-              builder: (context, child) => MediaQuery(
-                data: MediaQuery.of(
-                  context,
-                ).copyWith(textScaler: TextScaler.linear(scale)),
-                child: RepaintBoundary(key: boundary, child: child!),
+            child: AppRouteScope(
+              resolve: AppRouter.resolve,
+              child: MaterialApp(
+                theme: theme,
+                builder: (context, child) => MediaQuery(
+                  data: MediaQuery.of(
+                    context,
+                  ).copyWith(textScaler: TextScaler.linear(scale)),
+                  child: RepaintBoundary(key: boundary, child: child!),
+                ),
+                home: const SubjectDetailScreen(subject: _subject),
               ),
-              home: const SubjectDetailScreen(subject: _subject),
             ),
           ),
         );
@@ -202,7 +207,10 @@ Future<void> _show(WidgetTester tester, _Api api, _Cache cache) async {
         netabaApiProvider.overrideWithValue(_History()),
         sessionProvider.overrideWith((ref) => _Session(api, cache)),
       ],
-      child: const MaterialApp(home: SubjectDetailScreen(subject: _subject)),
+      child: const AppRouteScope(
+        resolve: AppRouter.resolve,
+        child: MaterialApp(home: SubjectDetailScreen(subject: _subject)),
+      ),
     ),
   );
   await tester.pump();

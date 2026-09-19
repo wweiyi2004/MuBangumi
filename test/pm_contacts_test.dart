@@ -1,3 +1,5 @@
+import 'package:mubangumi/navigation/app_destination.dart';
+import 'package:mubangumi/navigation/app_router.dart';
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -193,10 +195,13 @@ void main() {
       await tester.pumpWidget(
         UncontrolledProviderScope(
           container: container,
-          child: MaterialApp(
-            home: PmPage(
-              service: service,
-              friendsLoader: (_) async => [alice, quiet],
+          child: AppRouteScope(
+            resolve: AppRouter.resolve,
+            child: MaterialApp(
+              home: PmPage(
+                service: service,
+                friendsLoader: (_) async => [alice, quiet],
+              ),
             ),
           ),
         ),

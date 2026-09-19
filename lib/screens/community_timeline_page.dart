@@ -1,3 +1,5 @@
+import '../state/service_providers.dart';
+import '../navigation/app_destination.dart';
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -10,8 +12,6 @@ import '../state/user_preferences_controller.dart';
 import '../widgets/community_composer.dart';
 import '../widgets/community_widgets.dart';
 import '../widgets/community_loading.dart';
-import 'subject_detail_screen.dart';
-import 'user_profile_page.dart';
 import 'community_target_navigation.dart';
 
 class CommunityTimelinePage extends ConsumerStatefulWidget {
@@ -40,7 +40,7 @@ class CommunityTimelinePage extends ConsumerStatefulWidget {
 }
 
 class _CommunityTimelinePageState extends ConsumerState<CommunityTimelinePage> {
-  late final _service = widget.service ?? CommunityService.shared;
+  late final _service = widget.service ?? communityServiceFor(context);
   final _scrollController = ScrollController();
   final _initialTimelineKey = GlobalKey();
   late CommunityTimelineMode _mode;
@@ -538,9 +538,7 @@ class _CommunityTimelinePageState extends ConsumerState<CommunityTimelinePage> {
       date: progress.episode?.airDate ?? '',
     );
     Navigator.of(context).push(
-      MaterialPageRoute<void>(
-        builder: (_) => SubjectDetailScreen(subject: subject),
-      ),
+      MaterialPageRoute<void>(builder: (_) => SubjectRoute(subject: subject)),
     );
   }
 

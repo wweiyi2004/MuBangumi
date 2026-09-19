@@ -5,13 +5,39 @@ import 'dart:typed_data';
 import 'package:banjian_server/banjian_server.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'room_storage.dart';
+export 'room_storage.dart';
 import 'room_discovery.dart';
+import '../../core/diagnostics/async_diagnostics.dart';
+
+Json _decodeRoomResponse(Uint8List bytes) {
+  final data = jsonDecode(utf8.decode(bytes));
+  if (data is! Json) throw const FormatException('Invalid room response');
+  return data;
+}
 
 class RoomApi {
   RoomApi(this.base, {this.token = ''});
   final Uri base;
   String token;
+  final _snapshots = <String, Json>{};
+  void rememberSnapshot(Json snapshot) {
+    final id = snapshot['id'];
+    if (id is! String || snapshot['revision'] is! int) return;
+    final key = '${digest(token)}:$id';
+    final old = _snapshots[key];
+    if (old != null &&
+        sameRoomEpoch(old, snapshot) &&
+        (old['revision'] as int) > (snapshot['revision'] as int)) {
+      return;
+    }
+    _snapshots.remove(key);
+    _snapshots[key] = snapshot;
+    while (_snapshots.length > 8) {
+      _snapshots.remove(_snapshots.keys.first);
+    }
+  }
+
   Future<Uint8List> download(String path) async {
     final client = HttpClient()..connectionTimeout = const Duration(seconds: 8);
     try {
@@ -40,6 +66,43 @@ class RoomApi {
   }
 
   Future<Json> request(String path, [Json? body]) async {
+    final uri = Uri.parse(path);
+    if (body != null || uri.path != 'state') return _request(path, body);
+    final requestToken = token;
+    final previous =
+        _snapshots['${digest(token)}:${uri.queryParameters['event']}'];
+    final query = previous == null
+        ? path
+        : uri
+              .replace(
+                queryParameters: {
+                  ...uri.queryParameters,
+                  'since': '${previous['revision']}',
+                  if (previous['serverEpoch'] is String)
+                    'epoch': previous['serverEpoch'] as String,
+                },
+              )
+              .toString();
+    final payload = await _request(query);
+    Json snapshot;
+    try {
+      snapshot = mergeRoomSnapshot(previous, payload);
+    } on FormatException {
+      if (payload['type'] != 'delta') rethrow;
+      snapshot = mergeRoomSnapshot(null, await _request(path));
+    }
+    final currentCache =
+        _snapshots['${digest(requestToken)}:${uri.queryParameters['event']}'];
+    if (token == requestToken &&
+        (currentCache == null ||
+            sameRoomEpoch(currentCache, previous ?? {}) ||
+            sameRoomEpoch(currentCache, snapshot))) {
+      rememberSnapshot(snapshot);
+    }
+    return snapshot;
+  }
+
+  Future<Json> _request(String path, [Json? body]) async {
     final client = HttpClient()..connectionTimeout = const Duration(seconds: 8);
     try {
       final r = await client
@@ -50,18 +113,17 @@ class RoomApi {
       if (token.isNotEmpty) r.headers.set('Authorization', 'Bearer $token');
       if (body != null) r.write(jsonEncode(body));
       final response = await r.close().timeout(const Duration(seconds: 15));
-      final content = StringBuffer();
-      await for (final chunk
-          in response
-              .transform(utf8.decoder)
-              .timeout(const Duration(seconds: 15))) {
-        content.write(chunk);
-        if (content.length > 8 * 1024 * 1024) {
+      final content = BytesBuilder(copy: false);
+      await for (final chunk in response.timeout(const Duration(seconds: 15))) {
+        content.add(chunk);
+        if (content.length > RoomLimits.snapshotBytes) {
           throw const RoomError(502, '活动数据过大');
         }
       }
-      final data = jsonDecode(content.toString());
-      if (data is! Json) throw const RoomError(502, '服务数据无效');
+      final bytes = content.takeBytes();
+      final data = bytes.length > 128 * 1024
+          ? await compute(_decodeRoomResponse, bytes)
+          : _decodeRoomResponse(bytes);
       if (response.statusCode != 200) {
         throw RoomError(
           response.statusCode,
@@ -75,26 +137,6 @@ class RoomApi {
   }
 }
 
-abstract class ParticipationStorage {
-  Future<Json?> read();
-  Future<void> write(Json value);
-}
-
-class SecureParticipationStorage implements ParticipationStorage {
-  const SecureParticipationStorage({this.key = 'banjian_participation_v1'});
-  final String key;
-  static const _storage = FlutterSecureStorage();
-  @override
-  Future<Json?> read() async {
-    final text = await _storage.read(key: key);
-    return text == null ? null : jsonDecode(text) as Json;
-  }
-
-  @override
-  Future<void> write(Json value) =>
-      _storage.write(key: key, value: jsonEncode(value));
-}
-
 final participationProvider = ChangeNotifierProvider<ParticipationController>((
   ref,
 ) {
@@ -105,8 +147,9 @@ final participationProvider = ChangeNotifierProvider<ParticipationController>((
 
 class ParticipationController extends ChangeNotifier {
   ParticipationController({ParticipationStorage? storage})
-    : storage = storage ?? const SecureParticipationStorage();
+    : storage = storage ?? RoomLocalStorage();
   final ParticipationStorage storage;
+  final diagnostics = AsyncDiagnostics();
   final _located = <String, RoomInvite>{};
   final _discoveries = <RoomDiscovery>{};
   RoomInvite resolvedInviteFor(RoomInvite target) =>
@@ -132,8 +175,16 @@ class ParticipationController extends ChangeNotifier {
   RoomApi? api;
   WebSocket? _socket;
   Timer? _retry;
+  Timer? _liveRefresh;
+  int _activeReads = 0, _announcedRevision = 0;
+  bool _liveDirty = false;
+  bool _connectionError = false;
+  DateTime? _snapshotSavedAt;
   bool online = false, busy = false, _flushing = false, _disposed = false;
   int _generation = 0;
+  int _requestEpoch = 0, _liveRevision = 0;
+  Future<void>? _connecting;
+  int? _connectingGeneration;
   String? message;
   Future<void> _writes = Future.value();
   bool get active => _saved['active'] == true && invite != null;
@@ -176,7 +227,10 @@ class ParticipationController extends ChangeNotifier {
       final value = clone(_saved);
       edit(value);
       await storage.write(value);
-      if (generation == _generation && !_disposed) _saved = value;
+      if (generation == _generation && !_disposed) {
+        if (storage is ArchivedParticipationStorage) value.remove('snapshot');
+        _saved = value;
+      }
     });
     _writes = next.catchError((Object _) {});
     return next;
@@ -192,6 +246,7 @@ class ParticipationController extends ChangeNotifier {
       if (invite != null) {
         api = RoomApi(invite!.base, token: value['token'] as String? ?? '');
         event = value['snapshot'] as Json?;
+        if (storage is ArchivedParticipationStorage) _saved.remove('snapshot');
         if (active) unawaited(refresh());
       }
       _notify();
@@ -216,6 +271,11 @@ class ParticipationController extends ChangeNotifier {
         target = (await locate(target)).invite;
       }
       ++_generation;
+      _activeReads = 0;
+      _announcedRevision = 0;
+      _liveDirty = false;
+      _liveRefresh?.cancel();
+      _snapshotSavedAt = null;
       await _writes;
       _retry?.cancel();
       await _socket?.close();
@@ -231,7 +291,15 @@ class ParticipationController extends ChangeNotifier {
         return record is Json &&
             target.sameRoom(RoomInvite.parse(record['url'] as String? ?? ''));
       }).firstOrNull;
-      final restored = restoreKey == null ? null : archives.remove(restoreKey);
+      var restored = restoreKey == null ? null : archives.remove(restoreKey);
+      if (!same &&
+          storage is ArchivedParticipationStorage &&
+          (restored == null ||
+              restored is Json && restored['stored'] == true)) {
+        restored = await (storage as ArchivedParticipationStorage).readRoom(
+          target.identityKey,
+        );
+      }
       final data = same
           ? clone(_saved)
           : restored is Json
@@ -252,6 +320,17 @@ class ParticipationController extends ChangeNotifier {
       // Save token before sending join; retrying after a lost response recovers
       // the same participant rather than registering a second identity.
       await _persist(data);
+      if (storage is ArchivedParticipationStorage) {
+        data['archives'] = {
+          for (final entry in archives.entries)
+            entry.key: {
+              'url': entry.value['url'],
+              'token': entry.value['token'],
+              'stored': true,
+            },
+        };
+        data.remove('snapshot');
+      }
       _saved = data;
       invite = target;
       final client = RoomApi(target.base, token: data['token']);
@@ -273,6 +352,10 @@ class ParticipationController extends ChangeNotifier {
 
   Future<void> leave() async {
     ++_generation;
+    _activeReads = 0;
+    _announcedRevision = 0;
+    _liveDirty = false;
+    _liveRefresh?.cancel();
     _retry?.cancel();
     await _socket?.close();
     _socket = null;
@@ -284,36 +367,134 @@ class ParticipationController extends ChangeNotifier {
   Future<void> refresh() async {
     if (!active || _disposed) return;
     final generation = _generation;
+    final request = ++_requestEpoch;
+    final timer = Stopwatch()..start();
+    diagnostics.record(
+      AsyncEvent.readStarted,
+      request: request,
+      generation: generation,
+    );
+    final liveRevision = _liveRevision;
+    _activeReads++;
+    bool currentRequest() =>
+        !_disposed && generation == _generation && request == _requestEpoch;
     try {
       if (!online && invite!.candidates.length > 1) {
         final found = await locate(invite!);
-        if (generation != _generation || _disposed) return;
+        if (!currentRequest()) return;
         invite = found.invite;
         api = RoomApi(invite!.base, token: api!.token);
         await _mutate((value) => value['url'] = invite!.url);
       }
       final data = await api!.request('state?event=${invite!.eventId}');
-      if (generation != _generation || _disposed) return;
-      event = data;
+      if (!currentRequest()) {
+        diagnostics.record(
+          AsyncEvent.readSuperseded,
+          request: request,
+          generation: generation,
+        );
+        return;
+      }
+      if (sameRoomEpoch(event, data) &&
+          data['revision'] is int &&
+          (data['revision'] as int) < _announcedRevision) {
+        _liveDirty = true;
+      }
+      // A live update delivered after this HTTP read began is authoritative
+      // unless the response carries a strictly newer server snapshot revision.
+      final newer =
+          sameRoomEpoch(event, data) &&
+          (data['revision'] as int? ?? -1) > (event?['revision'] as int? ?? -1);
+      if (_liveRevision == liveRevision || newer) _acceptSnapshot(data);
       online = true;
-      message = null;
+      if (_connectionError) message = null;
+      _connectionError = false;
       // Snapshot persistence is best effort; command persistence is mandatory.
-      unawaited(
-        _mutate((value) {
-          value['snapshot'] = data;
-          value['name'] = data['name'];
-        }).catchError((Object _) {}),
-      );
+      if (storage is! ArchivedParticipationStorage ||
+          _snapshotSavedAt == null ||
+          DateTime.now().difference(_snapshotSavedAt!) >=
+              const Duration(seconds: 2)) {
+        _snapshotSavedAt = DateTime.now();
+        unawaited(
+          _mutate((value) {
+            if (!currentRequest()) return;
+            value['snapshot'] = event;
+            value['name'] = event?['name'];
+          }).catchError((Object _) {}),
+        );
+      }
       _notify();
       await _connect(generation);
-      unawaited(_flush());
+      diagnostics.record(
+        AsyncEvent.readAccepted,
+        request: request,
+        revision: event?['revision'] as int?,
+        elapsedMs: timer.elapsedMilliseconds,
+      );
+      if (currentRequest()) unawaited(_flush());
     } catch (e) {
-      if (generation != _generation || _disposed) return;
+      if (!currentRequest() || _liveRevision != liveRevision) {
+        diagnostics.record(
+          AsyncEvent.readSuperseded,
+          request: request,
+          generation: generation,
+        );
+        return;
+      }
+      diagnostics.record(
+        e is FormatException
+            ? AsyncEvent.invalidPayload
+            : AsyncEvent.readFailed,
+        request: request,
+        elapsedMs: timer.elapsedMilliseconds,
+        status: e is RoomError ? e.status : null,
+      );
       online = false;
-      message = e is RoomError ? e.message : '连接中断，正在重连；未确认的输入已保留';
+      _connectionError = true;
+      message = e is RoomError
+          ? e.message
+          : e is FormatException
+          ? '活动数据格式不兼容，请检查服务端版本后重试；未确认的输入已保留'
+          : '连接中断，正在重连；未确认的输入已保留';
       _notify();
       _schedule();
+    } finally {
+      if (generation == _generation) {
+        _activeReads--;
+        if (_activeReads == 0 && _liveDirty && !_disposed) {
+          _requestLiveRefresh();
+        }
+      }
     }
+  }
+
+  bool _acceptSnapshot(Json next) {
+    final snapshot = RoomSnapshot.fromJson(next);
+    if (snapshot.id != invite?.eventId) {
+      throw const FormatException('Unexpected room');
+    }
+    if (event?['id'] == next['id'] &&
+        sameRoomEpoch(event, next) &&
+        next['revision'] is int &&
+        event?['revision'] is int &&
+        (next['revision'] as int) < (event!['revision'] as int)) {
+      return false;
+    }
+    if (!sameRoomEpoch(event, next)) _announcedRevision = 0;
+    event = snapshot.toJson();
+    api?.rememberSnapshot(event!);
+    return true;
+  }
+
+  void _requestLiveRefresh() {
+    _liveDirty = true;
+    if (_activeReads > 0 || _liveRefresh?.isActive == true) return;
+    final generation = _generation;
+    _liveRefresh = Timer(const Duration(milliseconds: 60), () {
+      if (generation != _generation || _disposed) return;
+      _liveDirty = false;
+      unawaited(refresh());
+    });
   }
 
   void _schedule() {
@@ -325,7 +506,23 @@ class ParticipationController extends ChangeNotifier {
 
   Future<void> _connect(int generation) async {
     if (_socket?.readyState == WebSocket.open) return;
+    if (_connecting != null && _connectingGeneration == generation) {
+      return _connecting!;
+    }
+    final future = _openSocket(generation);
+    _connecting = future;
+    _connectingGeneration = generation;
+    try {
+      await future;
+    } finally {
+      if (identical(_connecting, future)) _connecting = null;
+    }
+  }
+
+  Future<void> _openSocket(int generation) async {
     final base = invite!.base;
+    final token = api!.token;
+    final eventId = invite!.eventId;
     final ws = await WebSocket.connect(
       base
           .resolve('/ws')
@@ -338,9 +535,13 @@ class ParticipationController extends ChangeNotifier {
     }
     _socket = ws;
     ws.pingInterval = const Duration(seconds: 20);
-    ws.add(jsonEncode({'token': api!.token, 'event': invite!.eventId}));
+    ws.add(
+      jsonEncode({'token': token, 'event': eventId, 'updates': 'invalidate'}),
+    );
     void disconnected() {
-      if (generation != _generation || _disposed) return;
+      if (generation != _generation || _disposed || !identical(_socket, ws)) {
+        return;
+      }
       _socket = null;
       online = false;
       _notify();
@@ -349,15 +550,36 @@ class ParticipationController extends ChangeNotifier {
 
     ws.listen(
       (raw) {
-        if (generation != _generation || _disposed) return;
+        if (generation != _generation || _disposed || !identical(_socket, ws)) {
+          return;
+        }
         try {
           final next = jsonDecode(raw as String) as Json;
-          if (next['id'] != invite!.eventId) return;
-          event = next;
+          if (next['type'] == 'invalidate') {
+            if (next['event'] != invite!.eventId || next['revision'] is! int) {
+              return;
+            }
+            _announcedRevision = (next['revision'] as int) > _announcedRevision
+                ? next['revision'] as int
+                : _announcedRevision;
+            _liveRevision++;
+            online = true;
+            _requestLiveRefresh();
+            return;
+          }
+          if (!_acceptSnapshot(next)) return;
+          _liveRevision++;
           online = true;
+          if (_connectionError) message = null;
+          _connectionError = false;
           _notify();
           unawaited(_flush());
-        } catch (_) {}
+        } catch (_) {
+          _connectionError = true;
+          message = '活动数据格式无效，正在重新读取；未确认的输入已保留';
+          _notify();
+          unawaited(ws.close(1002, 'Invalid room snapshot'));
+        }
       },
       onDone: disconnected,
       onError: (Object _) => disconnected(),
@@ -403,6 +625,7 @@ class ParticipationController extends ChangeNotifier {
       'score': ?score,
       'text': ?text,
     };
+    RoomCommand.fromJson(c, participant: true);
     await _mutate((next) {
       final values = next['pending'] as List;
       if (values.length >= 100) throw const RoomError(409, '待确认操作过多');
@@ -431,10 +654,22 @@ class ParticipationController extends ChangeNotifier {
         try {
           await api!.request('command', c);
           accepted = true;
+          diagnostics.record(
+            AsyncEvent.commandConfirmed,
+            generation: generation,
+            pending: pending.length,
+          );
         } catch (e) {
           if (generation != _generation) return;
           if (e is! RoomError || e.status >= 500 || e.status == 429) {
             online = false;
+            _connectionError = true;
+            diagnostics.record(
+              AsyncEvent.commandPending,
+              generation: generation,
+              pending: pending.length,
+              status: e is RoomError ? e.status : null,
+            );
             message = '提交尚未确认，恢复连接后将自动核对';
             _schedule();
             break;
@@ -473,6 +708,7 @@ class ParticipationController extends ChangeNotifier {
     }
     ++_generation;
     _retry?.cancel();
+    _liveRefresh?.cancel();
     unawaited(_socket?.close());
     super.dispose();
   }

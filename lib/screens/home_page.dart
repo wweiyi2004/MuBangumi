@@ -1,3 +1,4 @@
+import '../navigation/app_destination.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -17,7 +18,6 @@ import '../widgets/continue_watching_tile.dart';
 import 'calendar_page.dart';
 import 'fan_recommend_page.dart';
 import 'notify_page.dart';
-import 'subject_detail_screen.dart';
 import 'library_page.dart';
 
 class HomePage extends ConsumerWidget {
@@ -299,9 +299,9 @@ class HomePage extends ConsumerWidget {
   }
 
   void _openDetail(BuildContext context, Subject subject) {
-    Navigator.of(context).push(
-      MaterialPageRoute(builder: (_) => SubjectDetailScreen(subject: subject)),
-    );
+    Navigator.of(
+      context,
+    ).push(MaterialPageRoute(builder: (_) => SubjectRoute(subject: subject)));
   }
 
   Widget _buildHeader(

@@ -1,0 +1,36 @@
+{
+  "date": "2026-09-19",
+  "baseline": "v2.3.0+28 / 3d345e8",
+  "flutterFullSuite": {
+    "failed": 0,
+    "passed": 1145
+  },
+  "finalFocusedSuite": {
+    "failed": 0,
+    "passed": 8,
+    "newTestsBeyondFullSuite": 1
+  },
+  "backendSuite": {
+    "failed": 0,
+    "passed": 33
+  },
+  "flutterAnalyze": "No issues found",
+  "backendAnalyze": "No issues found",
+  "architecture": {
+    "boundaryCheck": "passed",
+    "cycles": 0,
+    "files": 247
+  },
+  "browser": {
+    "pagination": "passed",
+    "responsiveCases": 15,
+    "javaScriptErrors": 0,
+    "protocolFixtures": "passed"
+  },
+  "standaloneCli": {
+    "assets": "passed",
+    "startup": "passed",
+    "restartPersistence": "passed"
+  },
+  "scope": "Temporary databases and Windows loopback; no real-device hotspot or multi-hour validation"
+}

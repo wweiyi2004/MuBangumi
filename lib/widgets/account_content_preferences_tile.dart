@@ -1,3 +1,4 @@
+import '../state/service_providers.dart';
 import 'dart:async';
 import 'package:flutter/material.dart';
 import '../core/network/community_service.dart';
@@ -19,7 +20,7 @@ class AccountContentPreferencesTile extends StatefulWidget {
 
 class _AccountContentPreferencesTileState
     extends State<AccountContentPreferencesTile> {
-  late final _service = widget.service ?? CommunityService.shared;
+  late final _service = widget.service ?? communityServiceFor(context);
   AccountContentPreferences? _preferences;
   bool _busy = true;
   String? _error;

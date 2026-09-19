@@ -13,7 +13,7 @@ Future<void> main() async {
     ..createSync(recursive: true);
   final web = Directory(env['BANJIAN_WEB'] ?? './web');
   final assets = <String, List<int>>{};
-  for (final name in ['index.html', 'app.css', 'app.js']) {
+  for (final name in ['index.html', 'app.css', 'room_protocol.js', 'app.js']) {
     assets[name] = await File('${web.path}/$name').readAsBytes();
   }
   final store = RoomStore('${directory.path}/banjian.sqlite');

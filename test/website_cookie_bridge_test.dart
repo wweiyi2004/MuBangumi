@@ -12,6 +12,59 @@ import 'package:mubangumi/core/auth/website_cookie_bridge.dart';
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
+  test(
+    'Android raw cookies preserve equals and encoded bytes through restore',
+    () async {
+      const channel = MethodChannel('mubangumi/website_cookies');
+      final messenger =
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+      const raw = 'chii_auth=abc%2Fxyz%3D%3D; chii_sid=a=b==; theme=dark';
+      final headers = <String>[];
+      messenger.setMockMethodCallHandler(channel, (call) async {
+        if (call.method == 'readBgmCookies') return raw;
+        if (call.method == 'setBgmCookie') {
+          headers.add((call.arguments as Map)['header'] as String);
+        }
+        return null;
+      });
+      addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
+      final cookies = await WebsiteCookieBridge.captureAndroidCookies();
+      expect(cookies[0].value, 'abc%2Fxyz%3D%3D');
+      expect(cookies[1].value, 'a=b==');
+      await WebsiteCookieBridge.injectAndroidCookies(cookies);
+      expect(
+        headers[0],
+        'chii_auth=abc%2Fxyz%3D%3D; Domain=.bgm.tv; Path=/; Secure',
+      );
+      expect(headers[1], 'chii_sid=a=b==; Domain=.bgm.tv; Path=/; Secure');
+      expect(headers.join(), isNot(contains('%25')));
+    },
+  );
+
+  test(
+    'Android cookie bridge never injects unrelated domains or header separators',
+    () async {
+      const channel = MethodChannel('mubangumi/website_cookies');
+      final messenger =
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+      final headers = <String>[];
+      messenger.setMockMethodCallHandler(channel, (call) async {
+        headers.add((call.arguments as Map)['header'] as String);
+        return null;
+      });
+      addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
+      await WebsiteCookieBridge.injectAndroidCookies(const [
+        WebsiteCookie(name: 'chii_auth', value: 'x', domain: 'notbgm.tv'),
+        WebsiteCookie(name: 'chii_auth', value: 'x; Domain=bad'),
+        WebsiteCookie(name: 'chii_auth', value: 'x', path: '/; HttpOnly'),
+        WebsiteCookie(name: 'chii_auth', value: 'valid==', isHttpOnly: true),
+      ]);
+      expect(headers, [
+        'chii_auth=valid==; Domain=.bgm.tv; Path=/; Secure; HttpOnly',
+      ]);
+    },
+  );
+
   test('a new login waits for an older Windows cookie cleanup', () async {
     if (!Platform.isWindows) return;
     final messenger =

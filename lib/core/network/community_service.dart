@@ -39,11 +39,13 @@ class PrivateGroupMembershipException implements Exception {
 class CommunityService {
   /// Hard stop so two large public friend lists cannot walk unbounded P1 pages.
   static const maxFriendPages = 100;
-  CommunityService._({
+  CommunityService({
     Dio? htmlDio,
     Dio? p1Dio,
     WebsiteSessionStore? sessionStore,
+    CommunityCache? cache,
   }) : _sessionStore = sessionStore ?? WebsiteSessionStore(),
+       _persistentCache = cache ?? CommunityCache.shared,
        _htmlDio =
            htmlDio ??
            Dio(
@@ -73,7 +75,6 @@ class CommunityService {
              ),
            );
 
-  static final shared = CommunityService._();
   Future<WebsiteSessionSnapshot> Function()? websiteSessionGuard;
   void Function(WebsiteAccessStatus status, String authenticationKey)?
   onWebsiteSessionFailure;
@@ -91,14 +92,60 @@ class CommunityService {
     Dio? htmlDio,
     Dio? p1Dio,
     WebsiteSessionStore? sessionStore,
-  }) : this._(htmlDio: htmlDio, p1Dio: p1Dio, sessionStore: sessionStore);
+    CommunityCache? cache,
+  }) : this(
+         htmlDio: htmlDio,
+         p1Dio: p1Dio,
+         sessionStore: sessionStore,
+         cache: cache,
+       );
+
+  void dispose() {
+    _identityRevision++;
+    _htmlDio.close(force: true);
+    _p1Dio.close(force: true);
+    _htmlCache.clear();
+    _jsonCache.clear();
+    _friendsCache.clear();
+    _accountChanges.dispose();
+    _contentPreferencesChanges.dispose();
+  }
 
   final Dio _htmlDio;
   final Dio _p1Dio;
   final WebsiteSessionStore _sessionStore;
   final CommunityHtmlParser _htmlParser = CommunityHtmlParser();
   final CommunityP1Parser _p1Parser = CommunityP1Parser();
-  final CommunityCache _persistentCache = CommunityCache.shared;
+  final CommunityCache _persistentCache;
+  final _cacheOwners = <String>{};
+  String _cachePrefix(String owner) =>
+      'community-v2:${Uri.encodeComponent(owner.toLowerCase())}:';
+  String _snapshotKey(String key) =>
+      '${_cachePrefix(_currentUsername ?? 'public')}$key';
+  Future<Map<String, dynamic>?> _readSnapshot(String key) async {
+    if (isAuthenticated && _currentUsername == null) return null;
+    final revision = _identityRevision;
+    final value = await _persistentCache.readJson(_snapshotKey(key));
+    return revision == _identityRevision ? value : null;
+  }
+
+  Future<void> _writeSnapshot(
+    String key,
+    Map<String, dynamic> value, {
+    required int identity,
+    bool accountScoped = false,
+  }) async {
+    if (identity != _identityRevision) return;
+    if (isAuthenticated && _currentUsername == null) return;
+    final scoped = _snapshotKey(key);
+    await _persistentCache.writeJson(
+      scoped,
+      value,
+      accountScoped: accountScoped,
+    );
+    if (identity != _identityRevision) await _persistentCache.remove(scoped);
+  }
+
   final _htmlCache = AsyncCache<String>(
     maxAge: const Duration(minutes: 2),
     maxEntries: 400,
@@ -201,6 +248,7 @@ class CommunityService {
       _friendsCache.clear();
     }
     _currentUsername = value.isEmpty ? null : value;
+    if (value.isNotEmpty) _cacheOwners.add(value);
     _currentNickname = value.isEmpty ? '' : nickname.trim();
     _currentAvatarUrl = value.isEmpty ? '' : avatarUrl.trim();
     _accountChanges.value = _currentUsername;
@@ -209,7 +257,10 @@ class CommunityService {
   Future<void> clearAccountCache() async {
     _jsonCache.clear();
     _htmlCache.clear();
-    await _persistentCache.clearAccountData();
+    for (final owner in _cacheOwners) {
+      await _persistentCache.removePrefix(_cachePrefix(owner));
+    }
+    _cacheOwners.clear();
     _friendsCache.clear();
   }
 
@@ -280,7 +331,7 @@ class CommunityService {
 
   Future<void> _removeTimelineSnapshots() async {
     for (final mode in CommunityTimelineMode.values) {
-      await _persistentCache.remove('timeline:${mode.name}');
+      await _persistentCache.remove(_snapshotKey('timeline:${mode.name}'));
     }
   }
 
@@ -485,7 +536,7 @@ class CommunityService {
   Future<CommunityPageResult<CommunityTopic>?> readCachedTopics(
     RakuenMode mode,
   ) async {
-    final json = await _persistentCache.readJson(_topicCacheKey(mode));
+    final json = await _readSnapshot(_topicCacheKey(mode));
     if (json == null) return null;
     if (mode.aggregateType != null) return _aggregatePage(json, 0, 20);
     return _parseTopicPage(mode, json);
@@ -497,6 +548,7 @@ class CommunityService {
     int offset = 0,
     bool refresh = false,
   }) async {
+    final identity = _identityRevision;
     if (mode.aggregateType case final type?) {
       // This API has a limit but no offset. Keep a fixed recent window and
       // paginate that snapshot locally rather than repeatedly fetching page 1.
@@ -506,9 +558,10 @@ class CommunityService {
         refresh: refresh,
       );
       if (offset == 0) {
-        await _persistentCache.writeJson(
+        await _writeSnapshot(
           _topicCacheKey(mode),
           json,
+          identity: identity,
           accountScoped: true,
         );
       }
@@ -526,9 +579,10 @@ class CommunityService {
     };
     final json = await _getJson(path, query: query, refresh: refresh);
     if (offset == 0) {
-      await _persistentCache.writeJson(
+      await _writeSnapshot(
         _topicCacheKey(mode),
         json,
+        identity: identity,
         accountScoped: mode.requiresLogin,
       );
     }
@@ -551,7 +605,7 @@ class CommunityService {
     CommunityGroupMode mode,
     CommunityGroupSort sort,
   ) async {
-    final json = await _persistentCache.readJson(_groupCacheKey(mode, sort));
+    final json = await _readSnapshot(_groupCacheKey(mode, sort));
     if (json == null) return null;
     return CommunityPageResult(
       data: _p1Parser.parseGroups(json),
@@ -566,6 +620,7 @@ class CommunityService {
     int offset = 0,
     bool refresh = false,
   }) async {
+    final identity = _identityRevision;
     final json = await _getJson(
       '/groups',
       query: {
@@ -577,9 +632,10 @@ class CommunityService {
       refresh: refresh,
     );
     if (offset == 0) {
-      await _persistentCache.writeJson(
+      await _writeSnapshot(
         _groupCacheKey(mode, sort),
         json,
+        identity: identity,
         accountScoped: mode.requiresLogin,
       );
     }
@@ -590,7 +646,7 @@ class CommunityService {
   }
 
   Future<CommunityGroupDetail?> readCachedGroupDetail(String slug) async {
-    final bundle = await _persistentCache.readJson('group:$slug');
+    final bundle = await _readSnapshot('group:$slug');
     if (bundle == null) return null;
     return _parseGroupBundle(bundle);
   }
@@ -728,6 +784,7 @@ class CommunityService {
     String slug, {
     bool refresh = false,
   }) async {
+    final identity = _identityRevision;
     final encoded = Uri.encodeComponent(slug);
     final values = await Future.wait([
       _getJson('/groups/$encoded', refresh: refresh),
@@ -753,9 +810,10 @@ class CommunityService {
       'moderators': values[2],
       'topics': values[3],
     };
-    await _persistentCache.writeJson(
+    await _writeSnapshot(
       'group:$slug',
       bundle,
+      identity: identity,
       accountScoped: true,
     );
     return _parseGroupBundle(bundle);
@@ -764,7 +822,7 @@ class CommunityService {
   Future<List<CommunityTimelineItem>?> readCachedTimeline(
     CommunityTimelineMode mode,
   ) async {
-    final json = await _persistentCache.readJson('timeline:${mode.name}');
+    final json = await _readSnapshot('timeline:${mode.name}');
     final data = json?['data'];
     if (data is! List) return null;
     return decodeCachedTimeline(mode, data);
@@ -815,9 +873,12 @@ class CommunityService {
       throw const FormatException('账号或内容偏好已变化，请刷新动态');
     }
     if (until == null) {
-      await _persistentCache.writeJson('timeline:${mode.name}', {
-        'data': data,
-      }, accountScoped: mode != CommunityTimelineMode.all);
+      await _writeSnapshot(
+        'timeline:${mode.name}',
+        {'data': data},
+        identity: identity,
+        accountScoped: mode != CommunityTimelineMode.all,
+      );
       if (identity != _identityRevision ||
           contentRevision != _contentRevision) {
         await _removeTimelineSnapshots();

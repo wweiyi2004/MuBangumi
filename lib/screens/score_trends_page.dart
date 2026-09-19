@@ -1,3 +1,4 @@
+import '../navigation/app_destination.dart';
 import 'dart:async';
 import 'package:flutter/material.dart';
 import '../widgets/readable_subject_title.dart';
@@ -10,7 +11,6 @@ import '../models/netaba_models.dart';
 import '../state/session_controller.dart';
 import '../widgets/score_history_chart.dart';
 import '../widgets/subject_widgets.dart';
-import 'subject_detail_screen.dart';
 
 enum _TrendKind {
   up('涨分', '近期涨分', '近期', Icons.trending_up_rounded),
@@ -119,9 +119,7 @@ class _ScoreTrendsPageState extends ConsumerState<ScoreTrendsPage>
           date: '',
         );
     Navigator.of(context).push(
-      MaterialPageRoute<void>(
-        builder: (_) => SubjectDetailScreen(subject: subject),
-      ),
+      MaterialPageRoute<void>(builder: (_) => SubjectRoute(subject: subject)),
     );
   }
 

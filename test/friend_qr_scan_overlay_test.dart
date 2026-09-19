@@ -1,3 +1,5 @@
+import 'package:mubangumi/navigation/app_destination.dart';
+import 'package:mubangumi/navigation/app_router.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mubangumi/widgets/friend_qr_scan_overlay.dart';
@@ -5,7 +7,10 @@ import 'package:mubangumi/widgets/friend_qr_scan_overlay.dart';
 void main() {
   testWidgets('scan overlay keeps an animated frame on screen', (tester) async {
     await tester.pumpWidget(
-      const MaterialApp(home: Scaffold(body: FriendQrScanOverlay())),
+      const AppRouteScope(
+        resolve: AppRouter.resolve,
+        child: MaterialApp(home: Scaffold(body: FriendQrScanOverlay())),
+      ),
     );
 
     expect(find.byType(FriendQrScanOverlay), findsOneWidget);

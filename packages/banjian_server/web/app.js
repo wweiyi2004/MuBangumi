@@ -10,7 +10,9 @@ const storageKey='banjian:'+eventId;
 let identity=read(storageKey,{}), token=admin?sessionStorage.getItem('banjian-admin')||'':identity.token||'', event=null, events=[], tab='control', online=false, socket=null, reconnect=null, busy=false, flushing=false;
 let invite=new URLSearchParams(location.hash.slice(1)).get('invite')||identity.invite||'';
 let drafts=read(storageKey+':drafts',{}), pending=read(storageKey+':pending',[]), selectedRound=null;
+let commentPager=null;
 let adminPending=read('banjian:admin-pending');
+let readEpoch=0,liveEpoch=0,announcedRevision=0,liveDirty=false,activeReads=0,liveTimer=null,socketKey=null;
 let asciiFlight=null,asciiPull=0,asciiStart=null,asciiInterval=null;
 const requestedTheme=new URLSearchParams(location.search).get('theme');
 let roomTheme=['light','dark','system'].includes(requestedTheme)?requestedTheme:read('banjian:theme','system');
@@ -18,15 +20,16 @@ if(!['light','dark','system'].includes(roomTheme))roomTheme='system';
 if(['light','dark','system'].includes(requestedTheme)){save('banjian:theme',roomTheme);const clean=new URL(location.href);clean.searchParams.delete('theme');history.replaceState(null,'',clean.toString());}
 applyRoomTheme();
 function toast(text){$('#toast').textContent=text;$('#toast').style.display='block';clearTimeout(toast.timer);toast.timer=setTimeout(()=>$('#toast').style.display='none',5000);}
-async function api(path,body,auth=token){const controller=new AbortController();const timer=setTimeout(()=>controller.abort(),15000);try{const r=await fetch('/api/'+path,{method:body?'POST':'GET',headers:{'Content-Type':'application/json',...(auth?{Authorization:'Bearer '+auth}:{})},body:body?JSON.stringify(body):undefined,signal:controller.signal,redirect:'error'});const text=await r.text();let data;try{data=JSON.parse(text);}catch{throw Error('服务返回无效数据');}if(!r.ok){const error=Error(data.error||'请求失败');error.status=r.status;throw error;}return data;}finally{clearTimeout(timer);}}
+async function api(path,body,auth=token){const controller=new AbortController();const timer=setTimeout(()=>controller.abort(),15000);try{const r=await fetch('/api/'+path,{method:body?'POST':'GET',headers:{'Content-Type':'application/json',...(auth?{Authorization:'Bearer '+auth}:{})},body:body?JSON.stringify(body):undefined,signal:controller.signal,redirect:'error'});const reader=r.body.getReader(),chunks=[];let size=0;while(true){const part=await reader.read();if(part.done)break;size+=part.value.length;if(size>RoomProtocol.snapshotBytes){controller.abort();throw Error('活动数据过大，请分批查看');}chunks.push(part.value);}const bytes=new Uint8Array(size);let offset=0;for(const chunk of chunks){bytes.set(chunk,offset);offset+=chunk.length;}const text=new TextDecoder().decode(bytes);let data;try{data=JSON.parse(text);}catch{throw Error('服务返回无效数据');}if(!r.ok){const error=Error(data.error||'请求失败');error.status=r.status;throw error;}return data;}finally{clearTimeout(timer);}}
 const current=()=>event?.rounds.find(r=>r.id===event.current);
 const status=r=>({waiting:'等待开始',open:'评分进行中',paused:'已暂停',closed:'已截止'}[r?.status]||'等待选番');
 function cover(subject){return subject.cover?`<img class="cover" src="/cover/${esc(subject.cover)}" alt="${esc(subject.title)}">`:`<div class="cover placeholder">${esc(subject.title.slice(0,4))}</div>`;}
 function hero(r){return `<div class="hero">${cover(r.subject)}<div><span class="badge">第 ${event.rounds.indexOf(r)+1} / ${event.rounds.length} 轮 · ${status(r)}</span><h2>${esc(r.subject.title)}</h2><p class="summary">${esc(r.subject.summary)||'一起看番，留下你的感受。'}</p><small>Bangumi #${r.subject.id}</small></div></div>`;}
 function bars(r){const d=r.stats?.distribution||[],max=Math.max(1,...d);return `<div class="bars">${d.map((n,i)=>`<div class="bar"><span>${n||''}</span><i style="height:calc((100% - 36px) * ${n/max})"></i><span>${i+1}</span></div>`).join('')}</div>`;}
 function metrics(r){return `<div class="metrics"><div class="metric"><strong>${r.stats?.mean?.toFixed(1)??'—'}</strong><small>平均评分</small></div><div class="metric"><strong>${r.count}</strong><small>已评分</small></div><div class="metric"><strong>${event.memberCount-r.count}</strong><small>未评分</small></div></div>`;}
-function comments(r){return r.comments.length?[...r.comments].reverse().map(c=>`<div class="comment ${c.hidden?'hidden':''}"><div class="row between"><span><span class="avatar">匿</span> ${c.mine?'我 · 匿名短评':'匿名短评'} ${c.hidden?'· 已隐藏':''}</span>${admin?`<button class="link" data-action="hide" data-round="${r.id}" data-id="${c.id}" data-value="${!c.hidden}">${c.hidden?'恢复':'隐藏'}</button>`:''}</div><p>${esc(c.text)}</p></div>`).join(''):'<div class="empty">还没有可见短评</div>';}
+function comments(r){const body= r.comments.length?[...r.comments].reverse().map(c=>`<div class="comment ${c.hidden?'hidden':''}"><div class="row between"><span><span class="avatar">匿</span> ${c.mine?'我 · 匿名短评':'匿名短评'} ${c.hidden?'· 已隐藏':''}</span>${admin?`<button class="link" data-action="hide" data-round="${r.id}" data-id="${c.id}" data-value="${!c.hidden}">${c.hidden?'恢复':'隐藏'}</button>`:''}</div><p>${esc(c.text)}</p></div>`).join(''):'<div class="empty">还没有可见短评</div>';return body+(r.commentsMore?`<button class="link" data-action="all-comments" data-round="${esc(r.id)}">查看全部 ${r.commentsTotal} 条短评</button>`:'');}
 function render(){
+  refreshPagedComments();
   const panelScroll=[...document.querySelectorAll('.arena-scroll')].map(el=>({top:el.scrollTop,height:el.scrollHeight}));
   const sharing=$('#modal').dataset.inviteEvent;
   if(admin&&sharing&&(event?.id!==sharing||event?.ended)){ $('#modal').close();delete $('#modal').dataset.inviteEvent;toast('这张二维码对应的活动已结束或已切换，请获取当前活动的新二维码。'); }
@@ -108,8 +111,53 @@ function openParticipantSheet(kind){
   dialog.classList.add('participant-drawer');if(!dialog.open)dialog.showModal();renderParticipantSheet();
 }
 
-function connect(){if(!event?.id||!token)return;if(socket){socket.onclose=null;socket.close();}clearTimeout(reconnect);const ws=new WebSocket(`${location.protocol==='https:'?'wss:':'ws:'}//${location.host}/ws`);socket=ws;ws.onopen=()=>ws.send(JSON.stringify({event:event.id,token}));ws.onmessage=m=>{try{const next=JSON.parse(m.data);if(next.id!==event.id)return;event=next;online=true;render();flush();}catch{}};ws.onclose=()=>{online=false;render();reconnect=setTimeout(refresh,2500);};ws.onerror=()=>ws.close();}
-async function refresh(){try{if(admin&&!event){const data=await api('history');events=data.events;online=true;render();return;}event=await api('state?event='+encodeURIComponent(event?.id||eventId));online=true;render();connect();flush();}catch(e){online=false;if(e.status===401){if(admin){token='';sessionStorage.removeItem('banjian-admin');}else{identity.joined=false;save(storageKey,identity);}render();toast(e.message);}else{render();clearTimeout(reconnect);reconnect=setTimeout(refresh,3000);}}}
+function requestLiveRefresh(){liveDirty=true;if(activeReads||liveTimer)return;liveTimer=setTimeout(()=>{liveTimer=null;liveDirty=false;void refresh();},60);}
+function applySnapshot(next){
+  if(next.id!==event?.id&&event?.rounds)return false;
+  if(event?.id===next.id&&event.serverEpoch===next.serverEpoch&&next.revision!=null&&event.revision!=null&&next.revision<event.revision)return false;
+  if(event?.serverEpoch!==next.serverEpoch)announcedRevision=0;event=RoomProtocol.snapshot(next);return true;
+}
+function connect(){
+  if(!event?.id||!token)return;
+  const key=token+':'+event.id;
+  if(socketKey===key&&socket&&socket.readyState<=1)return;
+  if(socket){socket.onclose=null;socket.close();}
+  clearTimeout(reconnect);socketKey=key;announcedRevision=0;
+  const ws=new WebSocket(`${location.protocol==='https:'?'wss:':'ws:'}//${location.host}/ws`);socket=ws;
+  const valid=()=>socket===ws&&socketKey===key&&token+':'+event?.id===key;
+  ws.onopen=()=>{if(valid())ws.send(JSON.stringify({event:event.id,token,updates:'invalidate'}));};
+  ws.onmessage=m=>{if(!valid())return;try{
+    const next=JSON.parse(m.data);
+    if(next.type==='invalidate'){
+      if(next.event!==event.id||!Number.isSafeInteger(next.revision))throw Error('活动更新通知格式无效');
+      announcedRevision=Math.max(announcedRevision,next.revision);liveEpoch++;online=true;requestLiveRefresh();return;
+    }
+    if(!applySnapshot(next))return;liveEpoch++;online=true;render();flush();
+  }catch(e){toast(e.message||'活动数据格式无效');ws.close(1002,'Invalid room snapshot');}};
+  ws.onclose=()=>{if(!valid())return;socket=null;socketKey=null;online=false;render();reconnect=setTimeout(refresh,2500);};
+  ws.onerror=()=>ws.close();
+}
+async function refresh(){
+  const epoch=++readEpoch,auth=token,id=event?.id||eventId,observedLive=liveEpoch,base=event;
+  const valid=()=>epoch===readEpoch&&token===auth&&(event?.id||eventId)===id;
+  activeReads++;
+  try{
+    if(admin&&!event){const data=await api('history');if(!valid())return;events=data.events;online=true;render();return;}
+    const path='state?event='+encodeURIComponent(id);
+    let payload=await api(path+(Number.isSafeInteger(base?.revision)?'&since='+base.revision+'&epoch='+encodeURIComponent(base.serverEpoch||''):''));
+    if(!valid())return;
+    let next;try{next=RoomProtocol.merge(base,payload);}catch(e){if(payload.type!=='delta')throw e;payload=await api(path);if(!valid())return;next=RoomProtocol.snapshot(payload);}
+    if(next.id!==id)throw Error('活动编号不匹配');
+    if(next.serverEpoch===event?.serverEpoch&&next.revision!=null&&next.revision<announcedRevision){liveDirty=true;}
+    if(observedLive===liveEpoch||next.serverEpoch===event?.serverEpoch&&next.revision>event?.revision)applySnapshot(next);
+    online=true;render();connect();flush();
+  }catch(e){
+    if(!valid()||observedLive!==liveEpoch)return;
+    online=false;
+    if(e.status===401){if(admin){token='';sessionStorage.removeItem('banjian-admin');}else{identity.joined=false;save(storageKey,identity);}render();toast(e.message);}
+    else{render();clearTimeout(reconnect);reconnect=setTimeout(refresh,3000);toast(e.message||'连接失败');}
+  }finally{activeReads--;if(!activeReads&&liveDirty)requestLiveRefresh();}
+}
 async function command(action,extra={},retry=false){
   if(busy)return false;
   if(adminPending&&!retry){toast('上一项操作还未确认，请先点击顶部「核对未确认操作」');return false;}
@@ -122,7 +170,7 @@ async function command(action,extra={},retry=false){
   catch(e){if(e.status&&e.status<500&&![401,429].includes(e.status)){save('banjian:admin-pending',null);adminPending=null;}toast(e.message+(adminPending?'；操作尚未确认，请恢复连接后核对':''));if(e.status===409)await refresh();render();return false;}
   finally{busy=false;}
 }
-function modal(html){$('#modal').classList.remove('results-project');delete $('#modal').dataset.adminPanel;delete $('#modal').dataset.participantSheet;$('#modal').classList.remove('participant-drawer');delete $('#modal').dataset.inviteEvent;$('#modal').innerHTML=`<button class="link close" data-action="close-modal">关闭</button>${html}`;$('#modal').showModal();}
+function modal(html){delete $('#modal').dataset.pagedComments;$('#modal').classList.remove('results-project');delete $('#modal').dataset.adminPanel;delete $('#modal').dataset.participantSheet;$('#modal').classList.remove('participant-drawer');delete $('#modal').dataset.inviteEvent;$('#modal').innerHTML=`<button class="link close" data-action="close-modal">关闭</button>${html}`;$('#modal').showModal();}
 async function enqueue(action,extra){const r=current();if(!r||r.status!=='open'||event.ended){toast('本轮不能提交');return;}const c={op:secret(),event:event.id,round:r.id,action,...extra};const next=[...pending,c];if(next.length>100){toast('待确认操作过多，请先恢复连接');return;}if(!save(storageKey+':pending',next))return;pending=next;toast('已保存，正在提交');render();await flush();}
 async function flush(){if(flushing||!online||!identity.joined||admin)return;flushing=true;try{while(pending.length&&online){const c=pending[0];try{await api('command',c);pending.shift();save(storageKey+':pending',pending);if(c.action==='comment'&&drafts[c.round]?.text===c.text){drafts[c.round].text='';save(storageKey+':drafts',drafts);}toast(c.action==='score'?'评分已确认':'匿名短评已确认');}catch(e){if(e.status&&e.status<500&&e.status!==429){pending.shift();save(storageKey+':pending',pending);toast(e.message+'；输入已保留');}else{online=false;setTimeout(refresh,e.status===429?4000:2500);break;}}}render();}finally{flushing=false;}}
 document.addEventListener('input',e=>{if(e.target.id==='comment-draft'){const r=current();if(r){drafts[r.id]={...drafts[r.id],text:e.target.value};save(storageKey+':drafts',drafts);}}});
@@ -132,6 +180,8 @@ document.addEventListener('submit',async e=>{e.preventDefault();if(busy)return;b
   if(e.target.id==='search-form'){const data=await api('search?q='+encodeURIComponent($('#search-q').value));$('#search-results').innerHTML=data.subjects.map(s=>`<div class="list-row"><div class="grow"><h3>${esc(s.title)}</h3><small>#${s.id}</small></div><button class="soft" data-action="add" data-id="${s.id}">加入番单</button></div>`).join('')||'<div class="empty">没有找到动画条目</div>';}
 }catch(error){toast(error.message);}finally{busy=false;}});
 document.addEventListener('click',async e=>{const b=e.target.closest('[data-action]');if(!b||b.disabled)return;const a=b.dataset.action,r=b.dataset.round;try{
+  if(['all-comments','comments-prev','comments-next','comments-retry'].includes(a)){await handleCommentPage(a,r);return;}
+
   if(a==='tab'){tab=b.dataset.id;if(admin&&tab!=='control'){modal(adminContent());$('#modal').dataset.adminPanel=tab;}else{if($('#modal').open)$('#modal').close();delete $('#modal').dataset.adminPanel;render();}}
   else if(a==='refresh'){await manualRefresh();}
   else if(a==='theme'){roomTheme={system:'light',light:'dark',dark:'system'}[roomTheme];save('banjian:theme',roomTheme);applyRoomTheme();render();}
@@ -255,3 +305,34 @@ document.addEventListener('touchend',()=>{
 document.addEventListener('touchcancel',()=>{asciiStart=null;asciiPull=0;if(!asciiFlight){concealAscii();asciiNode().hidden=true;}});
 
 document.addEventListener('input',e=>{if(!admin&&e.target.id==='name'){identity.name=e.target.value;save(storageKey,identity);}});
+
+function commentStamp(round){const r=event?.rounds?.find(v=>v.id===round);return `${event?.id}:${event?.version}:${r?.publicComments}`;}
+function refreshPagedComments(){
+  if(!commentPager||!$('#modal').open||!$('#modal').dataset.pagedComments)return;
+  if(event?.id!==commentPager.event){$('#modal').close();commentPager=null;return;}
+  if(commentPager.stamp!==commentStamp(commentPager.round))void loadCommentPage();
+}
+async function handleCommentPage(action,round){
+  if(action==='all-comments'){
+    commentPager={event:event.id,round,cursors:[null],next:null,request:0,stamp:''};
+    modal('<h2>匿名短评</h2><p>正在加载…</p>');$('#modal').dataset.pagedComments='true';
+  }else if(!commentPager)return;
+  else if(action==='comments-next'&&commentPager.next!=null)commentPager.cursors.push(commentPager.next);
+  else if(action==='comments-prev'&&commentPager.cursors.length>1)commentPager.cursors.pop();
+  await loadCommentPage();
+}
+async function loadCommentPage(){
+  const pager=commentPager,dialog=$('#modal');if(!pager||!dialog.open||event?.id!==pager.event)return;
+  const request=++pager.request,auth=token,offset=dialog.scrollTop;
+  pager.stamp=commentStamp(pager.round);
+  dialog.innerHTML='<button class="link close" data-action="close-modal">关闭</button><h2>匿名短评</h2><p>正在加载…</p>';
+  try{
+    const query=new URLSearchParams({event:pager.event,round:pager.round,limit:'50'});if(pager.cursors.at(-1)!=null)query.set('before',pager.cursors.at(-1));
+    const page=RoomProtocol.commentsPage(await api('comments?'+query));
+    if(commentPager!==pager||request!==pager.request||token!==auth||!dialog.open||event?.id!==pager.event)return;
+    if(page.event!==pager.event||page.round!==pager.round)throw Error('评论所属活动不匹配');
+    pager.next=page.nextCursor;
+    dialog.innerHTML=`<button class="link close" data-action="close-modal">关闭</button><h2>匿名短评 · ${page.total} 条</h2><button class="link" data-action="comments-retry">刷新评论</button>${comments({id:pager.round,comments:[...page.comments].reverse()})}<div class="row"><button data-action="comments-prev" ${pager.cursors.length===1?'disabled':''}>上一页</button><span>第 ${pager.cursors.length} 页</span><button data-action="comments-next" ${pager.next==null?'disabled':''}>下一页</button></div>`;
+    dialog.scrollTop=offset;
+  }catch(e){if(commentPager===pager&&request===pager.request&&dialog.open)dialog.innerHTML=`<button class="link close" data-action="close-modal">关闭</button><p>${esc(e.message)}</p><button data-action="comments-retry">重试</button>`;}
+}

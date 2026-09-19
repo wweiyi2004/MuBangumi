@@ -6,7 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
 
-import '../app.dart';
+import '../widgets/brand_mark.dart';
 import '../core/auth/bangumi_oauth.dart';
 import '../core/auth/oauth_builtin.dart';
 import '../core/auth/website_session.dart';

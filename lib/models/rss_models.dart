@@ -56,8 +56,7 @@ class RssSource {
     'last_modified': lastModified,
     'last_fetch_at': lastFetchAt?.millisecondsSinceEpoch,
     'last_error': lastError,
-    'created_at':
-        (createdAt ?? DateTime.now()).millisecondsSinceEpoch,
+    'created_at': (createdAt ?? DateTime.now()).millisecondsSinceEpoch,
   };
 
   factory RssSource.fromRow(Map<String, Object?> row) => RssSource(
@@ -102,9 +101,8 @@ class RssBinding {
   final bool enabled;
   final DateTime? createdAt;
 
-  List<String> get matchTokens => _tokens(
-    matchKeywords.trim().isEmpty ? subjectName : matchKeywords,
-  );
+  List<String> get matchTokens =>
+      _tokens(matchKeywords.trim().isEmpty ? subjectName : matchKeywords);
 
   List<String> get excludeTokens => _tokens(excludeKeywords);
 
@@ -153,8 +151,7 @@ class RssBinding {
     'match_keywords': matchKeywords,
     'exclude_keywords': excludeKeywords,
     'enabled': enabled ? 1 : 0,
-    'created_at':
-        (createdAt ?? DateTime.now()).millisecondsSinceEpoch,
+    'created_at': (createdAt ?? DateTime.now()).millisecondsSinceEpoch,
   };
 
   factory RssBinding.fromRow(Map<String, Object?> row) => RssBinding(
@@ -215,8 +212,7 @@ class RssItem {
     'link': link,
     'published_at': publishedAt?.millisecondsSinceEpoch,
     'read': read ? 1 : 0,
-    'first_seen_at':
-        (firstSeenAt ?? DateTime.now()).millisecondsSinceEpoch,
+    'first_seen_at': (firstSeenAt ?? DateTime.now()).millisecondsSinceEpoch,
   };
 
   factory RssItem.fromRow(Map<String, Object?> row) => RssItem(

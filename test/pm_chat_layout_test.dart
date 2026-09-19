@@ -1,3 +1,5 @@
+import 'package:mubangumi/navigation/app_destination.dart';
+import 'package:mubangumi/navigation/app_router.dart';
 import 'dart:async';
 import 'dart:io';
 import 'dart:ui' as ui;
@@ -299,15 +301,18 @@ Future<void> _show(
   await tester.pumpWidget(
     UncontrolledProviderScope(
       container: env.container,
-      child: MaterialApp(
-        theme: dark ? AppTheme.dark : AppTheme.light,
-        builder: (context, child) => MediaQuery(
-          data: MediaQuery.of(
-            context,
-          ).copyWith(textScaler: TextScaler.linear(scale)),
-          child: RepaintBoundary(key: _boundary, child: child!),
+      child: AppRouteScope(
+        resolve: AppRouter.resolve,
+        child: MaterialApp(
+          theme: dark ? AppTheme.dark : AppTheme.light,
+          builder: (context, child) => MediaQuery(
+            data: MediaQuery.of(
+              context,
+            ).copyWith(textScaler: TextScaler.linear(scale)),
+            child: RepaintBoundary(key: _boundary, child: child!),
+          ),
+          home: PmPage(service: env.service, friendsLoader: (_) async => []),
         ),
-        home: PmPage(service: env.service, friendsLoader: (_) async => []),
       ),
     ),
   );

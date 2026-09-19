@@ -1,3 +1,5 @@
+import 'package:mubangumi/navigation/app_destination.dart';
+import 'package:mubangumi/navigation/app_router.dart';
 import 'dart:async';
 import 'dart:io';
 import 'dart:ui' as ui;
@@ -123,19 +125,22 @@ void main() {
       await tester.pumpWidget(
         UncontrolledProviderScope(
           container: container,
-          child: MaterialApp(
-            theme: variant == 'dark' ? AppTheme.dark : AppTheme.light,
-            home: MediaQuery(
-              data: MediaQueryData(
-                size: size,
-                textScaler: TextScaler.linear(variant == 'large' ? 1.6 : 1),
-              ),
-              child: RepaintBoundary(
-                key: boundary,
-                child: RoomAdminPage(
-                  subjectPicker: (_) => const Scaffold(body: Text('选番')),
-                  onInvite: () async {},
-                  onOpenWeb: () async {},
+          child: AppRouteScope(
+            resolve: AppRouter.resolve,
+            child: MaterialApp(
+              theme: variant == 'dark' ? AppTheme.dark : AppTheme.light,
+              home: MediaQuery(
+                data: MediaQueryData(
+                  size: size,
+                  textScaler: TextScaler.linear(variant == 'large' ? 1.6 : 1),
+                ),
+                child: RepaintBoundary(
+                  key: boundary,
+                  child: RoomAdminPage(
+                    subjectPicker: (_) => const Scaffold(body: Text('选番')),
+                    onInvite: () async {},
+                    onOpenWeb: () async {},
+                  ),
                 ),
               ),
             ),

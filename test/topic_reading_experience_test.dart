@@ -1,3 +1,5 @@
+import 'package:mubangumi/navigation/app_destination.dart';
+import 'package:mubangumi/navigation/app_router.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -144,15 +146,18 @@ Future<void> _show(
         sessionProvider.overrideWith((ref) => env.session),
         topicReadingRepositoryProvider.overrideWithValue(env.store),
       ],
-      child: MaterialApp(
-        theme: theme,
-        builder: (context, child) => MediaQuery(
-          data: MediaQuery.of(
-            context,
-          ).copyWith(textScaler: TextScaler.linear(scale)),
-          child: RepaintBoundary(key: boundary, child: child!),
+      child: AppRouteScope(
+        resolve: AppRouter.resolve,
+        child: MaterialApp(
+          theme: theme,
+          builder: (context, child) => MediaQuery(
+            data: MediaQuery.of(
+              context,
+            ).copyWith(textScaler: TextScaler.linear(scale)),
+            child: RepaintBoundary(key: boundary, child: child!),
+          ),
+          home: CommunityTopicScreen(topic: topic, service: env.service),
         ),
-        home: CommunityTopicScreen(topic: topic, service: env.service),
       ),
     ),
   );

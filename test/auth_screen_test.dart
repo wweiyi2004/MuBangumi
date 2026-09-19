@@ -1,3 +1,5 @@
+import 'package:mubangumi/navigation/app_destination.dart';
+import 'package:mubangumi/navigation/app_router.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -21,7 +23,10 @@ void main() {
             sessionProvider.overrideWith((ref) => controller),
             tokenStoreProvider.overrideWithValue(_EmptyTokenStore()),
           ],
-          child: MaterialApp(theme: AppTheme.light, home: const AuthScreen()),
+          child: AppRouteScope(
+            resolve: AppRouter.resolve,
+            child: MaterialApp(theme: AppTheme.light, home: const AuthScreen()),
+          ),
         ),
       );
       await tester.pumpAndSettle();
@@ -72,7 +77,10 @@ void main() {
     await tester.pumpWidget(
       ProviderScope(
         overrides: [tokenStoreProvider.overrideWithValue(_EmptyTokenStore())],
-        child: MaterialApp(theme: AppTheme.light, home: const AuthScreen()),
+        child: AppRouteScope(
+          resolve: AppRouter.resolve,
+          child: MaterialApp(theme: AppTheme.light, home: const AuthScreen()),
+        ),
       ),
     );
     await tester.pumpAndSettle();
@@ -111,7 +119,10 @@ void main() {
           sessionProvider.overrideWith((ref) => controller),
           tokenStoreProvider.overrideWithValue(_EmptyTokenStore()),
         ],
-        child: MaterialApp(theme: AppTheme.light, home: const AuthScreen()),
+        child: AppRouteScope(
+          resolve: AppRouter.resolve,
+          child: MaterialApp(theme: AppTheme.light, home: const AuthScreen()),
+        ),
       ),
     );
     await tester.pumpAndSettle();

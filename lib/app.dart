@@ -1,7 +1,11 @@
+import 'state/service_providers.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'core/theme/app_theme.dart';
+import 'navigation/app_destination.dart';
+import 'navigation/app_router.dart';
+export 'widgets/brand_mark.dart';
 import 'screens/auth_screen.dart';
 import 'screens/home_shell.dart';
 import 'screens/login_preparation_screen.dart';
@@ -9,7 +13,6 @@ import 'state/background_controller.dart';
 import 'state/session_controller.dart';
 import 'state/account_access_controller.dart';
 import 'state/pm_send_queue_controller.dart';
-import 'core/network/pm_service.dart';
 import 'state/theme_controller.dart';
 import 'state/system_appearance_controller.dart';
 import 'widgets/app_background.dart';
@@ -24,9 +27,14 @@ class MuBangumiApp extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     ref.watch(accountAccessProvider);
-    ref.watch(pmSendQueueProvider(PmService.shared).select((_) => true));
+    ref.watch(
+      pmSendQueueProvider(ref.watch(pmServiceProvider)).select((_) => true),
+    );
     // Collection updates do not rebuild the root; only entry state does.
     final phase = ref.watch(sessionProvider.select((state) => state.phase));
+    final accountId = ref.watch(
+      sessionProvider.select((state) => state.user?.id),
+    );
     final preparing = ref.watch(
       sessionProvider.select((state) => state.isPreparingHome),
     );
@@ -37,6 +45,7 @@ class MuBangumiApp extends ConsumerWidget {
     final highDark = highContrastBackgroundTheme(AppTheme.dark, system);
     return AppShortcutHost(
       child: MaterialApp(
+        key: ValueKey('account-navigation:$accountId'),
         title: 'MuBangumi',
         debugShowCheckedModeBanner: false,
         theme: system.highContrast
@@ -49,8 +58,13 @@ class MuBangumiApp extends ConsumerWidget {
         highContrastDarkTheme: highDark,
         themeMode: themeMode,
         builder: (context, child) {
-          return AppBackgroundHost(
-            child: NetworkRecoveryHost(child: child ?? const SizedBox.shrink()),
+          return AppRouteScope(
+            resolve: AppRouter.resolve,
+            child: AppBackgroundHost(
+              child: NetworkRecoveryHost(
+                child: child ?? const SizedBox.shrink(),
+              ),
+            ),
           );
         },
         home: UpdateCheckHost(
@@ -76,36 +90,4 @@ class MuBangumiApp extends ConsumerWidget {
       ),
     );
   }
-}
-
-class BrandMark extends StatelessWidget {
-  const BrandMark({super.key, this.size = 52});
-
-  final double size;
-
-  @override
-  Widget build(BuildContext context) => Container(
-    width: size,
-    height: size,
-    decoration: BoxDecoration(
-      gradient: const LinearGradient(
-        begin: Alignment.topLeft,
-        end: Alignment.bottomRight,
-        colors: [Color(0xFFFF779D), Color(0xFFE7447A)],
-      ),
-      borderRadius: BorderRadius.circular(size * .3),
-      boxShadow: const [
-        BoxShadow(
-          color: Color(0x33E95383),
-          blurRadius: 20,
-          offset: Offset(0, 8),
-        ),
-      ],
-    ),
-    child: Icon(
-      Icons.play_arrow_rounded,
-      color: Colors.white,
-      size: size * .64,
-    ),
-  );
 }

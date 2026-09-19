@@ -1,3 +1,5 @@
+import 'package:mubangumi/navigation/app_destination.dart';
+import 'package:mubangumi/navigation/app_router.dart';
 import 'support/ux_visuals.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter/material.dart';
@@ -16,24 +18,27 @@ void main() {
       final boundary = GlobalKey();
       await tester.pumpWidget(
         ProviderScope(
-          child: MaterialApp(
-            theme: await uxTheme(tester, dark: false),
-            builder: (context, child) => MediaQuery(
-              data: MediaQuery.of(
-                context,
-              ).copyWith(textScaler: TextScaler.linear(scale)),
-              child: RepaintBoundary(key: boundary, child: child!),
-            ),
-            home: Scaffold(
-              body: GithubReleaseDialog(
-                currentVersion: '2.2.0',
-                currentBuild: '25',
-                release: GithubRelease.fromJson({
-                  'tag_name': 'v2.2.0+26',
-                  'body': '- 追番首页更紧凑\n- 短评草稿自动保存\n- 更新支持下载进度与重试',
-                  'html_url':
-                      'https://github.com/wweiyi2004/MuBangumi/releases/tag/v2.2.0+26',
-                }),
+          child: AppRouteScope(
+            resolve: AppRouter.resolve,
+            child: MaterialApp(
+              theme: await uxTheme(tester, dark: false),
+              builder: (context, child) => MediaQuery(
+                data: MediaQuery.of(
+                  context,
+                ).copyWith(textScaler: TextScaler.linear(scale)),
+                child: RepaintBoundary(key: boundary, child: child!),
+              ),
+              home: Scaffold(
+                body: GithubReleaseDialog(
+                  currentVersion: '2.2.0',
+                  currentBuild: '25',
+                  release: GithubRelease.fromJson({
+                    'tag_name': 'v2.2.0+26',
+                    'body': '- 追番首页更紧凑\n- 短评草稿自动保存\n- 更新支持下载进度与重试',
+                    'html_url':
+                        'https://github.com/wweiyi2004/MuBangumi/releases/tag/v2.2.0+26',
+                  }),
+                ),
               ),
             ),
           ),
@@ -163,12 +168,15 @@ void main() {
 
     await tester.pumpWidget(
       ProviderScope(
-        child: MaterialApp(
-          home: Scaffold(
-            body: GithubReleaseDialog(
-              currentVersion: '1.6.0',
-              currentBuild: '7',
-              release: release,
+        child: AppRouteScope(
+          resolve: AppRouter.resolve,
+          child: MaterialApp(
+            home: Scaffold(
+              body: GithubReleaseDialog(
+                currentVersion: '1.6.0',
+                currentBuild: '7',
+                release: release,
+              ),
             ),
           ),
         ),

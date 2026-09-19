@@ -1,3 +1,4 @@
+import '../navigation/app_destination.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -9,9 +10,6 @@ import '../state/session_controller.dart';
 import '../widgets/subject_widgets.dart';
 import '../widgets/mono_collection_button.dart';
 import '../models/community_models.dart';
-import 'community_topic_screen.dart';
-import 'person_detail_screen.dart';
-import 'subject_detail_screen.dart';
 
 class CharacterDetailScreen extends ConsumerStatefulWidget {
   const CharacterDetailScreen({
@@ -109,7 +107,7 @@ class _CharacterDetailScreenState extends ConsumerState<CharacterDetailScreen> {
             icon: const Icon(Icons.forum_outlined),
             onPressed: () => Navigator.of(context).push(
               MaterialPageRoute<void>(
-                builder: (_) => CommunityTopicScreen(
+                builder: (_) => TopicRoute(
                   topic: CommunityTopic(
                     id: widget.characterId,
                     kind: CommunityTopicKind.character,
@@ -217,9 +215,8 @@ class _CharacterDetailScreenState extends ConsumerState<CharacterDetailScreen> {
                         trailing: const Icon(Icons.chevron_right_rounded),
                         onTap: () => Navigator.of(context).push(
                           MaterialPageRoute<void>(
-                            builder: (_) => SubjectDetailScreen(
-                              subject: subject.toSubject(),
-                            ),
+                            builder: (_) =>
+                                SubjectRoute(subject: subject.toSubject()),
                           ),
                         ),
                       ),
@@ -251,7 +248,7 @@ class _CharacterDetailScreenState extends ConsumerState<CharacterDetailScreen> {
                         trailing: const Icon(Icons.chevron_right_rounded),
                         onTap: () => Navigator.of(context).push(
                           MaterialPageRoute<void>(
-                            builder: (_) => PersonDetailScreen(
+                            builder: (_) => PersonRoute(
                               personId: person.id,
                               seedName: person.name,
                               seedImageUrl: person.imageUrl,

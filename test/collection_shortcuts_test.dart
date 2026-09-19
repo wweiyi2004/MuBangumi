@@ -1,3 +1,5 @@
+import 'package:mubangumi/navigation/app_destination.dart';
+import 'package:mubangumi/navigation/app_router.dart';
 import 'package:mubangumi/core/storage/browsing_store.dart';
 import 'support/memory_home_pins.dart';
 import 'dart:async';
@@ -243,18 +245,21 @@ Future<void> _show(
           ),
         ),
       ],
-      child: MaterialApp(
-        theme: theme,
-        builder: (context, child) => MediaQuery(
-          data: MediaQuery.of(
-            context,
-          ).copyWith(textScaler: TextScaler.linear(scale)),
-          child: RepaintBoundary(key: _boundary, child: child!),
-        ),
-        home: Scaffold(
-          body: page is ProfilePage || page is HomePage || page is LibraryPage
-              ? page
-              : Padding(padding: const EdgeInsets.all(12), child: page),
+      child: AppRouteScope(
+        resolve: AppRouter.resolve,
+        child: MaterialApp(
+          theme: theme,
+          builder: (context, child) => MediaQuery(
+            data: MediaQuery.of(
+              context,
+            ).copyWith(textScaler: TextScaler.linear(scale)),
+            child: RepaintBoundary(key: _boundary, child: child!),
+          ),
+          home: Scaffold(
+            body: page is ProfilePage || page is HomePage || page is LibraryPage
+                ? page
+                : Padding(padding: const EdgeInsets.all(12), child: page),
+          ),
         ),
       ),
     ),

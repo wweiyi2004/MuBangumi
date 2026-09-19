@@ -1,3 +1,5 @@
+import 'package:mubangumi/navigation/app_destination.dart';
+import 'package:mubangumi/navigation/app_router.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -224,105 +226,112 @@ void main() {
     expect(requestCount, 2);
   });
 
-  test('strips HTML tags and decodes entities in heading-less extracts', () async {
-    final service = _service((options) {
-      return {
-        'query': {
-          'pages': [
-            {
-              'pageid': 777,
-              'title': '短页',
-              'extract':
-                  '<p>《<b>短页</b>》是一部<a href="/wiki/某作品">作品</a>，由A&amp;B制作。</p>',
-              'fullurl': 'https://zh.moegirl.org.cn/短页',
-            },
-          ],
-        },
-      };
-    });
-
-    final entry = await service.findForSubject(_stubPage);
-
-    expect(entry?.title, '短页');
-    expect(entry?.extract, isNot(contains('<')));
-    expect(entry?.extract, contains('A&B'));
-  });
-
-  test('classifies an HTTP error as a request failure, not a connection issue',
-      () async {
-    final dio = Dio();
-    dio.interceptors.add(
-      InterceptorsWrapper(
-        onRequest: (options, handler) {
-          handler.reject(
-            DioException(
-              requestOptions: options,
-              type: DioExceptionType.badResponse,
-              response: Response<dynamic>(
-                requestOptions: options,
-                statusCode: 403,
-                data: '<html>WAF block</html>',
-              ),
-            ),
-          );
-        },
-      ),
-    );
-    final service = MoegirlService(dio: dio, cacheEnabled: false);
-
-    await expectLater(
-      service.findForSubject(_frieren),
-      throwsA(
-        isA<MoegirlException>().having(
-          (e) => e.message,
-          'message',
-          contains('HTTP 403'),
-        ),
-      ),
-    );
-  });
-
-  test('keeps the prefix result when the full re-fetch yields no usable entry',
-      () async {
-    final service = _service((options) {
-      if (options.queryParameters['generator'] == 'prefixsearch') {
+  test(
+    'strips HTML tags and decodes entities in heading-less extracts',
+    () async {
+      final service = _service((options) {
         return {
           'query': {
             'pages': [
               {
-                'pageid': 36981,
-                'title': '日常(漫画)',
-                'extract': '《日常》（日语：日常）是一部漫画，并有动画等衍生作品。',
-                'fullurl': 'https://zh.moegirl.org.cn/日常(漫画)',
+                'pageid': 777,
+                'title': '短页',
+                'extract':
+                    '<p>《<b>短页</b>》是一部<a href="/wiki/某作品">作品</a>，由A&amp;B制作。</p>',
+                'fullurl': 'https://zh.moegirl.org.cn/短页',
               },
             ],
           },
         };
-      }
-      if (options.queryParameters['titles'] == '日常(漫画)') {
-        return {
-          'query': {'pages': <Object?>[]},
-        };
-      }
-      return {
-        'query': {
-          'pages': [
-            {
-              'pageid': 629068,
-              'title': '日常',
-              'extract': '日常可以指多个条目。',
-              'pageprops': {'disambiguation': ''},
-              'fullurl': 'https://zh.moegirl.org.cn/日常',
+      });
+
+      final entry = await service.findForSubject(_stubPage);
+
+      expect(entry?.title, '短页');
+      expect(entry?.extract, isNot(contains('<')));
+      expect(entry?.extract, contains('A&B'));
+    },
+  );
+
+  test(
+    'classifies an HTTP error as a request failure, not a connection issue',
+    () async {
+      final dio = Dio();
+      dio.interceptors.add(
+        InterceptorsWrapper(
+          onRequest: (options, handler) {
+            handler.reject(
+              DioException(
+                requestOptions: options,
+                type: DioExceptionType.badResponse,
+                response: Response<dynamic>(
+                  requestOptions: options,
+                  statusCode: 403,
+                  data: '<html>WAF block</html>',
+                ),
+              ),
+            );
+          },
+        ),
+      );
+      final service = MoegirlService(dio: dio, cacheEnabled: false);
+
+      await expectLater(
+        service.findForSubject(_frieren),
+        throwsA(
+          isA<MoegirlException>().having(
+            (e) => e.message,
+            'message',
+            contains('HTTP 403'),
+          ),
+        ),
+      );
+    },
+  );
+
+  test(
+    'keeps the prefix result when the full re-fetch yields no usable entry',
+    () async {
+      final service = _service((options) {
+        if (options.queryParameters['generator'] == 'prefixsearch') {
+          return {
+            'query': {
+              'pages': [
+                {
+                  'pageid': 36981,
+                  'title': '日常(漫画)',
+                  'extract': '《日常》（日语：日常）是一部漫画，并有动画等衍生作品。',
+                  'fullurl': 'https://zh.moegirl.org.cn/日常(漫画)',
+                },
+              ],
             },
-          ],
-        },
-      };
-    });
+          };
+        }
+        if (options.queryParameters['titles'] == '日常(漫画)') {
+          return {
+            'query': {'pages': <Object?>[]},
+          };
+        }
+        return {
+          'query': {
+            'pages': [
+              {
+                'pageid': 629068,
+                'title': '日常',
+                'extract': '日常可以指多个条目。',
+                'pageprops': {'disambiguation': ''},
+                'fullurl': 'https://zh.moegirl.org.cn/日常',
+              },
+            ],
+          },
+        };
+      });
 
-    final entry = await service.findForSubject(_nichijou);
+      final entry = await service.findForSubject(_nichijou);
 
-    expect(entry?.title, '日常(漫画)');
-  });
+      expect(entry?.title, '日常(漫画)');
+    },
+  );
 
   test('entry cache JSON round-trips', () {
     const entry = MoegirlEntry(
@@ -355,7 +364,10 @@ void main() {
     );
 
     await tester.pumpWidget(
-      const MaterialApp(home: MoegirlDetailScreen(entry: entry)),
+      const AppRouteScope(
+        resolve: AppRouter.resolve,
+        child: MaterialApp(home: MoegirlDetailScreen(entry: entry)),
+      ),
     );
 
     expect(find.text('萌娘百科补充资料'), findsOneWidget);

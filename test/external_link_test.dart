@@ -87,7 +87,10 @@ void main() {
         isBangumiCommunityHost(Uri.parse('https://api.bangumi.tv')),
         isTrue,
       );
-      expect(isBangumiCommunityHost(Uri.parse('https://chii.in/group')), isTrue);
+      expect(
+        isBangumiCommunityHost(Uri.parse('https://chii.in/group')),
+        isTrue,
+      );
     });
 
     test('rejects lookalikes and unrelated hosts', () {
@@ -104,7 +107,10 @@ void main() {
     });
 
     test('rejects Bangumi hosts on non-http schemes', () {
-      expect(isBangumiCommunityHost(Uri.parse('javascript://bgm.tv/x')), isFalse);
+      expect(
+        isBangumiCommunityHost(Uri.parse('javascript://bgm.tv/x')),
+        isFalse,
+      );
       expect(
         isBangumiCommunityHost(Uri.parse('intent://bgm.tv/#Intent;end')),
         isFalse,

@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:async';
 import 'package:banjian_server/banjian_server.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mubangumi/features/anime_appreciation/room_connection.dart';
@@ -166,6 +167,70 @@ void main() {
       expect(c.message, contains('原输入已保留'));
     },
   );
+  test('older HTTP success cannot undo a newer refresh', () async {
+    final held = DelayedParticipantStateApi(c.api!);
+    c.api = held;
+    final old = c.refresh();
+    final snapshot = await held.captured.future;
+    admin('rename', {'title': '更新后的活动'});
+    await c.refresh();
+    held.release.complete(snapshot);
+    await old;
+    expect(c.event?['title'], '更新后的活动');
+  });
+  test('older HTTP failure cannot disconnect a successful refresh', () async {
+    final held = DelayedParticipantStateApi(c.api!);
+    c.api = held;
+    final old = c.refresh();
+    await held.captured.future;
+    await c.refresh();
+    held.release.completeError(StateError('late failure'));
+    await old;
+    expect(c.online, true);
+  });
+  test('live structural update wins over an in-flight HTTP snapshot', () async {
+    final held = DelayedParticipantStateApi(c.api!);
+    c.api = held;
+    final old = c.refresh();
+    final snapshot = await held.captured.future;
+    final manager = RoomApi(invite.base);
+    manager.token = (await manager.request('login', {
+      'password': 'test-management-password',
+    }))['token'];
+    await manager.request('admin', {
+      'op': newSecret(),
+      'event': id,
+      'version': store.info(id)['version'],
+      'action': 'rename',
+      'title': '来自实时连接的新状态',
+    });
+    await waitUntil(() => c.event?['title'] == '来自实时连接的新状态');
+    held.release.complete(snapshot);
+    await old;
+    expect(c.event?['title'], '来自实时连接的新状态');
+  });
+  test(
+    'changing rooms invalidates the previous room HTTP continuation',
+    () async {
+      final held = DelayedParticipantStateApi(c.api!);
+      c.api = held;
+      final old = c.refresh();
+      final snapshot = await held.captured.future;
+      admin('end');
+      final next =
+          store.create({'op': newSecret(), 'title': '下一场'})['id'] as String;
+      await c.join(
+        RoomInvite(invite.base, next, store.info(next)['invite']),
+        '新活动昵称',
+      );
+      held.release.complete(snapshot);
+      await old;
+      expect(c.event?['id'], next);
+      expect(c.name, '新活动昵称');
+      expect(c.online, true);
+    },
+  );
+
   test('leave hides temporary entry and rejoin keeps one identity', () async {
     await c.leave();
     expect(c.active, false);
@@ -209,4 +274,20 @@ void main() {
       expect(store.view(id, admin: true)['rounds'][1]['comments'], isEmpty);
     },
   );
+}
+
+class DelayedParticipantStateApi extends RoomApi {
+  DelayedParticipantStateApi(this.delegate)
+    : super(delegate.base, token: delegate.token);
+  final RoomApi delegate;
+  final captured = Completer<Json>(), release = Completer<Json>();
+  var count = 0;
+  @override
+  Future<Json> request(String path, [Json? body]) async {
+    if (path.startsWith('state?') && count++ == 0) {
+      captured.complete(await delegate.request(path, body));
+      return release.future;
+    }
+    return delegate.request(path, body);
+  }
 }

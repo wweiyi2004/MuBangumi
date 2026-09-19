@@ -173,6 +173,8 @@ OAuth 的 Token、刷新凭据与应用配置会在账号验证成功后整组�
 
 `shorebird.yaml` 中 `auto_update: false`，由应用内控制检查与下载，以便展示更新就绪提示。
 
+从 `2.3.1+3029` 起恢复使用 Shorebird 整包基线，Android 分发包含全部 ABI 的通用 APK。内部 build 从 28 提升为 3029，是为了超过旧分架构 APK 的最高 versionCode 3028；后续整包按 3030、3031 递增。`2.3.0+28` 普通 Flutter 包需要先覆盖安装该新基线，之后才能接收匹配的 Dart 热补丁。
+
 发布脚本固定使用 Shorebird Flutter `3.44.7` 创建基线，补丁自动使用服务端记录的对应引擎版本。补丁必须明确指定完整基线版本，避免误发到其他版本。可加 `-DryRun` 只验证构建；不要在补丁中混入原生插件、权限或资源变更。
 
 需要补丁专属公告时，可创建标为预发布的 GitHub Release，tag 使用 `v2.1.1+11-patch.1`（末尾为实际补丁编号），body 填写该补丁说明。应用只读取匹配基线和补丁的公告；公告不存在或网络不可达时仍可应用更新。完整版本公告继续通过正式 GitHub Release 提供。
@@ -230,10 +232,11 @@ APK 分架构的 versionCode 包含架构偏移，后续发布需保持各架构
 
 ## 项目结构
 
-仓库包含一个 Flutter 主应用和四个相互独立的卫星模块。它们各自构建、各自发布，互不依赖：
+仓库包含 Flutter 主应用、由主应用复用且可独立部署的番键会服务包，以及四个独立的卫星模块：
 
 ```text
 lib/                      Flutter 主应用（Android / iOS / Windows）
+packages/banjian_server/  番键会服务、共享协议模型与网页端；Flutter 通过本地包依赖嵌入
 native-android/          独立的 Kotlin + Compose 原生实现（冻结原型，停留 1.7.0）
 website/                 项目主页（React + vinext + Cloudflare Workers → GitHub Pages）
 tool/recommend_dataset/  推荐模型数据管线与基线（Python，尚未接入 Flutter）
@@ -268,8 +271,10 @@ lib/
 │  ├─ sync/                   # 同步队列模型、上传调度与重试
 │  ├─ subject_detail/         # 章节、评论、好友与补充资料加载及展示区块
 │  ├─ schedule/               # 新番表搜索、季度选择、拖拽课表与操作菜单
+│  ├─ anime_appreciation/     # 番键会原生管理/参与、服务宿主和离线参与记录
 │  └─ pm/presentation/        # 邮箱展示、聊天、写信及共用头像和输入组件
 ├─ models/           # 条目、收藏、章节、社区、私信、RSS、新番表等共享模型
+├─ navigation/       # 页面目的地描述与集中路由装配，避免页面之间互相导入
 ├─ state/            # Riverpod 控制器：会话、同步、新番表、私信、备份、更新…
 ├─ screens/          # 登录、首页、收藏、发现、社区、详情、新番表、我的
 └─ widgets/          # 封面、条目卡片、编辑器、图表等复用组件
@@ -280,6 +285,10 @@ lib/
 离线修改仍由 `lib/core/storage/bangumi_sync_store.dart` 先写入 SQLite，再更新界面；上传时机、账号请求保护与重试由 `features/sync/application/pending_sync_controller.dart` 负责。凭据、收藏、同步、搜索和详情页读取模块不依赖页面或全局会话控制器。详情页、新番表和短信邮箱保留在 `screens/` 作为页面入口，独立展示区块与加载逻辑已迁入对应的 `features/` 目录；新番表操作菜单仍通过现有 Provider 连接进度、提醒和 RSS。短信聊天/写信界面在 `features/pm/presentation/`，继续复用原有邮箱、草稿控制器与网络服务，原页面文件转导出公开入口。
 
 边界与验证记录见 [会话职责拆分](docs/architecture/SESSION_REFACTOR.md)、[收藏加载与编辑拆分](docs/architecture/COLLECTION_REFACTOR.md)、[详情页拆分](docs/architecture/SUBJECT_DETAIL_REFACTOR.md)、[新番表拆分](docs/architecture/SCHEDULE_REFACTOR.md) 和 [短信与详情请求收尾](docs/architecture/PM_AND_SUBJECT_REQUESTS_REFACTOR.md)。
+
+社区与私信网络服务由 `state/service_providers.dart` 按 ProviderContainer 创建和释放，账号访问协调器只安装本作用域的认证回调。社区持久缓存按账号命名，收藏快照携带完整性、加载类型和来源总量；不完整快照不会被统计与导出当成完整收藏。番键会凭据留在系统安全存储，待确认命令与可丢弃快照分开保存在 SQLite。
+
+2026-09-19 的[架构审查](docs/architecture/ARCHITECTURE_REVIEW_2026-09-19.md)及[修复与验收记录](docs/architecture/ARCHITECTURE_FIXES_2026-09-19.md)说明这些边界、迁移策略和验证范围。CI 运行 `python tool/verify_architecture.py --self-test`，阻止循环依赖和全局认证服务回归。
 
 主要使用的 API：
 

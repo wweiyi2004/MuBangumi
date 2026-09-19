@@ -1,3 +1,5 @@
+import 'package:mubangumi/navigation/app_destination.dart';
+import 'package:mubangumi/navigation/app_router.dart';
 import 'dart:async';
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
@@ -75,14 +77,17 @@ void main() {
       final service = _Service();
       var websiteOpened = false;
       await tester.pumpWidget(
-        MaterialApp(
-          home: Scaffold(
-            body: AccountContentPreferencesTile(
-              service: service,
-              onOpenWebsite: () async {
-                websiteOpened = true;
-                service.value = enabled;
-              },
+        AppRouteScope(
+          resolve: AppRouter.resolve,
+          child: MaterialApp(
+            home: Scaffold(
+              body: AccountContentPreferencesTile(
+                service: service,
+                onOpenWebsite: () async {
+                  websiteOpened = true;
+                  service.value = enabled;
+                },
+              ),
             ),
           ),
         ),
@@ -128,11 +133,14 @@ void main() {
     (tester) async {
       final service = _Service();
       await tester.pumpWidget(
-        MaterialApp(
-          home: Scaffold(
-            body: AccountContentPreferencesTile(
-              service: service,
-              onOpenWebsite: () async {},
+        AppRouteScope(
+          resolve: AppRouter.resolve,
+          child: MaterialApp(
+            home: Scaffold(
+              body: AccountContentPreferencesTile(
+                service: service,
+                onOpenWebsite: () async {},
+              ),
             ),
           ),
         ),
@@ -377,8 +385,11 @@ void main() {
 
 Future<void> _show(WidgetTester tester, _Service service) async {
   await tester.pumpWidget(
-    MaterialApp(
-      home: Scaffold(body: AccountContentPreferencesTile(service: service)),
+    AppRouteScope(
+      resolve: AppRouter.resolve,
+      child: MaterialApp(
+        home: Scaffold(body: AccountContentPreferencesTile(service: service)),
+      ),
     ),
   );
   await tester.pumpAndSettle();

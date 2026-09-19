@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import '../app.dart';
+import '../widgets/brand_mark.dart';
 import '../core/layout/app_layout.dart';
 import 'app_background.dart';
 

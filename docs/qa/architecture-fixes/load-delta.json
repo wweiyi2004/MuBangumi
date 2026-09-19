@@ -1,0 +1,14 @@
+{
+  "transport": "Windows loopback HTTP + WebSocket",
+  "clients": 50,
+  "catalogRounds": 10,
+  "mode": "invalidation + HTTP deltas",
+  "payloadBytesReceived": 4991576,
+  "receivedNotifications": 1515,
+  "durationSeconds": 124,
+  "acknowledgedWrites": 1200,
+  "receivedSnapshots": 1565,
+  "uniqueScores": 50,
+  "p95AcknowledgementAndOwnSnapshotMs": 196.611,
+  "maxMs": 211.843
+}

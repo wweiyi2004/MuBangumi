@@ -1,3 +1,5 @@
+import 'package:mubangumi/navigation/app_destination.dart';
+import 'package:mubangumi/navigation/app_router.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mubangumi/core/theme/app_theme.dart';
@@ -12,9 +14,15 @@ void main() {
     await tester.binding.setSurfaceSize(const Size(390, 844));
     addTearDown(() => tester.binding.setSurfaceSize(null));
     await tester.pumpWidget(
-      MaterialApp(
-        theme: AppTheme.light,
-        home: LoginPreparationScreen(nickname: '小沐', onEnter: () => entered++),
+      AppRouteScope(
+        resolve: AppRouter.resolve,
+        child: MaterialApp(
+          theme: AppTheme.light,
+          home: LoginPreparationScreen(
+            nickname: '小沐',
+            onEnter: () => entered++,
+          ),
+        ),
       ),
     );
     await tester.pump(const Duration(milliseconds: 450));
@@ -39,16 +47,22 @@ void main() {
     await tester.binding.setSurfaceSize(const Size(568, 320));
     addTearDown(() => tester.binding.setSurfaceSize(null));
     await tester.pumpWidget(
-      MaterialApp(
-        theme: AppTheme.dark,
-        builder: (context, child) => MediaQuery(
-          data: MediaQuery.of(context).copyWith(
-            textScaler: const TextScaler.linear(1.8),
-            disableAnimations: true,
+      AppRouteScope(
+        resolve: AppRouter.resolve,
+        child: MaterialApp(
+          theme: AppTheme.dark,
+          builder: (context, child) => MediaQuery(
+            data: MediaQuery.of(context).copyWith(
+              textScaler: const TextScaler.linear(1.8),
+              disableAnimations: true,
+            ),
+            child: child!,
           ),
-          child: child!,
+          home: LoginPreparationScreen(
+            nickname: '很长的昵称也可以自然换行',
+            onEnter: () {},
+          ),
         ),
-        home: LoginPreparationScreen(nickname: '很长的昵称也可以自然换行', onEnter: () {}),
       ),
     );
     await tester.pump();
@@ -59,10 +73,13 @@ void main() {
 
   testWidgets('entrance honors reduced motion', (tester) async {
     await tester.pumpWidget(
-      const MaterialApp(
-        home: MediaQuery(
-          data: MediaQueryData(disableAnimations: true),
-          child: LoginEntrance(child: Text('首页')),
+      const AppRouteScope(
+        resolve: AppRouter.resolve,
+        child: MaterialApp(
+          home: MediaQuery(
+            data: MediaQueryData(disableAnimations: true),
+            child: LoginEntrance(child: Text('首页')),
+          ),
         ),
       ),
     );

@@ -4,7 +4,7 @@ import 'package:mubangumi/core/network/community_service.dart';
 import 'package:mubangumi/models/community_models.dart';
 
 Future<void> main() async {
-  final service = CommunityService.shared;
+  final service = CommunityService();
   final topics = await service.loadTopicPage(
     RakuenMode.subjectTrending,
     refresh: true,

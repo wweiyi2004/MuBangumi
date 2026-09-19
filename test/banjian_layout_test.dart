@@ -1,3 +1,5 @@
+import 'package:mubangumi/navigation/app_destination.dart';
+import 'package:mubangumi/navigation/app_router.dart';
 import 'dart:io';
 import 'dart:ui' as ui;
 import 'package:banjian_server/banjian_server.dart';
@@ -204,31 +206,34 @@ void main() {
       await tester.pumpWidget(
         UncontrolledProviderScope(
           container: container,
-          child: MaterialApp(
-            theme: capture
-                ? theme.copyWith(
-                    textTheme: theme.textTheme.apply(
-                      fontFamily: 'Microsoft YaHei UI',
-                    ),
-                  )
-                : theme,
-            home: MediaQuery(
-              data: MediaQueryData(
-                size: Size(390, 900),
-                viewInsets: EdgeInsets.only(
-                  bottom: variant == 'participant-keyboard' ? 300 : 0,
+          child: AppRouteScope(
+            resolve: AppRouter.resolve,
+            child: MaterialApp(
+              theme: capture
+                  ? theme.copyWith(
+                      textTheme: theme.textTheme.apply(
+                        fontFamily: 'Microsoft YaHei UI',
+                      ),
+                    )
+                  : theme,
+              home: MediaQuery(
+                data: MediaQueryData(
+                  size: Size(390, 900),
+                  viewInsets: EdgeInsets.only(
+                    bottom: variant == 'participant-keyboard' ? 300 : 0,
+                  ),
+                  textScaler: TextScaler.linear(
+                    variant.endsWith('large') ? 1.6 : 1,
+                  ),
                 ),
-                textScaler: TextScaler.linear(
-                  variant.endsWith('large') ? 1.6 : 1,
+                child: RepaintBoundary(
+                  key: boundary,
+                  child: variant == 'host'
+                      ? const RoomHostPage()
+                      : variant == 'settings'
+                      ? const ExperimentalFeaturesPage()
+                      : RoomParticipationPage(invite: target),
                 ),
-              ),
-              child: RepaintBoundary(
-                key: boundary,
-                child: variant == 'host'
-                    ? const RoomHostPage()
-                    : variant == 'settings'
-                    ? const ExperimentalFeaturesPage()
-                    : RoomParticipationPage(invite: target),
               ),
             ),
           ),

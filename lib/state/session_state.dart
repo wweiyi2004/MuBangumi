@@ -1,6 +1,7 @@
 import '../core/network/bangumi_endpoints.dart';
 import '../models/bangumi_models.dart';
 import '../models/episode_edit.dart';
+import '../models/collection_coverage.dart';
 
 enum SessionPhase { booting, signedOut, signedIn }
 
@@ -21,6 +22,7 @@ class SessionState {
     this.isLoadingCollections = false,
     this.isUsingCachedCollections = false,
     this.collectionsSavedAt,
+    this.collectionCoverage,
     this.updatingSubjects = const {},
     this.networkRoute = BangumiNetworkRoute.official,
     this.pendingSyncCount = 0,
@@ -51,6 +53,7 @@ class SessionState {
   final bool isLoadingCollections;
   final bool isUsingCachedCollections;
   final DateTime? collectionsSavedAt;
+  final CollectionCoverage? collectionCoverage;
   final Set<int> updatingSubjects;
   final BangumiNetworkRoute networkRoute;
   final int pendingSyncCount;
@@ -80,6 +83,7 @@ class SessionState {
     bool? isLoadingCollections,
     bool? isUsingCachedCollections,
     DateTime? collectionsSavedAt,
+    CollectionCoverage? collectionCoverage,
     bool clearCollectionsSavedAt = false,
     Set<int>? updatingSubjects,
     BangumiNetworkRoute? networkRoute,
@@ -104,6 +108,11 @@ class SessionState {
     episodeUndo: clearEpisodeUndo ? null : episodeUndo ?? this.episodeUndo,
     lastEpisodeEdit: lastEpisodeEdit ?? this.lastEpisodeEdit,
     collections: collections ?? this.collections,
+    collectionCoverage:
+        collectionCoverage ??
+        (collections == null
+            ? this.collectionCoverage
+            : this.collectionCoverage?.withCount(collections.length)),
     isRefreshing: isRefreshing ?? this.isRefreshing,
     isLoadingCollections: isLoadingCollections ?? this.isLoadingCollections,
     isUsingCachedCollections:

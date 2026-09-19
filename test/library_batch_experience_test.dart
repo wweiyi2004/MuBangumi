@@ -1,3 +1,5 @@
+import 'package:mubangumi/navigation/app_destination.dart';
+import 'package:mubangumi/navigation/app_router.dart';
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -312,19 +314,22 @@ Future<void> _show(
         sessionProvider.overrideWith((ref) => env.session),
         scheduleProvider.overrideWith((ref) => env.schedule),
       ],
-      child: MaterialApp(
-        theme: theme,
-        builder: (context, child) => MediaQuery(
-          data: MediaQuery.of(
-            context,
-          ).copyWith(textScaler: TextScaler.linear(scale)),
-          child: RepaintBoundary(key: _boundary, child: child!),
-        ),
-        home: const Scaffold(
-          body: LibraryPage(
-            initialSubjectType: null,
-            initialCollectionType: null,
-            rememberFilters: false,
+      child: AppRouteScope(
+        resolve: AppRouter.resolve,
+        child: MaterialApp(
+          theme: theme,
+          builder: (context, child) => MediaQuery(
+            data: MediaQuery.of(
+              context,
+            ).copyWith(textScaler: TextScaler.linear(scale)),
+            child: RepaintBoundary(key: _boundary, child: child!),
+          ),
+          home: const Scaffold(
+            body: LibraryPage(
+              initialSubjectType: null,
+              initialCollectionType: null,
+              rememberFilters: false,
+            ),
           ),
         ),
       ),

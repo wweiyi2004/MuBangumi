@@ -1,3 +1,5 @@
+import '../state/service_providers.dart';
+import '../navigation/app_destination.dart';
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -12,9 +14,6 @@ import '../widgets/community_widgets.dart';
 import '../widgets/community_loading.dart';
 import '../widgets/group_qr_sheet.dart';
 import 'community_page.dart';
-import 'community_topic_screen.dart';
-import 'community_group_browse_screen.dart';
-import 'user_profile_page.dart';
 import 'website_login_screen.dart';
 
 class CommunityGroupScreen extends StatefulWidget {
@@ -34,7 +33,7 @@ class CommunityGroupScreen extends StatefulWidget {
 }
 
 class _CommunityGroupScreenState extends State<CommunityGroupScreen> {
-  late final _service = widget.service ?? CommunityService.shared;
+  late final _service = widget.service ?? communityServiceFor(context);
   CommunityGroupDetail? _detail;
   bool _loading = true;
   int _requestId = 0;
@@ -178,7 +177,7 @@ class _CommunityGroupScreenState extends State<CommunityGroupScreen> {
   void _openTopic(CommunityTopic topic) {
     Navigator.of(context).push(
       MaterialPageRoute<void>(
-        builder: (_) => CommunityTopicScreen(topic: topic, service: _service),
+        builder: (_) => TopicRoute(topic: topic, service: _service),
       ),
     );
   }
@@ -186,7 +185,7 @@ class _CommunityGroupScreenState extends State<CommunityGroupScreen> {
   void _openAll({bool members = false}) {
     Navigator.of(context).push(
       MaterialPageRoute<void>(
-        builder: (_) => CommunityGroupBrowseScreen(
+        builder: (_) => GroupBrowseRoute(
           group: _detail?.group ?? widget.group,
           service: _service,
           members: members,

@@ -1,3 +1,5 @@
+import 'package:mubangumi/navigation/app_destination.dart';
+import 'package:mubangumi/navigation/app_router.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -20,17 +22,20 @@ void main() {
     await tester.pumpWidget(
       ProviderScope(
         overrides: [sessionProvider.overrideWith((ref) => controller)],
-        child: MaterialApp(
-          home: Scaffold(
-            body: Consumer(
-              builder: (context, ref, _) => Center(
-                child: ElevatedButton(
-                  onPressed: () => showNetworkRoutePicker(
-                    context,
-                    ref,
-                    probe: _instantProbe(),
+        child: AppRouteScope(
+          resolve: AppRouter.resolve,
+          child: MaterialApp(
+            home: Scaffold(
+              body: Consumer(
+                builder: (context, ref, _) => Center(
+                  child: ElevatedButton(
+                    onPressed: () => showNetworkRoutePicker(
+                      context,
+                      ref,
+                      probe: _instantProbe(),
+                    ),
+                    child: const Text('open'),
                   ),
-                  child: const Text('open'),
                 ),
               ),
             ),

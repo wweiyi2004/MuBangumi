@@ -1,13 +1,13 @@
+import '../state/service_providers.dart';
+import '../navigation/app_destination.dart';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import '../core/network/community_service.dart';
 import '../models/bangumi_models.dart';
 import '../models/community_models.dart';
 import '../state/session_controller.dart';
 import '../state/background_controller.dart';
 import '../widgets/profile_home_layout.dart';
-import 'community_blog_screen.dart';
 import 'community_timeline_page.dart';
 import 'friends_page.dart';
 import 'library_page.dart';
@@ -15,7 +15,10 @@ import 'settings_page.dart';
 
 final _friendCountProvider = FutureProvider.autoDispose.family<int, String>(
   (ref, username) async =>
-      (await CommunityService.shared.loadFriends(username, limit: 1)).total,
+      (await ref
+              .watch(communityServiceProvider)
+              .loadFriends(username, limit: 1))
+          .total,
 );
 
 class ProfilePage extends ConsumerStatefulWidget {
@@ -78,7 +81,7 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
                 )
               : const SizedBox.shrink(),
           _opened.contains(2)
-              ? CommunityBlogListScreen(
+              ? BlogListRoute(
                   embedded: true,
                   usePrimaryScrollController: _tab == 2,
                 )

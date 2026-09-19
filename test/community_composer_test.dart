@@ -1,3 +1,5 @@
+import 'package:mubangumi/navigation/app_destination.dart';
+import 'package:mubangumi/navigation/app_router.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mubangumi/widgets/community_composer.dart';
@@ -10,21 +12,24 @@ void main() {
       var fail = true;
       var tokens = 0;
       await tester.pumpWidget(
-        MaterialApp(
-          home: Builder(
-            builder: (context) => Scaffold(
-              body: TextButton(
-                onPressed: () => showCommunityComposer(
-                  context,
-                  heading: '写回复',
-                  draft: draft,
-                  requireTitle: true,
-                  tokenProvider: (_) async => 'token-${++tokens}',
-                  onSubmit: (_, _, _) async {
-                    if (fail) throw StateError('发送失败');
-                  },
+        AppRouteScope(
+          resolve: AppRouter.resolve,
+          child: MaterialApp(
+            home: Builder(
+              builder: (context) => Scaffold(
+                body: TextButton(
+                  onPressed: () => showCommunityComposer(
+                    context,
+                    heading: '写回复',
+                    draft: draft,
+                    requireTitle: true,
+                    tokenProvider: (_) async => 'token-${++tokens}',
+                    onSubmit: (_, _, _) async {
+                      if (fail) throw StateError('发送失败');
+                    },
+                  ),
+                  child: const Text('打开'),
                 ),
-                child: const Text('打开'),
               ),
             ),
           ),
@@ -61,21 +66,24 @@ void main() {
     String? submittedToken;
 
     await tester.pumpWidget(
-      MaterialApp(
-        home: Builder(
-          builder: (context) => Scaffold(
-            body: Center(
-              child: FilledButton(
-                onPressed: () => showCommunityComposer(
-                  context,
-                  heading: '回复话题',
-                  tokenProvider: (_) async => 'verified-turnstile-token',
-                  onSubmit: (_, content, token) async {
-                    submittedContent = content;
-                    submittedToken = token;
-                  },
+      AppRouteScope(
+        resolve: AppRouter.resolve,
+        child: MaterialApp(
+          home: Builder(
+            builder: (context) => Scaffold(
+              body: Center(
+                child: FilledButton(
+                  onPressed: () => showCommunityComposer(
+                    context,
+                    heading: '回复话题',
+                    tokenProvider: (_) async => 'verified-turnstile-token',
+                    onSubmit: (_, content, token) async {
+                      submittedContent = content;
+                      submittedToken = token;
+                    },
+                  ),
+                  child: const Text('回复'),
                 ),
-                child: const Text('回复'),
               ),
             ),
           ),
@@ -104,23 +112,26 @@ void main() {
     String? submittedToken;
 
     await tester.pumpWidget(
-      MaterialApp(
-        home: Builder(
-          builder: (context) => Scaffold(
-            body: Center(
-              child: FilledButton(
-                onPressed: () => showCommunityComposer(
-                  context,
-                  heading: '在「测试小组」发帖',
-                  requireTitle: true,
-                  tokenProvider: (_) async => 'verified-turnstile-token',
-                  onSubmit: (title, content, token) async {
-                    submittedTitle = title;
-                    submittedContent = content;
-                    submittedToken = token;
-                  },
+      AppRouteScope(
+        resolve: AppRouter.resolve,
+        child: MaterialApp(
+          home: Builder(
+            builder: (context) => Scaffold(
+              body: Center(
+                child: FilledButton(
+                  onPressed: () => showCommunityComposer(
+                    context,
+                    heading: '在「测试小组」发帖',
+                    requireTitle: true,
+                    tokenProvider: (_) async => 'verified-turnstile-token',
+                    onSubmit: (title, content, token) async {
+                      submittedTitle = title;
+                      submittedContent = content;
+                      submittedToken = token;
+                    },
+                  ),
+                  child: const Text('发帖'),
                 ),
-                child: const Text('发帖'),
               ),
             ),
           ),

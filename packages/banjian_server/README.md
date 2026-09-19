@@ -26,7 +26,7 @@ dart run bin/server.dart
 | `BANJIAN_BIND` | `0.0.0.0` |
 | `PORT` | `43928` |
 | `BANJIAN_DATA` | `./data`，数据库与已缓存封面 |
-| `BANJIAN_WEB` | `./web`，三个随包静态文件 |
+| `BANJIAN_WEB` | `./web`，四个随包静态文件：`index.html`、`app.css`、`room_protocol.js`、`app.js` |
 | `BANJIAN_PUBLIC_ORIGIN` | 公网反代时填完整来源，如 `https://banjian.example.com`；用于来源校验及二维码 |
 
 ## 跨网络部署
@@ -53,6 +53,9 @@ dart build cli --target bin/server.dart -o build
 ## 数据与权限
 
 - SQLite WAL + FULL 同步事务。操作回执与活动修改一起落盘，重复操作 ID 不会重复计票或生成短评。
+- 数据库 schema 4 把活动元数据、参与身份、评分、短评与同步版本分表。旧数据库在事务迁移前创建一次 `.pre-v2.sqlite`（旧 JSON 格式）或 `.pre-v4.sqlite`（中间版本）备份；迁移保留操作回执，避免恢复后重复提交。
+- `version` 用于管理操作冲突检测，`revision` 覆盖所有可见变更，`serverEpoch` 区分服务重启。新版客户端使用 WebSocket 失效通知与 HTTP 轮次增量；结构变更即时发送完整投影，旧客户端继续接收完整投影。服务保留最近 128 个变更编号，缺失基线时自动完整同步。
+- 单个常规快照最多 8 MiB，每轮仅预览 20 条短评；全部短评按游标分批读取，JSON/CSV 导出在一致性读事务内流式输出。参与端只能读取获准公开或自己的短评，评论翻页不会扩大权限。
 - 当前服务同时允许一场未结束活动，最多 100 轮、500 个参与身份，每轮最多 5,000 条短评。目标使用规模为 50 个在线参与端。
 - 管理会话 12 小时过期，支持退出撤销、失败限频和来源校验；管理网页使用独立 Bearer 会话。
 - 参与邀请包含随机秘密；参与者自己的随机凭据用于恢复身份、修改评分。管理密码不进入参与二维码。
@@ -69,6 +72,8 @@ dart build cli --target bin/server.dart -o build
 dart analyze
 dart test
 dart run tool/load_check.dart 120
+dart run tool/load_check.dart 120 --delta
+node test/room_protocol_test.cjs
 ```
 
 `load_check.dart` 使用临时数据库和回环地址，可传入秒数；默认两分钟。短时本机压测不代表真实 Wi-Fi、热点设备上限或 Android 锁屏保活结果。完整验证记录见仓库 `docs/qa/banjian-implementation/README.md`。

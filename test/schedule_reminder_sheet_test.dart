@@ -1,3 +1,5 @@
+import 'package:mubangumi/navigation/app_destination.dart';
+import 'package:mubangumi/navigation/app_router.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -30,21 +32,25 @@ void main() {
           scheduleStoreProvider.overrideWithValue(store),
           scheduleReminderProvider.overrideWithValue(reminders),
         ],
-        child: MaterialApp(
-          home: Consumer(
-            builder: (context, ref, _) {
-              final state = ref.watch(scheduleProvider);
-              return Scaffold(
-                body: Center(
-                  child: FilledButton(
-                    onPressed: state.loading
-                        ? null
-                        : () => showScheduleReminderSheet(context, item: item),
-                    child: const Text('打开提醒'),
+        child: AppRouteScope(
+          resolve: AppRouter.resolve,
+          child: MaterialApp(
+            home: Consumer(
+              builder: (context, ref, _) {
+                final state = ref.watch(scheduleProvider);
+                return Scaffold(
+                  body: Center(
+                    child: FilledButton(
+                      onPressed: state.loading
+                          ? null
+                          : () =>
+                                showScheduleReminderSheet(context, item: item),
+                      child: const Text('打开提醒'),
+                    ),
                   ),
-                ),
-              );
-            },
+                );
+              },
+            ),
           ),
         ),
       ),

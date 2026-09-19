@@ -1,15 +1,16 @@
 import 'dart:async';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../core/auth/website_session.dart';
-import '../core/network/community_service.dart';
-import '../core/network/pm_service.dart';
 import '../models/bangumi_models.dart';
 import 'session_controller.dart';
 import 'website_session_controller.dart';
+import 'service_providers.dart';
 
 /// One coordination point; the existing API session remains the account owner.
 final accountAccessProvider = Provider<AccountAccessController>((ref) {
   final website = ref.read(websiteSessionProvider.notifier);
+  final pm = ref.watch(pmServiceProvider);
+  final community = ref.watch(communityServiceProvider);
   final access = AccountAccessController(
     website: website,
     currentUser: () => ref.read(sessionProvider).user,
@@ -21,19 +22,19 @@ final accountAccessProvider = Provider<AccountAccessController>((ref) {
   );
   final guard = access.requireWebsiteSession;
   final failure = website.reportFailure;
-  PmService.shared.websiteSessionGuard = guard;
-  PmService.shared.onWebsiteSessionFailure = failure;
-  CommunityService.shared.websiteSessionGuard = guard;
-  CommunityService.shared.onWebsiteSessionFailure = failure;
+  pm.websiteSessionGuard = guard;
+  pm.onWebsiteSessionFailure = failure;
+  community.websiteSessionGuard = guard;
+  community.onWebsiteSessionFailure = failure;
   ref.onDispose(() {
     access.dispose();
-    if (identical(PmService.shared.websiteSessionGuard, guard)) {
-      PmService.shared.websiteSessionGuard = null;
-      PmService.shared.onWebsiteSessionFailure = null;
+    if (identical(pm.websiteSessionGuard, guard)) {
+      pm.websiteSessionGuard = null;
+      pm.onWebsiteSessionFailure = null;
     }
-    if (identical(CommunityService.shared.websiteSessionGuard, guard)) {
-      CommunityService.shared.websiteSessionGuard = null;
-      CommunityService.shared.onWebsiteSessionFailure = null;
+    if (identical(community.websiteSessionGuard, guard)) {
+      community.websiteSessionGuard = null;
+      community.onWebsiteSessionFailure = null;
     }
   });
   return access;

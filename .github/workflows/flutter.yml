@@ -15,6 +15,7 @@ on:
       - "ios/**"
       - "windows/**"
       - "tool/build_release.ps1"
+      - "tool/verify_architecture.py"
       - "tool/*windows*package*.ps1"
       - "tool/package_windows_release.ps1"
       - "tool/tests/windows_package_safety_test.ps1"
@@ -35,6 +36,7 @@ on:
       - "ios/**"
       - "windows/**"
       - "tool/build_release.ps1"
+      - "tool/verify_architecture.py"
       - "tool/*windows*package*.ps1"
       - "tool/package_windows_release.ps1"
       - "tool/tests/windows_package_safety_test.ps1"
@@ -70,6 +72,9 @@ jobs:
       - name: Analyze
         run: flutter analyze
 
+      - name: Verify architectural boundaries
+        run: python tool/verify_architecture.py --self-test
+
       - name: Test
         run: flutter test
 
@@ -80,6 +85,9 @@ jobs:
       - name: Test Banjian server
         working-directory: packages/banjian_server
         run: dart test
+
+      - name: Verify browser protocol fixtures
+        run: node packages/banjian_server/test/room_protocol_test.cjs
 
       - name: Verify Windows packaging safeguards
         run: ./tool/tests/windows_package_safety_test.ps1

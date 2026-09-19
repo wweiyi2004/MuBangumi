@@ -29,7 +29,7 @@ class PmService {
             ),
           );
 
-  static final shared = PmService();
+  void dispose() => _dio.close(force: true);
   Future<WebsiteSessionSnapshot> Function()? websiteSessionGuard;
   void Function(WebsiteAccessStatus status, String authenticationKey)?
   onWebsiteSessionFailure;

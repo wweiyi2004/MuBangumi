@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'room_connection.dart';
+import 'room_comments_sheet.dart';
 
 /// Current-round controls stay on the same screen. Lists and historical
 /// details live in a drawer; only the content well scrolls for large text.
@@ -322,6 +323,7 @@ Future<void> showParticipantDetails(
         builder: (context, setState) => Consumer(
           builder: (context, ref, _) {
             final c = ref.watch(participationProvider);
+            final selectedEventId = c.event?['id'];
             final r = selected == null
                 ? c.current
                 : c.rounds.where((v) => v['id'] == selected).firstOrNull;
@@ -384,6 +386,22 @@ Future<void> showParticipantDetails(
                                 }),
                               ),
                           if (tab == 0) ...[
+                            if (r?['commentsMore'] == true && c.api != null)
+                              TextButton.icon(
+                                icon: const Icon(Icons.forum_outlined),
+                                label: Text('查看全部 ${r!['commentsTotal']} 条短评'),
+                                onPressed: () => showRoomComments(
+                                  context,
+                                  api: c.api!,
+                                  eventId: selectedEventId,
+                                  roundId: r['id'],
+                                  live: c,
+                                  stateKey: () =>
+                                      roomCommentsStateKey(c.event, r['id']),
+                                  isCurrent: () =>
+                                      c.event?['id'] == selectedEventId,
+                                ),
+                              ),
                             Padding(
                               padding: const EdgeInsets.symmetric(vertical: 12),
                               child: Text(

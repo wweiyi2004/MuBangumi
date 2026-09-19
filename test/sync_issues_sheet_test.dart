@@ -1,3 +1,5 @@
+import 'package:mubangumi/navigation/app_destination.dart';
+import 'package:mubangumi/navigation/app_router.dart';
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -40,7 +42,10 @@ void main() {
       await tester.pumpWidget(
         ProviderScope(
           overrides: [sessionProvider.overrideWith((ref) => controller)],
-          child: const MaterialApp(home: Scaffold(body: SyncIssuesSheet())),
+          child: const AppRouteScope(
+            resolve: AppRouter.resolve,
+            child: MaterialApp(home: Scaffold(body: SyncIssuesSheet())),
+          ),
         ),
       );
       await tester.pumpAndSettle();
@@ -95,7 +100,10 @@ void main() {
     await tester.pumpWidget(
       ProviderScope(
         overrides: [sessionProvider.overrideWith((ref) => controller)],
-        child: const MaterialApp(home: Scaffold(body: SyncIssuesSheet())),
+        child: const AppRouteScope(
+          resolve: AppRouter.resolve,
+          child: MaterialApp(home: Scaffold(body: SyncIssuesSheet())),
+        ),
       ),
     );
     await tester.pump();

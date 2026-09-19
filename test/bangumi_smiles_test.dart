@@ -1,3 +1,5 @@
+import 'package:mubangumi/navigation/app_destination.dart';
+import 'package:mubangumi/navigation/app_router.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mubangumi/core/network/bangumi_smiles.dart';
@@ -56,8 +58,13 @@ void main() {
     tester,
   ) async {
     await tester.pumpWidget(
-      const MaterialApp(
-        home: Scaffold(body: CollapsibleCommunityText('(bgm43)(bgm43)(bgm43)')),
+      const AppRouteScope(
+        resolve: AppRouter.resolve,
+        child: MaterialApp(
+          home: Scaffold(
+            body: CollapsibleCommunityText('(bgm43)(bgm43)(bgm43)'),
+          ),
+        ),
       ),
     );
 

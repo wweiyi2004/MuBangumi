@@ -1,3 +1,5 @@
+import 'package:mubangumi/navigation/app_destination.dart';
+import 'package:mubangumi/navigation/app_router.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mubangumi/core/network/community_p1_parser.dart';
@@ -45,12 +47,15 @@ void main() {
     ], fallbackUsername: 'alice');
 
     await tester.pumpWidget(
-      MaterialApp(
-        home: Scaffold(
-          body: ListView(
-            children: [
-              for (final item in items) CommunityTimelineCard(item: item),
-            ],
+      AppRouteScope(
+        resolve: AppRouter.resolve,
+        child: MaterialApp(
+          home: Scaffold(
+            body: ListView(
+              children: [
+                for (final item in items) CommunityTimelineCard(item: item),
+              ],
+            ),
           ),
         ),
       ),
@@ -91,12 +96,15 @@ void main() {
     );
 
     await tester.pumpWidget(
-      MaterialApp(
-        home: Scaffold(
-          body: SingleChildScrollView(
-            child: CommunityTimelineCard(
-              item: item,
-              onOpenSubject: () => opened = true,
+      AppRouteScope(
+        resolve: AppRouter.resolve,
+        child: MaterialApp(
+          home: Scaffold(
+            body: SingleChildScrollView(
+              child: CommunityTimelineCard(
+                item: item,
+                onOpenSubject: () => opened = true,
+              ),
             ),
           ),
         ),
@@ -139,13 +147,16 @@ void main() {
     );
 
     await tester.pumpWidget(
-      MaterialApp(
-        home: Scaffold(
-          body: SingleChildScrollView(
-            child: CommunityTimelineCard(
-              item: item,
-              repliesExpanded: true,
-              replies: [reply],
+      AppRouteScope(
+        resolve: AppRouter.resolve,
+        child: MaterialApp(
+          home: Scaffold(
+            body: SingleChildScrollView(
+              child: CommunityTimelineCard(
+                item: item,
+                repliesExpanded: true,
+                replies: [reply],
+              ),
             ),
           ),
         ),

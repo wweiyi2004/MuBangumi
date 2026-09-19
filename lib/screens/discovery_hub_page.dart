@@ -1,7 +1,7 @@
+import '../navigation/app_destination.dart';
 import 'package:flutter/material.dart';
 import '../core/network/community_service.dart';
 import 'community_hub_page.dart';
-import 'discover_page.dart';
 
 class DiscoveryHubPage extends StatefulWidget {
   const DiscoveryHubPage({
@@ -78,7 +78,7 @@ class _DiscoveryHubPageState extends State<DiscoveryHubPage> {
           index: _tab,
           children: [
             _opened.contains(0)
-                ? const DiscoverPage(showTitle: false)
+                ? const DiscoverRoute(showTitle: false)
                 : const SizedBox.shrink(),
             _opened.contains(1)
                 ? CommunityPage(

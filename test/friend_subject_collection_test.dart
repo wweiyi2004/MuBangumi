@@ -1,3 +1,5 @@
+import 'package:mubangumi/navigation/app_destination.dart';
+import 'package:mubangumi/navigation/app_router.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mubangumi/core/network/bangumi_api.dart';
@@ -119,37 +121,40 @@ void main() {
       final theme = await uxTheme(tester, dark: false);
       final boundary = GlobalKey();
       await tester.pumpWidget(
-        MaterialApp(
-          theme: theme,
-          home: Scaffold(
-            body: Center(
-              child: RepaintBoundary(
-                key: boundary,
-                child: Container(
-                  width: 520,
-                  color: theme.colorScheme.surface,
-                  padding: const EdgeInsets.all(20),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      Text('好友收藏与评论', style: theme.textTheme.titleMedium),
-                      const SizedBox(height: 12),
-                      FriendSubjectCollectionCard(
-                        status: _status,
-                        subjectType: SubjectType.anime,
-                        onOpenUser: () {},
-                      ),
-                      const SizedBox(height: 10),
-                      FriendSubjectCollectionCard(
-                        status: const FriendSubjectStatus(
-                          user: _second,
-                          type: CollectionType.wish,
+        AppRouteScope(
+          resolve: AppRouter.resolve,
+          child: MaterialApp(
+            theme: theme,
+            home: Scaffold(
+              body: Center(
+                child: RepaintBoundary(
+                  key: boundary,
+                  child: Container(
+                    width: 520,
+                    color: theme.colorScheme.surface,
+                    padding: const EdgeInsets.all(20),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        Text('好友收藏与评论', style: theme.textTheme.titleMedium),
+                        const SizedBox(height: 12),
+                        FriendSubjectCollectionCard(
+                          status: _status,
+                          subjectType: SubjectType.anime,
+                          onOpenUser: () {},
                         ),
-                        subjectType: SubjectType.anime,
-                        onOpenUser: () {},
-                      ),
-                    ],
+                        const SizedBox(height: 10),
+                        FriendSubjectCollectionCard(
+                          status: const FriendSubjectStatus(
+                            user: _second,
+                            type: CollectionType.wish,
+                          ),
+                          subjectType: SubjectType.anime,
+                          onOpenUser: () {},
+                        ),
+                      ],
+                    ),
                   ),
                 ),
               ),
@@ -172,19 +177,22 @@ Future<void> _show(
   VoidCallback? onOpen,
 }) async {
   await tester.pumpWidget(
-    MaterialApp(
-      theme: AppTheme.light.copyWith(platform: TargetPlatform.windows),
-      home: Scaffold(
-        body: MediaQuery(
-          data: MediaQueryData(textScaler: TextScaler.linear(scale)),
-          child: SingleChildScrollView(
-            child: Center(
-              child: SizedBox(
-                width: width,
-                child: FriendSubjectCollectionCard(
-                  status: status,
-                  subjectType: SubjectType.anime,
-                  onOpenUser: onOpen ?? () {},
+    AppRouteScope(
+      resolve: AppRouter.resolve,
+      child: MaterialApp(
+        theme: AppTheme.light.copyWith(platform: TargetPlatform.windows),
+        home: Scaffold(
+          body: MediaQuery(
+            data: MediaQueryData(textScaler: TextScaler.linear(scale)),
+            child: SingleChildScrollView(
+              child: Center(
+                child: SizedBox(
+                  width: width,
+                  child: FriendSubjectCollectionCard(
+                    status: status,
+                    subjectType: SubjectType.anime,
+                    onOpenUser: onOpen ?? () {},
+                  ),
                 ),
               ),
             ),

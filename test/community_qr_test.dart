@@ -1,3 +1,5 @@
+import 'package:mubangumi/navigation/app_destination.dart';
+import 'package:mubangumi/navigation/app_router.dart';
 import 'dart:typed_data';
 import 'dart:async';
 import 'package:flutter/material.dart';
@@ -19,14 +21,17 @@ void main() {
   ) async {
     final service = _AccountGroups()..setCurrentUsername('alice');
     await tester.pumpWidget(
-      MaterialApp(
-        home: CommunityGroupScreen(
-          group: _Service.group,
-          service: service,
-          initialDetail: const CommunityGroupDetail(
-            group: CommunityGroup(
-              name: '旧账号小组',
-              url: 'https://bgm.tv/group/boring',
+      AppRouteScope(
+        resolve: AppRouter.resolve,
+        child: MaterialApp(
+          home: CommunityGroupScreen(
+            group: _Service.group,
+            service: service,
+            initialDetail: const CommunityGroupDetail(
+              group: CommunityGroup(
+                name: '旧账号小组',
+                url: 'https://bgm.tv/group/boring',
+              ),
             ),
           ),
         ),
@@ -114,17 +119,20 @@ void main() {
     (tester) async {
       final service = _Service();
       await tester.pumpWidget(
-        MaterialApp(
-          home: Scaffold(
-            body: Builder(
-              builder: (context) => TextButton(
-                onPressed: () => scanAndAddFriend(
-                  context,
-                  myUsername: 'alice',
-                  service: service,
-                  reader: (_) async => 'https://bgm.tv/group/boring',
+        AppRouteScope(
+          resolve: AppRouter.resolve,
+          child: MaterialApp(
+            home: Scaffold(
+              body: Builder(
+                builder: (context) => TextButton(
+                  onPressed: () => scanAndAddFriend(
+                    context,
+                    myUsername: 'alice',
+                    service: service,
+                    reader: (_) async => 'https://bgm.tv/group/boring',
+                  ),
+                  child: const Text('扫一扫'),
                 ),
-                child: const Text('扫一扫'),
               ),
             ),
           ),
@@ -145,12 +153,15 @@ void main() {
     'group QR sheet explains confirmation and provides a visible QR',
     (tester) async {
       await tester.pumpWidget(
-        MaterialApp(
-          home: Scaffold(
-            body: Builder(
-              builder: (context) => TextButton(
-                onPressed: () => showGroupQr(context, _Service.group),
-                child: const Text('分享小组'),
+        AppRouteScope(
+          resolve: AppRouter.resolve,
+          child: MaterialApp(
+            home: Scaffold(
+              body: Builder(
+                builder: (context) => TextButton(
+                  onPressed: () => showGroupQr(context, _Service.group),
+                  child: const Text('分享小组'),
+                ),
               ),
             ),
           ),

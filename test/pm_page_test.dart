@@ -1,3 +1,5 @@
+import 'package:mubangumi/navigation/app_destination.dart';
+import 'package:mubangumi/navigation/app_router.dart';
 import 'support/memory_pm_draft_repository.dart';
 import 'support/pm_fixtures.dart';
 import 'package:mubangumi/core/storage/pm_draft_store.dart';
@@ -105,8 +107,11 @@ Future<ProviderContainer> _show(
   await tester.pumpWidget(
     UncontrolledProviderScope(
       container: container,
-      child: MaterialApp(
-        home: PmPage(service: service, friendsLoader: (_) async => []),
+      child: AppRouteScope(
+        resolve: AppRouter.resolve,
+        child: MaterialApp(
+          home: PmPage(service: service, friendsLoader: (_) async => []),
+        ),
       ),
     ),
   );

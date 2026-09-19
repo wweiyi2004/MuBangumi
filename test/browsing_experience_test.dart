@@ -1,3 +1,5 @@
+import 'package:mubangumi/navigation/app_destination.dart';
+import 'package:mubangumi/navigation/app_router.dart';
 import 'package:mubangumi/widgets/continue_watching_tile.dart';
 import 'support/memory_recommendation_feedback.dart';
 import 'support/memory_home_pins.dart';
@@ -326,9 +328,12 @@ Future<void> _show(
           ),
         ),
       ],
-      child: MaterialApp(
-        theme: AppTheme.light,
-        home: Scaffold(body: page),
+      child: AppRouteScope(
+        resolve: AppRouter.resolve,
+        child: MaterialApp(
+          theme: AppTheme.light,
+          home: Scaffold(body: page),
+        ),
       ),
     ),
   );

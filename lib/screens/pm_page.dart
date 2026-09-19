@@ -1,3 +1,4 @@
+import '../state/service_providers.dart';
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/cupertino.dart';
@@ -6,7 +7,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/pm_models.dart';
 import '../models/pm_contact.dart';
 import '../models/bangumi_models.dart';
-import '../core/network/community_service.dart';
 import '../state/pm_contacts_controller.dart';
 import '../state/pm_send_queue_controller.dart';
 import '../models/pm_send_command.dart';
@@ -46,7 +46,7 @@ class PmPage extends ConsumerStatefulWidget {
 }
 
 class _PmPageState extends ConsumerState<PmPage> {
-  late final _service = widget.service ?? PmService.shared;
+  late final _service = widget.service ?? pmServiceFor(context);
   late final _inbox = PmMailboxController(_service.loadInbox);
   late final _outbox = PmMailboxController(_service.loadOutbox);
   late final _contacts = PmContactsController(
@@ -56,11 +56,9 @@ class _PmPageState extends ConsumerState<PmPage> {
       final user = ref.read(sessionProvider).user;
       if (user == null) return Future.value(<BangumiUser>[]);
       return widget.friendsLoader?.call(user.username) ??
-          CommunityService.shared.loadAllFriends(
-            user.username,
-            pageSize: 100,
-            refresh: true,
-          );
+          communityServiceFor(
+            context,
+          ).loadAllFriends(user.username, pageSize: 100, refresh: true);
     },
   );
   String? _openingContactKey;

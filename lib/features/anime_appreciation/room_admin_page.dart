@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../state/theme_controller.dart';
 import '../../widgets/ascii_refresh.dart';
 import 'room_host.dart';
+import 'room_comments_sheet.dart';
 
 class RoomAdminPage extends ConsumerStatefulWidget {
   const RoomAdminPage({
@@ -199,6 +200,31 @@ class _RoomAdminPageState extends ConsumerState<RoomAdminPage> {
   }
 
   Future<void> _details(String kind, {String? roundId}) async {
+    final host = ref.read(roomHostProvider),
+        e = ref.read(roomHostProvider).event;
+    final r = roundId == null
+        ? _current(e)
+        : _rounds(e).where((v) => v['id'] == roundId).firstOrNull;
+    if (kind == 'wall' &&
+        r?['commentsMore'] == true &&
+        host.api != null &&
+        e != null) {
+      await showRoomComments(
+        context,
+        api: host.api!,
+        eventId: e['id'],
+        roundId: r!['id'],
+        live: host,
+        stateKey: () => roomCommentsStateKey(host.event, r['id']),
+        isCurrent: () => host.event?['id'] == e['id'],
+        onModerate: (comment) => _command('hide', {
+          'round': r['id'],
+          'comment': comment.id,
+          'value': !comment.hidden,
+        }, expected: host.event ?? e),
+      );
+      return;
+    }
     await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,

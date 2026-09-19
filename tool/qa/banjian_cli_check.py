@@ -29,6 +29,8 @@ with tempfile.TemporaryDirectory(prefix='banjian-cli-') as directory:
     process,base=start()
     try:
         assert b'app.js' in request(base,'/admin')
+        assert b'room_protocol.js' in request(base,'/admin')
+        assert b'RoomProtocol' in request(base,'/room_protocol.js')
         assert b'function render' in request(base,'/app.js')
         token=json.loads(request(base,'/api/login',{'password':env['BANJIAN_ADMIN_PASSWORD']}))['token']
         event=json.loads(request(base,'/api/admin',{'op':'compiled-create-once','action':'create','title':'Compiled fixture'},token))['id']

@@ -1,3 +1,4 @@
+import '../navigation/app_destination.dart';
 import '../widgets/season_anime_picker.dart';
 import 'dart:async';
 
@@ -15,8 +16,6 @@ import '../state/session_controller.dart';
 import '../widgets/schedule_export_poster.dart';
 import '../widgets/subject_widgets.dart';
 import 'rss_sheets.dart';
-import 'subject_detail_screen.dart';
-
 import '../features/schedule/presentation/schedule_board.dart';
 import '../features/schedule/presentation/schedule_header.dart';
 import '../features/schedule/presentation/schedule_search_sheet.dart';
@@ -334,7 +333,7 @@ class SchedulePage extends ConsumerWidget {
 void _openSubject(BuildContext context, ScheduleItem item) {
   Navigator.of(context).push(
     MaterialPageRoute<void>(
-      builder: (_) => SubjectDetailScreen(
+      builder: (_) => SubjectRoute(
         subject: Subject(
           id: item.subjectId,
           name: item.name,

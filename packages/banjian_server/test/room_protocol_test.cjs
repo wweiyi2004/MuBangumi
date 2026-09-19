@@ -1,0 +1,15 @@
+const assert=require('node:assert/strict');
+const fs=require('node:fs');
+const path=require('node:path');
+const protocol=require('../web/room_protocol.js');
+const fixture=()=>JSON.parse(fs.readFileSync(path.join(__dirname,'fixtures/room_snapshot.json'),'utf8'));
+const input=fixture();assert.equal(protocol.snapshot(input).rounds[0].myScore,8);
+const bad=fixture();bad.rounds[0].status='bogus';assert.throws(()=>protocol.snapshot(bad));
+const counts=fixture();counts.rounds[0].stats.count=2;assert.throws(()=>protocol.snapshot(counts));
+const total=fixture();total.rounds[0].commentsTotal=-1;assert.throws(()=>protocol.snapshot(total));
+const more=fixture();more.rounds[0].commentsMore='yes';assert.throws(()=>protocol.snapshot(more));
+const changed=fixture().rounds[0];delete changed.stats;changed.published=false;
+const merged=protocol.merge(input,{...input,type:'delta',baseRevision:3,revision:4,rounds:[changed]});assert.equal(merged.rounds[0].stats,undefined);
+assert.throws(()=>protocol.merge(input,{...input,type:'delta',serverEpoch:'different',baseRevision:3,revision:4,rounds:[]}));
+assert.throws(()=>protocol.merge(input,{type:'delta',id:'event-1',baseRevision:1,revision:4,rounds:[]}));
+console.log('Browser protocol shared-fixture checks passed.');

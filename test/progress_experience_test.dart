@@ -1,3 +1,5 @@
+import 'package:mubangumi/navigation/app_destination.dart';
+import 'package:mubangumi/navigation/app_router.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -217,28 +219,31 @@ Future<void> _show(
           ),
         ),
       ],
-      child: MaterialApp(
-        theme: theme,
-        builder: (context, child) => MediaQuery(
-          data: MediaQuery.of(context).copyWith(
-            textScaler: TextScaler.linear(scale),
-            accessibleNavigation: accessible,
+      child: AppRouteScope(
+        resolve: AppRouter.resolve,
+        child: MaterialApp(
+          theme: theme,
+          builder: (context, child) => MediaQuery(
+            data: MediaQuery.of(context).copyWith(
+              textScaler: TextScaler.linear(scale),
+              accessibleNavigation: accessible,
+            ),
+            child: RepaintBoundary(key: _boundary, child: child!),
           ),
-          child: RepaintBoundary(key: _boundary, child: child!),
-        ),
-        home: Scaffold(
-          body: grid
-              ? Consumer(
-                  builder: (context, ref, _) => TextButton(
-                    onPressed: () => showEpisodeGridSheet(
-                      context,
-                      ref,
-                      progressCollection(1),
+          home: Scaffold(
+            body: grid
+                ? Consumer(
+                    builder: (context, ref, _) => TextButton(
+                      onPressed: () => showEpisodeGridSheet(
+                        context,
+                        ref,
+                        progressCollection(1),
+                      ),
+                      child: const Text('打开格子'),
                     ),
-                    child: const Text('打开格子'),
-                  ),
-                )
-              : HomePage(onDiscover: () {}, onSchedule: () {}),
+                  )
+                : HomePage(onDiscover: () {}, onSchedule: () {}),
+          ),
         ),
       ),
     ),

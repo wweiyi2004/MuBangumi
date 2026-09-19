@@ -4,11 +4,11 @@ import 'dart:io';
 import 'package:banjian_server/banjian_server.dart';
 
 /// Isolated localhost fixture; never touches the app's real activity database.
-Future<void> main() async {
+Future<void> main(List<String> args) async {
   final directory = await Directory.systemTemp.createTemp('banjian-web-');
   final store = RoomStore('${directory.path}/room.sqlite');
   final assets = <String, List<int>>{};
-  for (final name in ['index.html', 'app.css', 'app.js']) {
+  for (final name in ['index.html', 'app.css', 'room_protocol.js', 'app.js']) {
     assets[name] = await File(
       'packages/banjian_server/web/$name',
     ).readAsBytes();
@@ -82,6 +82,23 @@ Future<void> main() async {
         'text': ['节奏很舒服，细节值得再看一遍。', '人物的情绪藏在很小的动作里。', '音乐响起来的一刻很有感染力。'][i],
       });
     }
+  }
+  if (args.contains('--many-comments')) {
+    final actor = (store.event(id)['members'] as Map).keys.first;
+    for (var i = 0; i < 120; i++) {
+      store.db.execute(
+        'INSERT INTO room_comments(event,round,id,actor,text,time,hidden) VALUES(?,?,?,?,?,?,0)',
+        [
+          id,
+          round,
+          'pagination-$i',
+          actor,
+          '较早的短评 $i',
+          DateTime.now().millisecondsSinceEpoch - 1000000 + i * 4000,
+        ],
+      );
+    }
+    command('comments', {'round': round, 'value': true});
   }
   await File('.dart_tool/banjian-fixture.json').writeAsString(
     jsonEncode({

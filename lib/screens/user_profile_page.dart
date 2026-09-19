@@ -1,10 +1,16 @@
+import '../state/service_providers.dart';
+import '../navigation/app_destination.dart';
+export '../navigation/app_destination.dart'
+    show
+        openUserProfile,
+        openUserProfileFromCommunity,
+        openUserProfileFromBangumi;
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../core/network/bangumi_endpoints.dart';
-import '../core/network/community_service.dart';
 import '../models/bangumi_models.dart';
 import '../models/community_models.dart';
 import '../state/session_controller.dart';
@@ -13,59 +19,8 @@ import '../widgets/community_widgets.dart';
 import '../widgets/friend_qr_actions.dart';
 import '../widgets/subject_widgets.dart';
 import 'collection_comparison_page.dart';
-import 'common_friends_page.dart';
 import 'pm_page.dart';
-import 'subject_detail_screen.dart';
-import 'community_blog_screen.dart';
 import 'community_target_navigation.dart';
-
-/// Opens a Bangumi user profile with collection / progress overview.
-void openUserProfile(
-  BuildContext context, {
-  required String username,
-  String? nickname,
-  String? avatarUrl,
-  String? sign,
-  int id = 0,
-}) {
-  final value = username.trim();
-  if (value.isEmpty || value == 'unknown') return;
-  Navigator.of(context).push(
-    MaterialPageRoute<void>(
-      builder: (_) => UserProfilePage(
-        username: value,
-        seed: BangumiUser(
-          id: id,
-          username: value,
-          nickname: (nickname == null || nickname.trim().isEmpty)
-              ? value
-              : nickname.trim(),
-          avatarUrl: avatarUrl?.trim() ?? '',
-          sign: sign?.trim() ?? '',
-        ),
-      ),
-    ),
-  );
-}
-
-void openUserProfileFromCommunity(BuildContext context, CommunityUser user) =>
-    openUserProfile(
-      context,
-      username: user.username,
-      nickname: user.nickname,
-      avatarUrl: user.avatarUrl,
-      id: user.id,
-    );
-
-void openUserProfileFromBangumi(BuildContext context, BangumiUser user) =>
-    openUserProfile(
-      context,
-      username: user.username,
-      nickname: user.nickname,
-      avatarUrl: user.avatarUrl,
-      sign: user.sign,
-      id: user.id,
-    );
 
 class UserProfilePage extends ConsumerStatefulWidget {
   const UserProfilePage({super.key, required this.username, this.seed});
@@ -78,6 +33,7 @@ class UserProfilePage extends ConsumerStatefulWidget {
 }
 
 class _UserProfilePageState extends ConsumerState<UserProfilePage> {
+  late final _community = communityServiceFor(context);
   BangumiUser? _user;
   SubjectType _subjectType = SubjectType.anime;
   CollectionType? _statusFilter = CollectionType.doing;
@@ -119,7 +75,7 @@ class _UserProfilePageState extends ConsumerState<UserProfilePage> {
   Future<void> _loadTimeline() async {
     setState(() => _loadingTimeline = true);
     try {
-      final items = await CommunityService.shared.loadUserTimeline(
+      final items = await _community.loadUserTimeline(
         widget.username,
         limit: 8,
         refresh: true,
@@ -141,12 +97,12 @@ class _UserProfilePageState extends ConsumerState<UserProfilePage> {
   }
 
   Future<void> _loadFriendship() async {
-    if (_isSelf || !CommunityService.shared.isAuthenticated) {
+    if (_isSelf || !_community.isAuthenticated) {
       if (mounted) setState(() => _isFriend = null);
       return;
     }
     try {
-      final isFriend = await CommunityService.shared.isFriend(_friendUsername);
+      final isFriend = await _community.isFriend(_friendUsername);
       if (!mounted) return;
       setState(() => _isFriend = isFriend);
     } catch (_) {
@@ -157,7 +113,7 @@ class _UserProfilePageState extends ConsumerState<UserProfilePage> {
 
   Future<void> _toggleFriend() async {
     if (_friendBusy || _isSelf) return;
-    if (!CommunityService.shared.isAuthenticated) {
+    if (!_community.isAuthenticated) {
       showAppMessage(context, '请先登录后再加好友');
       return;
     }
@@ -186,9 +142,9 @@ class _UserProfilePageState extends ConsumerState<UserProfilePage> {
     try {
       final username = _friendUsername;
       if (currentlyFriend) {
-        await CommunityService.shared.removeFriend(username);
+        await _community.removeFriend(username);
       } else {
-        await CommunityService.shared.addFriend(username);
+        await _community.addFriend(username);
       }
       if (!mounted) return;
       setState(() {
@@ -284,7 +240,7 @@ class _UserProfilePageState extends ConsumerState<UserProfilePage> {
     }
     Navigator.of(context).push(
       MaterialPageRoute<void>(
-        builder: (_) => CommonFriendsPage(
+        builder: (_) => CommonFriendsRoute(
           targetUsername: widget.username,
           targetDisplayName: _user?.displayName ?? widget.username,
         ),
@@ -528,7 +484,7 @@ class _UserProfilePageState extends ConsumerState<UserProfilePage> {
                                   OutlinedButton.icon(
                                     onPressed: () => Navigator.of(context).push(
                                       MaterialPageRoute<void>(
-                                        builder: (_) => CommunityBlogListScreen(
+                                        builder: (_) => BlogListRoute(
                                           username: _friendUsername,
                                         ),
                                       ),
@@ -593,7 +549,7 @@ class _UserProfilePageState extends ConsumerState<UserProfilePage> {
                                     final p = item.progress!;
                                     Navigator.of(context).push(
                                       MaterialPageRoute<void>(
-                                        builder: (_) => SubjectDetailScreen(
+                                        builder: (_) => SubjectRoute(
                                           subject: Subject(
                                             id: p.subjectId,
                                             name: p.subjectName,
@@ -793,9 +749,8 @@ class _UserProfilePageState extends ConsumerState<UserProfilePage> {
                           showTypeBadge: false,
                           onTap: () => Navigator.of(context).push(
                             MaterialPageRoute<void>(
-                              builder: (_) => SubjectDetailScreen(
-                                subject: collection.subject,
-                              ),
+                              builder: (_) =>
+                                  SubjectRoute(subject: collection.subject),
                             ),
                           ),
                         );

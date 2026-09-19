@@ -1,3 +1,5 @@
+import '../state/service_providers.dart';
+import '../navigation/app_destination.dart';
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -10,9 +12,7 @@ import '../widgets/community_widgets.dart';
 import '../widgets/community_loading.dart';
 import '../widgets/social_group_widgets.dart';
 import '../widgets/social_chat_style.dart';
-import 'community_group_screen.dart';
 import 'community_timeline_page.dart';
-import 'community_topic_screen.dart';
 import 'website_login_screen.dart';
 
 enum _CommunityArea {
@@ -135,7 +135,7 @@ class _RakuenPage extends StatefulWidget {
 }
 
 class _RakuenPageState extends State<_RakuenPage> {
-  late final _service = widget.service ?? CommunityService.shared;
+  late final _service = widget.service ?? communityServiceFor(context);
   final _scrollController = ScrollController();
   RakuenMode _mode = RakuenMode.subjectTrending;
   List<CommunityTopic> _topics = const [];
@@ -307,7 +307,7 @@ class _RakuenPageState extends State<_RakuenPage> {
   void _openTopic(CommunityTopic topic) {
     Navigator.of(context).push(
       MaterialPageRoute<void>(
-        builder: (_) => CommunityTopicScreen(topic: topic, service: _service),
+        builder: (_) => TopicRoute(topic: topic, service: _service),
       ),
     );
   }
@@ -315,7 +315,7 @@ class _RakuenPageState extends State<_RakuenPage> {
   void _openGroup(CommunityGroup group) {
     Navigator.of(context).push(
       MaterialPageRoute<void>(
-        builder: (_) => CommunityGroupScreen(group: group, service: _service),
+        builder: (_) => GroupRoute(group: group, service: _service),
       ),
     );
   }
@@ -553,7 +553,7 @@ class CommunityGroupBrowser extends StatefulWidget {
 }
 
 class CommunityGroupBrowserState extends State<CommunityGroupBrowser> {
-  late final _service = widget.service ?? CommunityService.shared;
+  late final _service = widget.service ?? communityServiceFor(context);
   final _scrollController = ScrollController();
   late CommunityGroupMode _mode = widget.joinedOnly
       ? CommunityGroupMode.joined
@@ -733,7 +733,7 @@ class CommunityGroupBrowserState extends State<CommunityGroupBrowser> {
   void _openGroup(CommunityGroup group) {
     Navigator.of(context).push(
       MaterialPageRoute<void>(
-        builder: (_) => CommunityGroupScreen(group: group, service: _service),
+        builder: (_) => GroupRoute(group: group, service: _service),
       ),
     );
   }

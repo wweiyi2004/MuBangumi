@@ -1,3 +1,4 @@
+import '../navigation/app_destination.dart';
 import 'package:flutter/material.dart';
 import '../widgets/readable_subject_title.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -10,7 +11,6 @@ import '../state/recommendation_feedback_controller.dart';
 import '../widgets/recommendation_feedback_sheet.dart';
 import '../state/session_controller.dart';
 import '../widgets/subject_widgets.dart';
-import 'subject_detail_screen.dart';
 
 /// 番会荐 — personal Bangumi recommendations from taste + free-form wishes.
 class FanRecommendPage extends ConsumerStatefulWidget {
@@ -597,8 +597,7 @@ class _FanRecommendPageState extends ConsumerState<FanRecommendPage> {
                 onTap: () {
                   Navigator.of(context).push(
                     MaterialPageRoute<void>(
-                      builder: (_) =>
-                          SubjectDetailScreen(subject: results[i].subject),
+                      builder: (_) => SubjectRoute(subject: results[i].subject),
                     ),
                   );
                 },

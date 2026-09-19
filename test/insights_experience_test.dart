@@ -1,3 +1,5 @@
+import 'package:mubangumi/navigation/app_destination.dart';
+import 'package:mubangumi/navigation/app_router.dart';
 import 'dart:async';
 import 'dart:io';
 import 'dart:ui' as ui;
@@ -532,15 +534,18 @@ Future<void> _show(
         sessionProvider.overrideWith((ref) => session ?? _Session()),
         if (api != null) netabaApiProvider.overrideWithValue(api),
       ],
-      child: MaterialApp(
-        theme: theme,
-        builder: (context, child) => MediaQuery(
-          data: MediaQuery.of(
-            context,
-          ).copyWith(textScaler: TextScaler.linear(scale)),
-          child: RepaintBoundary(key: _boundary, child: child!),
+      child: AppRouteScope(
+        resolve: AppRouter.resolve,
+        child: MaterialApp(
+          theme: theme,
+          builder: (context, child) => MediaQuery(
+            data: MediaQuery.of(
+              context,
+            ).copyWith(textScaler: TextScaler.linear(scale)),
+            child: RepaintBoundary(key: _boundary, child: child!),
+          ),
+          home: page,
         ),
-        home: page,
       ),
     ),
   );

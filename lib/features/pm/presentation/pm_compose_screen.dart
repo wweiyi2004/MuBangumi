@@ -1,3 +1,4 @@
+import '../../../state/service_providers.dart';
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -21,7 +22,7 @@ class PmComposeScreen extends ConsumerStatefulWidget {
 }
 
 class _PmComposeScreenState extends ConsumerState<PmComposeScreen> {
-  late final _service = widget.service ?? PmService.shared;
+  late final _service = widget.service ?? pmServiceFor(context);
   final _to = TextEditingController();
   final _title = TextEditingController();
   final _body = TextEditingController();

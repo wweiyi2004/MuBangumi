@@ -21,7 +21,7 @@ class RoomHost extends ChangeNotifier {
   }) : _directory = directory ?? getApplicationSupportDirectory,
        _commandStorage =
            commandStorage ??
-           const SecureParticipationStorage(key: 'banjian_admin_commands_v1') {
+           RoomLocalStorage(key: 'banjian_admin_commands_v1') {
     if (Platform.isAndroid) {
       _channel.setMethodCallHandler((call) async {
         if (call.method == 'stopRequested') await stop();
@@ -107,6 +107,8 @@ class RoomHost extends ChangeNotifier {
   }
 
   List<Json> history = [];
+  DateTime? _historyLoadedAt;
+  RoomApi? _historyClient;
   Json? event;
   WebSocket? _liveSocket;
   String? _liveKey;
@@ -115,6 +117,8 @@ class RoomHost extends ChangeNotifier {
   bool _openingSocket = false;
   Timer? _poll;
   bool _polling = false, _disposed = false;
+  bool _refreshAfterPoll = false;
+  int _announcedRevision = 0;
   String? _historySelection;
   void _notify() {
     if (!_disposed) notifyListeners();
@@ -129,6 +133,7 @@ class RoomHost extends ChangeNotifier {
       return;
     }
     final epoch = ++_liveEpoch, generation = _generation;
+    _announcedRevision = 0;
     final client = api!;
     unawaited(_liveSocket?.close());
     _liveSocket = null;
@@ -163,24 +168,58 @@ class RoomHost extends ChangeNotifier {
           }
           try {
             final next = jsonDecode(raw as String) as Json;
-            if (next['id'] != event?['id'] ||
-                (next['version'] as int) < (event?['version'] as int? ?? 0)) {
+            if (next['type'] == 'invalidate') {
+              if (next['event'] != event?['id'] || next['revision'] is! int) {
+                return;
+              }
+              _announcedRevision =
+                  (next['revision'] as int) > _announcedRevision
+                  ? next['revision'] as int
+                  : _announcedRevision;
+              liveConnected = true;
+              if (_polling) {
+                _refreshAfterPoll = true;
+              } else {
+                unawaited(refresh(wait: false));
+              }
               return;
             }
-            event = next;
+            final parsed = RoomSnapshot.fromJson(next);
+            if (next['id'] != event?['id'] ||
+                (sameRoomEpoch(event, next) &&
+                    (parsed.version < (event?['version'] as int? ?? 0) ||
+                        (parsed.revision) <
+                            (event?['revision'] as int? ??
+                                event?['version'] as int? ??
+                                0)))) {
+              return;
+            }
+            if (!sameRoomEpoch(event, next)) _announcedRevision = 0;
+            event = parsed.toJson();
+            client.rememberSnapshot(event!);
             liveConnected = true;
             error = null;
             _notify();
             if (next['ended'] == true && _historySelection == null) {
               unawaited(refresh(wait: false));
             }
-          } catch (_) {}
+          } catch (_) {
+            error = '活动数据格式无效，请刷新或检查服务端版本';
+            _notify();
+            unawaited(ws.close(1002, 'Invalid room snapshot'));
+          }
         },
         onDone: disconnected,
         onError: (Object _) => disconnected(),
         cancelOnError: true,
       );
-      ws.add(jsonEncode({'event': id, 'token': client.token}));
+      ws.add(
+        jsonEncode({
+          'event': id,
+          'token': client.token,
+          'updates': 'invalidate',
+        }),
+      );
     } catch (_) {
       if (epoch == _liveEpoch) _liveKey = null;
     } finally {
@@ -208,7 +247,12 @@ class RoomHost extends ChangeNotifier {
       final data = Directory('${directory.path}/banjian')
         ..createSync(recursive: true);
       final assets = <String, List<int>>{};
-      for (final name in ['index.html', 'app.css', 'app.js']) {
+      for (final name in [
+        'index.html',
+        'app.css',
+        'room_protocol.js',
+        'app.js',
+      ]) {
         final bytes = await rootBundle.load(
           'packages/banjian_server/web/$name',
         );
@@ -353,9 +397,20 @@ class RoomHost extends ChangeNotifier {
     final generation = _generation;
     final client = api!;
     try {
-      final result = await client.request('history');
-      if (generation != _generation) return;
-      history = (result['events'] as List).cast<Json>();
+      // Live vote invalidations need only the selected room. Periodic polling
+      // still discovers rooms created or ended by another administrator.
+      if (wait ||
+          eventId != null ||
+          !identical(client, _historyClient) ||
+          _historyLoadedAt == null ||
+          DateTime.now().difference(_historyLoadedAt!) >=
+              const Duration(seconds: 4)) {
+        final result = await client.request('history');
+        if (generation != _generation) return;
+        history = (result['events'] as List).cast<Json>();
+        _historyLoadedAt = DateTime.now();
+        _historyClient = client;
+      }
       if (eventId != null) {
         _historySelection =
             history.where((e) => e['id'] == eventId).firstOrNull?['ended'] ==
@@ -373,9 +428,22 @@ class RoomHost extends ChangeNotifier {
       if (id != null) {
         final data = await client.request('state?event=$id');
         if (generation != _generation) return;
+        final parsed = RoomSnapshot.fromJson(data);
+        if (event?['id'] == data['id'] &&
+            sameRoomEpoch(event, data) &&
+            parsed.revision < _announcedRevision) {
+          _refreshAfterPoll = true;
+        }
         if (event?['id'] != data['id'] ||
-            (data['version'] as int) >= (event?['version'] as int? ?? 0)) {
-          event = data;
+            !sameRoomEpoch(event, data) ||
+            (parsed.version >= (event?['version'] as int? ?? 0) &&
+                parsed.revision >=
+                    (event?['revision'] as int? ??
+                        event?['version'] as int? ??
+                        0))) {
+          if (!sameRoomEpoch(event, data)) _announcedRevision = 0;
+          event = parsed.toJson();
+          client.rememberSnapshot(event!);
         }
       }
       error = null;
@@ -387,6 +455,10 @@ class RoomHost extends ChangeNotifier {
       _notify();
     } finally {
       _polling = false;
+      if (_refreshAfterPoll && !_disposed && generation == _generation) {
+        _refreshAfterPoll = false;
+        unawaited(refresh(wait: false));
+      }
     }
   }
 

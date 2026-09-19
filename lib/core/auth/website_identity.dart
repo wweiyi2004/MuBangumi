@@ -79,6 +79,7 @@ class WebsiteIdentityProbe {
         ),
       );
       final html = response.data ?? '';
+      final identifier = PmHtmlParser().parseSignedInUser(html);
       if (isChallenge(html)) {
         throw const WebsiteAccessException(
           WebsiteAccessStatus.challenge,
@@ -87,7 +88,7 @@ class WebsiteIdentityProbe {
       }
       if (response.statusCode == 401 ||
           response.headers.value('location')?.contains('/login') == true ||
-          PmHtmlParser().looksLikeLoginPage(html)) {
+          (identifier == null && PmHtmlParser().looksLikeLoginPage(html))) {
         throw const WebsiteAccessException(
           WebsiteAccessStatus.expired,
           '网页登录已过期，请补充验证',
@@ -99,7 +100,6 @@ class WebsiteIdentityProbe {
           '暂时无法核验网站登录，已保留应用登录',
         );
       }
-      final identifier = PmHtmlParser().parseSignedInUser(html);
       if (identifier == null) {
         if (RegExp(r'''class=["']guest(?:\s|["'])''').hasMatch(html)) {
           throw const WebsiteAccessException(

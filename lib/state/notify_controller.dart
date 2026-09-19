@@ -3,7 +3,7 @@ import 'dart:async';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter/widgets.dart';
 
-import '../core/network/community_service.dart';
+import 'service_providers.dart';
 import '../models/community_models.dart';
 import 'session_controller.dart';
 
@@ -40,13 +40,9 @@ class NotifyBadgeController extends StateNotifier<NotifyBadgeState> {
     bool initiallyForeground = true,
   }) : _noticeLoader =
            noticeLoader ??
-           (() => CommunityService.shared.loadNotices(
-             limit: 40,
-             unreadOnly: true,
-             refresh: true,
-           )),
-       _isAuthenticated =
-           isAuthenticated ?? (() => CommunityService.shared.isAuthenticated),
+           (() async =>
+               const CommunityPageResult<BangumiNotice>(data: [], total: 0)),
+       _isAuthenticated = isAuthenticated ?? (() => false),
        _now = now ?? DateTime.now,
        _foreground = initiallyForeground,
        super(const NotifyBadgeState());
@@ -178,7 +174,11 @@ class NotifyBadgeController extends StateNotifier<NotifyBadgeState> {
 final notifyBadgeProvider =
     StateNotifierProvider<NotifyBadgeController, NotifyBadgeState>((ref) {
       final lifecycle = WidgetsBinding.instance.lifecycleState;
+      final service = ref.watch(communityServiceProvider);
       final controller = NotifyBadgeController(
+        noticeLoader: () =>
+            service.loadNotices(limit: 40, unreadOnly: true, refresh: true),
+        isAuthenticated: () => service.isAuthenticated,
         initiallyForeground:
             lifecycle == null || lifecycle == AppLifecycleState.resumed,
       );

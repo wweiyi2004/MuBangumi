@@ -1,5 +1,5 @@
 import '../../models/pm_send_command.dart';
-import 'pm_draft_store.dart';
+import '../../models/pm_draft.dart';
 
 class PmEnqueuedDraft {
   const PmEnqueuedDraft(this.command, this.revision);

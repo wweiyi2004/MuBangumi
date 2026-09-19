@@ -1,3 +1,5 @@
+import 'package:mubangumi/navigation/app_destination.dart';
+import 'package:mubangumi/navigation/app_router.dart';
 import 'dart:async';
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
@@ -48,15 +50,18 @@ void main() {
     (tester) async {
       final service = _AccountGroupService()..setCurrentUsername('alice');
       await tester.pumpWidget(
-        MaterialApp(
-          home: CommunityGroupBrowseScreen(
-            group: const CommunityGroup(
-              id: 1,
-              slug: 'test',
-              name: '测试小组',
-              url: 'https://bgm.tv/group/test',
+        AppRouteScope(
+          resolve: AppRouter.resolve,
+          child: MaterialApp(
+            home: CommunityGroupBrowseScreen(
+              group: const CommunityGroup(
+                id: 1,
+                slug: 'test',
+                name: '测试小组',
+                url: 'https://bgm.tv/group/test',
+              ),
+              service: service,
             ),
-            service: service,
           ),
         ),
       );
@@ -81,15 +86,18 @@ void main() {
   ) async {
     final service = _GroupService()..fail = false;
     await tester.pumpWidget(
-      MaterialApp(
-        home: CommunityGroupBrowseScreen(
-          group: const CommunityGroup(
-            id: 1,
-            slug: 'test',
-            name: '测试小组',
-            url: 'https://bgm.tv/group/test',
+      AppRouteScope(
+        resolve: AppRouter.resolve,
+        child: MaterialApp(
+          home: CommunityGroupBrowseScreen(
+            group: const CommunityGroup(
+              id: 1,
+              slug: 'test',
+              name: '测试小组',
+              url: 'https://bgm.tv/group/test',
+            ),
+            service: service,
           ),
-          service: service,
         ),
       ),
     );
@@ -316,16 +324,19 @@ void main() {
       (tester) async {
         final service = _GroupService();
         await tester.pumpWidget(
-          MaterialApp(
-            home: CommunityGroupBrowseScreen(
-              group: const CommunityGroup(
-                id: 1,
-                slug: 'test',
-                name: '测试小组',
-                url: 'https://bgm.tv/group/test',
+          AppRouteScope(
+            resolve: AppRouter.resolve,
+            child: MaterialApp(
+              home: CommunityGroupBrowseScreen(
+                group: const CommunityGroup(
+                  id: 1,
+                  slug: 'test',
+                  name: '测试小组',
+                  url: 'https://bgm.tv/group/test',
+                ),
+                service: service,
+                members: members,
               ),
-              service: service,
-              members: members,
             ),
           ),
         );

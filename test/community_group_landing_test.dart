@@ -6,7 +6,8 @@ import 'package:mubangumi/core/network/community_html_parser.dart';
 /// row whose href carried no path segments threw a StateError out of
 /// parseGroupLanding and failed the whole group landing page.
 void main() {
-  String landingWith(String href) => '''
+  String landingWith(String href) =>
+      '''
     <table class="topic_list"><tr>
       <td><a class="l" href="$href">某个话题标题</a></td>
       <td><a href="/group/1">某小组</a></td>

@@ -159,9 +159,11 @@ class ScheduleExportPoster extends StatelessWidget {
                     height: dayHeaderH,
                     child: Row(
                       children: [
-                        for (var day = DateTime.monday;
-                            day <= DateTime.sunday;
-                            day++)
+                        for (
+                          var day = DateTime.monday;
+                          day <= DateTime.sunday;
+                          day++
+                        )
                           Expanded(
                             child: Container(
                               alignment: Alignment.center,
@@ -419,9 +421,10 @@ class ScheduleImageExporter {
     if (urls.isEmpty) return;
     await Future.wait([
       for (final url in urls)
-        precacheImage(CachedNetworkImageProvider(url), context).catchError(
-          (_) {},
-        ),
+        precacheImage(
+          CachedNetworkImageProvider(url),
+          context,
+        ).catchError((_) {}),
     ]);
   }
 
@@ -633,9 +636,7 @@ class _ScheduleExportDialogState extends State<_ScheduleExportDialog> {
         ?..hideCurrentSnackBar()
         ..showSnackBar(
           SnackBar(
-            content: Text(
-              '导出失败：${ScheduleImageExporter.formatError(error)}',
-            ),
+            content: Text('导出失败：${ScheduleImageExporter.formatError(error)}'),
             duration: const Duration(seconds: 6),
           ),
         );
@@ -714,9 +715,7 @@ class _ScheduleExportDialogState extends State<_ScheduleExportDialog> {
                                       ),
                                     ),
                                     const SizedBox(height: 12),
-                                    Text(
-                                      _exporting ? '正在导出 PNG…' : '加载封面中…',
-                                    ),
+                                    Text(_exporting ? '正在导出 PNG…' : '加载封面中…'),
                                   ],
                                 ),
                               ),

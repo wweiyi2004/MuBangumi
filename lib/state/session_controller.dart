@@ -14,6 +14,7 @@ import '../core/storage/token_store.dart';
 import '../models/bangumi_models.dart';
 import '../models/episode_edit.dart';
 import '../models/library_batch.dart';
+import '../models/collection_coverage.dart';
 import '../features/auth/application/session_credentials.dart';
 import '../features/collection/application/collection_editor.dart';
 import '../features/collection/application/collection_edit_view.dart';
@@ -24,6 +25,7 @@ import 'app_providers.dart';
 import 'session_state.dart';
 import 'website_session_controller.dart';
 import 'network_status_controller.dart';
+import 'service_providers.dart';
 
 // Preserve the public entry point while consumers migrate by feature.
 export 'app_providers.dart';
@@ -56,10 +58,13 @@ class SessionController extends StateNotifier<SessionState>
     SnapshotCache? snapshotCache,
     BangumiSyncStore? syncStore,
     WebsiteSessionStore? websiteSessionStore,
+    CommunityService? communityService,
     this.onWebsiteSessionCleared,
     this.onWebsiteSessionSaved,
     bool Function()? isOffline,
-  }) : _snapshotCache = snapshotCache ?? SnapshotCache.shared,
+  }) : _community = communityService ?? CommunityService(),
+       _ownsCommunity = communityService == null,
+       _snapshotCache = snapshotCache ?? SnapshotCache.shared,
        _syncStore = syncStore ?? BangumiSyncStore.shared,
        _websiteSessionStore = websiteSessionStore ?? WebsiteSessionStore(),
        super(const SessionState()) {
@@ -74,7 +79,7 @@ class SessionController extends StateNotifier<SessionState>
           state.authActivity != AuthActivity.signingOut,
       onAccessTokenChanged: (token) {
         _api.setAccessToken(token);
-        CommunityService.shared.setAccessToken(token);
+        _community.setAccessToken(token);
       },
       onRefreshError: _onTokenRefreshError,
     );
@@ -128,6 +133,7 @@ class SessionController extends StateNotifier<SessionState>
       onProgress: (progress) {
         state = state.copyWith(
           collections: progress.collections,
+          collectionCoverage: progress.coverage,
           isRefreshing: progress.isRefreshing,
           isLoadingCollections: progress.isLoadingCollections,
           isUsingCachedCollections: progress.isUsingCachedCollections,
@@ -141,11 +147,13 @@ class SessionController extends StateNotifier<SessionState>
     );
     _api.ensureFreshToken = _credentials.ensureFreshToken;
     _api.onUnauthorizedRefresh = tryRefreshAccessToken;
-    CommunityService.shared.onUnauthorizedRefresh = tryRefreshAccessToken;
+    _community.onUnauthorizedRefresh = tryRefreshAccessToken;
     unawaited(_bootstrap());
   }
 
   final BangumiApi _api;
+  final CommunityService _community;
+  final bool _ownsCommunity;
   final BangumiOAuth _oauth;
   final TokenStore _tokenStore;
   final SnapshotCache _snapshotCache;
@@ -237,7 +245,7 @@ class SessionController extends StateNotifier<SessionState>
       if (!_isCurrentAuth(generation)) return;
       if (token == null || token.trim().isEmpty) {
         _credentials.setAccessToken(null);
-        CommunityService.shared.setCurrentUsername(null);
+        _community.setCurrentUsername(null);
         state = SessionState(
           phase: SessionPhase.signedOut,
           networkRoute: _networkRoute,
@@ -308,7 +316,7 @@ class SessionController extends StateNotifier<SessionState>
       );
       if (!_isCurrentAuth(generation)) return false;
       _credentials.setAccessToken(token);
-      CommunityService.shared.setCurrentUsername(
+      _community.setCurrentUsername(
         lastUser.username,
         nickname: lastUser.nickname,
         avatarUrl: lastUser.avatarUrl,
@@ -317,6 +325,9 @@ class SessionController extends StateNotifier<SessionState>
         phase: SessionPhase.signedIn,
         user: lastUser,
         collections: cached,
+        collectionCoverage: snapshot is CollectionSnapshot
+            ? snapshot.coverage.withCount(cached.length)
+            : CollectionCoverage(loadedCount: cached.length),
         networkRoute: _networkRoute,
         isLoadingCollections: true,
         isUsingCachedCollections: cached.isNotEmpty,
@@ -495,10 +506,12 @@ class SessionController extends StateNotifier<SessionState>
       try {
         if (!_isCurrentAuth(generation)) return false;
         if (previousUser != null && previousUser.id != user.id) {
+          final previousUsername = previousUser.username;
           if (!await _credentials.writeCurrent(generation, () async {
             await _websiteSessionStore.clear();
             await onWebsiteSessionCleared?.call();
-            await CommunityService.shared.clearAccountCache();
+            await _community.clearAccountCache();
+            await _snapshotCache.clearUserScope(previousUsername);
           })) {
             return false;
           }
@@ -538,7 +551,7 @@ class SessionController extends StateNotifier<SessionState>
         snapshot ?? const [],
       );
       if (!_isCurrentAuth(generation)) return false;
-      CommunityService.shared.setCurrentUsername(
+      _community.setCurrentUsername(
         user.username,
         nickname: user.nickname,
         avatarUrl: user.avatarUrl,
@@ -582,7 +595,7 @@ class SessionController extends StateNotifier<SessionState>
         await _forceSignOut(message: '登录已失效，请重新登录：${_messageFor(error)}');
       } else {
         _credentials.setAccessToken(null);
-        CommunityService.shared.setCurrentUsername(null);
+        _community.setCurrentUsername(null);
         // A browser authorization that succeeded but whose account check was
         // interrupted must not be thrown away. Hold it in memory so the user
         // can retry verification; it is never persisted while unverified, so
@@ -768,6 +781,7 @@ class SessionController extends StateNotifier<SessionState>
   Future<void> signOut() => _forceSignOut();
 
   Future<void> _forceSignOut({String? message}) async {
+    final previousUsername = state.user?.username;
     _homePreparationTimer?.cancel();
     final generation = ++_authGeneration;
     _collectionLoader.invalidate();
@@ -776,7 +790,7 @@ class SessionController extends StateNotifier<SessionState>
     _credentials.reset(forgetStoredCredentials: true);
     _pendingVerification = null;
     _credentials.setAccessToken(null);
-    CommunityService.shared.setCurrentUsername(null);
+    _community.setCurrentUsername(null);
     state = SessionState(
       phase: SessionPhase.signedOut,
       authActivity: AuthActivity.signingOut,
@@ -796,7 +810,9 @@ class SessionController extends StateNotifier<SessionState>
         _tokenStore.clear,
         _websiteSessionStore.clear,
         _snapshotCache.clearLastUser,
-        CommunityService.shared.clearAccountCache,
+        if (previousUsername != null)
+          () => _snapshotCache.clearUserScope(previousUsername),
+        _community.clearAccountCache,
       ]) {
         try {
           await cleanup();
@@ -834,6 +850,7 @@ class SessionController extends StateNotifier<SessionState>
     _pendingSync.dispose();
     _collectionLoader.dispose();
     _collectionEditor.dispose();
+    if (_ownsCommunity) _community.dispose();
     super.dispose();
   }
 }
@@ -845,6 +862,7 @@ final sessionProvider = StateNotifierProvider<SessionController, SessionState>((
     ref.watch(bangumiApiProvider),
     ref.watch(bangumiOAuthProvider),
     ref.watch(tokenStoreProvider),
+    communityService: ref.watch(communityServiceProvider),
     isOffline: () =>
         ref.read(networkStatusProvider) == NetworkAvailability.unavailable,
     onWebsiteSessionCleared: () async {

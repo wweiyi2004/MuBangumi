@@ -1,3 +1,5 @@
+import 'package:mubangumi/navigation/app_destination.dart';
+import 'package:mubangumi/navigation/app_router.dart';
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -130,15 +132,18 @@ Future<void> _show(
       ],
       child: RepaintBoundary(
         key: _boundary,
-        child: MaterialApp(
-          theme: theme,
-          builder: (context, child) => MediaQuery(
-            data: MediaQuery.of(
-              context,
-            ).copyWith(textScaler: TextScaler.linear(scale)),
-            child: child!,
+        child: AppRouteScope(
+          resolve: AppRouter.resolve,
+          child: MaterialApp(
+            theme: theme,
+            builder: (context, child) => MediaQuery(
+              data: MediaQuery.of(
+                context,
+              ).copyWith(textScaler: TextScaler.linear(scale)),
+              child: child!,
+            ),
+            home: Scaffold(body: DiscoverPage(initialTag: browse ? '' : '恋爱')),
           ),
-          home: Scaffold(body: DiscoverPage(initialTag: browse ? '' : '恋爱')),
         ),
       ),
     ),

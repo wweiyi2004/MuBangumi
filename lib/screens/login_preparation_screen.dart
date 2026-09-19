@@ -2,7 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
-import '../app.dart';
+import '../widgets/brand_mark.dart';
 import '../widgets/login_progress.dart';
 
 class LoginPreparationScreen extends StatefulWidget {

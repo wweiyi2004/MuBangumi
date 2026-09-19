@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:mubangumi/core/auth/website_identity.dart';
 import 'package:mubangumi/core/auth/website_session.dart';
 import 'package:mubangumi/core/network/pm_service.dart';
+import 'package:mubangumi/state/service_providers.dart';
 import 'package:mubangumi/models/bangumi_models.dart';
 import 'package:mubangumi/models/pm_models.dart';
 import 'package:mubangumi/state/account_access_controller.dart';
@@ -29,27 +30,93 @@ String homepage(String name) =>
     '<div id="badgeUserPanel"><a class="avatar" href="/user/$name">user</a></div>';
 
 void main() {
-  test('application coordinator installs the same identity gate for website consumers', () async {
-    final store = _Store()..value = snapshot('a');
-    final session = PmTestSession();
-    final container = ProviderContainer(overrides: [
-      sessionProvider.overrideWith((ref) => session),
-      websiteSessionStoreProvider.overrideWithValue(store),
-      websiteIdentityProbeProvider.overrideWithValue(_Probe((_, user) async {
-        if (user.id != 1) throw const WebsiteAccessException(WebsiteAccessStatus.mismatch, '账号不一致');
-        return 1;
-      })),
-    ]);
-    addTearDown(container.dispose);
-    final access = container.read(accountAccessProvider);
-    expect(await access.verify(), isTrue);
-    expect((await PmService.shared.websiteSessionGuard!()).verifiedUserId, 1);
-    session.switchUser(2);
-    await Future<void>.delayed(Duration.zero);
-    await expectLater(PmService.shared.websiteSessionGuard!(), throwsA(isA<WebsiteAccessException>()));
-    expect(session.state.phase, SessionPhase.signedIn);
-    expect(session.state.user!.id, 2);
-  });
+  test(
+    'two provider scopes keep service instances and identity guards independent',
+    () async {
+      ProviderContainer scope(int id) {
+        final session = PmTestSession()..switchUser(id);
+        return ProviderContainer(
+          overrides: [
+            sessionProvider.overrideWith((_) => session),
+            websiteSessionStoreProvider.overrideWithValue(
+              _Store()..value = snapshot('cookie-$id', legacyUser: id),
+            ),
+            websiteIdentityProbeProvider.overrideWithValue(
+              _Probe((_, user) async => user.id),
+            ),
+          ],
+        );
+      }
+
+      final a = scope(1), b = scope(2);
+      addTearDown(b.dispose);
+      final accessA = a.read(accountAccessProvider),
+          accessB = b.read(accountAccessProvider);
+      expect(await accessA.verify(), true);
+      expect(await accessB.verify(), true);
+      expect(
+        identical(a.read(pmServiceProvider), b.read(pmServiceProvider)),
+        false,
+      );
+      expect(
+        identical(
+          a.read(communityServiceProvider),
+          b.read(communityServiceProvider),
+        ),
+        false,
+      );
+      expect(
+        (await a.read(pmServiceProvider).websiteSessionGuard!()).verifiedUserId,
+        1,
+      );
+      a.dispose();
+      expect(
+        (await b.read(pmServiceProvider).websiteSessionGuard!()).verifiedUserId,
+        2,
+      );
+    },
+  );
+
+  test(
+    'application coordinator installs the same identity gate for website consumers',
+    () async {
+      final store = _Store()..value = snapshot('a');
+      final session = PmTestSession();
+      final container = ProviderContainer(
+        overrides: [
+          sessionProvider.overrideWith((ref) => session),
+          websiteSessionStoreProvider.overrideWithValue(store),
+          websiteIdentityProbeProvider.overrideWithValue(
+            _Probe((_, user) async {
+              if (user.id != 1) {
+                throw const WebsiteAccessException(
+                  WebsiteAccessStatus.mismatch,
+                  '账号不一致',
+                );
+              }
+              return 1;
+            }),
+          ),
+        ],
+      );
+      addTearDown(container.dispose);
+      final access = container.read(accountAccessProvider);
+      expect(await access.verify(), isTrue);
+      expect(
+        (await container.read(pmServiceProvider).websiteSessionGuard!())
+            .verifiedUserId,
+        1,
+      );
+      session.switchUser(2);
+      await Future<void>.delayed(Duration.zero);
+      await expectLater(
+        container.read(pmServiceProvider).websiteSessionGuard!(),
+        throwsA(isA<WebsiteAccessException>()),
+      );
+      expect(session.state.phase, SessionPhase.signedIn);
+      expect(session.state.user!.id, 2);
+    },
+  );
   test(
     'website identity is established only with Cookie, never the API Authorization',
     () async {
@@ -124,6 +191,28 @@ void main() {
       expect(requests.last.uri.host, 'api.bgm.tv');
     },
   );
+
+  test('verified account navigation wins over an embedded login panel', () async {
+    final dio = Dio()
+      ..interceptors.add(
+        InterceptorsWrapper(
+          onRequest: (request, handler) {
+            handler.resolve(
+              Response(
+                requestOptions: request,
+                statusCode: 200,
+                data:
+                    '${homepage('alice')}<form id="loginForm"><input name="password"></form>',
+              ),
+            );
+          },
+        ),
+      );
+    expect(
+      await WebsiteIdentityProbe(dio: dio).verify(snapshot('valid'), alice),
+      1,
+    );
+  });
 
   for (final (html, code, status) in [
     (

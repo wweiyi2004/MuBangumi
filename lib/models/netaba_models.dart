@@ -58,8 +58,7 @@ class NetabaHistoryPoint {
     final rating = _map(json['rating']);
     final countMap = _map(rating['count']);
     final ratingCount = <int, int>{
-      for (var score = 1; score <= 10; score++)
-        score: _int(countMap['$score']),
+      for (var score = 1; score <= 10; score++) score: _int(countMap['$score']),
     };
     return NetabaHistoryPoint(
       recordedAt: _date(json['recordedAt']),
@@ -113,10 +112,7 @@ class NetabaSubjectInfo {
 }
 
 class NetabaSubjectHistory {
-  const NetabaSubjectHistory({
-    required this.subject,
-    required this.history,
-  });
+  const NetabaSubjectHistory({required this.subject, required this.history});
 
   final NetabaSubjectInfo subject;
   final List<NetabaHistoryPoint> history;
@@ -148,25 +144,18 @@ class NetabaSubjectHistory {
   }
 
   List<NetabaChartPoint> scoreSeries({int maxPoints = 360}) {
-    return _downsample(
-      [
-        for (final point in history)
-          if (point.hasScore)
-            NetabaChartPoint(point.recordedAt, point.score),
-      ],
-      maxPoints: maxPoints,
-    );
+    return _downsample([
+      for (final point in history)
+        if (point.hasScore) NetabaChartPoint(point.recordedAt, point.score),
+    ], maxPoints: maxPoints);
   }
 
   List<NetabaChartPoint> rankSeries({int maxPoints = 360}) {
-    return _downsample(
-      [
-        for (final point in history)
-          if (point.hasRank)
-            NetabaChartPoint(point.recordedAt, point.rank.toDouble()),
-      ],
-      maxPoints: maxPoints,
-    );
+    return _downsample([
+      for (final point in history)
+        if (point.hasRank)
+          NetabaChartPoint(point.recordedAt, point.rank.toDouble()),
+    ], maxPoints: maxPoints);
   }
 
   List<NetabaChartPoint> seriesFor(
@@ -179,41 +168,29 @@ class NetabaSubjectHistory {
       case NetabaHistoryMetric.rank:
         return rankSeries(maxPoints: maxPoints);
       case NetabaHistoryMetric.watching:
-        return _downsample(
-          [
-            for (final point in history)
-              if (point.collect.doing > 0 || point.collect.total > 0)
-                NetabaChartPoint(
-                  point.recordedAt,
-                  point.collect.doing.toDouble(),
-                ),
-          ],
-          maxPoints: maxPoints,
-        );
+        return _downsample([
+          for (final point in history)
+            if (point.collect.doing > 0 || point.collect.total > 0)
+              NetabaChartPoint(
+                point.recordedAt,
+                point.collect.doing.toDouble(),
+              ),
+        ], maxPoints: maxPoints);
       case NetabaHistoryMetric.collect:
-        return _downsample(
-          [
-            for (final point in history)
-              if (point.collect.collect > 0 || point.collect.total > 0)
-                NetabaChartPoint(
-                  point.recordedAt,
-                  point.collect.collect.toDouble(),
-                ),
-          ],
-          maxPoints: maxPoints,
-        );
+        return _downsample([
+          for (final point in history)
+            if (point.collect.collect > 0 || point.collect.total > 0)
+              NetabaChartPoint(
+                point.recordedAt,
+                point.collect.collect.toDouble(),
+              ),
+        ], maxPoints: maxPoints);
       case NetabaHistoryMetric.rated:
-        return _downsample(
-          [
-            for (final point in history)
-              if (point.ratingTotal > 0)
-                NetabaChartPoint(
-                  point.recordedAt,
-                  point.ratingTotal.toDouble(),
-                ),
-          ],
-          maxPoints: maxPoints,
-        );
+        return _downsample([
+          for (final point in history)
+            if (point.ratingTotal > 0)
+              NetabaChartPoint(point.recordedAt, point.ratingTotal.toDouble()),
+        ], maxPoints: maxPoints);
     }
   }
 
@@ -225,9 +202,7 @@ class NetabaSubjectHistory {
           ? [
               for (final item in historyJson)
                 if (item is Map)
-                  NetabaHistoryPoint.fromJson(
-                    Map<String, dynamic>.from(item),
-                  ),
+                  NetabaHistoryPoint.fromJson(Map<String, dynamic>.from(item)),
             ]
           : const [],
     );
@@ -253,6 +228,7 @@ class NetabaDelta {
   });
 
   final double score;
+
   /// Positive means rank number increased (worse). Negative = climbed.
   final int rank;
   final int watching;
@@ -270,6 +246,7 @@ class NetabaTrendingItem {
   });
 
   final int bgmId;
+
   /// Score change over the trending window (positive = improved).
   final double scoreDelta;
   final String name;
@@ -293,14 +270,10 @@ class NetabaTrendingItem {
   }
 
   List<NetabaChartPoint> sparkline({int maxPoints = 60}) {
-    return _downsample(
-      [
-        for (final point in history)
-          if (point.hasScore)
-            NetabaChartPoint(point.recordedAt, point.score),
-      ],
-      maxPoints: maxPoints,
-    );
+    return _downsample([
+      for (final point in history)
+        if (point.hasScore) NetabaChartPoint(point.recordedAt, point.score),
+    ], maxPoints: maxPoints);
   }
 
   factory NetabaTrendingItem.fromJson(Map<String, dynamic> json) {
@@ -315,9 +288,7 @@ class NetabaTrendingItem {
           ? [
               for (final item in historyJson)
                 if (item is Map)
-                  NetabaHistoryPoint.fromJson(
-                    Map<String, dynamic>.from(item),
-                  ),
+                  NetabaHistoryPoint.fromJson(Map<String, dynamic>.from(item)),
             ]
           : const [],
     );
@@ -333,8 +304,10 @@ class NetabaTrending {
 
   /// Rising scores (口碑提升).
   final List<NetabaTrendingItem> up;
+
   /// Falling scores.
   final List<NetabaTrendingItem> down;
+
   /// Finished / stable-ish recent titles.
   final List<NetabaTrendingItem> done;
 

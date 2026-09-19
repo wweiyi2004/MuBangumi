@@ -1,3 +1,5 @@
+import 'package:mubangumi/navigation/app_destination.dart';
+import 'package:mubangumi/navigation/app_router.dart';
 import 'dart:async';
 
 import 'package:dio/dio.dart';
@@ -160,8 +162,11 @@ void main() {
                   UpdateController(service, GithubReleaseSkipStore(memory: {})),
             ),
           ],
-          child: const MaterialApp(
-            home: UpdateCheckHost(child: Scaffold(body: Text('登录'))),
+          child: const AppRouteScope(
+            resolve: AppRouter.resolve,
+            child: MaterialApp(
+              home: UpdateCheckHost(child: Scaffold(body: Text('登录'))),
+            ),
           ),
         ),
       );

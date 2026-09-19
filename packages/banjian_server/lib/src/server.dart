@@ -4,6 +4,7 @@ import 'dart:io';
 import 'dart:typed_data';
 import 'package:qr/qr.dart';
 import 'protocol.dart';
+import 'room_models.dart';
 import 'store.dart';
 import 'share_address.dart';
 import 'cover_cache.dart';
@@ -42,10 +43,17 @@ class RoomServer {
   final Map<String, List<int>> assets;
   final String? publicOrigin;
   final String _passwordHash;
+  final String _serverEpoch = newSecret(12);
   final _sessions = <String, DateTime>{};
   final _rates = <String, List<DateTime>>{};
-  final _sockets = <WebSocket, ({String event, String token, bool admin})>{};
+  final _sockets =
+      <
+        WebSocket,
+        ({String event, String token, bool admin, bool invalidate})
+      >{};
+  Timer? _broadcastTimer;
   final _allSockets = <WebSocket>{};
+  final _socketVersions = <WebSocket, int>{};
   HttpServer? _server;
   bool _closed = false;
   int get port => _server!.port;
@@ -82,7 +90,7 @@ class RoomServer {
   Future<void> _repairCovers(String id) async {
     final attempted = <String>{};
     while (!_closed) {
-      final e = store.event(id);
+      final e = store.info(id);
       final next = (e['rounds'] as List)
           .cast<Json>()
           .where(
@@ -117,6 +125,7 @@ class RoomServer {
     _closed = true;
     coverCache.closed = true;
     _coverRetry?.cancel();
+    _broadcastTimer?.cancel();
     for (final ws in _allSockets.toList()) {
       unawaited(ws.close(1001, '服务已停止'));
     }
@@ -124,7 +133,7 @@ class RoomServer {
   }
 
   Future<RoomInvite> invitation(HttpRequest r) async {
-    var e = store.event(r.uri.queryParameters['event'] ?? '');
+    var e = store.info(r.uri.queryParameters['event'] ?? '');
     if (e['ended'] == true)
       reject('这场活动已结束，不能再邀请新参与者。请打开正在进行的活动并重新分享二维码。', 409);
     if (publicOrigin != null)
@@ -135,7 +144,7 @@ class RoomServer {
     final choices = (await listRoomAddresses(
       port,
     )).where((v) => v.privateLan).toList();
-    e = store.event(e['id']);
+    e = store.info(e['id']);
     if (e['ended'] == true) reject('这场活动已结束，请重新获取正在进行的活动二维码。', 409);
     // A remote browser already reached this address: retain its working route.
     final primary = choices.any((v) => v.uri.origin == requestBase.origin)
@@ -216,9 +225,12 @@ class RoomServer {
   }
 
   void _json(HttpResponse response, Object value, [int status = 200]) {
+    final bytes = utf8.encode(jsonEncode(value));
+    if (bytes.length > RoomLimits.snapshotBytes)
+      throw const RoomError(413, '活动响应超过快照上限，请使用分页或导出');
     response.statusCode = status;
     response.headers.contentType = ContentType.json;
-    response.write(jsonEncode(value));
+    response.add(bytes);
   }
 
   Future<void> _handle(HttpRequest r) async {
@@ -286,13 +298,50 @@ class RoomServer {
               _json(r.response, {
                 'service': 'mubangumi-banjian',
                 'protocol': 1,
+                'capabilities': [
+                  'snapshot-revision',
+                  'bounded-comments',
+                  'invalidation-updates',
+                ],
               });
             case '/api/history':
               _requireAdmin(token);
               _json(r.response, {'events': store.history()});
             case '/api/state':
               final id = r.uri.queryParameters['event'] ?? '';
-              _json(r.response, _view(id, token, _admin(token)));
+              final since = int.tryParse(r.uri.queryParameters['since'] ?? '');
+              _json(
+                r.response,
+                _view(
+                  id,
+                  token,
+                  _admin(token),
+                  since: r.uri.queryParameters['epoch'] == _serverEpoch
+                      ? since
+                      : null,
+                ),
+              );
+            case '/api/comments':
+              final id = r.uri.queryParameters['event'] ?? '';
+              final round = r.uri.queryParameters['round'] ?? '';
+              final beforeText = r.uri.queryParameters['before'];
+              final limitText = r.uri.queryParameters['limit'];
+              if ((beforeText != null && int.tryParse(beforeText) == null) ||
+                  (limitText != null && int.tryParse(limitText) == null))
+                reject('分页参数无效');
+              _json(
+                r.response,
+                store.commentsPage(
+                  id,
+                  round,
+                  token: token,
+                  admin: _admin(token),
+                  before: beforeText == null ? null : int.parse(beforeText),
+                  limit: limitText == null
+                      ? RoomLimits.commentPageSize
+                      : int.parse(limitText),
+                ),
+              );
             case '/api/export':
               _requireAdmin(token);
               final id = r.uri.queryParameters['event'] ?? '';
@@ -306,15 +355,22 @@ class RoomServer {
                     : 'scores.csv'}"',
               );
               if (format == 'json') {
-                _json(r.response, store.export(id));
+                r.response.headers.contentType = ContentType.json;
               } else {
                 r.response.headers.contentType = ContentType(
                   'text',
                   'csv',
                   charset: 'utf-8',
                 );
-                r.response.write(store.csv(id, comments: format == 'comments'));
               }
+              // Validate before sending response headers; streaming uses its
+              // own read transaction so scores may continue during export.
+              store.info(id);
+              await r.response.addStream(
+                store
+                    .exportStream(id, format: format ?? 'scores')
+                    .map(utf8.encode),
+              );
             case '/api/search':
               _requireAdmin(token);
               _rate('search', 30, 60);
@@ -339,7 +395,7 @@ class RoomServer {
               final nonce = textField(c, 'nonce', max: 64);
               if (!RegExp(r'^[A-Za-z0-9_-]{24,64}$').hasMatch(nonce))
                 reject('探测参数无效');
-              final e = store.event(id);
+              final e = store.info(id);
               _json(r.response, {
                 'service': 'mubangumi-banjian',
                 'protocol': 1,
@@ -374,10 +430,12 @@ class RoomServer {
               _broadcast();
             case '/api/command':
               _rate('write:${digest(token)}', 120, 60);
+              RoomCommand.fromJson(c, participant: true);
               _json(r.response, store.submit(token, c));
               _broadcast();
             case '/api/admin':
               _requireAdmin(token);
+              RoomCommand.fromJson(c, participant: false);
               final result = store.admin(c);
               _json(r.response, result);
               _broadcast();
@@ -386,7 +444,7 @@ class RoomServer {
             case '/api/repair-covers':
               _requireAdmin(token);
               final id = textField(c, 'event', max: 64);
-              store.event(id);
+              store.info(id);
               _rate('cover-retry:$id', 6, 60);
               unawaited(repairCovers(id));
               _json(r.response, {'queued': true});
@@ -439,8 +497,9 @@ class RoomServer {
     }
   }
 
-  Json _view(String event, String token, bool admin) {
-    final view = store.view(event, token: token, admin: admin);
+  Json _view(String event, String token, bool admin, {int? since}) {
+    final view = store.viewSince(event, since, token: token, admin: admin);
+    view['serverEpoch'] = _serverEpoch;
     if (admin)
       view['connections'] = _sockets.values
           .where((s) => s.event == event && !s.admin)
@@ -472,8 +531,16 @@ class RoomServer {
           final id = textField(c, 'event');
           final admin = _admin(token);
           store.view(id, token: token, admin: admin);
-          _sockets[ws] = (event: id, token: token, admin: admin);
+          _sockets[ws] = (
+            event: id,
+            token: token,
+            admin: admin,
+            invalidate: c['updates'] == 'invalidate',
+          );
           timeout.cancel();
+          final initial = _view(id, token, admin);
+          _socketVersions[ws] = initial['version'] as int;
+          ws.add(jsonEncode(initial));
           _broadcast();
         } catch (_) {
           unawaited(ws.close(1008, '认证失败'));
@@ -482,12 +549,14 @@ class RoomServer {
       onDone: () {
         timeout.cancel();
         _allSockets.remove(ws);
+        _socketVersions.remove(ws);
         _sockets.remove(ws);
         _broadcast();
       },
       onError: (Object _) {
         timeout.cancel();
         _allSockets.remove(ws);
+        _socketVersions.remove(ws);
         _sockets.remove(ws);
       },
       cancelOnError: true,
@@ -495,12 +564,31 @@ class RoomServer {
   }
 
   void _broadcast() {
+    if (_closed || _broadcastTimer?.isActive == true) return;
+    _broadcastTimer = Timer(const Duration(milliseconds: 80), _broadcastNow);
+  }
+
+  void _broadcastNow() {
     if (_closed) return;
+    final metadata = <String, Json>{};
     for (final entry in _sockets.entries.toList()) {
       try {
         final s = entry.value;
+        final info = metadata.putIfAbsent(s.event, () => store.header(s.event));
         if (s.admin) _requireAdmin(s.token);
-        entry.key.add(jsonEncode(_view(s.event, s.token, s.admin)));
+        if (!s.admin) store.participant({'id': s.event}, s.token);
+        entry.key.add(
+          jsonEncode(
+            s.invalidate && _socketVersions[entry.key] == info['version']
+                ? {
+                    'type': 'invalidate',
+                    'event': s.event,
+                    'revision': store.revision(s.event),
+                  }
+                : _view(s.event, s.token, s.admin),
+          ),
+        );
+        _socketVersions[entry.key] = info['version'] as int;
       } catch (_) {
         unawaited(entry.key.close(1008, '会话已失效'));
       }

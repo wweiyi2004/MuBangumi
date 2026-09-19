@@ -1,3 +1,5 @@
+import 'package:mubangumi/navigation/app_destination.dart';
+import 'package:mubangumi/navigation/app_router.dart';
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
@@ -14,27 +16,30 @@ void main() {
     var value = 20.0;
     late StateSetter update;
     await tester.pumpWidget(
-      MaterialApp(
-        theme: ThemeData(platform: TargetPlatform.windows),
-        home: StatefulBuilder(
-          builder: (context, setState) {
-            update = setState;
-            return Scaffold(
-              body: Center(
-                child: SizedBox(
-                  width: 400,
-                  child: AppSlider(
-                    label: '背景模糊',
-                    value: value,
-                    min: 0,
-                    max: 40,
-                    formatValue: (value) => value.toStringAsFixed(0),
-                    onChanged: (next) => setState(() => value = next),
+      AppRouteScope(
+        resolve: AppRouter.resolve,
+        child: MaterialApp(
+          theme: ThemeData(platform: TargetPlatform.windows),
+          home: StatefulBuilder(
+            builder: (context, setState) {
+              update = setState;
+              return Scaffold(
+                body: Center(
+                  child: SizedBox(
+                    width: 400,
+                    child: AppSlider(
+                      label: '背景模糊',
+                      value: value,
+                      min: 0,
+                      max: 40,
+                      formatValue: (value) => value.toStringAsFixed(0),
+                      onChanged: (next) => setState(() => value = next),
+                    ),
                   ),
                 ),
-              ),
-            );
-          },
+              );
+            },
+          ),
         ),
       ),
     );
@@ -86,22 +91,25 @@ void main() {
       var value = 20.0;
       final events = <String>[];
       await tester.pumpWidget(
-        MaterialApp(
-          theme: ThemeData(platform: TargetPlatform.windows),
-          home: StatefulBuilder(
-            builder: (context, setState) => Scaffold(
-              body: AppSlider(
-                label: '背景模糊',
-                value: value,
-                min: 0,
-                max: 40,
-                formatValue: (value) => value.toStringAsFixed(0),
-                onChangeStart: (_) => events.add('start'),
-                onChanged: (next) {
-                  events.add('change');
-                  setState(() => value = next);
-                },
-                onChangeEnd: (_) => events.add('end'),
+        AppRouteScope(
+          resolve: AppRouter.resolve,
+          child: MaterialApp(
+            theme: ThemeData(platform: TargetPlatform.windows),
+            home: StatefulBuilder(
+              builder: (context, setState) => Scaffold(
+                body: AppSlider(
+                  label: '背景模糊',
+                  value: value,
+                  min: 0,
+                  max: 40,
+                  formatValue: (value) => value.toStringAsFixed(0),
+                  onChangeStart: (_) => events.add('start'),
+                  onChanged: (next) {
+                    events.add('change');
+                    setState(() => value = next);
+                  },
+                  onChangeEnd: (_) => events.add('end'),
+                ),
               ),
             ),
           ),
@@ -138,16 +146,19 @@ void main() {
   ) async {
     final handle = tester.ensureSemantics();
     await tester.pumpWidget(
-      MaterialApp(
-        theme: ThemeData(platform: TargetPlatform.windows),
-        home: Scaffold(
-          body: AppSlider(
-            label: '背景模糊',
-            value: 22,
-            min: 0,
-            max: 40,
-            formatValue: (value) => value.toStringAsFixed(0),
-            onChanged: null,
+      AppRouteScope(
+        resolve: AppRouter.resolve,
+        child: MaterialApp(
+          theme: ThemeData(platform: TargetPlatform.windows),
+          home: Scaffold(
+            body: AppSlider(
+              label: '背景模糊',
+              value: 22,
+              min: 0,
+              max: 40,
+              formatValue: (value) => value.toStringAsFixed(0),
+              onChanged: null,
+            ),
           ),
         ),
       ),

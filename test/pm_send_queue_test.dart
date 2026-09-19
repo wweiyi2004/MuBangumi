@@ -1,3 +1,5 @@
+import 'package:mubangumi/navigation/app_destination.dart';
+import 'package:mubangumi/navigation/app_router.dart';
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -242,12 +244,15 @@ void main() {
       await tester.pumpWidget(
         UncontrolledProviderScope(
           container: container,
-          child: MaterialApp(
-            home: PmConversationScreen(
-              conversationId: 'chat',
-              title: '私聊',
-              service: service,
-              peerName: '好友',
+          child: AppRouteScope(
+            resolve: AppRouter.resolve,
+            child: MaterialApp(
+              home: PmConversationScreen(
+                conversationId: 'chat',
+                title: '私聊',
+                service: service,
+                peerName: '好友',
+              ),
             ),
           ),
         ),
@@ -296,19 +301,24 @@ void main() {
       await tester.pumpWidget(
         UncontrolledProviderScope(
           container: container,
-          child: MaterialApp(
-            home: Scaffold(
-              body: Builder(
-                builder: (context) => TextButton(
-                  onPressed: () async {
-                    accepted = await Navigator.of(context).push<bool>(
-                      MaterialPageRoute(
-                        builder: (_) =>
-                            PmComposeScreen(service: service, toUser: 'friend'),
-                      ),
-                    );
-                  },
-                  child: const Text('写私信'),
+          child: AppRouteScope(
+            resolve: AppRouter.resolve,
+            child: MaterialApp(
+              home: Scaffold(
+                body: Builder(
+                  builder: (context) => TextButton(
+                    onPressed: () async {
+                      accepted = await Navigator.of(context).push<bool>(
+                        MaterialPageRoute(
+                          builder: (_) => PmComposeScreen(
+                            service: service,
+                            toUser: 'friend',
+                          ),
+                        ),
+                      );
+                    },
+                    child: const Text('写私信'),
+                  ),
                 ),
               ),
             ),
@@ -357,8 +367,11 @@ void main() {
       await tester.pumpWidget(
         UncontrolledProviderScope(
           container: container,
-          child: MaterialApp(
-            home: PmPage(service: service, friendsLoader: (_) async => []),
+          child: AppRouteScope(
+            resolve: AppRouter.resolve,
+            child: MaterialApp(
+              home: PmPage(service: service, friendsLoader: (_) async => []),
+            ),
           ),
         ),
       );

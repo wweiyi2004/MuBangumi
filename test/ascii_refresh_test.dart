@@ -1,3 +1,5 @@
+import 'package:mubangumi/navigation/app_destination.dart';
+import 'package:mubangumi/navigation/app_router.dart';
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -8,19 +10,22 @@ Widget surface(
   Future<void> Function() refresh, {
   bool initial = true,
   bool reduced = false,
-}) => MaterialApp(
-  home: MediaQuery(
-    data: MediaQueryData(disableAnimations: reduced),
-    child: Scaffold(
-      body: AsciiRefresh(
-        key: key,
-        initialRefresh: initial,
-        onRefresh: refresh,
-        child: ListView(
-          physics: const AlwaysScrollableScrollPhysics(
-            parent: ClampingScrollPhysics(),
+}) => AppRouteScope(
+  resolve: AppRouter.resolve,
+  child: MaterialApp(
+    home: MediaQuery(
+      data: MediaQueryData(disableAnimations: reduced),
+      child: Scaffold(
+        body: AsciiRefresh(
+          key: key,
+          initialRefresh: initial,
+          onRefresh: refresh,
+          child: ListView(
+            physics: const AlwaysScrollableScrollPhysics(
+              parent: ClampingScrollPhysics(),
+            ),
+            children: const [SizedBox(height: 120, child: Text('内容'))],
           ),
-          children: const [SizedBox(height: 120, child: Text('内容'))],
         ),
       ),
     ),

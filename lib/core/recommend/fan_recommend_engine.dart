@@ -224,8 +224,8 @@ class FanRecommendEngine {
 
       // Keyword soft match on names.
       if (keyword.isNotEmpty) {
-        final blob =
-            '${subject.name} ${subject.nameCn} ${subject.summary}'.toLowerCase();
+        final blob = '${subject.name} ${subject.nameCn} ${subject.summary}'
+            .toLowerCase();
         if (blob.contains(keyword)) score += 18;
         for (final part in keyword.split(RegExp(r'[\s,，、]+'))) {
           if (part.length >= 2 && blob.contains(part)) score += 6;
@@ -300,10 +300,7 @@ class FanRecommendEngine {
     }
 
     // Tag-only searches (Bangumi supports filter.tag).
-    final tagPool = <String>[
-      ...tags,
-      if (request.useTaste) ...taste.topTags,
-    ];
+    final tagPool = <String>[...tags, if (request.useTaste) ...taste.topTags];
     final seen = <String>{};
     for (final tag in tagPool) {
       final t = tag.trim();
@@ -314,10 +311,7 @@ class FanRecommendEngine {
 
     // Pair first two tags for finer taste.
     if (request.useTaste && taste.topTags.length >= 2) {
-      jobs.add((
-        keyword: '',
-        tags: taste.topTags.take(2).toList(),
-      ));
+      jobs.add((keyword: '', tags: taste.topTags.take(2).toList()));
     }
 
     // Fallback: empty keyword ranked-ish search via generic words.

@@ -88,10 +88,7 @@ void main() {
         {
           'bgmId': 325767,
           'score': 0.43,
-          'subject': {
-            'name': '対ありでした。',
-            'name_cn': '感谢对战。',
-          },
+          'subject': {'name': '対ありでした。', 'name_cn': '感谢对战。'},
           'history': [
             {
               'recordedAt': '2026-07-07T16:00:00Z',

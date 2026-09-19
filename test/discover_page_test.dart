@@ -1,3 +1,5 @@
+import 'package:mubangumi/navigation/app_destination.dart';
+import 'package:mubangumi/navigation/app_router.dart';
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -75,7 +77,10 @@ void main() {
               ..._overrides(),
               snapshotCacheProvider.overrideWithValue(cache),
             ],
-            child: const MaterialApp(home: Scaffold(body: DiscoverPage())),
+            child: const AppRouteScope(
+              resolve: AppRouter.resolve,
+              child: MaterialApp(home: Scaffold(body: DiscoverPage())),
+            ),
           ),
         );
         await tester.pump();
@@ -101,7 +106,10 @@ void main() {
       await tester.pumpWidget(
         ProviderScope(
           overrides: _overrides(),
-          child: const MaterialApp(home: Scaffold(body: DiscoverPage())),
+          child: const AppRouteScope(
+            resolve: AppRouter.resolve,
+            child: MaterialApp(home: Scaffold(body: DiscoverPage())),
+          ),
         ),
       );
       await _pumpDiscoverReady(tester);
@@ -169,7 +177,10 @@ void main() {
     await tester.pumpWidget(
       ProviderScope(
         overrides: _overrides(),
-        child: const MaterialApp(home: Scaffold(body: DiscoverPage())),
+        child: const AppRouteScope(
+          resolve: AppRouter.resolve,
+          child: MaterialApp(home: Scaffold(body: DiscoverPage())),
+        ),
       ),
     );
     await tester.pump();
@@ -191,8 +202,11 @@ void main() {
     await tester.pumpWidget(
       ProviderScope(
         overrides: _overrides(),
-        child: const MaterialApp(
-          home: Scaffold(body: DiscoverPage(initialTag: '科幻')),
+        child: const AppRouteScope(
+          resolve: AppRouter.resolve,
+          child: MaterialApp(
+            home: Scaffold(body: DiscoverPage(initialTag: '科幻')),
+          ),
         ),
       ),
     );
@@ -234,7 +248,10 @@ void main() {
     await tester.pumpWidget(
       ProviderScope(
         overrides: _overrides(_FakeBangumiApi(subjects)),
-        child: const MaterialApp(home: Scaffold(body: DiscoverPage())),
+        child: const AppRouteScope(
+          resolve: AppRouter.resolve,
+          child: MaterialApp(home: Scaffold(body: DiscoverPage())),
+        ),
       ),
     );
     await _pumpDiscoverReady(tester);
@@ -252,7 +269,10 @@ void main() {
     await tester.pumpWidget(
       ProviderScope(
         overrides: _overrides(api),
-        child: const MaterialApp(home: Scaffold(body: DiscoverPage())),
+        child: const AppRouteScope(
+          resolve: AppRouter.resolve,
+          child: MaterialApp(home: Scaffold(body: DiscoverPage())),
+        ),
       ),
     );
     await tester.pump();
@@ -301,7 +321,10 @@ void main() {
     await tester.pumpWidget(
       ProviderScope(
         overrides: _overrides(api),
-        child: const MaterialApp(home: Scaffold(body: DiscoverPage())),
+        child: const AppRouteScope(
+          resolve: AppRouter.resolve,
+          child: MaterialApp(home: Scaffold(body: DiscoverPage())),
+        ),
       ),
     );
     await tester.pump();
@@ -327,7 +350,10 @@ void main() {
     await tester.pumpWidget(
       ProviderScope(
         overrides: _overrides(api),
-        child: const MaterialApp(home: Scaffold(body: DiscoverPage())),
+        child: const AppRouteScope(
+          resolve: AppRouter.resolve,
+          child: MaterialApp(home: Scaffold(body: DiscoverPage())),
+        ),
       ),
     );
     await tester.pump();

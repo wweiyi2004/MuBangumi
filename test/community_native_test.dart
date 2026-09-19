@@ -1,3 +1,5 @@
+import 'package:mubangumi/navigation/app_destination.dart';
+import 'package:mubangumi/navigation/app_router.dart';
 import 'dart:async';
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
@@ -66,12 +68,15 @@ void main() {
         ..setAccessToken('test')
         ..setCurrentUsername('alice');
       await tester.pumpWidget(
-        MaterialApp(
-          home: Scaffold(
-            body: MonoCollectionButton(
-              kind: CommunityTimelineTargetKind.person,
-              id: 7,
-              service: service,
+        AppRouteScope(
+          resolve: AppRouter.resolve,
+          child: MaterialApp(
+            home: Scaffold(
+              body: MonoCollectionButton(
+                kind: CommunityTimelineTargetKind.person,
+                id: 7,
+                service: service,
+              ),
             ),
           ),
         ),
@@ -96,8 +101,11 @@ void main() {
         ..failReaction = true;
       await tester.pumpWidget(
         ProviderScope(
-          child: MaterialApp(
-            home: Scaffold(body: CommunityTimelinePage(service: service)),
+          child: AppRouteScope(
+            resolve: AppRouter.resolve,
+            child: MaterialApp(
+              home: Scaffold(body: CommunityTimelinePage(service: service)),
+            ),
           ),
         ),
       );
@@ -420,12 +428,15 @@ void main() {
       ..setCurrentUsername('alice')
       ..setAccessToken('test');
     await tester.pumpWidget(
-      MaterialApp(
-        home: Scaffold(
-          body: MonoCollectionButton(
-            kind: CommunityTimelineTargetKind.character,
-            id: 7,
-            service: service,
+      AppRouteScope(
+        resolve: AppRouter.resolve,
+        child: MaterialApp(
+          home: Scaffold(
+            body: MonoCollectionButton(
+              kind: CommunityTimelineTargetKind.character,
+              id: 7,
+              service: service,
+            ),
           ),
         ),
       ),
@@ -459,18 +470,21 @@ void main() {
           ),
       ];
       await tester.pumpWidget(
-        MaterialApp(
-          home: Scaffold(
-            body: SingleChildScrollView(
-              child: CommunityTimelineCard(
-                item: CommunityTimelineItem(
-                  id: 1,
-                  user: alice,
-                  description: '收藏了人物',
-                  createdAt: DateTime(2026),
-                  targets: targets,
+        AppRouteScope(
+          resolve: AppRouter.resolve,
+          child: MaterialApp(
+            home: Scaffold(
+              body: SingleChildScrollView(
+                child: CommunityTimelineCard(
+                  item: CommunityTimelineItem(
+                    id: 1,
+                    user: alice,
+                    description: '收藏了人物',
+                    createdAt: DateTime(2026),
+                    targets: targets,
+                  ),
+                  onOpenTarget: (target) => opened = target,
                 ),
-                onOpenTarget: (target) => opened = target,
               ),
             ),
           ),
@@ -494,8 +508,11 @@ void main() {
         ..setAccessToken('test');
       await tester.pumpWidget(
         ProviderScope(
-          child: MaterialApp(
-            home: Scaffold(body: CommunityTimelinePage(service: service)),
+          child: AppRouteScope(
+            resolve: AppRouter.resolve,
+            child: MaterialApp(
+              home: Scaffold(body: CommunityTimelinePage(service: service)),
+            ),
           ),
         ),
       );
@@ -526,7 +543,10 @@ void main() {
         ..setCurrentUsername('alice')
         ..setAccessToken('test');
       await tester.pumpWidget(
-        MaterialApp(home: CommunityBlogListScreen(service: service)),
+        AppRouteScope(
+          resolve: AppRouter.resolve,
+          child: MaterialApp(home: CommunityBlogListScreen(service: service)),
+        ),
       );
       await tester.pumpAndSettle();
       expect(find.text('原始标题'), findsOneWidget);
@@ -548,23 +568,26 @@ void main() {
     final store = _DraftStore();
     CommunityBlogDraft? metadata;
     await tester.pumpWidget(
-      MaterialApp(
-        home: Builder(
-          builder: (context) => Scaffold(
-            body: TextButton(
-              child: const Text('打开'),
-              onPressed: () {
-                metadata = CommunityBlogDraft();
-                showCommunityComposer(
-                  context,
-                  heading: '日志',
-                  requireTitle: true,
-                  blogDraft: metadata,
-                  draftKey: 'alice/blog-v1/new',
-                  draftStore: store,
-                  onSubmit: (_, _, _) async {},
-                );
-              },
+      AppRouteScope(
+        resolve: AppRouter.resolve,
+        child: MaterialApp(
+          home: Builder(
+            builder: (context) => Scaffold(
+              body: TextButton(
+                child: const Text('打开'),
+                onPressed: () {
+                  metadata = CommunityBlogDraft();
+                  showCommunityComposer(
+                    context,
+                    heading: '日志',
+                    requireTitle: true,
+                    blogDraft: metadata,
+                    draftKey: 'alice/blog-v1/new',
+                    draftStore: store,
+                    onSubmit: (_, _, _) async {},
+                  );
+                },
+              ),
             ),
           ),
         ),

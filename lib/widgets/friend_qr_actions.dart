@@ -1,3 +1,5 @@
+import '../state/service_providers.dart';
+import '../navigation/app_destination.dart';
 import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
@@ -9,7 +11,6 @@ import '../core/social/friend_qr.dart';
 import '../core/social/community_qr.dart';
 import '../models/bangumi_models.dart';
 import '../screens/friend_qr_scan_page.dart';
-import '../screens/community_group_screen.dart';
 import 'friend_qr_sheet.dart';
 import 'subject_widgets.dart';
 import 'package:banjian_server/banjian_server.dart';
@@ -36,7 +37,7 @@ Future<bool> scanAndAddFriend(
   CommunityService? service,
   Future<String?> Function(BuildContext context)? reader,
 }) async {
-  final backend = service ?? CommunityService.shared;
+  final backend = service ?? communityServiceFor(context);
   final revision = backend.identityRevision;
   final raw = await (reader ?? _readQrPayload)(context);
   if (!context.mounted || raw == null || raw.isEmpty) return false;
@@ -60,7 +61,7 @@ Future<bool> scanAndAddFriend(
       }
       await Navigator.of(context).push(
         MaterialPageRoute<void>(
-          builder: (_) => CommunityGroupScreen(
+          builder: (_) => GroupRoute(
             group: detail.group,
             initialDetail: detail,
             service: backend,

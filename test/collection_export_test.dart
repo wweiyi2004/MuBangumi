@@ -1,3 +1,5 @@
+import 'package:mubangumi/navigation/app_destination.dart';
+import 'package:mubangumi/navigation/app_router.dart';
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
@@ -108,22 +110,25 @@ Future<void> _export(WidgetTester tester, _Picker picker) async {
 
 Future<void> _openMenu(WidgetTester tester) async {
   await tester.pumpWidget(
-    MaterialApp(
-      home: CollectionStatsPage(
-        username: 'alice',
-        collections: [
-          UserCollection.fromJson({
-            'subject_id': 1,
-            'subject_type': 2,
-            'type': 3,
-            'rate': 8,
-            'ep_status': 3,
-            'comment': '中文短评',
-            'tags': ['治愈'],
-            'private': true,
-            'subject': {'id': 1, 'type': 2, 'name': '测试', 'eps': 12},
-          }),
-        ],
+    AppRouteScope(
+      resolve: AppRouter.resolve,
+      child: MaterialApp(
+        home: CollectionStatsPage(
+          username: 'alice',
+          collections: [
+            UserCollection.fromJson({
+              'subject_id': 1,
+              'subject_type': 2,
+              'type': 3,
+              'rate': 8,
+              'ep_status': 3,
+              'comment': '中文短评',
+              'tags': ['治愈'],
+              'private': true,
+              'subject': {'id': 1, 'type': 2, 'name': '测试', 'eps': 12},
+            }),
+          ],
+        ),
       ),
     ),
   );

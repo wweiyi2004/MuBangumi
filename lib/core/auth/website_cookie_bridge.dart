@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:webview_flutter/webview_flutter.dart' as mobile;
 import 'package:webview_flutter_android/webview_flutter_android.dart';
 import 'package:webview_flutter_platform_interface/webview_flutter_platform_interface.dart';
@@ -17,6 +18,7 @@ class WebsiteCookieBridge {
   static const bgmOrigin = 'https://bgm.tv';
   static const bgmHost = 'bgm.tv';
   static const _cookieOrigins = [bgmOrigin];
+  static const _androidCookies = MethodChannel('mubangumi/website_cookies');
 
   static Future<void> _cookieWrites = Future<void>.value();
   static Future<void>? _pendingCleanup;
@@ -129,17 +131,7 @@ class WebsiteCookieBridge {
     if (!(Platform.isAndroid || Platform.isIOS || Platform.isMacOS)) return;
     try {
       if (Platform.isAndroid) {
-        final manager = _androidCookieManager();
-        for (final cookie in cookies.where((cookie) => !cookie.isExpired)) {
-          await manager.setCookie(
-            WebViewCookie(
-              name: cookie.name,
-              value: cookie.value,
-              domain: _androidCookieUrl(cookie.domain),
-              path: cookie.path.isEmpty ? '/' : cookie.path,
-            ),
-          );
-        }
+        await injectAndroidCookies(cookies);
         return;
       }
       // iOS / macOS: common cookie manager setCookie (HttpOnly may be limited).
@@ -198,8 +190,7 @@ class WebsiteCookieBridge {
       return _captureWindows(windowsController);
     }
     if (Platform.isAndroid) {
-      final androidCookies = await _captureAndroid();
-      if (androidCookies.isNotEmpty) return androidCookies;
+      return captureAndroidCookies();
     }
     if (Platform.isIOS || Platform.isMacOS) {
       try {
@@ -257,26 +248,34 @@ class WebsiteCookieBridge {
     }
   }
 
-  static Future<List<WebsiteCookie>> _captureAndroid() async {
-    try {
-      final manager = _androidCookieManager();
-      final cookies = await manager.getCookies(Uri.parse(bgmOrigin));
-      return [
-        for (final cookie in cookies)
-          if (cookie.name.isNotEmpty)
-            WebsiteCookie(
-              name: cookie.name,
-              value: cookie.value,
-              domain: _normalizedDomain(cookie.domain),
-              path: cookie.path.isEmpty ? '/' : cookie.path,
-              isSecure: true,
-            ),
-      ];
-    } catch (error, stack) {
-      debugPrint(
-        'WebsiteCookieBridge._captureAndroid failed: ${error.runtimeType}\n$stack',
-      );
-      return const [];
+  @visibleForTesting
+  static Future<List<WebsiteCookie>> captureAndroidCookies() async {
+    final raw = await _androidCookies
+        .invokeMethod<String>('readBgmCookies')
+        .timeout(const Duration(seconds: 8));
+    return WebsiteSessionSnapshot.parseDocumentCookie(raw ?? '');
+  }
+
+  @visibleForTesting
+  static Future<void> injectAndroidCookies(List<WebsiteCookie> cookies) async {
+    for (final cookie in cookies.where((c) => !c.isExpired)) {
+      final domain = cookie.domain.toLowerCase();
+      final path = cookie.path.isEmpty ? '/' : cookie.path;
+      if (!const ['bgm.tv', '.bgm.tv'].contains(domain) ||
+          !RegExp(r'^[!#$%&\x27*+.^_`|~0-9A-Za-z-]+$').hasMatch(cookie.name) ||
+          RegExp(r'[\x00-\x20\x7f;]').hasMatch(cookie.value) ||
+          !path.startsWith('/') ||
+          RegExp(r'[\x00-\x20\x7f;]').hasMatch(path)) {
+        continue;
+      }
+      final header =
+          '${cookie.name}=${cookie.value}; Domain=$domain; Path=$path'
+          '${cookie.isSecure ? '; Secure' : ''}'
+          '${cookie.isHttpOnly ? '; HttpOnly' : ''}'
+          '${cookie.expiresAt == null ? '' : '; Expires=${HttpDate.format(cookie.expiresAt!.toUtc())}'}';
+      await _androidCookies
+          .invokeMethod<void>('setBgmCookie', {'header': header})
+          .timeout(const Duration(seconds: 8));
     }
   }
 
@@ -322,12 +321,5 @@ class WebsiteCookieBridge {
       return '.$value'.replaceAll('..', '.');
     }
     return value;
-  }
-
-  /// Android CookieManager.setCookie expects a URL, not a bare domain.
-  static String _androidCookieUrl(String domain) {
-    final host = _normalizedDomain(domain).replaceFirst(RegExp(r'^\.'), '');
-    if (host.isEmpty) return bgmOrigin;
-    return 'https://$host';
   }
 }

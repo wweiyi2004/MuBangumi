@@ -1,3 +1,5 @@
+import '../state/service_providers.dart';
+import '../navigation/app_destination.dart';
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -14,7 +16,6 @@ import '../state/user_preferences_controller.dart';
 import '../widgets/community_composer.dart';
 import '../widgets/community_widgets.dart';
 import '../widgets/community_loading.dart';
-import 'user_profile_page.dart';
 import 'website_login_screen.dart';
 
 class CommunityTopicScreen extends ConsumerStatefulWidget {
@@ -29,7 +30,7 @@ class CommunityTopicScreen extends ConsumerStatefulWidget {
 }
 
 class _CommunityTopicScreenState extends ConsumerState<CommunityTopicScreen> {
-  late final _service = widget.service ?? CommunityService.shared;
+  late final _service = widget.service ?? communityServiceFor(context);
   CommunityTopicDetail? _detail;
   bool _loading = true;
   int _requestId = 0;

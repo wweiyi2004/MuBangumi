@@ -1,3 +1,5 @@
+import '../state/service_providers.dart';
+import '../navigation/app_destination.dart';
 import 'dart:async';
 
 import 'package:cached_network_image/cached_network_image.dart';
@@ -5,13 +7,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/network/bangumi_endpoints.dart';
-import '../core/network/community_service.dart';
 import '../models/bangumi_models.dart';
 import '../state/session_controller.dart';
 import '../widgets/community_widgets.dart';
 import '../widgets/friend_qr_actions.dart';
 import '../widgets/subject_widgets.dart';
-import 'user_profile_page.dart';
 
 class FriendsPage extends ConsumerStatefulWidget {
   const FriendsPage({super.key, this.username});
@@ -23,7 +23,7 @@ class FriendsPage extends ConsumerStatefulWidget {
 }
 
 class _FriendsPageState extends ConsumerState<FriendsPage> {
-  final _service = CommunityService.shared;
+  late final _service = communityServiceFor(context);
   final _scrollController = ScrollController();
   final _queryController = TextEditingController();
 
@@ -85,10 +85,7 @@ class _FriendsPageState extends ConsumerState<FriendsPage> {
       _error = null;
     });
     try {
-      final page = await _service.loadFriends(
-        username,
-        refresh: refresh,
-      );
+      final page = await _service.loadFriends(username, refresh: refresh);
       if (!mounted || requestId != _requestId) return;
       setState(() {
         _friends = page.data;
@@ -315,9 +312,9 @@ class _FriendsPageState extends ConsumerState<FriendsPage> {
         ];
         if (_total > 0) _total -= 1;
       });
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('已解除与 ${friend.displayName} 的好友关系')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('已解除与 ${friend.displayName} 的好友关系')),
+      );
     } catch (error) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -330,11 +327,7 @@ class _FriendsPageState extends ConsumerState<FriendsPage> {
 }
 
 class _FriendTile extends StatelessWidget {
-  const _FriendTile({
-    required this.user,
-    required this.onTap,
-    this.onRemove,
-  });
+  const _FriendTile({required this.user, required this.onTap, this.onRemove});
 
   final BangumiUser user;
   final VoidCallback onTap;
@@ -378,11 +371,7 @@ class _FriendTile extends StatelessWidget {
             ),
             if (user.sign.isNotEmpty) ...[
               const SizedBox(height: 3),
-              Text(
-                user.sign,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-              ),
+              Text(user.sign, maxLines: 2, overflow: TextOverflow.ellipsis),
             ],
           ],
         ),

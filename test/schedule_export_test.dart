@@ -1,3 +1,5 @@
+import 'package:mubangumi/navigation/app_destination.dart';
+import 'package:mubangumi/navigation/app_router.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mubangumi/models/schedule_models.dart';
@@ -20,12 +22,7 @@ SeasonSchedule _sampleSchedule() => SeasonSchedule(
       imageUrl: '',
       weekday: DateTime.friday,
     ),
-    const ScheduleItem(
-      subjectId: 3,
-      name: 'C',
-      nameCn: '待定',
-      imageUrl: '',
-    ),
+    const ScheduleItem(subjectId: 3, name: 'C', nameCn: '待定', imageUrl: ''),
   ],
 );
 
@@ -36,10 +33,13 @@ void main() {
     final schedule = _sampleSchedule();
 
     await tester.pumpWidget(
-      MaterialApp(
-        home: Scaffold(
-          body: SingleChildScrollView(
-            child: ScheduleExportPoster(schedule: schedule, width: 540),
+      AppRouteScope(
+        resolve: AppRouter.resolve,
+        child: MaterialApp(
+          home: Scaffold(
+            body: SingleChildScrollView(
+              child: ScheduleExportPoster(schedule: schedule, width: 540),
+            ),
           ),
         ),
       ),
@@ -59,12 +59,15 @@ void main() {
     final schedule = _sampleSchedule();
 
     await tester.pumpWidget(
-      MaterialApp(
-        home: Scaffold(
-          body: SingleChildScrollView(
-            child: RepaintBoundary(
-              key: key,
-              child: ScheduleExportPoster(schedule: schedule, width: 540),
+      AppRouteScope(
+        resolve: AppRouter.resolve,
+        child: MaterialApp(
+          home: Scaffold(
+            body: SingleChildScrollView(
+              child: RepaintBoundary(
+                key: key,
+                child: ScheduleExportPoster(schedule: schedule, width: 540),
+              ),
             ),
           ),
         ),

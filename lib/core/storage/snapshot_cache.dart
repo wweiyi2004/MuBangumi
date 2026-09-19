@@ -1,13 +1,10 @@
-import 'dart:collection';
-
 import '../../models/bangumi_models.dart';
+import '../../models/collection_coverage.dart';
+import '../../models/snapshot_items.dart';
+export '../../models/snapshot_items.dart';
 import 'community_cache.dart';
 
 /// Timestamp travels with the exact read, including through concurrent reads.
-class SnapshotItems<T> extends UnmodifiableListView<T> {
-  SnapshotItems(super.source, {required this.savedAt});
-  final DateTime savedAt;
-}
 
 /// Local snapshots remain readable regardless of age within the cache budget.
 /// Account-scoped keys are still wiped by logout; timestamps describe local
@@ -72,13 +69,21 @@ class SnapshotCache {
     final savedAt = DateTime.tryParse(json['saved_at']?.toString() ?? '');
     if (savedAt == null) return null;
     final items = json['items'];
-    if (items is! List || items.isEmpty) return null;
+    if (items is! List) return null;
     try {
-      return SnapshotItems([
+      final parsed = [
         for (final item in items)
           if (item is Map)
             UserCollection.fromJson(Map<String, dynamic>.from(item)),
-      ], savedAt: savedAt);
+      ];
+      return CollectionSnapshot(
+        parsed,
+        coverage: CollectionCoverage.fromJson(
+          json['coverage'],
+          loadedCount: parsed.length,
+          savedAt: savedAt,
+        ),
+      );
     } catch (_) {
       return null;
     }
@@ -93,8 +98,23 @@ class SnapshotCache {
     final items = collections.length > 4000
         ? collections.take(4000).toList()
         : collections;
+    final old = collections is CollectionSnapshot
+        ? null
+        : await _cache.readJson(collectionsKey(username));
+    final previous = old == null
+        ? null
+        : CollectionCoverage.fromJson(
+            old['coverage'],
+            loadedCount: (old['items'] as List?)?.length ?? 0,
+          );
+    final coverage = collections is CollectionSnapshot
+        ? collections.coverage
+        : (previous ?? CollectionCoverage(loadedCount: collections.length))
+              .withCount(collections.length);
+    final savedAt = DateTime.now();
     await _cache.writeJson(collectionsKey(username), {
-      'saved_at': DateTime.now().toIso8601String(),
+      'saved_at': savedAt.toIso8601String(),
+      'coverage': coverage.retained(items.length, savedAt).toJson(),
       'items': [for (final item in items) item.toJson()],
     }, accountScoped: true);
   }
@@ -102,6 +122,13 @@ class SnapshotCache {
   Future<void> clearCollections(String username) async {
     if (username.trim().isEmpty) return;
     await _cache.remove(collectionsKey(username));
+  }
+
+  Future<void> clearUserScope(String username) async {
+    await clearCollections(username);
+    await _cache.removePrefix(
+      'episode_collections_snapshot:${Uri.encodeComponent(username.trim().toLowerCase())}:',
+    );
   }
 
   Future<List<UserEpisodeCollection>?> readEpisodeCollections(

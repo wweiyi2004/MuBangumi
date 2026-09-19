@@ -1,3 +1,5 @@
+import 'package:mubangumi/navigation/app_destination.dart';
+import 'package:mubangumi/navigation/app_router.dart';
 import 'package:mubangumi/core/storage/browsing_store.dart';
 import 'support/memory_home_pins.dart';
 import 'support/ux_visuals.dart';
@@ -36,21 +38,24 @@ void main() {
                 (ref) => UserPreferencesController(_FakePrefRepository()),
               ),
             ],
-            child: MaterialApp(
-              theme: await uxTheme(tester, dark: false),
-              builder: (context, child) => RepaintBoundary(
-                key: _homeBoundary,
-                child: MediaQuery(
-                  data: MediaQuery.of(
-                    context,
-                  ).copyWith(textScaler: TextScaler.linear(scale)),
-                  child: child!,
+            child: AppRouteScope(
+              resolve: AppRouter.resolve,
+              child: MaterialApp(
+                theme: await uxTheme(tester, dark: false),
+                builder: (context, child) => RepaintBoundary(
+                  key: _homeBoundary,
+                  child: MediaQuery(
+                    data: MediaQuery.of(
+                      context,
+                    ).copyWith(textScaler: TextScaler.linear(scale)),
+                    child: child!,
+                  ),
                 ),
-              ),
-              home: Scaffold(
-                body: HomePage(
-                  onDiscover: () => discoverOpens++,
-                  onSchedule: () => scheduleOpens++,
+                home: Scaffold(
+                  body: HomePage(
+                    onDiscover: () => discoverOpens++,
+                    onSchedule: () => scheduleOpens++,
+                  ),
                 ),
               ),
             ),
@@ -121,12 +126,15 @@ void main() {
               (ref) => UserPreferencesController(_FakePrefRepository()),
             ),
           ],
-          child: MaterialApp(
-            theme: await uxTheme(tester, dark: false),
-            builder: (context, child) =>
-                RepaintBoundary(key: _homeBoundary, child: child!),
-            home: Scaffold(
-              body: HomePage(onDiscover: () {}, onSchedule: () {}),
+          child: AppRouteScope(
+            resolve: AppRouter.resolve,
+            child: MaterialApp(
+              theme: await uxTheme(tester, dark: false),
+              builder: (context, child) =>
+                  RepaintBoundary(key: _homeBoundary, child: child!),
+              home: Scaffold(
+                body: HomePage(onDiscover: () {}, onSchedule: () {}),
+              ),
             ),
           ),
         ),
@@ -216,12 +224,15 @@ void main() {
               (ref) => UserPreferencesController(_FakePrefRepository()),
             ),
           ],
-          child: MaterialApp(
-            theme: await uxTheme(tester, dark: false),
-            builder: (context, child) =>
-                RepaintBoundary(key: _homeBoundary, child: child!),
-            home: Scaffold(
-              body: HomePage(onDiscover: () {}, onSchedule: () {}),
+          child: AppRouteScope(
+            resolve: AppRouter.resolve,
+            child: MaterialApp(
+              theme: await uxTheme(tester, dark: false),
+              builder: (context, child) =>
+                  RepaintBoundary(key: _homeBoundary, child: child!),
+              home: Scaffold(
+                body: HomePage(onDiscover: () {}, onSchedule: () {}),
+              ),
             ),
           ),
         ),

@@ -35,11 +35,12 @@ class PmContactsView extends StatelessWidget {
             children: [
               Expanded(
                 child: Text(
-                contacts.friendsLoading
-                    ? '正在加载完整好友列表…'
-                    : contacts.friendsError != null && contacts.friends.isEmpty
-                    ? '好友暂未加载'
-                    : '${contacts.friends.length} 位好友',
+                  contacts.friendsLoading
+                      ? '正在加载完整好友列表…'
+                      : contacts.friendsError != null &&
+                            contacts.friends.isEmpty
+                      ? '好友暂未加载'
+                      : '${contacts.friends.length} 位好友',
                   style: TextStyle(
                     fontSize: 12,
                     color: colors.onSurfaceVariant,

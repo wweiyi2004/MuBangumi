@@ -1,3 +1,5 @@
+import 'package:mubangumi/navigation/app_destination.dart';
+import 'package:mubangumi/navigation/app_router.dart';
 import 'dart:io';
 import 'dart:ui' as ui;
 import 'package:flutter/foundation.dart';
@@ -194,23 +196,26 @@ void main() {
       await tester.pumpWidget(
         UncontrolledProviderScope(
           container: container,
-          child: MaterialApp(
-            debugShowCheckedModeBanner: false,
-            theme: variant.endsWith('dark') ? AppTheme.dark : AppTheme.light,
-            builder: (context, child) => MediaQuery(
-              data: MediaQuery.of(context).copyWith(
-                textScaler: TextScaler.linear(
-                  variant == 'phone-large' ? 1.6 : 1,
+          child: AppRouteScope(
+            resolve: AppRouter.resolve,
+            child: MaterialApp(
+              debugShowCheckedModeBanner: false,
+              theme: variant.endsWith('dark') ? AppTheme.dark : AppTheme.light,
+              builder: (context, child) => MediaQuery(
+                data: MediaQuery.of(context).copyWith(
+                  textScaler: TextScaler.linear(
+                    variant == 'phone-large' ? 1.6 : 1,
+                  ),
                 ),
+                child: RepaintBoundary(key: boundary, child: child!),
               ),
-              child: RepaintBoundary(key: boundary, child: child!),
-            ),
-            home: AppNavigationLayout(
-              index: index,
-              onChanged: (_) {},
-              unreadCount: 3,
-              onOpenSchedule: () {},
-              body: content,
+              home: AppNavigationLayout(
+                index: index,
+                onChanged: (_) {},
+                unreadCount: 3,
+                onOpenSchedule: () {},
+                body: content,
+              ),
             ),
           ),
         ),

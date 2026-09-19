@@ -1,3 +1,5 @@
+import 'package:mubangumi/navigation/app_destination.dart';
+import 'package:mubangumi/navigation/app_router.dart';
 import 'dart:io';
 import 'dart:ui' as ui;
 
@@ -63,48 +65,51 @@ void main() {
             );
           }
           await tester.pumpWidget(
-            MaterialApp(
-              theme: theme,
-              builder: (context, child) => MediaQuery(
-                data: MediaQuery.of(
-                  context,
-                ).copyWith(textScaler: TextScaler.linear(scale)),
-                child: RepaintBoundary(key: boundary, child: child!),
-              ),
-              home: Scaffold(
-                body: SingleChildScrollView(
-                  padding: const EdgeInsets.all(16),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      const ProfileCollectionSummary(
-                        doing: 28,
-                        done: 136,
-                        total: 248,
-                      ),
-                      const SizedBox(height: 24),
-                      SubjectGrid(
-                        itemCount: 1,
-                        itemBuilder: (_, _) => SubjectTile(
-                          subject: _subject,
-                          collection: _collection,
-                          onTap: () {},
-                          onEpisodeGrid: () {},
-                          onNextEpisode: () {},
+            AppRouteScope(
+              resolve: AppRouter.resolve,
+              child: MaterialApp(
+                theme: theme,
+                builder: (context, child) => MediaQuery(
+                  data: MediaQuery.of(
+                    context,
+                  ).copyWith(textScaler: TextScaler.linear(scale)),
+                  child: RepaintBoundary(key: boundary, child: child!),
+                ),
+                home: Scaffold(
+                  body: SingleChildScrollView(
+                    padding: const EdgeInsets.all(16),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        const ProfileCollectionSummary(
+                          doing: 28,
+                          done: 136,
+                          total: 248,
                         ),
-                      ),
-                      const SizedBox(height: 24),
-                      SubjectPosterGrid(
-                        itemCount: 2,
-                        itemBuilder: (_, _) => SubjectPosterCard(
-                          subject: _subject,
-                          collection: _collection,
-                          onTap: () {},
-                          onEpisodeGrid: () {},
-                          onNextEpisode: () {},
+                        const SizedBox(height: 24),
+                        SubjectGrid(
+                          itemCount: 1,
+                          itemBuilder: (_, _) => SubjectTile(
+                            subject: _subject,
+                            collection: _collection,
+                            onTap: () {},
+                            onEpisodeGrid: () {},
+                            onNextEpisode: () {},
+                          ),
                         ),
-                      ),
-                    ],
+                        const SizedBox(height: 24),
+                        SubjectPosterGrid(
+                          itemCount: 2,
+                          itemBuilder: (_, _) => SubjectPosterCard(
+                            subject: _subject,
+                            collection: _collection,
+                            onTap: () {},
+                            onEpisodeGrid: () {},
+                            onNextEpisode: () {},
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
               ),
@@ -148,14 +153,17 @@ void main() {
   ) async {
     var cardTaps = 0;
     await tester.pumpWidget(
-      MaterialApp(
-        home: Scaffold(
-          body: Center(
-            child: SizedBox(
-              width: 160,
-              child: GestureDetector(
-                onTap: () => cardTaps++,
-                child: const ReadableSubjectTitle(_longName, maxLines: 2),
+      AppRouteScope(
+        resolve: AppRouter.resolve,
+        child: MaterialApp(
+          home: Scaffold(
+            body: Center(
+              child: SizedBox(
+                width: 160,
+                child: GestureDetector(
+                  onTap: () => cardTaps++,
+                  child: const ReadableSubjectTitle(_longName, maxLines: 2),
+                ),
               ),
             ),
           ),
@@ -176,15 +184,18 @@ void main() {
     tester.view.physicalSize = const Size(320, 900);
     addTearDown(tester.view.reset);
     await tester.pumpWidget(
-      MaterialApp(
-        home: Scaffold(
-          body: SingleChildScrollView(
-            child: MediaQuery(
-              data: const MediaQueryData(textScaler: TextScaler.linear(1.8)),
-              child: const ProfileCollectionSummary(
-                doing: 12345,
-                done: 98765,
-                total: 111110,
+      AppRouteScope(
+        resolve: AppRouter.resolve,
+        child: MaterialApp(
+          home: Scaffold(
+            body: SingleChildScrollView(
+              child: MediaQuery(
+                data: const MediaQueryData(textScaler: TextScaler.linear(1.8)),
+                child: const ProfileCollectionSummary(
+                  doing: 12345,
+                  done: 98765,
+                  total: 111110,
+                ),
               ),
             ),
           ),

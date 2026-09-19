@@ -1,3 +1,4 @@
+import '../navigation/app_destination.dart';
 import 'dart:async';
 import 'package:flutter/material.dart';
 
@@ -5,8 +6,6 @@ import '../core/network/community_service.dart';
 import '../models/community_models.dart';
 import '../widgets/community_loading.dart';
 import '../widgets/community_widgets.dart';
-import 'community_topic_screen.dart';
-import 'user_profile_page.dart';
 
 /// Complete paginated lists, separate from the group's recent-content preview.
 class CommunityGroupBrowseScreen extends StatefulWidget {
@@ -177,7 +176,7 @@ class _CommunityGroupBrowseScreenState
             onTap: () => Navigator.of(context).push(
               MaterialPageRoute<void>(
                 builder: (_) =>
-                    CommunityTopicScreen(topic: topic, service: widget.service),
+                    TopicRoute(topic: topic, service: widget.service),
               ),
             ),
           );

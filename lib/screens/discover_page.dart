@@ -1,3 +1,5 @@
+import '../navigation/app_destination.dart';
+export '../navigation/app_destination.dart' show openDiscoverTagSearch;
 import 'dart:async';
 
 import 'package:cached_network_image/cached_network_image.dart';
@@ -16,10 +18,6 @@ import '../widgets/episode_grid_sheet.dart';
 import '../widgets/subject_widgets.dart';
 import '../widgets/recent_searches.dart';
 import '../widgets/discover_filters_sheet.dart';
-import 'character_detail_screen.dart';
-import 'person_detail_screen.dart';
-import 'score_trends_page.dart';
-import 'subject_detail_screen.dart';
 
 enum DiscoverSearchTarget { subject, character, person }
 
@@ -62,24 +60,6 @@ DiscoverQueryMode resolveDiscoverQueryMode({
 final discoverCollectionsProvider = Provider<List<UserCollection>>(
   (ref) => ref.watch(sessionProvider.select((state) => state.collections)),
 );
-
-/// Opens a standalone discover surface pre-filtered by [tag].
-void openDiscoverTagSearch(
-  BuildContext context, {
-  required String tag,
-  SubjectType subjectType = SubjectType.anime,
-}) {
-  final value = tag.trim();
-  if (value.isEmpty) return;
-  Navigator.of(context).push(
-    MaterialPageRoute<void>(
-      builder: (_) => Scaffold(
-        appBar: AppBar(title: Text('标签 · $value')),
-        body: DiscoverPage(initialTag: value, initialSubjectType: subjectType),
-      ),
-    ),
-  );
-}
 
 class DiscoverPage extends ConsumerStatefulWidget {
   const DiscoverPage({
@@ -849,7 +829,7 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
             ),
             trailing: const Icon(Icons.chevron_right_rounded),
             onTap: () => Navigator.of(context).push(
-              MaterialPageRoute<void>(builder: (_) => const ScoreTrendsPage()),
+              MaterialPageRoute<void>(builder: (_) => const ScoreTrendsRoute()),
             ),
           ),
         ),
@@ -1091,7 +1071,7 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
                     : null,
                 trailing: const Icon(Icons.chevron_right_rounded),
                 onTap: () => _openSearchResult(
-                  CharacterDetailScreen(
+                  CharacterRoute(
                     characterId: character.id,
                     seedName: character.displayName,
                     seedImageUrl: character.imageUrl,
@@ -1120,7 +1100,7 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
                   : Text(personMeta.join(' / ')),
               trailing: const Icon(Icons.chevron_right_rounded),
               onTap: () => _openSearchResult(
-                PersonDetailScreen(
+                PersonRoute(
                   personId: person.id,
                   seedName: person.displayName,
                   seedImageUrl: person.imageUrl,
@@ -1165,9 +1145,8 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
                   return SubjectPosterCard(
                     subject: subject,
                     collection: collection,
-                    onTap: () => _openSearchResult(
-                      SubjectDetailScreen(subject: subject),
-                    ),
+                    onTap: () =>
+                        _openSearchResult(SubjectRoute(subject: subject)),
                     onEpisodeGrid: collection != null && supportsEpisodes
                         ? () => showEpisodeGridSheet(context, ref, collection)
                         : null,

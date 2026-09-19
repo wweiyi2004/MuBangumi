@@ -1,3 +1,5 @@
+import '../state/service_providers.dart';
+import '../navigation/app_destination.dart';
 import 'dart:async';
 import 'package:flutter/material.dart';
 import '../core/network/community_service.dart';
@@ -6,7 +8,6 @@ import '../widgets/community_composer.dart';
 import '../widgets/community_loading.dart';
 import '../widgets/community_rich_content.dart';
 import '../widgets/community_widgets.dart';
-import 'community_topic_screen.dart';
 
 Future<bool> showBlogEditor(
   BuildContext context,
@@ -67,7 +68,8 @@ class CommunityBlogListScreen extends StatefulWidget {
 }
 
 class _CommunityBlogListScreenState extends State<CommunityBlogListScreen> {
-  CommunityService get _service => widget.service ?? CommunityService.shared;
+  late final CommunityService _service =
+      widget.service ?? communityServiceFor(context);
   String get _username => widget.username ?? _service.currentUsername ?? '';
   final _scroll = ScrollController();
   final _items = <CommunityBlog>[];
@@ -259,7 +261,8 @@ class CommunityBlogScreen extends StatefulWidget {
 }
 
 class _CommunityBlogScreenState extends State<CommunityBlogScreen> {
-  CommunityService get _service => widget.service ?? CommunityService.shared;
+  late final CommunityService _service =
+      widget.service ?? communityServiceFor(context);
   CommunityBlog? _blog;
   bool _loading = true;
   int _generation = 0;
@@ -371,7 +374,7 @@ class _CommunityBlogScreenState extends State<CommunityBlogScreen> {
                 onPressed: () async {
                   await Navigator.of(context).push(
                     MaterialPageRoute<void>(
-                      builder: (_) => CommunityTopicScreen(
+                      builder: (_) => TopicRoute(
                         service: _service,
                         topic: CommunityTopic(
                           id: blog.id,

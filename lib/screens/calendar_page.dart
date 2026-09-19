@@ -1,10 +1,10 @@
+import '../navigation/app_destination.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/network/bangumi_support.dart';
 import '../state/session_controller.dart';
 import '../widgets/subject_widgets.dart';
-import 'subject_detail_screen.dart';
 
 /// Official Bangumi broadcast calendar (distinct from local 新番表).
 class CalendarPage extends ConsumerStatefulWidget {
@@ -141,7 +141,7 @@ class _CalendarPageState extends ConsumerState<CalendarPage> {
                                 Navigator.of(context).push(
                                   MaterialPageRoute<void>(
                                     builder: (_) =>
-                                        SubjectDetailScreen(subject: subject),
+                                        SubjectRoute(subject: subject),
                                   ),
                                 );
                               },

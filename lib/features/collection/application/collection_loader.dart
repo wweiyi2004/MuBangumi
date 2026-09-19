@@ -4,6 +4,7 @@ import '../../../core/network/bangumi_api.dart';
 import '../../../core/storage/snapshot_cache.dart';
 import '../../../models/bangumi_models.dart';
 import '../../../models/library_batch.dart';
+import '../../../models/collection_coverage.dart';
 import '../domain/collection_reconciler.dart';
 import 'collection_editor.dart';
 
@@ -16,6 +17,7 @@ class CollectionLoadProgress {
     this.message,
     this.clearMessage = false,
     this.isUsingCachedCollections,
+    this.coverage,
   });
 
   final List<UserCollection>? collections;
@@ -25,9 +27,14 @@ class CollectionLoadProgress {
   final String? message;
   final bool clearMessage;
   final bool? isUsingCachedCollections;
+  final CollectionCoverage? coverage;
 }
 
-typedef _Load = ({LibraryBatchAccount account, int generation});
+typedef _Load = ({
+  LibraryBatchAccount account,
+  int generation,
+  Set<SubjectType> completedTypes,
+});
 
 /// Owns collection request lifetimes and paging. Each continuation checks both
 /// the login and the load generation, including after local queue reads.
@@ -54,7 +61,11 @@ class CollectionLoader {
     if (_disposed) return null;
     final account = _editor.batchAccount;
     if (account == null) return null;
-    return (account: account, generation: ++_generation);
+    return (
+      account: account,
+      generation: ++_generation,
+      completedTypes: <SubjectType>{},
+    );
   }
 
   bool _current(_Load load) =>
@@ -99,6 +110,7 @@ class CollectionLoader {
         onPage: initial ? (items) => _publishPage(load, revision, items) : null,
       );
       if (!_current(load)) return;
+      load.completedTypes.add(SubjectType.anime);
       var merged = CollectionReconciler.replaceType(
         _editor.collections,
         SubjectType.anime,
@@ -111,13 +123,14 @@ class CollectionLoader {
       onProgress(
         CollectionLoadProgress(
           collections: merged,
+          coverage: _coverage(load, merged.length),
           releaseInitialWait: true,
           isRefreshing: false,
           isLoadingCollections: true,
           clearMessage: !initial,
         ),
       );
-      _saveSnapshot(username, merged);
+      _saveSnapshot(load, merged);
       await _loadOtherTypes(load);
     } catch (error) {
       if (!_current(load)) return;
@@ -155,6 +168,7 @@ class CollectionLoader {
           onPage: (items) => _publishPage(load, revision, items),
         );
         if (!_current(load)) return;
+        load.completedTypes.add(type);
         var merged = CollectionReconciler.replaceType(
           _editor.collections,
           type,
@@ -167,11 +181,12 @@ class CollectionLoader {
         onProgress(
           CollectionLoadProgress(
             collections: merged,
+            coverage: _coverage(load, merged.length),
             isLoadingCollections: true,
             isRefreshing: false,
           ),
         );
-        _saveSnapshot(username, merged);
+        _saveSnapshot(load, merged);
         await Future<void>.delayed(const Duration(milliseconds: 16));
       }
       if (!_current(load)) return;
@@ -218,6 +233,7 @@ class CollectionLoader {
     onProgress(
       CollectionLoadProgress(
         collections: merged,
+        coverage: _coverage(load, merged.length),
         releaseInitialWait: true,
         isRefreshing: false,
         isLoadingCollections: true,
@@ -240,6 +256,7 @@ class CollectionLoader {
           _api.getUserCollections(load.account.username, subjectType: type),
       ]);
       if (!_current(load)) return null;
+      load.completedTypes.addAll(SubjectType.values);
       var merged = await _editor.overlayPendingCollections(
         load.account.username,
         [for (final page in pages) ...page],
@@ -249,13 +266,14 @@ class CollectionLoader {
       onProgress(
         CollectionLoadProgress(
           collections: merged,
+          coverage: _coverage(load, merged.length),
           isRefreshing: false,
           isLoadingCollections: false,
           clearMessage: true,
           isUsingCachedCollections: false,
         ),
       );
-      _saveSnapshot(load.account.username, merged);
+      _saveSnapshot(load, merged);
       return null;
     } catch (error) {
       if (!_current(load)) return null;
@@ -272,10 +290,29 @@ class CollectionLoader {
     }
   }
 
-  void _saveSnapshot(String username, List<UserCollection> collections) {
+  CollectionCoverage _coverage(_Load load, int count) {
+    final complete = load.completedTypes.length == SubjectType.values.length;
+    return CollectionCoverage(
+      loadedCount: count,
+      sourceTotal: complete ? count : null,
+      completeness: complete
+          ? CollectionCompleteness.complete
+          : CollectionCompleteness.partial,
+      loadedTypes: load.completedTypes,
+    );
+  }
+
+  void _saveSnapshot(_Load load, List<UserCollection> collections) {
     unawaited(() async {
       try {
-        await _snapshotCache.writeCollections(username, collections);
+        if (!_current(load)) return;
+        await _snapshotCache.writeCollections(
+          load.account.username,
+          CollectionSnapshot(
+            collections,
+            coverage: _coverage(load, collections.length),
+          ),
+        );
       } catch (_) {
         // Collections are usable even when an optional cache write fails.
       }

@@ -62,7 +62,8 @@ class CommunityWebScreen extends ConsumerStatefulWidget {
   ConsumerState<CommunityWebScreen> createState() => _CommunityWebScreenState();
 }
 
-class _CommunityWebScreenState extends ConsumerState<CommunityWebScreen> {
+class _CommunityWebScreenState extends ConsumerState<CommunityWebScreen>
+    with WidgetsBindingObserver {
   final _browserKey = GlobalKey<_CommunityBrowserState>();
   _CommunitySection _section = _CommunitySection.rakuen;
   _BrowserSnapshot _browser = const _BrowserSnapshot();
@@ -71,10 +72,20 @@ class _CommunityWebScreenState extends ConsumerState<CommunityWebScreen> {
   late final WebsiteSessionController _session;
   int? _accountId;
   bool _accountChanged = false;
+  Timer? _captureTimer;
+  bool _foreground = true;
+  String? _lastAutomaticCookies;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    if (widget.enableCookieCapture) {
+      // Login panels may submit through AJAX without a page-finished event.
+      _captureTimer = Timer.periodic(const Duration(seconds: 2), (_) {
+        if (_foreground) unawaited(_captureCookies(automatic: true));
+      });
+    }
     _session = ref.read(websiteSessionProvider.notifier);
     _accountId = ref.read(sessionProvider).user?.id;
     ref.listenManual(sessionProvider.select((state) => state.user?.id), (
@@ -96,6 +107,12 @@ class _CommunityWebScreenState extends ConsumerState<CommunityWebScreen> {
   }
 
   Future<void> _openExternally() async {
+    if (widget.enableCookieCapture) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('系统浏览器的登录不会同步到应用。请在当前页面完成账号验证。')),
+      );
+      return;
+    }
     final uri = Uri.tryParse(_browser.url ?? widget.initialUrl);
     if (!await launchExternalLink(uri)) {
       if (!mounted) return;
@@ -112,18 +129,25 @@ class _CommunityWebScreenState extends ConsumerState<CommunityWebScreen> {
         ref.read(sessionProvider).user?.id == _accountId;
     if (_capturing || !sameAccount()) return;
     final browser = _browserKey.currentState;
-    if (browser == null) return;
+    if (browser == null || !browser.canCapture) return;
     final uri = Uri.tryParse(_browser.url ?? widget.initialUrl);
     if (uri == null || uri.scheme != 'https' || uri.host != 'bgm.tv') return;
-    if (automatic && (uri.path == '/login' || uri.path.startsWith('/logout'))) {
+    if (uri.path.startsWith('/logout')) {
       return;
     }
     _capturing = true;
     try {
+      final cookies = await browser.captureCookies();
+      if (!sameAccount()) return;
+      final cookieKey = WebsiteSessionSnapshot(
+        cookies: cookies,
+        syncedAt: DateTime.now(),
+      ).cookieHeader;
+      if (automatic && cookieKey == _lastAutomaticCookies) return;
+      _lastAutomaticCookies = cookieKey;
       await _session.attachAccount(ref.read(sessionProvider).user);
       if (!sameAccount()) return;
       final saved = await _session.captureCookies(() async {
-        final cookies = await browser.captureCookies();
         return sameAccount() ? cookies : const [];
       }, automatic: automatic);
       if (!mounted || !sameAccount()) return;
@@ -140,9 +164,27 @@ class _CommunityWebScreenState extends ConsumerState<CommunityWebScreen> {
           ),
         );
       }
+    } catch (_) {
+      if (!automatic && sameAccount()) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('无法读取网页登录，请重试')));
+      }
     } finally {
       _capturing = false;
     }
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    _foreground = state == AppLifecycleState.resumed;
+  }
+
+  @override
+  void dispose() {
+    _captureTimer?.cancel();
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
   }
 
   @override
@@ -156,9 +198,9 @@ class _CommunityWebScreenState extends ConsumerState<CommunityWebScreen> {
     final compact = MediaQuery.sizeOf(context).width < 620;
     final phone = MediaQuery.sizeOf(context).width < 420;
     final accountStatus = ref.watch(websiteSessionProvider);
-    return ColoredBox(
-      color: Theme.of(context).scaffoldBackgroundColor,
-      child: SafeArea(
+    return Scaffold(
+      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
+      body: SafeArea(
         child: Padding(
           padding: EdgeInsets.fromLTRB(
             phone ? 10 : (compact ? 12 : 20),
@@ -209,15 +251,16 @@ class _CommunityWebScreenState extends ConsumerState<CommunityWebScreen> {
                       icon: Icons.refresh_rounded,
                       onPressed: () => _browserKey.currentState?.reload(),
                     ),
-                    _BrowserButton(
-                      tooltip: '在浏览器中打开',
-                      icon: Icons.open_in_new_rounded,
-                      onPressed: _openExternally,
-                    ),
+                    if (!widget.enableCookieCapture)
+                      _BrowserButton(
+                        tooltip: '在浏览器中打开',
+                        icon: Icons.open_in_new_rounded,
+                        onPressed: _openExternally,
+                      ),
                     if (widget.enableCookieCapture)
                       _BrowserButton(
                         tooltip: widget.captureActionLabel ?? '保存网站会话',
-                        icon: Icons.save_rounded,
+                        icon: Icons.verified_user_outlined,
                         onPressed: () => _captureCookies(),
                       ),
                   ],
@@ -258,6 +301,7 @@ class _CommunityWebScreenState extends ConsumerState<CommunityWebScreen> {
                       Expanded(
                         child: Text(
                           accountStatus.message ?? accountStatus.statusLabel,
+                          style: Theme.of(context).textTheme.bodyMedium,
                         ),
                       ),
                       if (accountStatus.status != WebsiteAccessStatus.checking)
@@ -427,6 +471,7 @@ class _CommunityBrowser extends StatefulWidget {
 }
 
 class _CommunityBrowserState extends State<_CommunityBrowser> {
+  bool get canCapture => _ready;
   windows.WebviewController? _windowsController;
   mobile.WebViewController? _mobileController;
   final List<StreamSubscription<dynamic>> _subscriptions = [];
@@ -496,7 +541,7 @@ class _CommunityBrowserState extends State<_CommunityBrowser> {
       if (!mounted) return;
       setState(() {
         _loading = false;
-        _error = '无法打开页面，请安装 Microsoft Edge WebView2 Runtime，或使用外部浏览器。';
+        _error = '无法打开页面，请安装 Microsoft Edge WebView2 Runtime 后重试。';
       });
       _notify();
     }

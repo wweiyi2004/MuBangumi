@@ -1,3 +1,5 @@
+import 'package:mubangumi/navigation/app_destination.dart';
+import 'package:mubangumi/navigation/app_router.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -14,7 +16,10 @@ void main() {
         overrides: [
           bangumiApiProvider.overrideWithValue(_FailingDetailBangumiApi()),
         ],
-        child: const MaterialApp(home: CharacterDetailScreen(characterId: 1)),
+        child: const AppRouteScope(
+          resolve: AppRouter.resolve,
+          child: MaterialApp(home: CharacterDetailScreen(characterId: 1)),
+        ),
       ),
     );
     await tester.pumpAndSettle();
@@ -30,7 +35,10 @@ void main() {
         overrides: [
           bangumiApiProvider.overrideWithValue(_FailingDetailBangumiApi()),
         ],
-        child: const MaterialApp(home: PersonDetailScreen(personId: 1)),
+        child: const AppRouteScope(
+          resolve: AppRouter.resolve,
+          child: MaterialApp(home: PersonDetailScreen(personId: 1)),
+        ),
       ),
     );
     await tester.pumpAndSettle();

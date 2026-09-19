@@ -1,3 +1,4 @@
+import '../navigation/app_destination.dart';
 import 'dart:async';
 
 import 'package:cached_network_image/cached_network_image.dart';
@@ -13,9 +14,6 @@ import '../state/session_controller.dart';
 import '../widgets/subject_widgets.dart';
 import '../widgets/mono_collection_button.dart';
 import '../models/community_models.dart';
-import 'community_topic_screen.dart';
-import 'character_detail_screen.dart';
-import 'subject_detail_screen.dart';
 
 const _companyDetailBatchSize = 36;
 const _companyDetailConcurrency = 4;
@@ -399,7 +397,7 @@ class _PersonDetailScreenState extends ConsumerState<PersonDetailScreen> {
           trailing: const Icon(Icons.chevron_right_rounded),
           onTap: () => Navigator.of(context).push(
             MaterialPageRoute<void>(
-              builder: (_) => CharacterDetailScreen(
+              builder: (_) => CharacterRoute(
                 characterId: character.id,
                 seedName: character.name,
                 seedImageUrl: character.imageUrl,
@@ -412,9 +410,8 @@ class _PersonDetailScreenState extends ConsumerState<PersonDetailScreen> {
   void _openCompanyWork(CompanyWorkCredit credit) {
     Navigator.of(context).push(
       MaterialPageRoute<void>(
-        builder: (_) => SubjectDetailScreen(
-          subject: credit.subject ?? credit.link.toSubject(),
-        ),
+        builder: (_) =>
+            SubjectRoute(subject: credit.subject ?? credit.link.toSubject()),
       ),
     );
   }
@@ -441,7 +438,7 @@ class _PersonDetailScreenState extends ConsumerState<PersonDetailScreen> {
             icon: const Icon(Icons.forum_outlined),
             onPressed: () => Navigator.of(context).push(
               MaterialPageRoute<void>(
-                builder: (_) => CommunityTopicScreen(
+                builder: (_) => TopicRoute(
                   topic: CommunityTopic(
                     id: widget.personId,
                     kind: CommunityTopicKind.person,

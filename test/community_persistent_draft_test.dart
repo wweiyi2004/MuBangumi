@@ -1,3 +1,5 @@
+import 'package:mubangumi/navigation/app_destination.dart';
+import 'package:mubangumi/navigation/app_router.dart';
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -218,21 +220,24 @@ Future<void> _show(
   bool Function()? isAccountCurrent,
 }) async {
   await tester.pumpWidget(
-    MaterialApp(
-      home: Builder(
-        builder: (context) => Scaffold(
-          body: TextButton(
-            onPressed: () => showCommunityComposer(
-              context,
-              heading: '写回复',
-              requireTitle: true,
-              draftKey: 'alice/topic/1',
-              draftStore: store,
-              tokenProvider: tokenProvider ?? (_) async => 'test',
-              isAccountCurrent: isAccountCurrent,
-              onSubmit: submit ?? (_, _, _) async {},
+    AppRouteScope(
+      resolve: AppRouter.resolve,
+      child: MaterialApp(
+        home: Builder(
+          builder: (context) => Scaffold(
+            body: TextButton(
+              onPressed: () => showCommunityComposer(
+                context,
+                heading: '写回复',
+                requireTitle: true,
+                draftKey: 'alice/topic/1',
+                draftStore: store,
+                tokenProvider: tokenProvider ?? (_) async => 'test',
+                isAccountCurrent: isAccountCurrent,
+                onSubmit: submit ?? (_, _, _) async {},
+              ),
+              child: const Text('打开'),
             ),
-            child: const Text('打开'),
           ),
         ),
       ),

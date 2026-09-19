@@ -1,3 +1,5 @@
+import 'package:mubangumi/navigation/app_destination.dart';
+import 'package:mubangumi/navigation/app_router.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mubangumi/models/bangumi_models.dart';
@@ -15,28 +17,31 @@ void main() {
       final boundary = GlobalKey();
       var opens = 0, next = 0, episodes = 0, pins = 0;
       await tester.pumpWidget(
-        MaterialApp(
-          theme: await uxTheme(tester, dark: false),
-          builder: (context, child) => MediaQuery(
-            data: MediaQuery.of(
-              context,
-            ).copyWith(textScaler: TextScaler.linear(scale)),
-            child: RepaintBoundary(key: boundary, child: child!),
-          ),
-          home: Scaffold(
-            body: SafeArea(
-              child: ListView(
-                padding: const EdgeInsets.all(12),
-                children: [
-                  const Text('继续追'),
-                  ContinueWatchingTile(
-                    collection: _collection,
-                    onOpen: () => opens++,
-                    onNext: () => next++,
-                    onEpisodes: () => episodes++,
-                    onPin: () => pins++,
-                  ),
-                ],
+        AppRouteScope(
+          resolve: AppRouter.resolve,
+          child: MaterialApp(
+            theme: await uxTheme(tester, dark: false),
+            builder: (context, child) => MediaQuery(
+              data: MediaQuery.of(
+                context,
+              ).copyWith(textScaler: TextScaler.linear(scale)),
+              child: RepaintBoundary(key: boundary, child: child!),
+            ),
+            home: Scaffold(
+              body: SafeArea(
+                child: ListView(
+                  padding: const EdgeInsets.all(12),
+                  children: [
+                    const Text('继续追'),
+                    ContinueWatchingTile(
+                      collection: _collection,
+                      onOpen: () => opens++,
+                      onNext: () => next++,
+                      onEpisodes: () => episodes++,
+                      onPin: () => pins++,
+                    ),
+                  ],
+                ),
               ),
             ),
           ),

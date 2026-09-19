@@ -1,3 +1,5 @@
+import 'package:mubangumi/navigation/app_destination.dart';
+import 'package:mubangumi/navigation/app_router.dart';
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:mubangumi/core/network/bangumi_api.dart';
@@ -595,15 +597,18 @@ Future<void> _show(
         scheduleViewRepositoryProvider.overrideWithValue(env.views),
         scheduleNowProvider.overrideWithValue(() => env.now),
       ],
-      child: MaterialApp(
-        theme: theme,
-        builder: (context, child) => MediaQuery(
-          data: MediaQuery.of(
-            context,
-          ).copyWith(textScaler: TextScaler.linear(scale)),
-          child: RepaintBoundary(key: _boundary, child: child!),
+      child: AppRouteScope(
+        resolve: AppRouter.resolve,
+        child: MaterialApp(
+          theme: theme,
+          builder: (context, child) => MediaQuery(
+            data: MediaQuery.of(
+              context,
+            ).copyWith(textScaler: TextScaler.linear(scale)),
+            child: RepaintBoundary(key: _boundary, child: child!),
+          ),
+          home: const SchedulePage(),
         ),
-        home: const SchedulePage(),
       ),
     ),
   );

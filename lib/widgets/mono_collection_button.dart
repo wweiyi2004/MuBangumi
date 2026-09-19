@@ -1,3 +1,4 @@
+import '../state/service_providers.dart';
 import 'dart:async';
 import 'package:flutter/material.dart';
 import '../core/network/community_service.dart';
@@ -20,7 +21,7 @@ class MonoCollectionButton extends StatefulWidget {
 }
 
 class _MonoCollectionButtonState extends State<MonoCollectionButton> {
-  CommunityService get _service => widget.service ?? CommunityService.shared;
+  late CommunityService _service;
   CommunityMonoCollection? _value;
   bool _busy = false;
   String? _error;
@@ -31,6 +32,7 @@ class _MonoCollectionButtonState extends State<MonoCollectionButton> {
   @override
   void initState() {
     super.initState();
+    _service = widget.service ?? communityServiceFor(context);
     _service.accountChanges.addListener(_reset);
     unawaited(_load());
   }
@@ -52,8 +54,8 @@ class _MonoCollectionButtonState extends State<MonoCollectionButton> {
   void didUpdateWidget(covariant MonoCollectionButton oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.service != widget.service) {
-      (oldWidget.service ?? CommunityService.shared).accountChanges
-          .removeListener(_reset);
+      _service.accountChanges.removeListener(_reset);
+      _service = widget.service ?? communityServiceFor(context);
       _service.accountChanges.addListener(_reset);
     }
     if (oldWidget.service != widget.service ||

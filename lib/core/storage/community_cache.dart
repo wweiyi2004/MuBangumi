@@ -82,6 +82,19 @@ class CommunityCache {
     } catch (_) {}
   }
 
+  Future<void> removePrefix(String prefix) async {
+    try {
+      final database = await _open();
+      await database.delete(
+        'community_cache',
+        where: 'substr(cache_key,1,?) = ?',
+        whereArgs: [prefix.length, prefix],
+      );
+    } catch (_) {
+      /* Disposable cache cleanup must not invalidate credential cleanup. */
+    }
+  }
+
   Future<void> clearAccountData() async {
     try {
       final database = await _open();
@@ -198,9 +211,10 @@ class CommunityCache {
     final databasePath = path.join(root, 'mubangumi.sqlite');
     return openDatabase(
       databasePath,
-      version: 2,
+      version: 3,
       onUpgrade: (database, oldVersion, newVersion) async {
         if (oldVersion < 2) await discardLegacyAccountCache(database);
+        if (oldVersion < 3) await discardUnscopedCommunitySnapshots(database);
       },
       onCreate: (database, _) async {
         await database.execute('''
@@ -214,6 +228,18 @@ class CommunityCache {
       },
     );
   }
+}
+
+/// These disposable snapshots predate per-account namespaces. Their owner is
+/// unknown, so do not assign them to whichever account opens the new version.
+Future<void> discardUnscopedCommunitySnapshots(
+  DatabaseExecutor database,
+) async {
+  await database.delete(
+    'community_cache',
+    where:
+        "cache_key GLOB 'topics:*' OR cache_key GLOB 'groups:*' OR cache_key GLOB 'group:*' OR cache_key GLOB 'timeline:*'",
+  );
 }
 
 /// Account cache from releases without credential-bound identities cannot be

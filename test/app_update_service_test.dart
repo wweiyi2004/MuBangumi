@@ -1,3 +1,5 @@
+import 'package:mubangumi/navigation/app_destination.dart';
+import 'package:mubangumi/navigation/app_router.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_markdown_plus/flutter_markdown_plus.dart';
@@ -53,8 +55,11 @@ void main() {
 ''';
 
     await tester.pumpWidget(
-      const MaterialApp(
-        home: Scaffold(body: UpdateReadyDialog(markdown: markdown)),
+      const AppRouteScope(
+        resolve: AppRouter.resolve,
+        child: MaterialApp(
+          home: Scaffold(body: UpdateReadyDialog(markdown: markdown)),
+        ),
       ),
     );
 

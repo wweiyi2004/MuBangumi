@@ -1,3 +1,5 @@
+import 'package:mubangumi/navigation/app_destination.dart';
+import 'package:mubangumi/navigation/app_router.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mubangumi/models/community_models.dart';
@@ -25,12 +27,15 @@ void main() {
     );
 
     await tester.pumpWidget(
-      MaterialApp(
-        home: Scaffold(
-          body: CommunityPostCard(
-            post: post,
-            currentUsername: 'alice',
-            onReactionChanged: (value) async => changedValue = value,
+      AppRouteScope(
+        resolve: AppRouter.resolve,
+        child: MaterialApp(
+          home: Scaffold(
+            body: CommunityPostCard(
+              post: post,
+              currentUsername: 'alice',
+              onReactionChanged: (value) async => changedValue = value,
+            ),
           ),
         ),
       ),

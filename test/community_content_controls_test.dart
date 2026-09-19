@@ -1,3 +1,5 @@
+import 'package:mubangumi/navigation/app_destination.dart';
+import 'package:mubangumi/navigation/app_router.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mubangumi/widgets/community_widgets.dart';
@@ -5,9 +7,12 @@ import 'package:mubangumi/widgets/community_widgets.dart';
 void main() {
   testWidgets('long community content can expand and collapse', (tester) async {
     await tester.pumpWidget(
-      MaterialApp(
-        home: Scaffold(
-          body: CollapsibleCommunityText(List.filled(800, 'a').join()),
+      AppRouteScope(
+        resolve: AppRouter.resolve,
+        child: MaterialApp(
+          home: Scaffold(
+            body: CollapsibleCommunityText(List.filled(800, 'a').join()),
+          ),
         ),
       ),
     );
@@ -20,12 +25,15 @@ void main() {
 
   testWidgets('blocked content is recoverably folded', (tester) async {
     await tester.pumpWidget(
-      const MaterialApp(
-        home: Scaffold(
-          body: BlockedCommunityContent(
-            username: 'alice',
-            blocked: true,
-            child: Text('hidden post'),
+      const AppRouteScope(
+        resolve: AppRouter.resolve,
+        child: MaterialApp(
+          home: Scaffold(
+            body: BlockedCommunityContent(
+              username: 'alice',
+              blocked: true,
+              child: Text('hidden post'),
+            ),
           ),
         ),
       ),

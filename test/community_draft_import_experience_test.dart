@@ -1,3 +1,5 @@
+import 'package:mubangumi/navigation/app_destination.dart';
+import 'package:mubangumi/navigation/app_router.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mubangumi/core/storage/community_draft_store.dart';
@@ -18,27 +20,30 @@ void main() {
             final theme = await uxTheme(tester, dark: dark);
             final boundary = GlobalKey();
             await tester.pumpWidget(
-              MaterialApp(
-                theme: theme,
-                builder: (context, child) => MediaQuery(
-                  data: MediaQuery.of(
-                    context,
-                  ).copyWith(textScaler: TextScaler.linear(scale)),
-                  child: RepaintBoundary(key: boundary, child: child!),
-                ),
-                home: Builder(
-                  builder: (context) => Scaffold(
-                    body: TextButton(
-                      onPressed: () => showCommunityComposer(
-                        context,
-                        heading: '写回复',
-                        requireTitle: true,
-                        draftKey: 'draft',
-                        draftStore: _ConflictingDraft(),
-                        tokenProvider: (_) async => null,
-                        onSubmit: (_, _, _) async {},
+              AppRouteScope(
+                resolve: AppRouter.resolve,
+                child: MaterialApp(
+                  theme: theme,
+                  builder: (context, child) => MediaQuery(
+                    data: MediaQuery.of(
+                      context,
+                    ).copyWith(textScaler: TextScaler.linear(scale)),
+                    child: RepaintBoundary(key: boundary, child: child!),
+                  ),
+                  home: Builder(
+                    builder: (context) => Scaffold(
+                      body: TextButton(
+                        onPressed: () => showCommunityComposer(
+                          context,
+                          heading: '写回复',
+                          requireTitle: true,
+                          draftKey: 'draft',
+                          draftStore: _ConflictingDraft(),
+                          tokenProvider: (_) async => null,
+                          onSubmit: (_, _, _) async {},
+                        ),
+                        child: const Text('打开'),
                       ),
-                      child: const Text('打开'),
                     ),
                   ),
                 ),

@@ -13,11 +13,16 @@ import 'community_page.dart';
 /// Lets the user log into bgm.tv once and persist WebView cookies for
 /// website-only features (PM, group membership, etc.).
 class WebsiteLoginScreen extends ConsumerStatefulWidget {
-  const WebsiteLoginScreen({super.key, this.cookieLoader});
+  const WebsiteLoginScreen({
+    super.key,
+    this.cookieLoader,
+    this.freshLogin = false,
+  });
 
   static const loginUrl = 'https://bgm.tv/login';
 
   final Future<List<WebsiteCookie>> Function()? cookieLoader;
+  final bool freshLogin;
 
   @override
   ConsumerState<WebsiteLoginScreen> createState() => _WebsiteLoginScreenState();
@@ -44,7 +49,9 @@ class _WebsiteLoginScreenState extends ConsumerState<WebsiteLoginScreen> {
     });
     try {
       await WebsiteCookieBridge.waitForPendingCleanup();
-      final cookies = await (widget.cookieLoader ?? loadWebsiteSeedCookies)();
+      final cookies = widget.freshLogin
+          ? const <WebsiteCookie>[]
+          : await (widget.cookieLoader ?? loadWebsiteSeedCookies)();
       if (!mounted) return;
       setState(() => _seedCookies = cookies);
     } catch (error) {
@@ -88,7 +95,7 @@ class _WebsiteLoginScreenState extends ConsumerState<WebsiteLoginScreen> {
     }
     return CommunityWebScreen(
       initialUrl: WebsiteLoginScreen.loginUrl,
-      title: '验证 Bangumi 账号',
+      title: '验证账号',
       showSectionSwitcher: false,
       seedCookies: cookies,
       enableCookieCapture: true,
@@ -126,9 +133,11 @@ Future<bool> ensureWebsiteAccess(
     return false;
   }
   return access.runLogin(() async {
-    if (state.status == WebsiteAccessStatus.mismatch ||
+    final freshLogin =
+        state.status == WebsiteAccessStatus.mismatch ||
         state.status == WebsiteAccessStatus.expired ||
-        state.status == WebsiteAccessStatus.cleanupRequired) {
+        state.status == WebsiteAccessStatus.cleanupRequired;
+    if (freshLogin) {
       try {
         await WebsiteCookieBridge.clearBgmCookies(strict: true);
       } catch (_) {
@@ -142,7 +151,9 @@ Future<bool> ensureWebsiteAccess(
     }
     if (!context.mounted) return false;
     return await Navigator.of(context).push<bool>(
-          MaterialPageRoute<bool>(builder: (_) => const WebsiteLoginScreen()),
+          MaterialPageRoute<bool>(
+            builder: (_) => WebsiteLoginScreen(freshLogin: freshLogin),
+          ),
         ) ??
         false;
   });

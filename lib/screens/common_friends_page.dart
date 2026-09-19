@@ -1,13 +1,13 @@
+import '../state/service_providers.dart';
+import '../navigation/app_destination.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/network/bangumi_endpoints.dart';
-import '../core/network/community_service.dart';
 import '../core/social/common_friends.dart';
 import '../models/bangumi_models.dart';
 import '../state/session_controller.dart';
-import 'user_profile_page.dart';
 
 class CommonFriendsPage extends ConsumerStatefulWidget {
   const CommonFriendsPage({
@@ -24,6 +24,7 @@ class CommonFriendsPage extends ConsumerStatefulWidget {
 }
 
 class _CommonFriendsPageState extends ConsumerState<CommonFriendsPage> {
+  late final _community = communityServiceFor(context);
   final _queryController = TextEditingController();
   List<BangumiUser> _friends = const [];
   bool _loading = true;
@@ -58,8 +59,8 @@ class _CommonFriendsPageState extends ConsumerState<CommonFriendsPage> {
     });
     try {
       final pages = await Future.wait([
-        CommunityService.shared.loadAllFriends(me, refresh: refresh),
-        CommunityService.shared.loadAllFriends(target, refresh: refresh),
+        _community.loadAllFriends(me, refresh: refresh),
+        _community.loadAllFriends(target, refresh: refresh),
       ]);
       if (!mounted) return;
       setState(() {

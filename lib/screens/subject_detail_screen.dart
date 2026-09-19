@@ -1,3 +1,5 @@
+import '../state/service_providers.dart';
+import '../navigation/app_destination.dart';
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -5,7 +7,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../core/layout/app_layout.dart';
-import '../core/network/community_service.dart';
 import '../core/network/bangumi_support.dart';
 import '../core/network/netaba_api.dart';
 import '../core/network/moegirl_service.dart';
@@ -32,12 +33,7 @@ import '../widgets/episode_grid_sheet.dart';
 import '../widgets/mobile_subject_actions.dart';
 import '../widgets/score_history_chart.dart';
 import '../widgets/subject_widgets.dart';
-import 'character_detail_screen.dart';
-import 'community_topic_screen.dart';
-import 'discover_page.dart';
 import 'moegirl_detail_screen.dart';
-import 'person_detail_screen.dart';
-import 'user_profile_page.dart';
 
 class SubjectDetailScreen extends ConsumerStatefulWidget {
   const SubjectDetailScreen({super.key, required this.subject});
@@ -50,8 +46,9 @@ class SubjectDetailScreen extends ConsumerStatefulWidget {
 }
 
 class _SubjectDetailScreenState extends ConsumerState<SubjectDetailScreen> {
+  late final _community = communityServiceFor(context);
   Future<void> _createDiscussion() async {
-    final service = CommunityService.shared;
+    final service = communityServiceFor(context);
     final account = service.currentUsername;
     if (!service.isAuthenticated) return;
     final sent = await showCommunityComposer(
@@ -101,7 +98,7 @@ class _SubjectDetailScreenState extends ConsumerState<SubjectDetailScreen> {
       subject: widget.subject,
       api: () => ref.read(bangumiApiProvider),
       loadHistory: (id) => ref.read(netabaApiProvider).getSubjectHistory(id),
-      loadTopics: CommunityService.shared.loadTopicsForSubject,
+      loadTopics: _community.loadTopicsForSubject,
       findMoegirl: MoegirlService.shared.findForSubject,
     );
     _comments = SubjectCommentsController(
@@ -113,7 +110,7 @@ class _SubjectDetailScreenState extends ConsumerState<SubjectDetailScreen> {
       api: () => ref.read(bangumiApiProvider),
       readAccount: () => _sessionController.batchAccount,
       loadFriends: (username) async =>
-          (await CommunityService.shared.loadFriends(username, limit: 20)).data,
+          (await _community.loadFriends(username, limit: 20)).data,
     );
     _content.addListener(_onSectionsChanged);
     _comments.addListener(_onSectionsChanged);
@@ -442,7 +439,7 @@ class _SubjectDetailScreenState extends ConsumerState<SubjectDetailScreen> {
                     characters: _content.metadata.value.characters,
                     onOpen: (character) => Navigator.of(context).push(
                       MaterialPageRoute<void>(
-                        builder: (_) => CharacterDetailScreen(
+                        builder: (_) => CharacterRoute(
                           characterId: character.id,
                           seedName: character.displayName,
                           seedImageUrl: character.imageUrl,
@@ -467,7 +464,7 @@ class _SubjectDetailScreenState extends ConsumerState<SubjectDetailScreen> {
                     people: _content.metadata.value.persons,
                     onOpen: (person) => Navigator.of(context).push(
                       MaterialPageRoute<void>(
-                        builder: (_) => PersonDetailScreen(
+                        builder: (_) => PersonRoute(
                           personId: person.id,
                           seedName: person.displayName,
                           seedImageUrl: person.imageUrl,
@@ -508,7 +505,7 @@ class _SubjectDetailScreenState extends ConsumerState<SubjectDetailScreen> {
                   trailing: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      if (CommunityService.shared.isAuthenticated)
+                      if (_community.isAuthenticated)
                         TextButton(
                           onPressed: _createDiscussion,
                           child: const Text('发讨论'),
@@ -549,7 +546,7 @@ class _SubjectDetailScreenState extends ConsumerState<SubjectDetailScreen> {
                         trailing: const Icon(Icons.chevron_right_rounded),
                         onTap: () => Navigator.of(context).push(
                           MaterialPageRoute<void>(
-                            builder: (_) => CommunityTopicScreen(topic: topic),
+                            builder: (_) => TopicRoute(topic: topic),
                           ),
                         ),
                       );

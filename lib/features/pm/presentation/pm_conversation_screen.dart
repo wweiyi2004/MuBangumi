@@ -1,3 +1,4 @@
+import '../../../state/service_providers.dart';
 import 'dart:async';
 import 'package:flutter/material.dart';
 import '../../../widgets/social_chat_style.dart';
@@ -43,7 +44,7 @@ class PmConversationScreen extends ConsumerStatefulWidget {
 /// [invalidateWebsiteSession] to suspend the selected chat on account changes.
 /// Request, input and draft state otherwise remain private to this screen.
 class PmConversationScreenState extends ConsumerState<PmConversationScreen> {
-  late final _service = widget.service ?? PmService.shared;
+  late final _service = widget.service ?? pmServiceFor(context);
   final _input = TextEditingController();
   final _scroll = ScrollController();
   final _focus = FocusNode();

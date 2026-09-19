@@ -1,28 +1,25 @@
+import '../navigation/app_destination.dart';
 import 'package:flutter/material.dart';
 import '../models/bangumi_models.dart';
 import '../models/community_models.dart';
-import 'character_detail_screen.dart';
-import 'person_detail_screen.dart';
-import 'subject_detail_screen.dart';
-import 'community_blog_screen.dart';
 
 void openCommunityTimelineTarget(
   BuildContext context,
   CommunityTimelineTarget target,
 ) {
   final Widget page = switch (target.kind) {
-    CommunityTimelineTargetKind.character => CharacterDetailScreen(
+    CommunityTimelineTargetKind.character => CharacterRoute(
       characterId: target.id,
       seedName: target.title,
       seedImageUrl: target.imageUrl,
     ),
-    CommunityTimelineTargetKind.person => PersonDetailScreen(
+    CommunityTimelineTargetKind.person => PersonRoute(
       personId: target.id,
       seedName: target.title,
       seedImageUrl: target.imageUrl,
     ),
-    CommunityTimelineTargetKind.blog => CommunityBlogScreen(blogId: target.id),
-    CommunityTimelineTargetKind.subject => SubjectDetailScreen(
+    CommunityTimelineTargetKind.blog => BlogRoute(blogId: target.id),
+    CommunityTimelineTargetKind.subject => SubjectRoute(
       subject: Subject(
         id: target.id,
         name: target.title,

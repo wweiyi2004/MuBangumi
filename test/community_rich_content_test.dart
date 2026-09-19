@@ -1,3 +1,5 @@
+import 'package:mubangumi/navigation/app_destination.dart';
+import 'package:mubangumi/navigation/app_router.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -21,12 +23,15 @@ Future<void> show(
   ValueChanged<Uri>? onOpenLink,
 }) async {
   await tester.pumpWidget(
-    MaterialApp(
-      home: Scaffold(
-        body: SingleChildScrollView(
-          child: Padding(
-            padding: const EdgeInsets.all(12),
-            child: CommunityRichContent(source, onOpenLink: onOpenLink),
+    AppRouteScope(
+      resolve: AppRouter.resolve,
+      child: MaterialApp(
+        home: Scaffold(
+          body: SingleChildScrollView(
+            child: Padding(
+              padding: const EdgeInsets.all(12),
+              child: CommunityRichContent(source, onOpenLink: onOpenLink),
+            ),
           ),
         ),
       ),
@@ -68,11 +73,14 @@ void main() {
 
   testWidgets('quote supports very narrow remaining width', (tester) async {
     await tester.pumpWidget(
-      const MaterialApp(
-        home: Scaffold(
-          body: SizedBox(
-            width: 16,
-            child: CommunityRichContent('[quote]内容[/quote]'),
+      const AppRouteScope(
+        resolve: AppRouter.resolve,
+        child: MaterialApp(
+          home: Scaffold(
+            body: SizedBox(
+              width: 16,
+              child: CommunityRichContent('[quote]内容[/quote]'),
+            ),
           ),
         ),
       ),
@@ -86,19 +94,22 @@ void main() {
     addTearDown(() => tester.binding.setSurfaceSize(null));
     var edited = false;
     await tester.pumpWidget(
-      MaterialApp(
-        home: Scaffold(
-          body: MediaQuery(
-            data: const MediaQueryData(textScaler: TextScaler.linear(1.8)),
-            child: CommunityPostCard(
-              post: const CommunityPost(
-                id: '1',
-                author: '很长的用户昵称',
-                body: '回复内容',
-                meta: '#123 · 2026-09-16 12:30',
+      AppRouteScope(
+        resolve: AppRouter.resolve,
+        child: MaterialApp(
+          home: Scaffold(
+            body: MediaQuery(
+              data: const MediaQueryData(textScaler: TextScaler.linear(1.8)),
+              child: CommunityPostCard(
+                post: const CommunityPost(
+                  id: '1',
+                  author: '很长的用户昵称',
+                  body: '回复内容',
+                  meta: '#123 · 2026-09-16 12:30',
+                ),
+                onEdit: () => edited = true,
+                onDelete: () {},
               ),
-              onEdit: () => edited = true,
-              onDelete: () {},
             ),
           ),
         ),
@@ -188,25 +199,28 @@ void main() {
       var challenged = false;
       String? sent;
       await tester.pumpWidget(
-        MaterialApp(
-          home: Builder(
-            builder: (context) => Scaffold(
-              body: TextButton(
-                onPressed: () => showCommunityComposer(
-                  context,
-                  heading: '编辑回复',
-                  initialContent: '[b]原文[/b]',
-                  requireVerification: false,
-                  submitLabel: '保存',
-                  tokenProvider: (_) async {
-                    challenged = true;
-                    return 'token';
-                  },
-                  onSubmit: (_, content, _) async {
-                    sent = content;
-                  },
+        AppRouteScope(
+          resolve: AppRouter.resolve,
+          child: MaterialApp(
+            home: Builder(
+              builder: (context) => Scaffold(
+                body: TextButton(
+                  onPressed: () => showCommunityComposer(
+                    context,
+                    heading: '编辑回复',
+                    initialContent: '[b]原文[/b]',
+                    requireVerification: false,
+                    submitLabel: '保存',
+                    tokenProvider: (_) async {
+                      challenged = true;
+                      return 'token';
+                    },
+                    onSubmit: (_, content, _) async {
+                      sent = content;
+                    },
+                  ),
+                  child: const Text('编辑'),
                 ),
-                child: const Text('编辑'),
               ),
             ),
           ),

@@ -1,3 +1,4 @@
+import '../navigation/app_destination.dart';
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -15,7 +16,6 @@ import '../state/local_data_state.dart';
 import '../widgets/episode_grid_sheet.dart';
 import '../widgets/subject_widgets.dart';
 import '../widgets/collection_sync_status.dart';
-import 'subject_detail_screen.dart';
 import 'collection_stats_page.dart';
 
 enum _ProgressFilter { all, notStarted, inProgress, completed }
@@ -455,6 +455,8 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
                                                               .isLoadingCollections,
                                                           cached: state
                                                               .isUsingCachedCollections,
+                                                          coverage: state
+                                                              .collectionCoverage,
                                                         ),
                                                       ),
                                                     );
@@ -485,6 +487,8 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
                                                       isLoading:
                                                           snapshot.loading,
                                                       isCached: snapshot.cached,
+                                                      coverage:
+                                                          snapshot.coverage,
                                                     );
                                                   },
                                                 ),
@@ -748,10 +752,9 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
                                           )
                                         : () => Navigator.of(context).push(
                                             MaterialPageRoute(
-                                              builder: (_) =>
-                                                  SubjectDetailScreen(
-                                                    subject: collection.subject,
-                                                  ),
+                                              builder: (_) => SubjectRoute(
+                                                subject: collection.subject,
+                                              ),
                                             ),
                                           ),
                                     onEpisodeGrid:

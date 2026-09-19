@@ -1,3 +1,5 @@
+import 'package:mubangumi/navigation/app_destination.dart';
+import 'package:mubangumi/navigation/app_router.dart';
 import 'dart:async';
 import 'dart:io';
 import 'dart:ui' as ui;
@@ -423,41 +425,44 @@ Future<void> _show(
   await tester.pumpWidget(
     UncontrolledProviderScope(
       container: env.container,
-      child: MaterialApp(
-        theme: theme,
-        builder: (context, child) => MediaQuery(
-          data: MediaQuery.of(
-            context,
-          ).copyWith(textScaler: TextScaler.linear(scale)),
-          child: RepaintBoundary(key: _boundary, child: child!),
-        ),
-        home: Scaffold(
-          body: Builder(
-            builder: (context) => Column(
-              children: [
-                TextButton(
-                  onPressed: () async => env.routeResults.add(
-                    await Navigator.of(context).push<bool>(
+      child: AppRouteScope(
+        resolve: AppRouter.resolve,
+        child: MaterialApp(
+          theme: theme,
+          builder: (context, child) => MediaQuery(
+            data: MediaQuery.of(
+              context,
+            ).copyWith(textScaler: TextScaler.linear(scale)),
+            child: RepaintBoundary(key: _boundary, child: child!),
+          ),
+          home: Scaffold(
+            body: Builder(
+              builder: (context) => Column(
+                children: [
+                  TextButton(
+                    onPressed: () async => env.routeResults.add(
+                      await Navigator.of(context).push<bool>(
+                        MaterialPageRoute<bool>(
+                          builder: (_) => PmComposeScreen(service: env.service),
+                        ),
+                      ),
+                    ),
+                    child: const Text('写信'),
+                  ),
+                  TextButton(
+                    onPressed: () => Navigator.of(context).push(
                       MaterialPageRoute<bool>(
-                        builder: (_) => PmComposeScreen(service: env.service),
+                        builder: (_) => PmConversationScreen(
+                          conversationId: '42',
+                          title: '作品讨论',
+                          service: env.service,
+                        ),
                       ),
                     ),
+                    child: const Text('回复'),
                   ),
-                  child: const Text('写信'),
-                ),
-                TextButton(
-                  onPressed: () => Navigator.of(context).push(
-                    MaterialPageRoute<bool>(
-                      builder: (_) => PmConversationScreen(
-                        conversationId: '42',
-                        title: '作品讨论',
-                        service: env.service,
-                      ),
-                    ),
-                  ),
-                  child: const Text('回复'),
-                ),
-              ],
+                ],
+              ),
             ),
           ),
         ),

@@ -1,13 +1,10 @@
+import '../navigation/app_destination.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../core/shortcuts/shared_bangumi_link.dart';
 import '../models/bangumi_models.dart';
 import '../models/community_models.dart';
 import '../state/session_controller.dart';
-import 'subject_detail_screen.dart';
-import 'person_detail_screen.dart';
-import 'character_detail_screen.dart';
-import 'community_topic_screen.dart';
 
 final sharedSubjectProvider = FutureProvider.autoDispose.family<Subject, int>(
   (ref, id) => ref.watch(bangumiApiProvider).getSubject(id),
@@ -18,13 +15,13 @@ class SharedBangumiLinkPage extends ConsumerWidget {
   final SharedBangumiLink link;
   @override
   Widget build(BuildContext context, WidgetRef ref) => switch (link.kind) {
-    SharedBangumiKind.person => PersonDetailScreen(personId: link.id),
-    SharedBangumiKind.character => CharacterDetailScreen(characterId: link.id),
+    SharedBangumiKind.person => PersonRoute(personId: link.id),
+    SharedBangumiKind.character => CharacterRoute(characterId: link.id),
     SharedBangumiKind.subject =>
       ref
           .watch(sharedSubjectProvider(link.id))
           .when(
-            data: (subject) => SubjectDetailScreen(subject: subject),
+            data: (subject) => SubjectRoute(subject: subject),
             loading: () => Scaffold(
               appBar: AppBar(title: const Text('打开分享条目')),
               body: const Center(child: CircularProgressIndicator()),
@@ -50,7 +47,7 @@ class SharedBangumiLinkPage extends ConsumerWidget {
               ),
             ),
           ),
-    _ => CommunityTopicScreen(
+    _ => TopicRoute(
       topic: CommunityTopic(
         id: link.id,
         kind: switch (link.kind) {

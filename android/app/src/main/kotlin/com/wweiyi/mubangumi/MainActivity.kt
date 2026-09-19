@@ -51,6 +51,8 @@ class MainActivity : FlutterActivity() {
             }
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "mubangumi/updates")
             .setMethodCallHandler { call, result -> UpdateInstaller.handle(this, call, result) }
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, WebsiteCookies.CHANNEL)
+            .setMethodCallHandler(WebsiteCookies::handle)
         sharedLinks = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "mubangumi/shared_links").also { channel ->
             channel.setMethodCallHandler { call, result ->
                 if (call.method == "takePendingText") {

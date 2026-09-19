@@ -1,3 +1,4 @@
+import '../navigation/app_destination.dart';
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
@@ -9,8 +10,8 @@ import 'package:share_plus/share_plus.dart';
 import '../core/insights/collection_insights.dart';
 import '../core/insights/collection_year_review.dart';
 import '../widgets/insight_widgets.dart';
-import 'subject_detail_screen.dart';
 import '../models/bangumi_models.dart';
+import '../models/collection_coverage.dart';
 import '../widgets/subject_widgets.dart';
 
 enum _ExportAction { save, share }
@@ -31,6 +32,7 @@ class CollectionStatsPage extends StatefulWidget {
     required this.collections,
     this.isLoading = false,
     this.isCached = false,
+    this.coverage,
   });
 
   final String username;
@@ -38,6 +40,7 @@ class CollectionStatsPage extends StatefulWidget {
   final List<UserCollection> collections;
   final bool isLoading;
   final bool isCached;
+  final CollectionCoverage? coverage;
 
   @override
   State<CollectionStatsPage> createState() => _CollectionStatsPageState();
@@ -123,9 +126,15 @@ class _CollectionStatsPageState extends State<CollectionStatsPage> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const ListTile(
-                title: Text('导出全部收藏'),
-                subtitle: Text('包含评分、短评、标签及隐私标记'),
+              ListTile(
+                title: Text(
+                  widget.coverage?.isComplete == false ? '导出已加载收藏' : '导出全部收藏',
+                ),
+                subtitle: Text(
+                  widget.coverage?.isComplete == false
+                      ? widget.coverage!.notice
+                      : '包含评分、短评、标签及隐私标记',
+                ),
               ),
               ListTile(
                 leading: const Icon(Icons.save_alt_rounded),
@@ -164,6 +173,7 @@ class _CollectionStatsPageState extends State<CollectionStatsPage> {
         'exported_at': now.toIso8601String(),
         'username': widget.username,
         'count': widget.collections.length,
+        if (widget.coverage != null) 'coverage': widget.coverage!.toJson(),
         'collections': [
           for (final item in widget.collections)
             {
@@ -251,6 +261,14 @@ class _CollectionStatsPageState extends State<CollectionStatsPage> {
               key: PageStorageKey('stats:$_annual'),
               padding: const EdgeInsets.fromLTRB(18, 12, 18, 40),
               children: [
+                if (widget.coverage?.isComplete == false &&
+                    !widget.isLoading) ...[
+                  Text(
+                    widget.coverage!.notice,
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                  const SizedBox(height: 12),
+                ],
                 if (widget.isLoading || widget.isCached) ...[
                   if (widget.isLoading) const LinearProgressIndicator(),
                   const SizedBox(height: 8),
@@ -380,7 +398,10 @@ class _CollectionStatsPageState extends State<CollectionStatsPage> {
       const SizedBox(height: 16),
       InsightMetrics(
         children: [
-          _LedgerMetric(label: '总收藏', value: '${_statistics.total}'),
+          _LedgerMetric(
+            label: widget.coverage?.isComplete == false ? '已加载收藏' : '总收藏',
+            value: '${_statistics.total}',
+          ),
           _LedgerMetric(
             label: '留下评分',
             value: '${_statistics.ratedTotal}',
@@ -701,7 +722,7 @@ class _CollectionStatsPageState extends State<CollectionStatsPage> {
                             onTap: () => Navigator.of(context).push(
                               MaterialPageRoute<void>(
                                 builder: (_) =>
-                                    SubjectDetailScreen(subject: item.subject),
+                                    SubjectRoute(subject: item.subject),
                               ),
                             ),
                           ),
@@ -941,8 +962,7 @@ class _MemoriesSheetState extends State<_MemoriesSheet> {
                         showFullComment: true,
                         onTap: () => Navigator.of(context).push(
                           MaterialPageRoute<void>(
-                            builder: (_) =>
-                                SubjectDetailScreen(subject: item.subject),
+                            builder: (_) => SubjectRoute(subject: item.subject),
                           ),
                         ),
                       );

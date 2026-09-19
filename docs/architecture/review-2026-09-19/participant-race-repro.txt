@@ -1,0 +1,31 @@
+00:00 +0: loading E:/wweiyi/Project/Software/MuBangumi/.dart_tool/architecture_race_repro_test.dart
+00:00 +0: architecture audit: older HTTP success cannot undo a newer refresh
+00:00 +0 -1: architecture audit: older HTTP success cannot undo a newer refresh [E]
+  Expected: '较新的活动状态'
+    Actual: '原生参与测试'
+     Which: is different.
+            Expected: 较新的活动状态
+              Actual: 原生参与测试
+                      ^
+             Differ at offset 0
+  late snapshot must not roll back current event
+
+  package:matcher                                     expect
+  package:flutter_test/src/widget_tester.dart 473:18  expect
+  .dart_tool\architecture_race_repro_test.dart 181:5  main.<fn>
+
+00:00 +0 -1: architecture audit: older HTTP failure cannot disconnect a newer success
+00:00 +0 -2: architecture audit: older HTTP failure cannot disconnect a newer success [E]
+  Expected: <true>
+    Actual: <false>
+  late failure must not overwrite successful connection state
+
+  package:matcher                                     expect
+  package:flutter_test/src/widget_tester.dart 473:18  expect
+  .dart_tool\architecture_race_repro_test.dart 192:5  main.<fn>
+
+00:00 +0 -2: Some tests failed.
+
+Failing tests:
+  E:/wweiyi/Project/Software/MuBangumi/.dart_tool/architecture_race_repro_test.dart: architecture audit: older HTTP failure cannot disconnect a newer success
+  E:/wweiyi/Project/Software/MuBangumi/.dart_tool/architecture_race_repro_test.dart: architecture audit: older HTTP success cannot undo a newer refresh

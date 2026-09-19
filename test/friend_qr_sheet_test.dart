@@ -1,3 +1,5 @@
+import 'package:mubangumi/navigation/app_destination.dart';
+import 'package:mubangumi/navigation/app_router.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mubangumi/models/bangumi_models.dart';
@@ -15,12 +17,15 @@ void main() {
       avatarUrl: '',
     );
     await tester.pumpWidget(
-      MaterialApp(
-        home: Scaffold(
-          body: Builder(
-            builder: (context) => TextButton(
-              onPressed: () => showMyFriendQr(context, user),
-              child: const Text('open-qr'),
+      AppRouteScope(
+        resolve: AppRouter.resolve,
+        child: MaterialApp(
+          home: Scaffold(
+            body: Builder(
+              builder: (context) => TextButton(
+                onPressed: () => showMyFriendQr(context, user),
+                child: const Text('open-qr'),
+              ),
             ),
           ),
         ),
@@ -48,12 +53,15 @@ void main() {
       avatarUrl: '',
     );
     await tester.pumpWidget(
-      MaterialApp(
-        home: Scaffold(
-          body: Builder(
-            builder: (context) => TextButton(
-              onPressed: () => showFriendQr(context, user),
-              child: const Text('open-qr'),
+      AppRouteScope(
+        resolve: AppRouter.resolve,
+        child: MaterialApp(
+          home: Scaffold(
+            body: Builder(
+              builder: (context) => TextButton(
+                onPressed: () => showFriendQr(context, user),
+                child: const Text('open-qr'),
+              ),
             ),
           ),
         ),

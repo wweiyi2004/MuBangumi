@@ -1,0 +1,37 @@
+{
+  "date": "2026-09-19",
+  "version": "2.3.0+28",
+  "purpose": "Local architecture repair verification; not published",
+  "artifacts": [
+    {
+      "path": "build/windows/x64/runner/Release/mubangumi.exe",
+      "bytes": 168960,
+      "sha256": "4dc72d8a49a97364154038c39ecbcb067901c6a0b252408701729eb9ff697465"
+    },
+    {
+      "path": "build/windows/x64/runner/Release/data/app.so",
+      "bytes": 14517136,
+      "sha256": "d13a08713230f289abe6cf9a8733610270facc293a0aee5bf94e8ca616a401ab"
+    },
+    {
+      "path": "build/app/outputs/flutter-apk/app-arm64-v8a-release.apk",
+      "bytes": 35855965,
+      "sha256": "8bedd87e395b6fe67b7b740b4c8fe03b00207a6ec871f435ab4e1d8b676bcad8"
+    },
+    {
+      "path": "build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk",
+      "bytes": 32233675,
+      "sha256": "3abb4a7e04d26157648c51df96ae39358b5d4f5eae5b3ee8c55c45fa5a6fbeff"
+    },
+    {
+      "path": "build/app/outputs/flutter-apk/app-x86_64-release.apk",
+      "bytes": 38559320,
+      "sha256": "47d6b9850da75a00eea1be9dfc3e3d4a305f86f855a989fa7ac97b7395c35bdd"
+    },
+    {
+      "path": "packages/banjian_server/build/bundle/bin/server.exe",
+      "bytes": 7781888,
+      "sha256": "32a637ccc93e5d491d92436024fae7b3852f623e46518bf45b741d0ad98f3ca3"
+    }
+  ]
+}

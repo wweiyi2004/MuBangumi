@@ -1,3 +1,5 @@
+import '../state/service_providers.dart';
+import '../navigation/app_destination.dart';
 import 'dart:async';
 
 import 'package:cached_network_image/cached_network_image.dart';
@@ -6,14 +8,11 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../core/network/bangumi_endpoints.dart';
-import '../core/network/community_service.dart';
 import '../models/community_models.dart';
 import '../state/notify_controller.dart';
 import '../widgets/subject_widgets.dart';
 import '../widgets/social_chat_style.dart';
 import 'community_timeline_page.dart';
-import 'community_topic_screen.dart';
-import 'user_profile_page.dart';
 
 class NotifyPage extends ConsumerStatefulWidget {
   const NotifyPage({super.key, this.embedded = false});
@@ -24,7 +23,7 @@ class NotifyPage extends ConsumerStatefulWidget {
 }
 
 class _NotifyPageState extends ConsumerState<NotifyPage> {
-  final _service = CommunityService.shared;
+  late final _service = communityServiceFor(context);
   List<BangumiNotice> _items = const [];
   int _total = 0;
   bool _loading = true;
@@ -251,11 +250,9 @@ class _NotifyPageState extends ConsumerState<NotifyPage> {
     if (!mounted) return;
     final topic = notice.nativeTopic;
     if (topic != null) {
-      await Navigator.of(context).push(
-        MaterialPageRoute<void>(
-          builder: (_) => CommunityTopicScreen(topic: topic),
-        ),
-      );
+      await Navigator.of(
+        context,
+      ).push(MaterialPageRoute<void>(builder: (_) => TopicRoute(topic: topic)));
       return;
     }
     final timeline = notice.nativeTimelineDestination;

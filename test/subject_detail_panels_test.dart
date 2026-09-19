@@ -1,3 +1,5 @@
+import 'package:mubangumi/navigation/app_destination.dart';
+import 'package:mubangumi/navigation/app_router.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mubangumi/core/network/bangumi_support.dart';
@@ -14,23 +16,26 @@ void main() {
       addTearDown(tester.view.reset);
       final taps = <(int, bool)>[];
       await tester.pumpWidget(
-        MaterialApp(
-          home: Scaffold(
-            body: SingleChildScrollView(
-              child: SubjectEpisodeGrid(
-                episodes: [
-                  for (int id = 1; id <= 70; id++)
-                    Episode.fromJson({
-                      'id': id,
-                      'type': 0,
-                      'sort': id,
-                      'name': '章节$id',
-                    }),
-                ],
-                episodeTypes: const {1: 2},
-                updatingEpisodes: const {2},
-                enabled: true,
-                onTap: (episode, watched) => taps.add((episode.id, watched)),
+        AppRouteScope(
+          resolve: AppRouter.resolve,
+          child: MaterialApp(
+            home: Scaffold(
+              body: SingleChildScrollView(
+                child: SubjectEpisodeGrid(
+                  episodes: [
+                    for (int id = 1; id <= 70; id++)
+                      Episode.fromJson({
+                        'id': id,
+                        'type': 0,
+                        'sort': id,
+                        'name': '章节$id',
+                      }),
+                  ],
+                  episodeTypes: const {1: 2},
+                  updatingEpisodes: const {2},
+                  enabled: true,
+                  onTap: (episode, watched) => taps.add((episode.id, watched)),
+                ),
               ),
             ),
           ),
@@ -65,51 +70,54 @@ void main() {
         addTearDown(tester.view.reset);
         final opened = <int>[];
         await tester.pumpWidget(
-          MaterialApp(
-            home: Scaffold(
-              body: SingleChildScrollView(
-                child: Column(
-                  children: [
-                    SubjectCharacterRail(
-                      characters: const [
-                        SubjectCharacter(
-                          id: 1,
-                          name: '测试角色',
-                          nameCn: '',
-                          imageUrl: '',
-                          relation: '主角',
-                          actors: [],
-                        ),
-                      ],
-                      onOpen: (character) => opened.add(character.id),
-                    ),
-                    SubjectStaffRoleGroups(
-                      people: const [
-                        SubjectPerson(
-                          id: 2,
-                          name: '测试制作人',
-                          nameCn: '',
-                          imageUrl: '',
-                          relation: '监督',
-                          career: [],
-                        ),
-                      ],
-                      onOpen: (person) => opened.add(person.id),
-                    ),
-                    SubjectRelatedRail(
-                      subjects: const [
-                        RelatedSubject(
-                          id: 3,
-                          name: '关联作品',
-                          nameCn: '',
-                          imageUrl: '',
-                          relation: '续集',
-                          type: SubjectType.anime,
-                        ),
-                      ],
-                      onOpen: (subject) => opened.add(subject.id),
-                    ),
-                  ],
+          AppRouteScope(
+            resolve: AppRouter.resolve,
+            child: MaterialApp(
+              home: Scaffold(
+                body: SingleChildScrollView(
+                  child: Column(
+                    children: [
+                      SubjectCharacterRail(
+                        characters: const [
+                          SubjectCharacter(
+                            id: 1,
+                            name: '测试角色',
+                            nameCn: '',
+                            imageUrl: '',
+                            relation: '主角',
+                            actors: [],
+                          ),
+                        ],
+                        onOpen: (character) => opened.add(character.id),
+                      ),
+                      SubjectStaffRoleGroups(
+                        people: const [
+                          SubjectPerson(
+                            id: 2,
+                            name: '测试制作人',
+                            nameCn: '',
+                            imageUrl: '',
+                            relation: '监督',
+                            career: [],
+                          ),
+                        ],
+                        onOpen: (person) => opened.add(person.id),
+                      ),
+                      SubjectRelatedRail(
+                        subjects: const [
+                          RelatedSubject(
+                            id: 3,
+                            name: '关联作品',
+                            nameCn: '',
+                            imageUrl: '',
+                            relation: '续集',
+                            type: SubjectType.anime,
+                          ),
+                        ],
+                        onOpen: (subject) => opened.add(subject.id),
+                      ),
+                    ],
+                  ),
                 ),
               ),
             ),

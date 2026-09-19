@@ -37,23 +37,20 @@ class HomeWidgetBridge {
     try {
       final today = DateTime.now().weekday;
       final items = schedule.itemsOn(today);
-      final unread = totalUnread ??
-          unreadBySubject.values.fold<int>(0, (a, b) => a + b);
+      final unread =
+          totalUnread ?? unreadBySubject.values.fold<int>(0, (a, b) => a + b);
       final dayLabel = weekdayLabel(today);
 
       final title = '今日新番 · $dayLabel';
       final summary = items.isEmpty
           ? (unread > 0 ? '未读更新 $unread · 今天无排期' : '今天课表还是空的')
           : '今天 ${items.length} 部'
-              '${unread > 0 ? ' · 未读 $unread' : ''}';
+                '${unread > 0 ? ' · 未读 $unread' : ''}';
 
       await HomeWidget.saveWidgetData<String>(_keyTitle, title);
       await HomeWidget.saveWidgetData<String>(_keySummary, summary);
       await HomeWidget.saveWidgetData<int>(_keyUnread, unread);
-      await HomeWidget.saveWidgetData<String>(
-        _keyEmpty,
-        '今天还没有安排 · 打开 App 加番',
-      );
+      await HomeWidget.saveWidgetData<String>(_keyEmpty, '今天还没有安排 · 打开 App 加番');
 
       for (var i = 0; i < _keyLines.length; i++) {
         if (i < items.length) {
