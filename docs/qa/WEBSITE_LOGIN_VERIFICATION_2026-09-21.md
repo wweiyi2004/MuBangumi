@@ -32,6 +32,7 @@ Android 与 Windows 均出现：在应用内“补充账号验证”页面已经
 - 新增 WebView 平台通道回归：网页包含已登录账号，独立 HTTP 探测器恒定失败，仍能核验并保存正确账号；持久化浏览器 User-Agent。
 - 新增首次失败后同 Cookie 自动恢复、主动恢复入口、跨账号拒绝、浏览器导航来源及 Cookie 绑定、待核验快照重启恢复、数字用户名、请求头安全、私信及小组 User-Agent 复用等测试。
 - 全量 `flutter test --no-pub`：**1,202 项通过**。架构检查：**249 个 Dart 文件，无依赖环或反向依赖**。
+- `flutter analyze --no-pub lib test`：无问题。
 - 测试中的请求通过替身拦截，没有向真实好友发送私信、发帖、入组或操作真实账号。
 
 ## 交付边界
@@ -39,3 +40,13 @@ Android 与 Windows 均出现：在应用内“补充账号验证”页面已经
 此报告记录源码修复与自动化验证；真实账号的两端回归需要运行包含修复的程序。
 
 主线已含先前更新器的 Android 原生安装目录变更。因此不能直接将整个当前主线当作旧 `2.3.1+4029` 的纯 Dart 补丁，也不应使用 `--allow-native-diffs` 强行跳过兼容性检查。若走旧基线热更新，应从该基线单独提取认证修复，先验证 Android 和 Windows 补丁兼容性；否则发布完整新版本。
+
+## 旧基线热更新兼容性验证
+
+- 已确认 Shorebird release `840908` / `2.3.1+4029` 的 Android、Windows 均 active，使用 Flutter `3.44.7`。
+- 从 Git 标签 `v2.3.1+4029` 创建独立目录，仅移入认证修复提交，Android / Windows 原生代码、依赖及发布版本保持原基线。
+- 首次构建发现两个资源字节不同：`packages/banjian_server/web/app.css`、`room_protocol.js`。比较 Git 内容与原发布包证明仅为 LF / CRLF 差异；已分别从经过 SHA-256 核对的原始 Android APK / Windows ZIP 恢复这两个资源的精确字节。
+- Windows：`shorebird patch windows --release-version 2.3.1+4029 --dry-run` 编译、原生及资源验证、补丁生成通过，报告 `No issues detected`。
+- Android：同一基线 `shorebird patch android --release-version 2.3.1+4029 --dry-run` 编译、三种架构的补丁生成及兼容检查通过，报告 `No issues detected`。
+- 未使用 `--allow-native-diffs` 或 `--allow-asset-diffs`，没有向 stable 或其他通道上传补丁。
+- 兼容性检查不是用户账号的真机验收。用户只确认了两端发生问题及网页已显示头像，尚未确认两端完整安装版本；正式推送需匹配实际基线。
