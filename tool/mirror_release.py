@@ -24,6 +24,9 @@ GITHUB_REPOSITORY = "wweiyi2004/MuBangumi"
 MANIFEST_START = "<!-- mubangumi-update-v1\n"
 MANIFEST_END = "\n-->"
 MAX_BYTES = 512 * 1024 * 1024
+# This repository's upload endpoint reports a 100 MB per-attachment cap.
+# Use decimal MB conservatively so uploads remain below either interpretation.
+GITEE_MAX_ATTACHMENT_BYTES = 100_000_000
 
 
 def valid_repository(value: str) -> bool:
@@ -140,7 +143,12 @@ def release_body(original: dict, repository: str, assets: list[dict]) -> str:
         "tag_name": original["tag_name"], "name": original.get("name"),
         "body": original.get("body") or "", "html_url": original.get("html_url"),
         "assets": assets}
-    return ((original.get("body") or "") + "\n\n" + MANIFEST_START +
+    fallback = [a for a in assets if not a.get("mirror_url")]
+    notice = ""
+    if fallback:
+        notice = "\n\n### 部分安装包使用 GitHub 下载\n\n以下文件超过 Gitee 单附件大小限制，国内附件未提供：\n"
+        notice += "\n".join(f"- [{a['name']}]({a['browser_download_url']})" for a in fallback)
+    return ((original.get("body") or "") + notice + "\n\n" + MANIFEST_START +
             json.dumps(manifest, ensure_ascii=False, separators=(",", ":")) + MANIFEST_END)
 
 
@@ -186,15 +194,24 @@ def mirror(repository: str, tag: str | None, dry_run: bool = False) -> None:
         raise RuntimeError(f"GitHub release lookup failed (HTTP {response.status_code})")
     original = response.json()
     selected = select_assets(original)
+    eligible = [a for a in selected if a["size"] <= GITEE_MAX_ATTACHMENT_BYTES]
+    oversized = [a for a in selected if a["size"] > GITEE_MAX_ATTACHMENT_BYTES]
+    for asset in oversized:
+        print(f"Keeping GitHub download only: {asset['name']} ({asset['size']} bytes) "
+              f"exceeds Gitee's {GITEE_MAX_ATTACHMENT_BYTES}-byte upload limit; not uploading.", flush=True)
+    if not eligible:
+        raise ValueError("No installable artifact fits Gitee's 100 MB limit; "
+                         "publish smaller architecture-specific APKs first. No remote changes made.")
     tag = original["tag_name"]
     base = f"repos/{repository}/releases"
     with tempfile.TemporaryDirectory(prefix="mubangumi-mirror-") as temporary:
         directory = Path(temporary)
-        for asset in selected:
+        for asset in eligible:
             verify_download(asset["browser_download_url"], asset, directory / asset["name"])
             print(f"Verified original: {asset['name']} ({asset['size']} bytes)", flush=True)
         if dry_run:
-            print(f"Dry run complete: {len(selected)} verified artifacts; no remote changes.")
+            print(f"Dry run complete: {len(eligible)} mirror artifacts verified; "
+                  f"{len(oversized)} GitHub-only artifacts; no remote changes.")
             return
         # Public collection reads avoid unnecessarily sending credentials and
         # tolerate gateways that reject escaped '+' in tag lookup routes.
@@ -220,6 +237,10 @@ def mirror(repository: str, tag: str | None, dry_run: bool = False) -> None:
         names = {a["name"] for a in attachments}
         mirrored = []
         for asset in selected:
+            record = {key: asset[key] for key in ("name", "size", "digest", "browser_download_url")}
+            if asset["size"] > GITEE_MAX_ATTACHMENT_BYTES:
+                mirrored.append(record)
+                continue
             name = asset["name"]
             if name not in names:
                 upload_attachment(base, release_id, token, directory / name)
@@ -228,8 +249,7 @@ def mirror(repository: str, tag: str | None, dry_run: bool = False) -> None:
             verify_download(url, asset)
             resumable = supports_resume(url, asset["size"])
             print(f"Verified public mirror: {name}; Range supported: {resumable}", flush=True)
-            mirrored.append({key: asset[key] for key in ("name", "size", "digest", "browser_download_url")} |
-                            {"mirror_url": url})
+            mirrored.append(record | {"mirror_url": url})
         body = release_body(original, repository, mirrored)
         api("PATCH", f"{base}/{release_id}", token, json={"tag_name": tag,
             "name": original.get("name") or tag, "body": body, "prerelease": False})
@@ -237,7 +257,8 @@ def mirror(repository: str, tag: str | None, dry_run: bool = False) -> None:
         check = requests.get(f"https://gitee.com/api/v5/{base}/{release_id}", timeout=(15, 30))
         if check.status_code != 200 or check.json().get("body") != body:
             raise RuntimeError("Published metadata could not be verified anonymously")
-        print(f"Published verified mirror: https://gitee.com/{repository}/releases/tag/{quote(tag, safe='')}")
+        print(f"Published verified mirror ({len(eligible)} mirrored, {len(oversized)} GitHub-only): "
+              f"https://gitee.com/{repository}/releases/tag/{quote(tag, safe='')}")
 
 
 def main() -> int:

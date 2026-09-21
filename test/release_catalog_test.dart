@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mubangumi/core/update/release_catalog.dart';
+import 'package:mubangumi/core/update/github_release.dart';
 import 'package:mubangumi/core/update/update_source.dart';
 
 const repository = 'owner/MuBangumi';
@@ -60,6 +61,58 @@ Dio api({Map<String, dynamic>? github, Map<String, dynamic>? gitee}) {
 }
 
 void main() {
+  test(
+    'partial mirror preserves Android GitHub fallback and Windows mirror',
+    () async {
+      final manifest = original()
+        ..['schema'] = 1
+        ..['repository'] = repository;
+      (manifest['assets'] as List).first['mirror_url'] =
+          'https://gitee.com/$repository/releases/download/v2.3.1+4029/$name';
+      const apkName = 'MuBangumi-2.3.1-build4029-android.apk';
+      (manifest['assets'] as List).add({
+        'name': apkName,
+        'size': 111829288,
+        'digest': 'sha256:${'b' * 64}',
+        'browser_download_url':
+            'https://github.com/wweiyi2004/MuBangumi/releases/download/v2.3.1+4029/$apkName',
+      });
+      final release = await fetchReleaseCatalog(
+        api(
+          gitee: {
+            'tag_name': 'v2.3.1+4029',
+            'body':
+                '$mirrorManifestStart${jsonEncode(manifest)}$mirrorManifestEnd',
+          },
+        ),
+        repository: repository,
+      );
+      expect(
+        selectReleaseAsset(release, platform: 'windows')!.trustedMirrorUrl,
+        isNotNull,
+      );
+      final android = selectReleaseAsset(
+        release,
+        platform: 'android',
+        androidAbis: ['arm64-v8a'],
+      );
+      expect(android, isNotNull);
+      expect(android!.trustedDownload, isTrue);
+      expect(android.trustedMirrorUrl, isNull);
+    },
+  );
+  test('catalog without any domestic attachment is not a completed mirror', () {
+    final manifest = original()
+      ..['schema'] = 1
+      ..['repository'] = repository;
+    expect(
+      () => parseMirrorRelease({
+        'tag_name': 'v2.3.1+4029',
+        'body': '$mirrorManifestStart${jsonEncode(manifest)}$mirrorManifestEnd',
+      }, repository),
+      throwsFormatException,
+    );
+  });
   test('domestic metadata works when GitHub is unreachable', () async {
     final release = await fetchReleaseCatalog(
       api(gitee: domestic()),

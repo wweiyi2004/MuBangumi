@@ -41,10 +41,11 @@ GithubRelease parseMirrorRelease(Map<String, dynamic> data, String repository) {
       ),
   ];
   if (assets.isEmpty ||
+      !assets.any((a) => a.trustedMirrorUrl != null) ||
       assets.any(
         (a) =>
             !a.trustedDownload ||
-            a.trustedMirrorUrl == null ||
+            (a.mirrorUrl != null && a.trustedMirrorUrl == null) ||
             Uri.parse(a.url).pathSegments[4] != release.tagName,
       )) {
     throw const FormatException('invalid mirror assets');

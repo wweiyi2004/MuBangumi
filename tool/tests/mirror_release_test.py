@@ -39,6 +39,38 @@ class Response:
 
 
 class MirrorTests(unittest.TestCase):
+    @patch.dict(mirror.os.environ, {"GITEE_TOKEN": "test-token"})
+    def test_oversized_apk_is_not_downloaded_or_uploaded_and_windows_is_published(self):
+        apk = ASSET | {"name": "MuBangumi-2.3.1-build4029-android.apk",
+            "size": 111829288,
+            "browser_download_url": f"https://github.com/wweiyi2004/MuBangumi/releases/download/{TAG}/MuBangumi-2.3.1-build4029-android.apk"}
+        release = RELEASE | {"assets": [apk, ASSET]}
+        records = [ASSET | {"mirror_url": mirror.public_url("owner/MuBangumi", TAG, NAME)}, apk]
+        expected_body = mirror.release_body(release, "owner/MuBangumi", records)
+        with patch.object(mirror.requests, "get", side_effect=[Response(data=release), Response(data={"body": expected_body})]), \
+             patch.object(mirror, "api", side_effect=[[{"id": 1, "tag_name": TAG}], [{"name": NAME}], {}]) as api, \
+             patch.object(mirror, "upload_attachment") as upload, \
+             patch.object(mirror, "verify_download") as verify, \
+             patch.object(mirror, "supports_resume", return_value=False):
+            mirror.mirror("owner/MuBangumi", TAG)
+            upload.assert_not_called()
+            self.assertTrue(all(call.args[1]["name"] == NAME for call in verify.call_args_list))
+            body = api.call_args.kwargs["json"]["body"]
+            self.assertIn("部分安装包使用 GitHub 下载", body)
+            manifest = json.loads(body.split(mirror.MANIFEST_START)[-1].split(mirror.MANIFEST_END)[0])
+            self.assertNotIn("mirror_url", manifest["assets"][1])
+            self.assertFalse(api.call_args.kwargs["json"]["prerelease"])
+
+    def test_all_oversized_assets_fail_before_downloading_or_mutating(self):
+        with patch.object(mirror.requests, "get", return_value=Response(data=RELEASE | {
+            "assets": [ASSET | {"size": mirror.GITEE_MAX_ATTACHMENT_BYTES + 1}]})), \
+             patch.object(mirror, "api") as api, \
+             patch.object(mirror, "verify_download") as download:
+            with self.assertRaisesRegex(ValueError, "100 MB"):
+                mirror.mirror("owner/MuBangumi", TAG, dry_run=True)
+            api.assert_not_called()
+            download.assert_not_called()
+
     def test_transient_gateway_response_is_retried_for_reads_only(self):
         with patch.object(mirror.requests, "request", side_effect=[
             Response(status=403), Response(data={"id": 1})]) as request, \
