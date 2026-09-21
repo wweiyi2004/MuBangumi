@@ -14,10 +14,11 @@ from pathlib import Path
 import re
 import sys
 import tempfile
+import time
 from urllib.parse import quote, unquote, urlsplit
 
 import requests
-from requests_toolbelt.multipart.encoder import MultipartEncoder
+from requests_toolbelt.multipart.encoder import MultipartEncoder, MultipartEncoderMonitor
 
 GITHUB_REPOSITORY = "wweiyi2004/MuBangumi"
 MANIFEST_START = "<!-- mubangumi-update-v1\n"
@@ -57,7 +58,7 @@ def select_assets(release: dict) -> list[dict]:
         selected.append(asset)
     if not selected or len({a["name"] for a in selected}) != len(selected):
         raise ValueError("No uniquely named installable artifacts found")
-    return selected
+    return sorted(selected, key=lambda asset: asset['size'])
 
 
 def public_url(repository: str, tag: str, name: str) -> str:
@@ -84,7 +85,7 @@ def api(method: str, path: str, token: str, **kwargs):
     # CDN redirects. Do not print response bodies or exceptions containing URLs.
     response = requests.request(method, f"https://gitee.com/api/v5/{path}",
         headers={"Authorization": f"Bearer {token}", "Accept": "application/json"},
-        timeout=(15, 300), allow_redirects=False, **kwargs)
+        timeout=(15, 60), allow_redirects=False, **kwargs)
     if response.status_code == 404 and method == "GET":
         return None
     if not 200 <= response.status_code < 300:
@@ -133,6 +134,32 @@ def release_body(original: dict, repository: str, assets: list[dict]) -> str:
             json.dumps(manifest, ensure_ascii=False, separators=(",", ":")) + MANIFEST_END)
 
 
+def upload_attachment(base: str, release_id: int, token: str, path: Path) -> None:
+    started = time.monotonic()
+    last_report = 0
+
+    def progress(monitor):
+        nonlocal last_report
+        elapsed = time.monotonic() - started
+        if elapsed > 180:
+            raise RuntimeError(f"Gitee upload exceeded 180 seconds: {path.name}; "
+                               f"sent {monitor.bytes_read}/{monitor.len} bytes. "
+                               "Retry from a faster network or upload this same file in Gitee's release page.")
+        if monitor.bytes_read - last_report >= 5 * 1024 * 1024:
+            last_report = monitor.bytes_read
+            print(f"Uploading {path.name}: {monitor.bytes_read}/{monitor.len} bytes", flush=True)
+
+    print(f"Uploading attachment: {path.name} ({path.stat().st_size} bytes)", flush=True)
+    with path.open("rb") as stream:
+        encoder = MultipartEncoder(fields={"file": (path.name, stream, "application/octet-stream")})
+        monitor = MultipartEncoderMonitor(encoder, progress)
+        response = requests.post(f"https://gitee.com/api/v5/{base}/{release_id}/attach_files",
+            headers={"Authorization": f"Bearer {token}", "Content-Type": encoder.content_type},
+            data=monitor, timeout=(15, 60), allow_redirects=False)
+        if not 200 <= response.status_code < 300:
+            raise gitee_failure(response, "attachment upload", token)
+
+
 def mirror(repository: str, tag: str | None, dry_run: bool = False) -> None:
     if not valid_repository(repository):
         raise ValueError("Repository must be owner/name")
@@ -155,7 +182,7 @@ def mirror(repository: str, tag: str | None, dry_run: bool = False) -> None:
         directory = Path(temporary)
         for asset in selected:
             verify_download(asset["browser_download_url"], asset, directory / asset["name"])
-            print(f"Verified original: {asset['name']} ({asset['size']} bytes)")
+            print(f"Verified original: {asset['name']} ({asset['size']} bytes)", flush=True)
         if dry_run:
             print(f"Dry run complete: {len(selected)} verified artifacts; no remote changes.")
             return
@@ -165,6 +192,7 @@ def mirror(repository: str, tag: str | None, dry_run: bool = False) -> None:
                 "target_commitish": "main", "name": original.get("name") or tag,
                 "body": "安装包同步中，请暂时使用 GitHub 发布页。", "prerelease": True})
         release_id = int(existing["id"])
+        print(f"Preparing Gitee release {release_id}", flush=True)
         attachments = api("GET", f"{base}/{release_id}/attach_files", token) or []
         if not isinstance(attachments, list):
             raise ValueError("Unexpected Gitee attachment list")
@@ -173,18 +201,12 @@ def mirror(repository: str, tag: str | None, dry_run: bool = False) -> None:
         for asset in selected:
             name = asset["name"]
             if name not in names:
-                with (directory / name).open("rb") as stream:
-                    encoder = MultipartEncoder(fields={"file": (name, stream, "application/octet-stream")})
-                    upload = requests.post(f"https://gitee.com/api/v5/{base}/{release_id}/attach_files",
-                        headers={"Authorization": f"Bearer {token}", "Content-Type": encoder.content_type},
-                        data=encoder, timeout=(15, 300), allow_redirects=False)
-                    if not 200 <= upload.status_code < 300:
-                        raise gitee_failure(upload, "attachment upload", token)
+                upload_attachment(base, release_id, token, directory / name)
             # Existing files are verified too; never overwrite a conflicting file.
             url = public_url(repository, tag, name)
             verify_download(url, asset)
             resumable = supports_resume(url, asset["size"])
-            print(f"Verified public mirror: {name}; Range supported: {resumable}")
+            print(f"Verified public mirror: {name}; Range supported: {resumable}", flush=True)
             mirrored.append({key: asset[key] for key in ("name", "size", "digest", "browser_download_url")} |
                             {"mirror_url": url})
         body = release_body(original, repository, mirrored)
