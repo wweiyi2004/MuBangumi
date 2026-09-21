@@ -31,6 +31,117 @@ String homepage(String name) =>
 
 void main() {
   test(
+    'capturing only a guest cookie after auth expiry cannot renew the old account binding',
+    () async {
+      final now = DateTime.now();
+      final store = _Store()
+        ..value = WebsiteSessionSnapshot(
+          cookies: [
+            WebsiteCookie(
+              name: 'chii_auth',
+              value: 'old',
+              expiresAt: now.subtract(const Duration(minutes: 1)),
+            ),
+            const WebsiteCookie(name: 'chii_sid', value: 'guest'),
+          ],
+          syncedAt: now,
+        ).withVerifiedUser(1, at: now.subtract(const Duration(hours: 2)));
+      final probe = _Probe(
+        (_, _) async => throw const WebsiteAccessException(
+          WebsiteAccessStatus.expired,
+          '会话已失效',
+        ),
+      );
+      final controller = WebsiteSessionController(store, probe: probe);
+      addTearDown(controller.dispose);
+      await controller.attachAccount(alice);
+      expect(
+        await controller.saveCookies(const [
+          WebsiteCookie(name: 'chii_sid', value: 'guest'),
+        ]),
+        false,
+      );
+      expect(controller.state.isSynced, false);
+      expect(probe.calls, 2);
+    },
+  );
+  test(
+    'same verified cookie survives elapsed time and app restart without repeated probes',
+    () async {
+      final store = _Store()
+        ..value = snapshot('a').withVerifiedUser(
+          1,
+          at: DateTime.now().subtract(const Duration(days: 3)),
+        );
+      final probe = _Probe(
+        (_, _) async => throw StateError('unexpected probe'),
+      );
+      for (var i = 0; i < 2; i++) {
+        final controller = WebsiteSessionController(store, probe: probe);
+        await controller.attachAccount(alice);
+        expect(await controller.ensureVerified(), true);
+        expect(await controller.requireVerifiedSession(alice), isNotNull);
+        expect(controller.state.isSynced, true);
+        controller.dispose();
+      }
+      expect(probe.calls, 0);
+    },
+  );
+
+  test('explicit rejection still revokes a previously bound session', () async {
+    final store = _Store()..value = snapshot('a').withVerifiedUser(1);
+    final probe = _Probe((_, _) async => 1);
+    final controller = WebsiteSessionController(store, probe: probe);
+    addTearDown(controller.dispose);
+    await controller.attachAccount(alice);
+    controller.reportFailure(WebsiteAccessStatus.expired, 'chii_auth=a');
+    expect(await controller.ensureVerified(), false);
+    expect(controller.state.requiresLogin, true);
+    await until(() => store.value!.verifiedUserId == null);
+    expect(probe.calls, 0);
+  });
+
+  test(
+    'a failed manual check preserves the same verified cookie for retry',
+    () async {
+      final store = _Store()..value = snapshot('a').withVerifiedUser(1);
+      final probe = _Probe(
+        (_, _) async => throw const WebsiteAccessException(
+          WebsiteAccessStatus.unavailable,
+          '网络暂不可用',
+        ),
+      );
+      final controller = WebsiteSessionController(store, probe: probe);
+      addTearDown(controller.dispose);
+      await controller.attachAccount(alice);
+      expect(await controller.ensureVerified(force: true), false);
+      expect(controller.state.requiresLogin, false);
+      expect(await controller.ensureVerified(), true);
+      expect(store.value!.verifiedUserId, 1);
+      expect(probe.calls, 1);
+    },
+  );
+
+  test(
+    'expired auth cookie cannot inherit its old binding through a surviving guest cookie',
+    () {
+      final now = DateTime.now();
+      final value = WebsiteSessionSnapshot(
+        cookies: [
+          WebsiteCookie(
+            name: 'chii_auth',
+            value: 'old',
+            expiresAt: now.subtract(const Duration(minutes: 1)),
+          ),
+          const WebsiteCookie(name: 'chii_sid', value: 'guest'),
+        ],
+        syncedAt: now,
+      ).withVerifiedUser(1, at: now.subtract(const Duration(hours: 2)));
+      expect(value.hasSessionCookies, true);
+      expect(value.isVerifiedFor(1, now), false);
+    },
+  );
+  test(
     'two provider scopes keep service instances and identity guards independent',
     () async {
       ProviderContainer scope(int id) {
@@ -227,6 +338,16 @@ void main() {
       WebsiteAccessStatus.challenge,
     ),
     ('gateway error', 502, WebsiteAccessStatus.unavailable),
+    (
+      '<form id="loginForm"><input name="password"></form>',
+      503,
+      WebsiteAccessStatus.unavailable,
+    ),
+    (
+      '<form id="loginForm"><input name="password"></form>',
+      429,
+      WebsiteAccessStatus.unavailable,
+    ),
   ]) {
     test(
       'website probe classifies $status without revoking the API login',

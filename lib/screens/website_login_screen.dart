@@ -109,11 +109,16 @@ class _WebsiteLoginScreenState extends ConsumerState<WebsiteLoginScreen> {
 }
 
 Future<bool?> openWebsiteLoginScreen(BuildContext context) =>
-    ensureWebsiteAccess(context, forceLogin: true);
+    ensureWebsiteAccess(
+      context,
+      retryVerification: true,
+      interactiveRecovery: true,
+    );
 
 Future<bool> ensureWebsiteAccess(
   BuildContext context, {
-  bool forceLogin = false,
+  bool retryVerification = false,
+  bool interactiveRecovery = false,
 }) async {
   final container = ProviderScope.containerOf(context, listen: false);
   final access = container.read(accountAccessProvider);
@@ -123,10 +128,10 @@ Future<bool> ensureWebsiteAccess(
     ).showSnackBar(const SnackBar(content: Text('请先登录 Bangumi 账号')));
     return false;
   }
-  if (await access.verify()) return true;
+  if (await access.verify(force: retryVerification)) return true;
   if (!context.mounted) return false;
   final state = container.read(websiteSessionProvider);
-  if (!forceLogin && state.status == WebsiteAccessStatus.unavailable) {
+  if (!state.requiresLogin && !interactiveRecovery) {
     ScaffoldMessenger.of(
       context,
     ).showSnackBar(SnackBar(content: Text(state.message ?? state.statusLabel)));

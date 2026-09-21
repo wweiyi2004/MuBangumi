@@ -57,7 +57,7 @@ class PmService {
     }
     final identifier = _parser.parseSignedInUser(html);
     if (identifier == null) {
-      throw const PmAuthException('暂时无法核对网站账号，请重新登录网站后重试');
+      throw const PmException('暂时无法识别网站账号，已保留登录，请稍后重试');
     }
     if (identifier != '${user.id}' &&
         identifier.toLowerCase() != user.username.toLowerCase()) {
@@ -164,7 +164,6 @@ class PmService {
     String? expectedSession,
   }) async {
     final session = await _requireSession();
-    final cookie = session.cookieHeader;
     if (expectedSession != null &&
         session.authenticationKey != expectedSession) {
       throw const PmAuthException('网站登录已变化，请重新打开私信后再发送');
@@ -176,13 +175,14 @@ class PmService {
         options: Options(
           contentType: Headers.formUrlEncodedContentType,
           headers: {
-            'Cookie': cookie,
+            ...session.requestHeaders,
             'Referer': 'https://bgm.tv/pm',
             'Origin': 'https://bgm.tv',
           },
         ),
       );
       final body = response.data ?? '';
+      if ((response.statusCode ?? 0) >= 500) throw const PmDeliveryUncertain();
       if (WebsiteIdentityProbe.isChallenge(body)) {
         onWebsiteSessionFailure?.call(
           WebsiteAccessStatus.challenge,
@@ -224,14 +224,13 @@ class PmService {
     void Function(String)? onSession,
   }) async {
     final session = await _requireSession();
-    final cookie = session.cookieHeader;
     onSession?.call(session.authenticationKey);
     try {
       final response = await _dio.get<String>(
         path,
         queryParameters: query,
         options: Options(
-          headers: {'Cookie': cookie, 'Referer': 'https://bgm.tv/pm'},
+          headers: {...session.requestHeaders, 'Referer': 'https://bgm.tv/pm'},
         ),
       );
       if ((await _requireSession()).authenticationKey !=
@@ -240,6 +239,9 @@ class PmService {
       }
       final html = response.data ?? '';
       final location = response.realUri.toString();
+      if ((response.statusCode ?? 0) >= 500 || response.statusCode == 429) {
+        throw PmException('加载失败（HTTP ${response.statusCode}），已保留登录');
+      }
       if (WebsiteIdentityProbe.isChallenge(html)) {
         onWebsiteSessionFailure?.call(
           WebsiteAccessStatus.challenge,
@@ -272,7 +274,7 @@ class PmService {
       try {
         return await guard();
       } on WebsiteAccessException catch (error) {
-        if (error.status == WebsiteAccessStatus.unavailable) {
+        if (!error.status.requiresLogin) {
           throw PmException(error.message);
         }
         throw PmAuthException(error.message);

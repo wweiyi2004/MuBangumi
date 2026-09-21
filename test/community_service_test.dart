@@ -704,6 +704,7 @@ void main() {
     html.interceptors.add(
       InterceptorsWrapper(
         onRequest: (options, handler) {
+          expect(options.headers['User-Agent'], 'Mozilla/5.0 Test-Community');
           if (options.method == 'GET') {
             handler.resolve(
               Response<String>(
@@ -732,7 +733,9 @@ void main() {
     final service = CommunityService.test(
       p1Dio: p1,
       htmlDio: html,
-      sessionStore: _memorySessionStore(),
+      sessionStore: _memorySessionStore(
+        userAgent: 'Mozilla/5.0 Test-Community',
+      ),
     );
     service.setAccessToken('oauth-token');
 
@@ -821,8 +824,8 @@ void main() {
                 requestOptions: options,
                 statusCode: 200,
                 data:
-                    '<html><body><a href="https://bgm.tv/login">登录</a>'
-                    '<a href="https://bgm.tv/signup">注册</a>'
+                    '<html><body><div id="headerNeue2"><div class="idBadgerNeue"><div class="guest"><a href="https://bgm.tv/login">登录</a>'
+                    '<a href="https://bgm.tv/signup">注册</a></div></div></div>'
                     '<input id="search_text" name="search_text"></body></html>',
               ),
             );
@@ -846,7 +849,7 @@ void main() {
           isA<FormatException>().having(
             (error) => error.message,
             'message',
-            contains('Bangumi 账号'),
+            contains('登录已过期'),
           ),
         ),
       );
@@ -1212,11 +1215,12 @@ CommunityService _service(Response<Object?> Function(RequestOptions) respond) {
   return CommunityService.test(p1Dio: dio);
 }
 
-WebsiteSessionStore _memorySessionStore() =>
+WebsiteSessionStore _memorySessionStore({String? userAgent}) =>
     _MemoryWebsiteSessionStore()
       ..snapshot = WebsiteSessionSnapshot(
         cookies: const [WebsiteCookie(name: 'chii_auth', value: 'cookie')],
         syncedAt: DateTime(2026),
+        userAgent: userAgent,
       );
 
 class _MemoryWebsiteSessionStore extends WebsiteSessionStore {

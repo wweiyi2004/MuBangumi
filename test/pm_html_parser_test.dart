@@ -2,6 +2,39 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:mubangumi/core/network/pm_html_parser.dart';
 
 void main() {
+  test('quoted login text does not expire the reader session', () {
+    final parser = PmHtmlParser();
+    expect(
+      parser.looksLikeLoginPage(
+        '<div class="pm-message-content">请先登录，然后打开 /login 输入 password</div>',
+      ),
+      false,
+    );
+    expect(
+      parser.looksLikeLoginPage(
+        '<div class="pm-message-content">&lt;form id="loginForm"&gt;&lt;input name="password"&gt;</div>',
+      ),
+      false,
+    );
+    expect(
+      parser.looksLikeLoginPage(
+        '<div id="badgeUserPanel"><a class="avatar" href="/user/alice">Alice</a></div><form id="loginForm"><input type="password"></form>',
+      ),
+      false,
+    );
+    expect(
+      parser.looksLikeLoginPage(
+        '<form action="/FollowTheRabbit"><input type="password" name="password"></form>',
+      ),
+      true,
+    );
+    expect(
+      parser.looksLikeLoginPage(
+        '<div id="columnNotice"><div class="text">请先登录</div></div>',
+      ),
+      true,
+    );
+  });
   final parser = PmHtmlParser();
 
   test(

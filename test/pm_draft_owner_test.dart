@@ -76,12 +76,24 @@ void main() {
     );
   }
 
-  for (final html in [
-    '<div class="pm-message"><a class="avatar" href="/user/alice">Alice</a></div>',
-    '<div id="dock"><a href="/user/bob">Bob</a></div>',
-    '<div id="dock"><a href="https://evil.example/user/alice">Alice</a></div>',
-    '<div id="dock"><a href="javascript://bgm.tv/user/alice">Alice</a></div>',
-    '<div id="dock"><a href="/user/alice">Alice</a><a href="/user/bob">Bob</a></div>',
+  for (final (html, requiresLogin) in [
+    (
+      '<div class="pm-message"><a class="avatar" href="/user/alice">Alice</a></div>',
+      false,
+    ),
+    ('<div id="dock"><a href="/user/bob">Bob</a></div>', true),
+    (
+      '<div id="dock"><a href="https://evil.example/user/alice">Alice</a></div>',
+      false,
+    ),
+    (
+      '<div id="dock"><a href="javascript://bgm.tv/user/alice">Alice</a></div>',
+      false,
+    ),
+    (
+      '<div id="dock"><a href="/user/alice">Alice</a><a href="/user/bob">Bob</a></div>',
+      false,
+    ),
   ]) {
     test(
       'unknown or mismatched website identity cannot expose an app account draft: $html',
@@ -103,7 +115,7 @@ void main() {
           );
         await expectLater(
           PmService(sessionStore: store, dio: dio).verifyDraftOwner(user),
-          throwsA(isA<PmAuthException>()),
+          throwsA(requiresLogin ? isA<PmAuthException>() : isA<PmException>()),
         );
       },
     );

@@ -13,7 +13,15 @@ enum WebsiteAccessStatus {
   mismatch,
   challenge,
   unavailable,
-  cleanupRequired,
+  cleanupRequired;
+
+  bool get requiresLogin => const {
+    WebsiteAccessStatus.missing,
+    WebsiteAccessStatus.expired,
+    WebsiteAccessStatus.mismatch,
+    WebsiteAccessStatus.challenge,
+    WebsiteAccessStatus.cleanupRequired,
+  }.contains(this);
 }
 
 class WebsiteAccessException implements Exception {
@@ -22,6 +30,34 @@ class WebsiteAccessException implements Exception {
   final String message;
   @override
   String toString() => message;
+}
+
+/// Evidence read from the active app-owned WebView, tied to a stable cookie
+/// capture. Only official page chrome is provided, never message/topic content.
+class WebsiteBrowserIdentity {
+  const WebsiteBrowserIdentity({
+    required this.url,
+    required this.html,
+    required this.authenticationKey,
+    this.userAgent,
+  });
+  final String url, html, authenticationKey;
+  final String? userAgent;
+
+  bool matches(WebsiteSessionSnapshot snapshot) {
+    final uri = Uri.tryParse(url);
+    return uri != null &&
+        uri.scheme == 'https' &&
+        uri.host == 'bgm.tv' &&
+        uri.port == 443 &&
+        uri.userInfo.isEmpty &&
+        !uri.path.startsWith('/logout') &&
+        authenticationKey.isNotEmpty &&
+        authenticationKey == snapshot.authenticationKey;
+  }
+
+  String? identifierFor(WebsiteSessionSnapshot snapshot) =>
+      matches(snapshot) ? PmHtmlParser().parseSignedInUser(html) : null;
 }
 
 /// A Cookie-only probe. API Authorization must never stand in for website identity.
@@ -72,13 +108,19 @@ class WebsiteIdentityProbe {
       final response = await _dio.get<String>(
         'https://bgm.tv/',
         options: Options(
-          headers: {'Cookie': snapshot.cookieHeader},
+          headers: snapshot.requestHeaders,
           responseType: ResponseType.plain,
           followRedirects: false,
           validateStatus: (status) => status != null && status < 600,
         ),
       );
       final html = response.data ?? '';
+      if ((response.statusCode ?? 0) >= 500 || response.statusCode == 429) {
+        throw const WebsiteAccessException(
+          WebsiteAccessStatus.unavailable,
+          '网站暂时无法响应，已保留登录，请稍后重试',
+        );
+      }
       final identifier = PmHtmlParser().parseSignedInUser(html);
       if (isChallenge(html)) {
         throw const WebsiteAccessException(
@@ -87,7 +129,11 @@ class WebsiteIdentityProbe {
         );
       }
       if (response.statusCode == 401 ||
-          response.headers.value('location')?.contains('/login') == true ||
+          (response.statusCode != null &&
+              response.statusCode! >= 300 &&
+              response.statusCode! < 400 &&
+              Uri.tryParse(response.headers.value('location') ?? '')?.path ==
+                  '/login') ||
           (identifier == null && PmHtmlParser().looksLikeLoginPage(html))) {
         throw const WebsiteAccessException(
           WebsiteAccessStatus.expired,
@@ -112,20 +158,48 @@ class WebsiteIdentityProbe {
           '暂时无法识别网站账号，请稍后重试核验',
         );
       }
+      return await verifyIdentifier(identifier, expected);
+    } on WebsiteAccessException {
+      rethrow;
+    } on DioException {
+      throw const WebsiteAccessException(
+        WebsiteAccessStatus.unavailable,
+        '暂时无法连接 Bangumi，已保留应用登录，请稍后重试核验',
+      );
+    }
+  }
+
+  Future<int> verifyIdentifier(String identifier, BangumiUser expected) async {
+    if (expected.id <= 0 || identifier.isEmpty) {
+      throw const WebsiteAccessException(
+        WebsiteAccessStatus.unavailable,
+        '暂时无法识别网站账号',
+      );
+    }
+    // A username may be numeric. Compare the known canonical username before
+    // interpreting a numeric profile link as a different user's ID.
+    if (identifier.toLowerCase() == expected.username.toLowerCase() ||
+        identifier == '${expected.id}') {
+      return expected.id;
+    }
+    try {
       var id = int.tryParse(identifier);
-      if (id == null &&
-          identifier.toLowerCase() == expected.username.toLowerCase()) {
-        id = expected.id;
-      }
       if (id == null) {
         final user = await _dio.get<Map<String, dynamic>>(
           'https://api.bgm.tv/v0/users/${Uri.encodeComponent(identifier)}',
           options: Options(
             responseType: ResponseType.json,
             followRedirects: false,
+            headers: {'Cookie': null, 'Authorization': null},
           ),
         );
         id = (user.data?['id'] as num?)?.toInt();
+      }
+      if (id == null || id <= 0) {
+        throw const WebsiteAccessException(
+          WebsiteAccessStatus.unavailable,
+          '暂时无法识别网站账号，请稍后重试核验',
+        );
       }
       if (id != expected.id) {
         throw const WebsiteAccessException(
