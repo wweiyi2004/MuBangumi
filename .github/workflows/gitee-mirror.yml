@@ -24,6 +24,7 @@ jobs:
   sync:
     if: vars.GITEE_REPOSITORY != ''
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     env:
       GITEE_REPOSITORY: ${{ vars.GITEE_REPOSITORY }}
       GITEE_USERNAME: ${{ vars.GITEE_USERNAME }}
@@ -48,6 +49,7 @@ jobs:
           PY
 
       - name: Sync main and tags without force or deletion
+        timeout-minutes: 5
         shell: bash
         run: |
           helper="$RUNNER_TEMP/gitee-askpass.sh"
@@ -61,7 +63,16 @@ jobs:
           chmod 700 "$helper"
           export GIT_ASKPASS="$helper" GIT_TERMINAL_PROMPT=0
           trap 'rm -f "$GIT_ASKPASS"' EXIT
-          git -c credential.helper= push "https://gitee.com/${GITEE_REPOSITORY}.git" HEAD:refs/heads/main --tags
+          # Bound stalled cross-border connections and retry transient failures.
+          for attempt in 1 2 3; do
+            if git -c credential.helper= -c http.version=HTTP/1.1 \
+              -c http.lowSpeedLimit=1000 -c http.lowSpeedTime=45 \
+              push "https://gitee.com/${GITEE_REPOSITORY}.git" HEAD:refs/heads/main --tags; then
+              exit 0
+            fi
+            if [ "$attempt" = 3 ]; then exit 1; fi
+            sleep 5
+          done
 
       - uses: actions/setup-python@v6
         if: github.event_name == 'release' || inputs.tag != ''
