@@ -76,99 +76,113 @@ class _UnavailableStore extends _LoginStore {
 }
 
 void main() {
-  testWidgets(
-    'visible WebView account completes verification while HTTP probe is offline',
-    (tester) async {
-      if (!Platform.isWindows) return;
-      final messenger =
-          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
-      const prefix = 'io.jns.webview.win';
-      var saved = 0;
-      messenger.setMockMethodCallHandler(
-        const MethodChannel(prefix),
-        (call) async => call.method == 'initialize' ? {'textureId': 78} : null,
-      );
-      messenger.setMockMethodCallHandler(
-        const MethodChannel('$prefix/78/events'),
-        (_) async => null,
-      );
-      messenger.setMockMethodCallHandler(const MethodChannel('$prefix/78'), (
-        call,
-      ) async {
-        if (call.method == 'getCookies') {
-          return [
-            {
-              'name': 'chii_auth',
-              'value': 'browser-auth',
-              'domain': '.bgm.tv',
-              'path': '/',
-              'expires': -1.0,
-              'isSecure': true,
-              'isHttpOnly': true,
-              'sameSite': 1,
-            },
-          ];
-        }
-        if (call.method == 'executeScript') {
-          return jsonEncode(
-            jsonEncode({
-              'url': 'https://bgm.tv/',
-              'userAgent': 'Mozilla/5.0 Test-Browser',
-              'html':
-                  '<div id="badgeUserPanel"><a class="avatar" href="/user/1"></a></div>',
-            }),
-          );
-        }
-        return null;
-      });
-      addTearDown(() {
-        for (final name in [prefix, '$prefix/78/events', '$prefix/78']) {
-          messenger.setMockMethodCallHandler(MethodChannel(name), null);
-        }
-      });
-      final store = _LoginStore();
-      await tester.pumpWidget(
-        ProviderScope(
-          overrides: [
-            sessionProvider.overrideWith((ref) => PmTestSession()),
-            websiteSessionProvider.overrideWith(
-              (ref) => WebsiteSessionController(store, probe: _OfflineProbe()),
-            ),
-          ],
-          child: MaterialApp(
-            home: CommunityWebScreen(
-              initialUrl: WebsiteLoginScreen.loginUrl,
-              enableCookieCapture: true,
-              showSectionSwitcher: false,
-              onSessionSaved: () => saved++,
+  for (final documentState in ['complete', 'interactive', 'loading']) {
+    testWidgets(
+      'visible WebView account verification respects document readiness: $documentState',
+      (tester) async {
+        if (!Platform.isWindows) return;
+        final messenger =
+            TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+        const prefix = 'io.jns.webview.win';
+        var saved = 0;
+        messenger.setMockMethodCallHandler(
+          const MethodChannel(prefix),
+          (call) async =>
+              call.method == 'initialize' ? {'textureId': 78} : null,
+        );
+        messenger.setMockMethodCallHandler(
+          const MethodChannel('$prefix/78/events'),
+          (_) async => null,
+        );
+        messenger.setMockMethodCallHandler(const MethodChannel('$prefix/78'), (
+          call,
+        ) async {
+          if (call.method == 'getCookies') {
+            return [
+              {
+                'name': 'chii_auth',
+                'value': 'browser-auth',
+                'domain': '.bgm.tv',
+                'path': '/',
+                'expires': -1.0,
+                'isSecure': true,
+                'isHttpOnly': true,
+                'sameSite': 1,
+              },
+            ];
+          }
+          if (call.method == 'executeScript') {
+            return jsonEncode(
+              jsonEncode({
+                'url': 'https://bgm.tv/',
+                'readyState': documentState,
+                'userAgent': 'Mozilla/5.0 Test-Browser',
+                'html':
+                    '<div id="badgeUserPanel"><a class="avatar" href="/user/1"></a></div>',
+              }),
+            );
+          }
+          return null;
+        });
+        addTearDown(() {
+          for (final name in [prefix, '$prefix/78/events', '$prefix/78']) {
+            messenger.setMockMethodCallHandler(MethodChannel(name), null);
+          }
+        });
+        final store = _LoginStore();
+        await tester.pumpWidget(
+          ProviderScope(
+            overrides: [
+              sessionProvider.overrideWith((ref) => PmTestSession()),
+              websiteSessionProvider.overrideWith(
+                (ref) =>
+                    WebsiteSessionController(store, probe: _OfflineProbe()),
+              ),
+            ],
+            child: MaterialApp(
+              home: CommunityWebScreen(
+                initialUrl: WebsiteLoginScreen.loginUrl,
+                enableCookieCapture: true,
+                showSectionSwitcher: false,
+                onSessionSaved: () => saved++,
+              ),
             ),
           ),
-        ),
-      );
-      for (var i = 0; i < 5; i++) {
-        await tester.pump(const Duration(milliseconds: 100));
-      }
-      for (final event in [
-        {'type': 'urlChanged', 'value': 'https://bgm.tv/'},
-        {'type': 'loadingStateChanged', 'value': 2},
-      ]) {
-        await messenger.handlePlatformMessage(
-          '$prefix/78/events',
-          const StandardMethodCodec().encodeSuccessEnvelope(event),
-          (_) {},
         );
+        for (var i = 0; i < 5; i++) {
+          await tester.pump(const Duration(milliseconds: 100));
+        }
+        for (final event in [
+          {'type': 'urlChanged', 'value': 'https://bgm.tv/'},
+          {
+            'type': 'loadingStateChanged',
+            'value': documentState == 'complete' ? 2 : 1,
+          },
+        ]) {
+          await messenger.handlePlatformMessage(
+            '$prefix/78/events',
+            const StandardMethodCodec().encodeSuccessEnvelope(event),
+            (_) {},
+          );
+          await tester.pump();
+        }
+        await tester.pump(const Duration(seconds: 2));
+        for (var i = 0; i < 10; i++) {
+          await tester.pump(const Duration(milliseconds: 100));
+        }
+        expect(saved, documentState == 'loading' ? 0 : 1);
+        expect(
+          store.value?.verifiedUserId,
+          documentState == 'loading' ? null : 1,
+        );
+        if (documentState != 'loading') {
+          expect(store.value?.userAgent, 'Mozilla/5.0 Test-Browser');
+        }
+        await tester.pumpWidget(const SizedBox.shrink());
         await tester.pump();
-      }
-      for (var i = 0; i < 10; i++) {
-        await tester.pump(const Duration(milliseconds: 100));
-      }
-      expect(saved, 1);
-      expect(store.value?.verifiedUserId, 1);
-      expect(store.value?.userAgent, 'Mozilla/5.0 Test-Browser');
-      await tester.pumpWidget(const SizedBox.shrink());
-      await tester.pump();
-    },
-  );
+      },
+    );
+  }
   for (final diskFailure in [false, true]) {
     testWidgets(
       'temporary ${diskFailure ? 'storage' : 'network'} failure never pushes supplemental login',

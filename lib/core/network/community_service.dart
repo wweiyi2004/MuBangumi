@@ -73,15 +73,16 @@ class CommunityService {
            );
 
   Future<WebsiteSessionSnapshot> Function()? websiteSessionGuard;
-  void Function(WebsiteAccessStatus status, String authenticationKey)?
+  bool Function(WebsiteAccessStatus status, String requestKey)?
   onWebsiteSessionFailure;
 
-  void _websiteFailed(WebsiteAccessStatus status, String cookieHeader) {
-    final snapshot = WebsiteSessionSnapshot(
-      cookies: WebsiteSessionSnapshot.parseDocumentCookie(cookieHeader),
-      syncedAt: DateTime.now(),
-    );
-    onWebsiteSessionFailure?.call(status, snapshot.authenticationKey);
+  void _websiteFailed(
+    WebsiteAccessStatus status,
+    WebsiteSessionSnapshot session,
+  ) {
+    if (onWebsiteSessionFailure?.call(status, session.requestKey) == false) {
+      throw const FormatException('网页登录已更新，请刷新页面并确认提交结果后重试');
+    }
   }
 
   @visibleForTesting
@@ -1068,7 +1069,6 @@ class CommunityService {
   }) async {
     final identity = _identityRevision;
     final session = await _requireWebsiteSession();
-    final cookie = session.cookieHeader;
     final path = '/group/${Uri.encodeComponent(slug)}/new_topic';
     final formhash = await _loadWebsiteFormhash(path, session);
     await _verifyWebsiteWriteContext(identity, session.authenticationKey);
@@ -1100,15 +1100,15 @@ class CommunityService {
     final body = response.data ?? '';
     _throwIfWebsiteChallenge(
       body,
-      cookie,
+      session,
       cfMitigated: response.headers.value('cf-mitigated'),
     );
     if (status >= 500 || status == 429) {
       throw FormatException('网站暂时无法响应（HTTP $status），请刷新确认发帖结果');
     }
-    _throwIfWebsiteLoginPage(body, cookie);
+    _throwIfWebsiteLoginPage(body, session);
     if (status == 401 || looksLikeWebsiteLoginPage(body)) {
-      _websiteFailed(WebsiteAccessStatus.expired, cookie);
+      _websiteFailed(WebsiteAccessStatus.expired, session);
       throw const FormatException('网页版登录已过期，请重新登录网页版后再发帖');
     }
     Object? decoded;
@@ -1145,7 +1145,6 @@ class CommunityService {
   }) async {
     final identity = _identityRevision;
     final session = await _requireWebsiteSession();
-    final cookie = session.cookieHeader;
     final topicPath = '/group/topic/$topicId';
     // The topic page carries the session-wide formhash the form needs; the
     // GET also proves the website session can actually see the group.
@@ -1177,15 +1176,15 @@ class CommunityService {
     final body = response.data ?? '';
     _throwIfWebsiteChallenge(
       body,
-      cookie,
+      session,
       cfMitigated: response.headers.value('cf-mitigated'),
     );
     if ((response.statusCode ?? 0) >= 500 || response.statusCode == 429) {
       throw FormatException('网站暂时无法响应（HTTP ${response.statusCode}），请刷新确认回复结果');
     }
-    _throwIfWebsiteLoginPage(body, cookie);
+    _throwIfWebsiteLoginPage(body, session);
     if (response.statusCode == 401 || looksLikeWebsiteLoginPage(body)) {
-      _websiteFailed(WebsiteAccessStatus.expired, cookie);
+      _websiteFailed(WebsiteAccessStatus.expired, session);
       throw const FormatException('网页版登录已过期，请重新登录网页版后再回复');
     }
     // With ?ajax=1 the classic site answers JSON: {"posts": …} on success.
@@ -1215,9 +1214,8 @@ class CommunityService {
     String path,
     WebsiteSessionSnapshot session,
   ) async {
-    final cookie = session.cookieHeader;
     final html = await _fetchWebsiteHtml(path, session);
-    _throwIfWebsiteLoginPage(html, cookie);
+    _throwIfWebsiteLoginPage(html, session);
     final fromPage = _htmlParser.parseFormhash(html);
     if (fromPage != null) return fromPage;
     // Private-group / permission pages omit the reply form. The homepage
@@ -1225,7 +1223,7 @@ class CommunityService {
     // actually authenticated.
     if (path != '/') {
       final home = await _fetchWebsiteHtml('/', session);
-      _throwIfWebsiteLoginPage(home, cookie);
+      _throwIfWebsiteLoginPage(home, session);
       final fromHome = _htmlParser.parseFormhash(home);
       if (fromHome != null) return fromHome;
     }
@@ -1259,14 +1257,14 @@ class CommunityService {
     );
     _throwIfWebsiteChallenge(
       response.data ?? '',
-      session.cookieHeader,
+      session,
       cfMitigated: response.headers.value('cf-mitigated'),
     );
     if ((response.statusCode ?? 0) >= 500 || response.statusCode == 429) {
       throw FormatException('网站暂时无法响应（HTTP ${response.statusCode}），已保留登录');
     }
     if (response.statusCode == 401) {
-      _websiteFailed(WebsiteAccessStatus.expired, session.cookieHeader);
+      _websiteFailed(WebsiteAccessStatus.expired, session);
       throw const FormatException('网页版登录已过期，请重新登录网页版后再试');
     }
     return response.data ?? '';
@@ -1274,11 +1272,11 @@ class CommunityService {
 
   void _throwIfWebsiteChallenge(
     String html,
-    String cookie, {
+    WebsiteSessionSnapshot session, {
     String? cfMitigated,
   }) {
     if (WebsiteIdentityProbe.isChallenge(html, cfMitigated: cfMitigated)) {
-      _websiteFailed(WebsiteAccessStatus.challenge, cookie);
+      _websiteFailed(WebsiteAccessStatus.challenge, session);
       throw const WebsiteAccessException(
         WebsiteAccessStatus.challenge,
         'Bangumi 需要网页验证，请补充账号验证后继续',
@@ -1286,10 +1284,10 @@ class CommunityService {
     }
   }
 
-  void _throwIfWebsiteLoginPage(String html, String cookie) {
-    _throwIfWebsiteChallenge(html, cookie);
+  void _throwIfWebsiteLoginPage(String html, WebsiteSessionSnapshot session) {
+    _throwIfWebsiteChallenge(html, session);
     if (looksLikeWebsiteLoginPage(html)) {
-      _websiteFailed(WebsiteAccessStatus.expired, cookie);
+      _websiteFailed(WebsiteAccessStatus.expired, session);
       throw const FormatException('网页版登录已过期，请重新登录网页版后再试');
     }
   }
@@ -1876,7 +1874,7 @@ class CommunityService {
       final privateGroup = _privateGroupName(error.response?.data);
       final responseData = error.response?.data;
       final joinGroupFirst =
-          error.response?.statusCode == 403 &&
+          const [401, 403].contains(error.response?.statusCode) &&
           path.startsWith('/groups/') &&
           responseData is Map &&
           responseData['code'] == 'NOT_ALLOWED' &&

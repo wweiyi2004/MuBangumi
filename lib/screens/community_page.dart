@@ -624,6 +624,11 @@ class _CommunityBrowserState extends State<_CommunityBrowser> {
             _error = null;
             _notify();
           },
+          onUrlChange: (change) {
+            if (change.url == null) return;
+            _currentUrl = change.url;
+            _notify();
+          },
           onPageFinished: (url) async {
             _currentUrl = url;
             _loading = false;
@@ -656,10 +661,10 @@ class _CommunityBrowserState extends State<_CommunityBrowser> {
   Future<WebsiteBrowserIdentity?> captureIdentity(
     List<WebsiteCookie> cookies,
   ) async {
-    if (_loading || !_ready) return null;
+    if (!_ready) return null;
     final beforeUrl = _currentUrl ?? _targetUrl;
     const script = '''
-JSON.stringify({url: location.href, userAgent: navigator.userAgent,
+JSON.stringify({url: location.href, readyState: document.readyState, userAgent: navigator.userAgent,
   html: ['#headerNeue2', '#badgeUserPanel', '#dock'].map(function(selector) {
     var node = document.querySelector(selector);
     return node ? node.outerHTML : '';
@@ -674,7 +679,9 @@ JSON.stringify({url: location.href, userAgent: navigator.userAgent,
       }
       if (result is! Map ||
           !mounted ||
-          _loading ||
+          !const ['interactive', 'complete'].contains(result['readyState']) ||
+          Uri.tryParse(result['url']?.toString() ?? '') !=
+              Uri.tryParse(beforeUrl) ||
           beforeUrl != (_currentUrl ?? _targetUrl)) {
         return null;
       }
@@ -687,7 +694,6 @@ JSON.stringify({url: location.href, userAgent: navigator.userAgent,
         syncedAt: DateTime.now(),
       );
       if (!mounted ||
-          _loading ||
           beforeUrl != (_currentUrl ?? _targetUrl) ||
           before.authenticationKey != after.authenticationKey) {
         return null;

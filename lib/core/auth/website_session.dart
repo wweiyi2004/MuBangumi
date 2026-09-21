@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:crypto/crypto.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 /// One cookie captured from the Bangumi website WebView session.
@@ -135,6 +136,12 @@ class WebsiteSessionSnapshot {
   /// Authentication cookies identify the session; challenge/theme cookies can
   /// refresh without invalidating a private-message draft or its form.
   String get authenticationKey => _authenticationKeyAt(DateTime.now());
+
+  /// A rejection only belongs to this captured and verified request context.
+  /// Re-verifying the same login or refreshing browser/challenge cookies must
+  /// not let an earlier HTTP response revoke the new binding.
+  String get requestKey =>
+      sha256.convert(utf8.encode(jsonEncode(toJson()))).toString();
 
   String _authenticationKeyAt(DateTime at) {
     final active = cookies

@@ -14,11 +14,13 @@ class PmContactsView extends StatelessWidget {
     this.selectedId,
     this.query = '',
     this.openingKey,
+    this.authMessage,
   });
   final PmContactsController contacts;
   final ValueChanged<PmContact> onOpen;
   final VoidCallback onSyncLogin;
   final String? selectedId, openingKey;
+  final String? authMessage;
   final String query;
 
   @override
@@ -65,12 +67,14 @@ class PmContactsView extends StatelessWidget {
         if (contacts.needAuth)
           _Notice(
             message: '需要补充账号验证，验证后可查看和发送私信',
+            details: authMessage ?? contacts.historyError,
             action: '登录后继续',
             onTap: onSyncLogin,
           )
         else if (contacts.historyError != null)
           _Notice(
             message: '私信记录加载失败，已保留当前列表',
+            details: contacts.historyError,
             action: '重试私信同步',
             onTap: () => contacts.syncHistory(),
           ),
@@ -279,10 +283,12 @@ class PmContactsView extends StatelessWidget {
 class _Notice extends StatelessWidget {
   const _Notice({
     required this.message,
+    this.details,
     required this.action,
     required this.onTap,
   });
   final String message, action;
+  final String? details;
   final VoidCallback onTap;
   @override
   Widget build(BuildContext context) => Padding(
@@ -291,6 +297,8 @@ class _Notice extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(message, style: Theme.of(context).textTheme.bodySmall),
+        if (details != null && details != message)
+          Text(details!, style: Theme.of(context).textTheme.bodySmall),
         TextButton(onPressed: onTap, child: Text(action)),
       ],
     ),

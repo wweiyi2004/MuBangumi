@@ -103,7 +103,7 @@ class _PmPageState extends ConsumerState<PmPage> {
                 WebsiteAccessStatus.missing,
                 WebsiteAccessStatus.challenge,
               }.contains(next.status) ||
-          next.isSynced && _inbox.needAuth;
+          next.isSynced && _contacts.needAuth;
       if (!next.ready || (!keyChanged && !accessChanged)) {
         return;
       }
@@ -166,7 +166,7 @@ class _PmPageState extends ConsumerState<PmPage> {
 
   Future<void> _resumePendingCompose() async {
     final target = _pendingComposeTo;
-    if (target != null && target.isNotEmpty && mounted && !_inbox.needAuth) {
+    if (target != null && target.isNotEmpty && mounted && !_contacts.needAuth) {
       _pendingComposeTo = null;
       final sent = await Navigator.of(context).push<bool>(
         MaterialPageRoute<bool>(
@@ -368,6 +368,9 @@ class _PmPageState extends ConsumerState<PmPage> {
             Expanded(
               child: PmContactsView(
                 contacts: contacts,
+                authMessage: website.isSynced
+                    ? null
+                    : website.message ?? website.statusLabel,
                 selectedId: selection?.id,
                 query: _search.text,
                 openingKey: _openingContactKey,
