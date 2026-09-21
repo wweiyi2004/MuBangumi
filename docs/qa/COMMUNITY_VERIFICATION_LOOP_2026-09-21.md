@@ -32,3 +32,16 @@
 - [Cloudflare Challenge 响应识别](https://developers.cloudflare.com/cloudflare-challenges/challenge-types/challenge-pages/detect-response/)：`cf-mitigated` 响应头。
 - [Turnstile 服务端验证](https://developers.cloudflare.com/turnstile/get-started/server-side-validation/)：令牌单次使用及有效期。
 - [Bangumi P1 小组路由](https://github.com/bangumi/server-private/blob/master/routes/private/routes/group.ts)、[成员检查参数定义](https://github.com/bangumi/server-private/blob/master/lib/group/utils.ts)、[鉴权和验证码中间件顺序](https://github.com/bangumi/server-private/blob/master/routes/hooks/pre-handler.ts)、[凭据错误代码](https://github.com/bangumi/server-private/blob/master/lib/auth/index.ts)。
+
+## 发布与回读确认
+
+基线仍为 `2.3.1+4029`，新补丁包含上一轮修复。此次构建沿用原基线的原生代码与精确资源字节，未强制放行原生或资源差异。
+
+| 平台 | 补丁 | 服务端 ID | 通道 | 架构 |
+| --- | --- | --- | --- | --- |
+| Android | #3 | 666182 | stable | arm、aarch64、x86_64 |
+| Windows | #4 | 666184 | stable | x86_64 |
+
+两端发布命令均成功；`shorebird patches info` 回读确认对应平台、stable、未回滚。主线修复提交为 `bbb8d6c`，原安装基线补丁源码提交为 `7332042`。
+
+应用内说明使用 GitHub prerelease 标签 `v2.3.1+4029-patch.3` / `v2.3.1+4029-patch.4`，补丁本身处于稳定通道。用户需再次检查更新、下载就绪后完全退出重启，分别确认 Android #3 / Windows #4，再验证真实账号的聊天与小组操作。
