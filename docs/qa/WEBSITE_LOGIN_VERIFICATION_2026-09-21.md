@@ -50,3 +50,18 @@ Android 与 Windows 均出现：在应用内“补充账号验证”页面已经
 - Android：同一基线 `shorebird patch android --release-version 2.3.1+4029 --dry-run` 编译、三种架构的补丁生成及兼容检查通过，报告 `No issues detected`。
 - 未使用 `--allow-native-diffs` 或 `--allow-asset-diffs`，没有向 stable 或其他通道上传补丁。
 - 兼容性检查不是用户账号的真机验收。用户只确认了两端发生问题及网页已显示头像，尚未确认两端完整安装版本；正式推送需匹配实际基线。
+
+## 稳定通道发布（用户确认版本后）
+
+用户随后确认 Android、Windows 都为 `2.3.1+4029`，已完成对应热更新发布。
+
+| 平台 | 补丁编号 | 服务端 ID | 通道 | 架构与体积 |
+| --- | --- | --- | --- | --- |
+| Windows | #1 | 666093 | stable | x86_64，2.05 MB |
+| Android | #2 | 666097 | stable | arm / aarch64 各 2.24 MB，x86_64 为 2.13 MB |
+
+- 两端发布均重新通过原生与资源兼容性校验，未使用差异强制放行参数。服务端 `shorebird patches info` 回读确认 stable、`Rolled back: no`，平台和架构均正确。
+- 主线已包含认证修复。运行补丁来自独立旧基线提交 `c6129f8`；源码与部署记录保留在 `fix/website-session-patch-4029` 分支。
+- 应用内公告分别使用 GitHub 标签 `v2.3.1+4029-patch.1`（Windows）和 `v2.3.1+4029-patch.2`（Android）。这些说明页标为 prerelease，不改变完整安装包 latest 指向；实际热更新通道为 stable。
+- 生效步骤：应用内“我的 → 检查更新”，等待就绪，完全退出并重新打开，再进入“Bangumi 账号 → 补充账号验证”。安装版本号仍为 `2.3.1+4029`，通过补丁编号区分。
+- 发布成功与自动化验证已完成；真实账号的聊天、小组使用效果仍由用户更新后确认。
