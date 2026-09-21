@@ -45,6 +45,7 @@ class MirrorTests(unittest.TestCase):
              patch.object(mirror.time, "sleep"):
             self.assertEqual(mirror.api("GET", "repos/owner/repo/releases", "secret"), {"id": 1})
             self.assertEqual(request.call_count, 2)
+            self.assertNotIn("Authorization", request.call_args.kwargs["headers"])
         with patch.object(mirror.requests, "request", return_value=Response(status=503)) as request:
             with self.assertRaises(RuntimeError):
                 mirror.api("POST", "repos/owner/repo/releases", "secret")
@@ -99,7 +100,7 @@ class MirrorTests(unittest.TestCase):
             else:
                 raise ValueError("checksum")
         with patch.object(mirror.requests, "get", return_value=Response(data=RELEASE)), \
-             patch.object(mirror, "api", side_effect=[None, {"id": 1}, []]) as api, \
+             patch.object(mirror, "api", side_effect=[[], {"id": 1}, []]) as api, \
              patch.object(mirror.requests, "post", return_value=Response()), \
              patch.object(mirror, "verify_download", side_effect=verify):
             with self.assertRaises(ValueError):
@@ -111,7 +112,7 @@ class MirrorTests(unittest.TestCase):
         expected_assets = [ASSET | {"mirror_url": mirror.public_url("owner/MuBangumi", TAG, NAME)}]
         expected_body = mirror.release_body(RELEASE, "owner/MuBangumi", expected_assets)
         with patch.object(mirror.requests, "get", side_effect=[Response(data=RELEASE), Response(data={"body": expected_body})]), \
-             patch.object(mirror, "api", side_effect=[{"id": 1}, [{"name": NAME}], {}]) as api, \
+             patch.object(mirror, "api", side_effect=[[{"id": 1, "tag_name": TAG}], [{"name": NAME}], {}]) as api, \
              patch.object(mirror.requests, "post") as upload, \
              patch.object(mirror, "verify_download") as verify, \
              patch.object(mirror, "supports_resume", return_value=True):

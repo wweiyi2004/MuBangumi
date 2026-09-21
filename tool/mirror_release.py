@@ -85,7 +85,8 @@ def api(method: str, path: str, token: str, **kwargs):
     # CDN redirects. Do not print response bodies or exceptions containing URLs.
     for attempt in range(3):
         response = requests.request(method, f"https://gitee.com/api/v5/{path}",
-            headers={"Authorization": f"Bearer {token}", "Accept": "application/json",
+            headers={**({"Authorization": f"Bearer {token}"} if method != "GET" else {}),
+                     "Accept": "application/json",
                      "User-Agent": "MuBangumi-ReleaseMirror/1.0"},
             timeout=(15, 60), allow_redirects=False, **kwargs)
         transient = response.status_code in (429, 502, 503, 504) or (
@@ -195,7 +196,18 @@ def mirror(repository: str, tag: str | None, dry_run: bool = False) -> None:
         if dry_run:
             print(f"Dry run complete: {len(selected)} verified artifacts; no remote changes.")
             return
-        existing = api("GET", f"{base}/tags/{quote(tag, safe='')}", token)
+        # Public collection reads avoid unnecessarily sending credentials and
+        # tolerate gateways that reject escaped '+' in tag lookup routes.
+        existing = None
+        page = 1
+        while True:
+            releases = api("GET", f"{base}?per_page=100&page={page}", token) or []
+            if not isinstance(releases, list):
+                raise ValueError("Unexpected Gitee release list")
+            existing = next((r for r in releases if r.get("tag_name") == tag), None)
+            if existing is not None or len(releases) < 100:
+                break
+            page += 1
         if existing is None:
             existing = api("POST", base, token, json={"tag_name": tag,
                 "target_commitish": "main", "name": original.get("name") or tag,
@@ -222,7 +234,7 @@ def mirror(repository: str, tag: str | None, dry_run: bool = False) -> None:
         api("PATCH", f"{base}/{release_id}", token, json={"tag_name": tag,
             "name": original.get("name") or tag, "body": body, "prerelease": False})
         # Do not announce success until clients can read the manifest anonymously.
-        check = requests.get(f"https://gitee.com/api/v5/{base}/tags/{quote(tag, safe='')}", timeout=(15, 30))
+        check = requests.get(f"https://gitee.com/api/v5/{base}/{release_id}", timeout=(15, 30))
         if check.status_code != 200 or check.json().get("body") != body:
             raise RuntimeError("Published metadata could not be verified anonymously")
         print(f"Published verified mirror: https://gitee.com/{repository}/releases/tag/{quote(tag, safe='')}")
