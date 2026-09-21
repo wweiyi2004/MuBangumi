@@ -83,9 +83,18 @@ def gitee_failure(response, operation: str, token: str) -> RuntimeError:
 def api(method: str, path: str, token: str, **kwargs):
     # Authentication is only ever sent to the fixed API origin, never attachment
     # CDN redirects. Do not print response bodies or exceptions containing URLs.
-    response = requests.request(method, f"https://gitee.com/api/v5/{path}",
-        headers={"Authorization": f"Bearer {token}", "Accept": "application/json"},
-        timeout=(15, 60), allow_redirects=False, **kwargs)
+    for attempt in range(3):
+        response = requests.request(method, f"https://gitee.com/api/v5/{path}",
+            headers={"Authorization": f"Bearer {token}", "Accept": "application/json",
+                     "User-Agent": "MuBangumi-ReleaseMirror/1.0"},
+            timeout=(15, 60), allow_redirects=False, **kwargs)
+        transient = response.status_code in (429, 502, 503, 504) or (
+            response.status_code == 403 and
+            "json" not in response.headers.get("Content-Type", "").lower())
+        if method != "GET" or not transient or attempt == 2:
+            break
+        print(f"Gitee returned HTTP {response.status_code}; retrying metadata request", flush=True)
+        time.sleep(2 ** attempt)
     if response.status_code == 404 and method == "GET":
         return None
     if not 200 <= response.status_code < 300:

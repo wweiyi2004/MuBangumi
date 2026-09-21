@@ -39,6 +39,17 @@ class Response:
 
 
 class MirrorTests(unittest.TestCase):
+    def test_transient_gateway_response_is_retried_for_reads_only(self):
+        with patch.object(mirror.requests, "request", side_effect=[
+            Response(status=403), Response(data={"id": 1})]) as request, \
+             patch.object(mirror.time, "sleep"):
+            self.assertEqual(mirror.api("GET", "repos/owner/repo/releases", "secret"), {"id": 1})
+            self.assertEqual(request.call_count, 2)
+        with patch.object(mirror.requests, "request", return_value=Response(status=503)) as request:
+            with self.assertRaises(RuntimeError):
+                mirror.api("POST", "repos/owner/repo/releases", "secret")
+            self.assertEqual(request.call_count, 1)
+
     def test_api_errors_explain_missing_permissions_without_leaking_token(self):
         error = mirror.gitee_failure(Response(status=403, data={
             "message": "Missing projects scope for token sensitive-token"}),
