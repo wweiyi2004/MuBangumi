@@ -1,4 +1,5 @@
 import 'package:dio/dio.dart';
+import 'package:html/parser.dart' as html_parser;
 import '../../models/bangumi_models.dart';
 import '../network/bangumi_user_agent.dart';
 import '../network/pm_html_parser.dart';
@@ -78,11 +79,43 @@ class WebsiteIdentityProbe {
   }
   final Dio _dio;
 
-  static bool isChallenge(String html) {
+  static bool isChallenge(String html, {String? cfMitigated}) {
+    // Cloudflare also injects challenge-platform/scripts/jsd into ordinary,
+    // successful pages. A script URL alone does not revoke a website login.
+    if (cfMitigated?.trim().toLowerCase() == 'challenge') return true;
     final text = html.toLowerCase();
-    return text.contains('cf-chl-') ||
-        text.contains('/cdn-cgi/challenge-platform/') ||
-        (text.contains('just a moment') && text.contains('cloudflare'));
+    if (!text.contains('cloudflare') &&
+        !text.contains('cf-chl-') &&
+        !text.contains('challenge-platform') &&
+        !text.contains('_cf_chl_opt') &&
+        !text.contains('challenge-form')) {
+      return false;
+    }
+    if (PmHtmlParser().parseSignedInUser(html) != null) return false;
+    final document = html_parser.parse(html);
+    final title = document.querySelector('title')?.text.toLowerCase() ?? '';
+    final challengeTitle =
+        title.contains('just a moment') ||
+        title.contains('checking your browser') ||
+        title.contains('attention required');
+    final challengeForm =
+        document.querySelector(
+          '#challenge-form, #cf-challenge-running, #cf-challenge-error',
+        ) !=
+        null;
+    final scripts = document.querySelectorAll('script');
+    final orchestration = scripts.any(
+      (script) =>
+          RegExp(r'\b(?:window\.)?_cf_chl_opt\s*=').hasMatch(script.text),
+    );
+    final challengeScript = scripts.any((script) {
+      final src = (script.attributes['src'] ?? '').toLowerCase();
+      return src.contains('/cdn-cgi/challenge-platform/') &&
+          !src.contains('/scripts/jsd/');
+    });
+    return challengeForm ||
+        (challengeTitle &&
+            (orchestration || challengeScript || text.contains('cloudflare')));
   }
 
   Future<int> verify(
@@ -115,6 +148,15 @@ class WebsiteIdentityProbe {
         ),
       );
       final html = response.data ?? '';
+      if (isChallenge(
+        html,
+        cfMitigated: response.headers.value('cf-mitigated'),
+      )) {
+        throw const WebsiteAccessException(
+          WebsiteAccessStatus.challenge,
+          'Bangumi 需要网页验证，请在登录页面完成后继续',
+        );
+      }
       if ((response.statusCode ?? 0) >= 500 || response.statusCode == 429) {
         throw const WebsiteAccessException(
           WebsiteAccessStatus.unavailable,
@@ -122,12 +164,6 @@ class WebsiteIdentityProbe {
         );
       }
       final identifier = PmHtmlParser().parseSignedInUser(html);
-      if (isChallenge(html)) {
-        throw const WebsiteAccessException(
-          WebsiteAccessStatus.challenge,
-          'Bangumi 需要网页验证，请在登录页面完成后继续',
-        );
-      }
       if (response.statusCode == 401 ||
           (response.statusCode != null &&
               response.statusCode! >= 300 &&

@@ -333,7 +333,7 @@ void main() {
     ),
     ('<div class="guest">登录</div>', 200, WebsiteAccessStatus.expired),
     (
-      '<script src="/cdn-cgi/challenge-platform/test"></script>',
+      '<title>Just a moment...</title><form id="challenge-form"></form><script src="/cdn-cgi/challenge-platform/test"></script>',
       403,
       WebsiteAccessStatus.challenge,
     ),

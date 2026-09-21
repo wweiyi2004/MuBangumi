@@ -441,7 +441,10 @@ class CommunityService {
       } on DioException catch (error) {
         if (attempt == 0 &&
             identity == _identityRevision &&
-            _isRefreshableAuthFailure(error) &&
+            _isRefreshableAuthFailure(
+              error,
+              oneShot: data.containsKey('turnstileToken'),
+            ) &&
             onUnauthorizedRefresh != null &&
             await onUnauthorizedRefresh!()) {
           continue;
@@ -1095,6 +1098,11 @@ class CommunityService {
       return;
     }
     final body = response.data ?? '';
+    _throwIfWebsiteChallenge(
+      body,
+      cookie,
+      cfMitigated: response.headers.value('cf-mitigated'),
+    );
     if (status >= 500 || status == 429) {
       throw FormatException('网站暂时无法响应（HTTP $status），请刷新确认发帖结果');
     }
@@ -1119,9 +1127,6 @@ class CommunityService {
       if (detail != null && detail.toString().trim().isNotEmpty) {
         throw FormatException('发帖失败：${detail.toString().trim()}');
       }
-    }
-    if (body.contains('postTopic') || body.contains('/group/topic/')) {
-      return;
     }
     final notice = PmHtmlParser().parseSubmissionError(body);
     if (notice != null) throw FormatException('发帖失败：$notice');
@@ -1170,6 +1175,11 @@ class CommunityService {
       ),
     );
     final body = response.data ?? '';
+    _throwIfWebsiteChallenge(
+      body,
+      cookie,
+      cfMitigated: response.headers.value('cf-mitigated'),
+    );
     if ((response.statusCode ?? 0) >= 500 || response.statusCode == 429) {
       throw FormatException('网站暂时无法响应（HTTP ${response.statusCode}），请刷新确认回复结果');
     }
@@ -1247,6 +1257,11 @@ class CommunityService {
         validateStatus: (status) => status != null && status < 600,
       ),
     );
+    _throwIfWebsiteChallenge(
+      response.data ?? '',
+      session.cookieHeader,
+      cfMitigated: response.headers.value('cf-mitigated'),
+    );
     if ((response.statusCode ?? 0) >= 500 || response.statusCode == 429) {
       throw FormatException('网站暂时无法响应（HTTP ${response.statusCode}），已保留登录');
     }
@@ -1257,14 +1272,22 @@ class CommunityService {
     return response.data ?? '';
   }
 
-  void _throwIfWebsiteLoginPage(String html, String cookie) {
-    if (WebsiteIdentityProbe.isChallenge(html)) {
+  void _throwIfWebsiteChallenge(
+    String html,
+    String cookie, {
+    String? cfMitigated,
+  }) {
+    if (WebsiteIdentityProbe.isChallenge(html, cfMitigated: cfMitigated)) {
       _websiteFailed(WebsiteAccessStatus.challenge, cookie);
       throw const WebsiteAccessException(
         WebsiteAccessStatus.challenge,
         'Bangumi 需要网页验证，请补充账号验证后继续',
       );
     }
+  }
+
+  void _throwIfWebsiteLoginPage(String html, String cookie) {
+    _throwIfWebsiteChallenge(html, cookie);
     if (looksLikeWebsiteLoginPage(html)) {
       _websiteFailed(WebsiteAccessStatus.expired, cookie);
       throw const FormatException('网页版登录已过期，请重新登录网页版后再试');
@@ -1824,6 +1847,7 @@ class CommunityService {
     Map<String, dynamic> data = const {},
     bool retriedAuth = false,
   }) async {
+    final identity = _identityRevision;
     try {
       await _p1Dio.post<Object?>(
         '/p1$path',
@@ -1837,15 +1861,34 @@ class CommunityService {
       );
     } on DioException catch (error) {
       if (!retriedAuth &&
-          _isRefreshableAuthFailure(error) &&
+          _isRefreshableAuthFailure(
+            error,
+            oneShot: data.containsKey('turnstileToken'),
+          ) &&
           onUnauthorizedRefresh != null &&
           await onUnauthorizedRefresh!()) {
+        if (identity != _identityRevision || !isAuthenticated) {
+          throw const FormatException('登录账号已变化，请重新操作');
+        }
         await _postJson(path, data: data, retriedAuth: true);
         return;
       }
       final privateGroup = _privateGroupName(error.response?.data);
-      if (privateGroup != null) {
-        throw PrivateGroupMembershipException(privateGroup);
+      final responseData = error.response?.data;
+      final joinGroupFirst =
+          error.response?.statusCode == 403 &&
+          path.startsWith('/groups/') &&
+          responseData is Map &&
+          responseData['code'] == 'NOT_ALLOWED' &&
+          (responseData['message']?.toString().toLowerCase().contains(
+                'join group first',
+              ) ??
+              false);
+      if (privateGroup != null || joinGroupFirst) {
+        throw PrivateGroupMembershipException(privateGroup ?? '');
+      }
+      if (error.response == null || (error.response?.statusCode ?? 0) >= 500) {
+        throw Exception('提交结果暂未确认，请先刷新页面确认，避免重复发送');
       }
       throw Exception(_postErrorMessage(error));
     }
@@ -1915,12 +1958,13 @@ class CommunityService {
   /// as CAPTCHA_ERROR or NOT_JOIN_PRIVATE_GROUP_ERROR must not be retried:
   /// the one-shot Turnstile token is already consumed by then, so a blind
   /// retry fails with a bogus captcha error that masks the real cause.
-  bool _isRefreshableAuthFailure(DioException error) {
+  bool _isRefreshableAuthFailure(DioException error, {bool oneShot = false}) {
     if (error.response?.statusCode != 401) return false;
     final data = error.response?.data;
-    if (data is! Map) return true;
+    if (data is! Map) return !oneShot;
     final code = data['code']?.toString();
-    return code == null ||
+    return (code == null && !oneShot) ||
+        code == 'TOKEN_INVALID' ||
         code == 'NEED_LOGIN' ||
         code == 'AUTHORIZATION_INVALID';
   }

@@ -182,14 +182,17 @@ class PmService {
         ),
       );
       final body = response.data ?? '';
-      if ((response.statusCode ?? 0) >= 500) throw const PmDeliveryUncertain();
-      if (WebsiteIdentityProbe.isChallenge(body)) {
+      if (WebsiteIdentityProbe.isChallenge(
+        body,
+        cfMitigated: response.headers.value('cf-mitigated'),
+      )) {
         onWebsiteSessionFailure?.call(
           WebsiteAccessStatus.challenge,
           session.authenticationKey,
         );
         throw const PmAuthException('Bangumi 需要网页验证，请补充账号验证后继续');
       }
+      if ((response.statusCode ?? 0) >= 500) throw const PmDeliveryUncertain();
       if (_parser.looksLikeLoginPage(body) || response.statusCode == 401) {
         onWebsiteSessionFailure?.call(
           WebsiteAccessStatus.expired,
@@ -239,15 +242,18 @@ class PmService {
       }
       final html = response.data ?? '';
       final location = response.realUri.toString();
-      if ((response.statusCode ?? 0) >= 500 || response.statusCode == 429) {
-        throw PmException('加载失败（HTTP ${response.statusCode}），已保留登录');
-      }
-      if (WebsiteIdentityProbe.isChallenge(html)) {
+      if (WebsiteIdentityProbe.isChallenge(
+        html,
+        cfMitigated: response.headers.value('cf-mitigated'),
+      )) {
         onWebsiteSessionFailure?.call(
           WebsiteAccessStatus.challenge,
           session.authenticationKey,
         );
         throw const PmAuthException('Bangumi 需要网页验证，请补充账号验证后继续');
+      }
+      if ((response.statusCode ?? 0) >= 500 || response.statusCode == 429) {
+        throw PmException('加载失败（HTTP ${response.statusCode}），已保留登录');
       }
       if (response.statusCode == 401 ||
           location.contains('/login') ||
