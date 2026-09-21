@@ -37,6 +37,14 @@ GitHub 是主仓库。Gitee 同步 `main` 和版本标签，并保存同一次�
 
 本地发布工具（需要 Python 3.10+）：
 
+Windows 可直接运行交互入口，令牌只在本机终端输入，不显示、不写入文件，退出后恢复原环境变量：
+
+```powershell
+./tool/publish_gitee.ps1 -Tag 'v2.3.1+4029'
+```
+
+如果 GitHub Actions 中的 Gitee API 持续返回非 JSON 的 403 页面，而本机访问正常，可以使用上述入口切换发布网络。代码推送成功不等于附件已发布；必须等待脚本报告公开下载与校验通过。
+
 ```powershell
 python -m pip install -r tool/requirements-mirror.txt
 # 仅下载并校验 GitHub 原始安装包，不写入 Gitee：
