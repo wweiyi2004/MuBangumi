@@ -40,7 +40,7 @@ void main() {
       final website = env.container.read(websiteSessionProvider.notifier);
       website.reportFailure(
         WebsiteAccessStatus.expired,
-        (await env.store.read())!.authenticationKey,
+        (await env.store.read())!.requestKey,
       );
       await tester.pumpAndSettle();
       expect(find.byType(PmConversationScreen), findsNothing);

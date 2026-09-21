@@ -272,8 +272,8 @@ class WebsiteSessionController extends StateNotifier<WebsiteSessionState> {
     return state.snapshot!;
   }
 
-  void reportFailure(WebsiteAccessStatus status, String authenticationKey) {
-    if (state.snapshot?.authenticationKey != authenticationKey) return;
+  bool reportFailure(WebsiteAccessStatus status, String requestKey) {
+    if (!mounted || state.snapshot?.requestKey != requestKey) return false;
     final generation = ++_generation;
     _verification = null;
     final snapshot = state.snapshot!.withoutVerification();
@@ -287,6 +287,7 @@ class WebsiteSessionController extends StateNotifier<WebsiteSessionState> {
         if (mounted && generation == _generation) await _store.write(snapshot);
       }).catchError((Object _) {}),
     );
+    return true;
   }
 
   Future<void> _write(Future<void> Function() action) {

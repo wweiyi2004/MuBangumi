@@ -31,7 +31,7 @@ class PmService {
 
   void dispose() => _dio.close(force: true);
   Future<WebsiteSessionSnapshot> Function()? websiteSessionGuard;
-  void Function(WebsiteAccessStatus status, String authenticationKey)?
+  bool Function(WebsiteAccessStatus status, String requestKey)?
   onWebsiteSessionFailure;
 
   final WebsiteSessionStore _sessionStore;
@@ -186,18 +186,12 @@ class PmService {
         body,
         cfMitigated: response.headers.value('cf-mitigated'),
       )) {
-        onWebsiteSessionFailure?.call(
-          WebsiteAccessStatus.challenge,
-          session.authenticationKey,
-        );
+        _reportFailure(WebsiteAccessStatus.challenge, session, submitted: true);
         throw const PmAuthException('Bangumi 需要网页验证，请补充账号验证后继续');
       }
       if ((response.statusCode ?? 0) >= 500) throw const PmDeliveryUncertain();
       if (_parser.looksLikeLoginPage(body) || response.statusCode == 401) {
-        onWebsiteSessionFailure?.call(
-          WebsiteAccessStatus.expired,
-          session.authenticationKey,
-        );
+        _reportFailure(WebsiteAccessStatus.expired, session, submitted: true);
         throw const PmAuthException();
       }
       final submissionError = _parser.parseSubmissionError(body);
@@ -225,6 +219,7 @@ class PmService {
     String path, {
     Map<String, dynamic>? query,
     void Function(String)? onSession,
+    bool retriedSession = false,
   }) async {
     final session = await _requireSession();
     onSession?.call(session.authenticationKey);
@@ -236,9 +231,21 @@ class PmService {
           headers: {...session.requestHeaders, 'Referer': 'https://bgm.tv/pm'},
         ),
       );
-      if ((await _requireSession()).authenticationKey !=
-          session.authenticationKey) {
+      final current = await _requireSession();
+      if (current.authenticationKey != session.authenticationKey) {
         throw const PmAuthException('网站登录已变化，请重新打开私信');
+      }
+      if (current.requestKey != session.requestKey) {
+        if (retriedSession) {
+          throw const PmException('网页登录已更新，请刷新消息后重试');
+        }
+        // GET is safe to repeat. Never replay a private-message submission.
+        return _getHtml(
+          path,
+          query: query,
+          onSession: onSession,
+          retriedSession: true,
+        );
       }
       final html = response.data ?? '';
       final location = response.realUri.toString();
@@ -246,10 +253,7 @@ class PmService {
         html,
         cfMitigated: response.headers.value('cf-mitigated'),
       )) {
-        onWebsiteSessionFailure?.call(
-          WebsiteAccessStatus.challenge,
-          session.authenticationKey,
-        );
+        _reportFailure(WebsiteAccessStatus.challenge, session);
         throw const PmAuthException('Bangumi 需要网页验证，请补充账号验证后继续');
       }
       if ((response.statusCode ?? 0) >= 500 || response.statusCode == 429) {
@@ -258,10 +262,7 @@ class PmService {
       if (response.statusCode == 401 ||
           location.contains('/login') ||
           _parser.looksLikeLoginPage(html)) {
-        onWebsiteSessionFailure?.call(
-          WebsiteAccessStatus.expired,
-          session.authenticationKey,
-        );
+        _reportFailure(WebsiteAccessStatus.expired, session);
         throw const PmAuthException();
       }
       if (response.statusCode != null && response.statusCode! >= 400) {
@@ -271,6 +272,17 @@ class PmService {
     } on DioException catch (error) {
       if (error.error is PmAuthException) rethrow;
       throw PmException('加载失败：${error.message ?? error}');
+    }
+  }
+
+  void _reportFailure(
+    WebsiteAccessStatus status,
+    WebsiteSessionSnapshot session, {
+    bool submitted = false,
+  }) {
+    if (onWebsiteSessionFailure?.call(status, session.requestKey) == false) {
+      if (submitted) throw const PmDeliveryUncertain();
+      throw const PmException('网页登录已更新，请刷新消息后重试');
     }
   }
 

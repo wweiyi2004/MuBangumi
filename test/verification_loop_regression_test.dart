@@ -53,15 +53,20 @@ void main() {
     'explicit Cloudflare challenge header wins even over apparent normal HTML',
     () async {
       final failures = <WebsiteAccessStatus>[];
-      final service = PmService(
-        sessionStore: Store(),
-        dio: responding(
-          signedInPage,
-          headers: {
-            'cf-mitigated': ['challenge'],
-          },
-        ),
-      )..onWebsiteSessionFailure = (status, _) => failures.add(status);
+      final service =
+          PmService(
+              sessionStore: Store(),
+              dio: responding(
+                signedInPage,
+                headers: {
+                  'cf-mitigated': ['challenge'],
+                },
+              ),
+            )
+            ..onWebsiteSessionFailure = (status, _) {
+              failures.add(status);
+              return true;
+            };
       addTearDown(service.dispose);
       await expectLater(service.loadInbox(), throwsException);
       expect(failures, [WebsiteAccessStatus.challenge]);
@@ -107,76 +112,80 @@ void main() {
       );
     },
   );
-  for (final membership in [true, false]) {
-    test(
-      'current NOT_ALLOWED response only uses website fallback for membership: $membership',
-      () async {
-        var htmlReads = 0, htmlWrites = 0, requests = 0;
-        final api = Dio()
-          ..interceptors.add(
-            InterceptorsWrapper(
-              onRequest: (options, handler) {
-                requests++;
-                handler.reject(
-                  DioException(
-                    requestOptions: options,
-                    type: DioExceptionType.badResponse,
-                    response: Response(
+  for (final statusCode in [401, 403]) {
+    for (final membership in [true, false]) {
+      test(
+        'NOT_ALLOWED $statusCode only uses website fallback for membership: $membership',
+        () async {
+          var htmlReads = 0, htmlWrites = 0, requests = 0;
+          final api = Dio()
+            ..interceptors.add(
+              InterceptorsWrapper(
+                onRequest: (options, handler) {
+                  requests++;
+                  handler.reject(
+                    DioException(
                       requestOptions: options,
-                      statusCode: 403,
-                      data: {
-                        'code': 'NOT_ALLOWED',
-                        'message': membership
-                            ? "you don't have permission to create posts, join group first"
-                            : "you don't have permission to create topic",
-                      },
+                      type: DioExceptionType.badResponse,
+                      response: Response(
+                        requestOptions: options,
+                        statusCode: statusCode,
+                        data: {
+                          'code': 'NOT_ALLOWED',
+                          'message': membership
+                              ? "you don't have permission to create posts, join group first"
+                              : "you don't have permission to create topic",
+                        },
+                      ),
                     ),
-                  ),
-                );
-              },
-            ),
+                  );
+                },
+              ),
+            );
+          final html = Dio()
+            ..interceptors.add(
+              InterceptorsWrapper(
+                onRequest: (options, handler) {
+                  if (options.method == 'POST') {
+                    htmlWrites++;
+                  } else {
+                    htmlReads++;
+                  }
+                  handler.resolve(
+                    Response<String>(
+                      requestOptions: options,
+                      statusCode: 200,
+                      data: options.method == 'POST'
+                          ? '{"id":42}'
+                          : signedInPage,
+                    ),
+                  );
+                },
+              ),
+            );
+          final service = CommunityService.test(
+            p1Dio: api,
+            htmlDio: html,
+            sessionStore: Store(),
+          )..setAccessToken('fixture');
+          addTearDown(service.dispose);
+          final pending = service.createGroupTopic(
+            slug: 'fixture',
+            title: 't',
+            content: 'b',
+            turnstileToken: 'once',
           );
-        final html = Dio()
-          ..interceptors.add(
-            InterceptorsWrapper(
-              onRequest: (options, handler) {
-                if (options.method == 'POST') {
-                  htmlWrites++;
-                } else {
-                  htmlReads++;
-                }
-                handler.resolve(
-                  Response<String>(
-                    requestOptions: options,
-                    statusCode: 200,
-                    data: options.method == 'POST' ? '{"id":42}' : signedInPage,
-                  ),
-                );
-              },
-            ),
-          );
-        final service = CommunityService.test(
-          p1Dio: api,
-          htmlDio: html,
-          sessionStore: Store(),
-        )..setAccessToken('fixture');
-        addTearDown(service.dispose);
-        final pending = service.createGroupTopic(
-          slug: 'fixture',
-          title: 't',
-          content: 'b',
-          turnstileToken: 'once',
-        );
-        if (membership) {
-          await pending;
-        } else {
-          await expectLater(pending, throwsException);
-        }
-        expect(requests, 1);
-        expect(htmlReads, membership ? 1 : 0);
-        expect(htmlWrites, membership ? 1 : 0);
-      },
-    );
+          if (membership) {
+            await pending;
+          } else {
+            await expectLater(pending, throwsException);
+          }
+          expect(requests, 1);
+          expect(htmlReads, membership ? 1 : 0);
+          expect(htmlWrites, membership ? 1 : 0);
+        },
+      );
+    }
   }
   test(
     'a returned topic form or unrelated topic links do not prove publication succeeded',
@@ -257,10 +266,12 @@ void main() {
     'inbox background detection does not revoke the verified account',
     () async {
       final failures = <WebsiteAccessStatus>[];
-      final service = PmService(
-        sessionStore: Store(),
-        dio: responding(signedInPage),
-      )..onWebsiteSessionFailure = (status, _) => failures.add(status);
+      final service =
+          PmService(sessionStore: Store(), dio: responding(signedInPage))
+            ..onWebsiteSessionFailure = (status, _) {
+              failures.add(status);
+              return true;
+            };
       addTearDown(service.dispose);
       expect(await service.loadInbox(), isEmpty);
       expect(failures, isEmpty);

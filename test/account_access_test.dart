@@ -94,7 +94,10 @@ void main() {
     final controller = WebsiteSessionController(store, probe: probe);
     addTearDown(controller.dispose);
     await controller.attachAccount(alice);
-    controller.reportFailure(WebsiteAccessStatus.expired, 'chii_auth=a');
+    controller.reportFailure(
+      WebsiteAccessStatus.expired,
+      controller.state.snapshot!.requestKey,
+    );
     expect(await controller.ensureVerified(), false);
     expect(controller.state.requiresLogin, true);
     await until(() => store.value!.verifiedUserId == null);

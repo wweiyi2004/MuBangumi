@@ -16,6 +16,20 @@ import 'package:mubangumi/screens/pm_page.dart';
 import 'package:mubangumi/state/website_session_controller.dart';
 
 void main() {
+  testWidgets('verification recovery clears an outbox-only login failure', (
+    tester,
+  ) async {
+    final service = _Service()..outboxNeedsAuth = true;
+    final website = _VerifiedSession();
+    final container = await _show(tester, service, controller: website);
+    expect(find.textContaining('需要补充账号验证'), findsOneWidget);
+    service.outboxNeedsAuth = false;
+    website.completeVerification();
+    await tester.pumpAndSettle();
+    expect(find.textContaining('需要补充账号验证'), findsNothing);
+    expect(find.text('旧发件'), findsOneWidget);
+    expect(container.read(websiteSessionProvider).isSynced, isTrue);
+  });
   testWidgets(
     'mailboxes paginate independently and send completion refreshes outbox',
     (tester) async {
@@ -92,6 +106,7 @@ Future<ProviderContainer> _show(
   _Service service, {
   _SessionStore? store,
   bool settle = true,
+  WebsiteSessionController? controller,
 }) async {
   final websiteStore = store ?? _SessionStore();
   service.websiteStore = websiteStore;
@@ -100,6 +115,8 @@ Future<ProviderContainer> _show(
       sessionProvider.overrideWith((ref) => PmTestSession()),
       pmDraftRepositoryProvider.overrideWithValue(MemoryPmDraftRepository()),
       websiteSessionStoreProvider.overrideWithValue(websiteStore),
+      if (controller != null)
+        websiteSessionProvider.overrideWith((ref) => controller),
     ],
   );
   addTearDown(container.dispose);
@@ -121,6 +138,26 @@ Future<ProviderContainer> _show(
 
 class _SessionStore extends PmTestWebsiteStore {
   set cookie(String value) => account = value;
+}
+
+class _VerifiedSession extends WebsiteSessionController {
+  _VerifiedSession() : super(_SessionStore());
+  @override
+  Future<void> reload() async {
+    state = WebsiteSessionState(
+      ready: true,
+      status: WebsiteAccessStatus.available,
+      snapshot: WebsiteSessionSnapshot(
+        cookies: const [WebsiteCookie(name: 'chii_auth', value: 'account-a')],
+        syncedAt: DateTime.now(),
+      ).withVerifiedUser(1),
+    );
+  }
+
+  void completeVerification() {
+    state = state.copyWith(status: WebsiteAccessStatus.checking);
+    state = state.copyWith(status: WebsiteAccessStatus.available);
+  }
 }
 
 class _Service extends PmService {
@@ -145,6 +182,7 @@ class _Service extends PmService {
   bool sent = false;
   bool inboxFails = false;
   bool outboxFails = false;
+  bool outboxNeedsAuth = false;
   Future<List<PmConversation>>? pendingInbox;
 
   @override
@@ -158,6 +196,7 @@ class _Service extends PmService {
   @override
   Future<List<PmConversation>> loadOutbox({int page = 1}) async {
     outboxPages.add(page);
+    if (outboxNeedsAuth) throw const PmAuthException();
     if (outboxFails) throw StateError('offline');
     return [_item(sent ? '新发件' : '旧发件')];
   }
