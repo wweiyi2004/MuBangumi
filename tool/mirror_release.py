@@ -64,6 +64,21 @@ def public_url(repository: str, tag: str, name: str) -> str:
     return f"https://gitee.com/{repository}/releases/download/{quote(tag, safe='')}/{quote(name, safe='')}"
 
 
+def gitee_failure(response, operation: str, token: str) -> RuntimeError:
+    detail = ""
+    try:
+        payload = response.json()
+        if isinstance(payload, dict):
+            detail = "; ".join(str(payload[key]) for key in
+                               ("message", "error", "error_description") if payload.get(key))
+    except ValueError:
+        detail = "non-JSON response"
+    if token:
+        detail = detail.replace(token, "[redacted]")
+    return RuntimeError(f"Gitee {operation} failed (HTTP {response.status_code})" +
+                        (f": {detail[:400]}" if detail else ""))
+
+
 def api(method: str, path: str, token: str, **kwargs):
     # Authentication is only ever sent to the fixed API origin, never attachment
     # CDN redirects. Do not print response bodies or exceptions containing URLs.
@@ -73,7 +88,7 @@ def api(method: str, path: str, token: str, **kwargs):
     if response.status_code == 404 and method == "GET":
         return None
     if not 200 <= response.status_code < 300:
-        raise RuntimeError(f"Gitee {method} failed (HTTP {response.status_code})")
+        raise gitee_failure(response, method, token)
     return response.json() if response.content else None
 
 
@@ -164,7 +179,7 @@ def mirror(repository: str, tag: str | None, dry_run: bool = False) -> None:
                         headers={"Authorization": f"Bearer {token}", "Content-Type": encoder.content_type},
                         data=encoder, timeout=(15, 300), allow_redirects=False)
                     if not 200 <= upload.status_code < 300:
-                        raise RuntimeError(f"Gitee attachment upload failed (HTTP {upload.status_code})")
+                        raise gitee_failure(upload, "attachment upload", token)
             # Existing files are verified too; never overwrite a conflicting file.
             url = public_url(repository, tag, name)
             verify_download(url, asset)

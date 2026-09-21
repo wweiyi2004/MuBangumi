@@ -39,6 +39,13 @@ class Response:
 
 
 class MirrorTests(unittest.TestCase):
+    def test_api_errors_explain_missing_permissions_without_leaking_token(self):
+        error = mirror.gitee_failure(Response(status=403, data={
+            "message": "Missing projects scope for token sensitive-token"}),
+            "GET", "sensitive-token")
+        self.assertIn("projects", str(error))
+        self.assertNotIn("sensitive-token", str(error))
+
     def test_rejects_untrusted_assets_and_missing_hash(self):
         self.assertEqual(mirror.select_assets(RELEASE), [ASSET])
         for changes in ({"digest": None}, {"size": 0},
