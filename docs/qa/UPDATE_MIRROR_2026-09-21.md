@@ -36,3 +36,13 @@
 - Gitee `v2.3.1+4029` 发行版已创建为预览状态，但附件尚未发布成功，未公布应用更新清单。
 - GitHub Actions 多次收到 Gitee 非 JSON HTTP 403，匿名元数据读取也受影响；本机读取相同公开仓库 API 返回 200。另一次发布运行耗时约 9 分钟仍无附件，已取消。
 - 已增加受限重试、请求及上传超时、上传进度日志，并提供本机交互发布入口 `tool/publish_gitee.ps1`。GitHub Secret 不能读回到本机，使用本机入口需用户在终端输入 Gitee 令牌。不能把当前状态描述成安装包国内镜像已验收。
+
+## 100 MB 限制处理与镜像发布完成（06:50 UTC）
+
+- 用户在本机成功上传并校验 Windows ZIP；Android 通用 APK 被 Gitee 明确以 100 MB 单附件限制拒绝。
+- 已增加上传前大小筛选。超过 100,000,000 字节的文件保持 GitHub 下载，不下载、不上传、不阻止其他平台发布；所有文件均超限时直接报错且不写远端。
+- 更新清单允许同时包含国内镜像文件和明确的 GitHub-only 文件，至少需要一个完成校验的国内文件；错误镜像 URL 仍被拒绝。
+- Python 测试 11 项、相关 Flutter 测试 27 项及对应静态分析通过。Windows PowerShell 5.1 真实 dry run 确认只校验 Windows 原包，跳过超限 APK。
+- GitHub Actions 运行 https://github.com/wweiyi2004/MuBangumi/actions/runs/35570143439 成功，复用并校验已有 Windows 附件，正式发布 `v2.3.1+4029` 镜像清单。
+- 公开 API 核对：发行版 `prerelease=false`；Windows 21,158,309 字节，具有 Gitee 镜像；Android 111,829,288 字节，仅保留原 GitHub URL。Windows 附件不支持 Range，自动续传按设计切换 GitHub。
+- Windows 国内下载已验收；Android 国内直装仍需另外提供经过验证的小体积 APK，当前不可宣称 Android 已有国内镜像。
