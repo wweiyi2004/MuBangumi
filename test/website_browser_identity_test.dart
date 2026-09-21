@@ -208,7 +208,7 @@ void main() {
                 requestOptions: options,
                 statusCode: 200,
                 data:
-                    '<div id="badgeUserPanel"><a class="avatar" href="/user/alice"></a></div>',
+                    '<div id="badgeUserPanel"><a class="avatar" href="/user/alice"></a></div><div class="pm-conversation-list"></div>',
               ),
             );
           },

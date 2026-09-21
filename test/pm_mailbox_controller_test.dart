@@ -6,6 +6,27 @@ import 'package:mubangumi/state/pm_mailbox_controller.dart';
 
 void main() {
   test(
+    'a partial refresh retains older history and reconciles removals at the end',
+    () async {
+      var fresh = false;
+      final box = PmMailboxController(
+        ({page = 1}) async => fresh
+            ? (page == 1 ? [_item('new')] : <PmConversation>[])
+            : (page <= 2 ? [_item('old$page')] : <PmConversation>[]),
+      );
+      addTearDown(box.dispose);
+      await box.refresh();
+      await box.loadMore();
+      fresh = true;
+      await box.refresh(preserveHistory: true);
+      expect(box.items.map((e) => e.id), ['new', 'old1', 'old2']);
+      expect(box.hasMore, true);
+      await box.loadMore();
+      expect(box.items.map((e) => e.id), ['new']);
+      expect(box.hasMore, false);
+    },
+  );
+  test(
     'pagination deduplicates overlap, retries the same page, and stops',
     () async {
       final pages = <int>[];

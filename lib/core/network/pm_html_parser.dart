@@ -116,6 +116,17 @@ class PmHtmlParser {
         document.querySelector('textarea[name="msg_body"]') != null;
   }
 
+  /// An empty result needs mailbox chrome; a gateway/error document is not
+  /// evidence that the user's conversations have disappeared.
+  bool hasMailboxLayout(String source) {
+    final document = html_parser.parse(source);
+    return document.querySelector('.pm-conversation-list') != null ||
+        document.querySelector('table.topic_list') != null ||
+        (_signedInUser(document) != null &&
+            document.querySelector('a[href="/pm/inbox.chii"]') != null &&
+            document.querySelector('a[href="/pm/outbox.chii"]') != null);
+  }
+
   List<PmConversation> parseConversationList(String source) {
     final document = html_parser.parse(source);
     final items = <PmConversation>[];

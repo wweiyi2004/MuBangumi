@@ -45,6 +45,30 @@ PmConversation row(
 );
 
 void main() {
+  test('large histories load in small resumable batches', () async {
+    final pages = <int>[];
+    final inbox = PmMailboxController(({page = 1}) async {
+      pages.add(page);
+      return [row('in$page', '42')];
+    });
+    final outbox = PmMailboxController(({page = 1}) async => []);
+    final contacts = PmContactsController(
+      inbox: inbox,
+      outbox: outbox,
+      loadFriends: () async => [alice],
+    );
+    addTearDown(() {
+      contacts.dispose();
+      inbox.dispose();
+      outbox.dispose();
+    });
+    await contacts.refresh();
+    expect(pages, [1, 2, 3]);
+    expect(contacts.historyIncomplete, true);
+    await contacts.syncHistory(more: true);
+    expect(pages, [1, 2, 3, 4, 5, 6]);
+    expect(inbox.items, hasLength(6));
+  });
   test(
     'all friends remain visible, and UID and username histories share one contact',
     () {

@@ -1,3 +1,6 @@
+import 'dart:convert';
+import 'dart:io';
+
 import 'package:dio/dio.dart';
 
 import '../auth/website_session.dart';
@@ -9,25 +12,32 @@ import 'pm_html_parser.dart';
 
 /// Cookie-authenticated Bangumi website PM client (HTML endpoints).
 class PmService {
-  PmService({WebsiteSessionStore? sessionStore, Dio? dio, PmHtmlParser? parser})
-    : _sessionStore = sessionStore ?? WebsiteSessionStore(),
-      _parser = parser ?? PmHtmlParser(),
-      _dio =
-          dio ??
-          Dio(
-            BaseOptions(
-              baseUrl: 'https://bgm.tv',
-              connectTimeout: const Duration(seconds: 15),
-              receiveTimeout: const Duration(seconds: 25),
-              responseType: ResponseType.plain,
-              followRedirects: true,
-              validateStatus: (code) => code != null && code < 500,
-              headers: const {
-                'User-Agent': muBangumiUserAgent,
-                'Accept': 'text/html,application/xhtml+xml',
-              },
-            ),
-          );
+  PmService({
+    WebsiteSessionStore? sessionStore,
+    Dio? dio,
+    PmHtmlParser? parser,
+    Future<void> Function(Duration)? retryDelay,
+    DateTime Function()? now,
+  }) : _sessionStore = sessionStore ?? WebsiteSessionStore(),
+       _parser = parser ?? PmHtmlParser(),
+       _retryDelay = retryDelay ?? Future<void>.delayed,
+       _now = now ?? DateTime.now,
+       _dio =
+           dio ??
+           Dio(
+             BaseOptions(
+               baseUrl: 'https://bgm.tv',
+               connectTimeout: const Duration(seconds: 15),
+               receiveTimeout: const Duration(seconds: 25),
+               responseType: ResponseType.plain,
+               followRedirects: true,
+               validateStatus: (code) => code != null && code < 500,
+               headers: const {
+                 'User-Agent': muBangumiUserAgent,
+                 'Accept': 'text/html,application/xhtml+xml',
+               },
+             ),
+           );
 
   void dispose() => _dio.close(force: true);
   Future<WebsiteSessionSnapshot> Function()? websiteSessionGuard;
@@ -38,6 +48,11 @@ class PmService {
   final PmHtmlParser _parser;
   final Dio _dio;
   final _formSessions = Expando<String>('PM form website session');
+  final _reads = <String, Future<String>>{};
+  final Future<void> Function(Duration) _retryDelay;
+  final DateTime Function() _now;
+  String? _cooldownKey;
+  DateTime? _retryAt;
 
   Future<({int userId, String authenticationKey})> verifyDraftOwner(
     BangumiUser user,
@@ -77,7 +92,11 @@ class PmService {
     required int page,
   }) async {
     final html = await _getHtml(path, query: {'page': page});
-    return _parser.parseConversationList(html);
+    final items = _parser.parseConversationList(html);
+    if (items.isEmpty && !_parser.hasMailboxLayout(html)) {
+      throw const PmException('未能识别返回的消息列表，已保留当前记录，请稍后重试');
+    }
+    return items;
   }
 
   Future<PmConversationDetail> loadConversation(
@@ -95,6 +114,9 @@ class PmService {
       query: query,
     );
     final detail = _parser.parseConversationDetail(html);
+    if (detail.messages.isEmpty && !detail.form.isValid) {
+      throw const PmException('未能读取会话内容，已保留当前记录，请稍后重试');
+    }
     _formSessions[detail.form] = sessionKey;
     return detail;
   }
@@ -164,6 +186,7 @@ class PmService {
     String? expectedSession,
   }) async {
     final session = await _requireSession();
+    _throwIfCoolingDown(session);
     if (expectedSession != null &&
         session.authenticationKey != expectedSession) {
       throw const PmAuthException('网站登录已变化，请重新打开私信后再发送');
@@ -174,6 +197,8 @@ class PmService {
         data: data,
         options: Options(
           contentType: Headers.formUrlEncodedContentType,
+          responseType: ResponseType.plain,
+          validateStatus: (code) => code != null && code < 600,
           headers: {
             ...session.requestHeaders,
             'Referer': 'https://bgm.tv/pm',
@@ -190,6 +215,10 @@ class PmService {
         throw const PmAuthException('Bangumi 需要网页验证，请补充账号验证后继续');
       }
       if ((response.statusCode ?? 0) >= 500) throw const PmDeliveryUncertain();
+      if (response.statusCode == 429) {
+        _recordCooldown(response, session);
+        _throwIfCoolingDown(session);
+      }
       if (_parser.looksLikeLoginPage(body) || response.statusCode == 401) {
         _reportFailure(WebsiteAccessStatus.expired, session, submitted: true);
         throw const PmAuthException();
@@ -212,6 +241,10 @@ class PmService {
         throw const PmDeliveryUncertain();
       }
       throw PmException('发送失败（HTTP ${error.response?.statusCode}）');
+    } finally {
+      // A post may change the mailbox even if its response was lost. A later
+      // refresh must not join a read that started before this submission.
+      _reads.clear();
     }
   }
 
@@ -219,15 +252,36 @@ class PmService {
     String path, {
     Map<String, dynamic>? query,
     void Function(String)? onSession,
-    bool retriedSession = false,
   }) async {
     final session = await _requireSession();
+    _throwIfCoolingDown(session);
     onSession?.call(session.authenticationKey);
+    final key = jsonEncode([session.requestKey, path, query]);
+    final active = _reads[key];
+    if (active != null) return active;
+    final future = _readHtml(path, session, query: query);
+    _reads[key] = future;
+    try {
+      return await future;
+    } finally {
+      if (identical(_reads[key], future)) _reads.remove(key);
+    }
+  }
+
+  Future<String> _readHtml(
+    String path,
+    WebsiteSessionSnapshot session, {
+    Map<String, dynamic>? query,
+    bool retriedSession = false,
+    bool retriedNetwork = false,
+  }) async {
     try {
       final response = await _dio.get<String>(
         path,
         queryParameters: query,
         options: Options(
+          responseType: ResponseType.plain,
+          validateStatus: (code) => code != null && code < 600,
           headers: {...session.requestHeaders, 'Referer': 'https://bgm.tv/pm'},
         ),
       );
@@ -240,11 +294,12 @@ class PmService {
           throw const PmException('网页登录已更新，请刷新消息后重试');
         }
         // GET is safe to repeat. Never replay a private-message submission.
-        return _getHtml(
+        return _readHtml(
           path,
+          current,
           query: query,
-          onSession: onSession,
           retriedSession: true,
+          retriedNetwork: retriedNetwork,
         );
       }
       final html = response.data ?? '';
@@ -257,6 +312,11 @@ class PmService {
         throw const PmAuthException('Bangumi 需要网页验证，请补充账号验证后继续');
       }
       if ((response.statusCode ?? 0) >= 500 || response.statusCode == 429) {
+        _recordCooldown(response, session);
+        _throwIfCoolingDown(session);
+        if (!retriedNetwork && _transientStatus(response.statusCode)) {
+          return _retryRead(path, session, query, retriedSession);
+        }
         throw PmException('加载失败（HTTP ${response.statusCode}），已保留登录');
       }
       if (response.statusCode == 401 ||
@@ -270,8 +330,78 @@ class PmService {
       }
       return html;
     } on DioException catch (error) {
-      if (error.error is PmAuthException) rethrow;
-      throw PmException('加载失败：${error.message ?? error}');
+      if (!retriedNetwork &&
+          const {
+            DioExceptionType.connectionTimeout,
+            DioExceptionType.receiveTimeout,
+            DioExceptionType.connectionError,
+          }.contains(error.type)) {
+        return _retryRead(path, session, query, retriedSession);
+      }
+      throw const PmException('消息连接暂时失败，已保留登录和当前记录，请稍后重试');
+    }
+  }
+
+  Future<String> _retryRead(
+    String path,
+    WebsiteSessionSnapshot session,
+    Map<String, dynamic>? query,
+    bool retriedSession,
+  ) async {
+    await _retryDelay(const Duration(milliseconds: 600));
+    final current = await _requireSession();
+    if (current.authenticationKey != session.authenticationKey) {
+      throw const PmAuthException('网站登录已变化，请重新打开私信');
+    }
+    _throwIfCoolingDown(current);
+    return _readHtml(
+      path,
+      current,
+      query: query,
+      retriedSession: retriedSession,
+      retriedNetwork: true,
+    );
+  }
+
+  bool _transientStatus(int? status) =>
+      const [500, 502, 503, 504, 520, 521, 522, 523, 524].contains(status);
+
+  void _recordCooldown(
+    Response<String> response,
+    WebsiteSessionSnapshot session,
+  ) {
+    final raw = response.headers.value('retry-after');
+    DateTime? until;
+    final seconds = int.tryParse(raw ?? '');
+    if (seconds != null && seconds > 0) {
+      until = _now().add(Duration(seconds: seconds));
+    } else if (raw != null) {
+      try {
+        until = HttpDate.parse(raw);
+      } on HttpException {
+        // An invalid Retry-After date must not replace the actual HTTP error.
+      }
+    }
+    if (response.statusCode == 429 &&
+        (until == null || !until.isAfter(_now()))) {
+      until = _now().add(const Duration(seconds: 30));
+    }
+    if (until != null && until.isAfter(_now())) {
+      if (_cooldownKey != session.requestKey ||
+          _retryAt == null ||
+          until.isAfter(_retryAt!)) {
+        _cooldownKey = session.requestKey;
+        _retryAt = until;
+      }
+    }
+  }
+
+  void _throwIfCoolingDown(WebsiteSessionSnapshot session) {
+    if (_cooldownKey == session.requestKey &&
+        _retryAt?.isAfter(_now()) == true) {
+      final seconds = (_retryAt!.difference(_now()).inMilliseconds / 1000)
+          .ceil();
+      throw PmException('消息服务暂时繁忙，请在 $seconds 秒后重试，已保留登录和当前记录');
     }
   }
 
