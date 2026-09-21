@@ -1,4 +1,4 @@
-param(
+﻿param(
     [string]$Tag,
     [string]$GiteeRepository = 'wweiyi/mu-bangumi',
     [switch]$DryRun
