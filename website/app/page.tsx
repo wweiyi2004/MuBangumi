@@ -6,6 +6,10 @@ export const dynamic = "force-static";
 
 const githubUrl = "https://github.com/wweiyi2004/MuBangumi";
 const releasesUrl = `${githubUrl}/releases`;
+const giteeRepository = process.env.NEXT_PUBLIC_GITEE_REPOSITORY ?? "";
+const giteeReleasesUrl = /^[a-zA-Z0-9_-]+\/[a-zA-Z0-9_.-]+$/.test(giteeRepository) &&
+  !giteeRepository.split("/").some((part) => part === "." || part === "..")
+  ? `https://gitee.com/${giteeRepository}/releases` : null;
 const faviconUrl = `${process.env.NEXT_PUBLIC_BASE_PATH ?? ""}/favicon.svg`;
 
 const features = [
@@ -288,6 +292,7 @@ export default function Home() {
         <p>打开 MuBangumi，把喜欢的作品和每一点进度好好收起来。</p>
         <div className="hero-actions">
           <a className="button button-primary" href={releasesUrl} target="_blank" rel="noreferrer">查看最新版本 <ArrowIcon /></a>
+          {giteeReleasesUrl && <a className="button button-secondary" href={giteeReleasesUrl} target="_blank" rel="noreferrer">国内下载（Gitee） <ArrowIcon /></a>}
           <a className="button button-secondary" href={githubUrl} target="_blank" rel="noreferrer"><GithubIcon /> 浏览项目</a>
         </div>
       </section>

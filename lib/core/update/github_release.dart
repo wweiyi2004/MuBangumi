@@ -1,3 +1,5 @@
+import 'update_source.dart';
+
 final _versionPattern = RegExp(
   r'^v?(\d+(?:\.\d+)*)(?:\+.*)?$',
   caseSensitive: false,
@@ -132,6 +134,8 @@ class GithubReleaseAsset {
     required this.url,
     required this.size,
     this.digest,
+    this.mirrorUrl,
+    this.mirrorRepository = giteeRepository,
   });
   factory GithubReleaseAsset.fromJson(Map<String, dynamic> json) =>
       GithubReleaseAsset(
@@ -139,10 +143,17 @@ class GithubReleaseAsset {
         url: json['browser_download_url']?.toString() ?? '',
         size: json['size'] is num ? (json['size'] as num).toInt() : 0,
         digest: json['digest']?.toString(),
+        mirrorUrl: json['mirror_url']?.toString(),
       );
   final String name, url;
   final int size;
   final String? digest;
+  final String? mirrorUrl;
+  final String mirrorRepository;
+  String? get trustedMirrorUrl =>
+      mirrorUrl != null && trustedGiteeAssetUrl(mirrorUrl!, mirrorRepository)
+      ? mirrorUrl
+      : null;
   String? get sha256Hex {
     final match = RegExp(
       r'^sha256:([a-fA-F0-9]{64})$',

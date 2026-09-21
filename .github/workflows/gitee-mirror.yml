@@ -1,0 +1,80 @@
+name: Sync code and releases to Gitee
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  release:
+    types: [published, edited]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag to mirror; leave empty for code sync only'
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: gitee-mirror
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    if: vars.GITEE_REPOSITORY != ''
+    runs-on: ubuntu-latest
+    env:
+      GITEE_REPOSITORY: ${{ vars.GITEE_REPOSITORY }}
+      GITEE_USERNAME: ${{ vars.GITEE_USERNAME }}
+      GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: main
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Validate configuration
+        shell: bash
+        run: |
+          python - <<'PY'
+          import os, re
+          repo = os.environ['GITEE_REPOSITORY']
+          assert re.fullmatch(r'[a-zA-Z0-9_-]+/[a-zA-Z0-9_.-]+', repo)
+          assert all(p not in ('.', '..') for p in repo.split('/'))
+          assert os.environ['GITEE_USERNAME'], 'Set the GITEE_USERNAME repository variable'
+          assert os.environ['GITEE_TOKEN'], 'Set the GITEE_TOKEN repository secret'
+          PY
+
+      - name: Sync main and tags without force or deletion
+        shell: bash
+        run: |
+          helper="$RUNNER_TEMP/gitee-askpass.sh"
+          cat > "$helper" <<'SH'
+          #!/bin/sh
+          case "$1" in
+            *Username*) printf '%s\n' "$GITEE_USERNAME" ;;
+            *Password*) printf '%s\n' "$GITEE_TOKEN" ;;
+          esac
+          SH
+          chmod 700 "$helper"
+          export GIT_ASKPASS="$helper" GIT_TERMINAL_PROMPT=0
+          trap 'rm -f "$GIT_ASKPASS"' EXIT
+          git -c credential.helper= push "https://gitee.com/${GITEE_REPOSITORY}.git" HEAD:refs/heads/main --tags
+
+      - uses: actions/setup-python@v6
+        if: github.event_name == 'release' || inputs.tag != ''
+        with:
+          python-version: '3.12'
+
+      - name: Install publication dependencies
+        if: github.event_name == 'release' || inputs.tag != ''
+        run: python -m pip install -r tool/requirements-mirror.txt
+
+      - name: Publish verified installation packages
+        if: (github.event_name == 'release' && !github.event.release.prerelease && !github.event.release.draft) || inputs.tag != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.event.release.tag_name || inputs.tag }}
+        run: python tool/mirror_release.py --repository "$GITEE_REPOSITORY" --tag "$RELEASE_TAG"

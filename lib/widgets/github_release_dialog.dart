@@ -6,6 +6,7 @@ import 'package:flutter_markdown_plus/flutter_markdown_plus.dart';
 import '../core/external_link.dart';
 import '../core/update/github_release.dart';
 import '../core/update/update_download.dart';
+import '../core/update/update_source.dart';
 import '../state/update_controller.dart';
 
 enum GithubReleaseDialogResult { skip, later, download }
@@ -43,6 +44,7 @@ class _GithubReleaseDialogState extends ConsumerState<GithubReleaseDialog> {
   bool _loading = true, _opening = false, _permissionNeeded = false;
   String? _message;
   late String _build;
+  UpdateSource _source = UpdateSource.auto;
   @override
   void initState() {
     super.initState();
@@ -53,12 +55,35 @@ class _GithubReleaseDialogState extends ConsumerState<GithubReleaseDialog> {
   Future<void> _load() async {
     final asset = await deviceReleaseAsset(widget.release);
     final build = await logicalUpdateBuild(widget.currentBuild);
+    final source = await const UpdateSourceStore().read();
+    if (!mounted) return;
+    final download = ref.read(updateDownloadProvider);
+    if (asset != null && !download.busy) await download.restore(asset);
     if (mounted) {
       setState(() {
         _asset = asset;
         _build = build;
+        _source =
+            source == UpdateSource.domestic && asset?.trustedMirrorUrl == null
+            ? UpdateSource.auto
+            : source;
         _loading = false;
       });
+    }
+  }
+
+  Future<void> _changeSource(UpdateSource? value) async {
+    if (value == null) return;
+    try {
+      await const UpdateSourceStore().write(value);
+      if (mounted) {
+        setState(() {
+          _source = value;
+          _message = null;
+        });
+      }
+    } catch (_) {
+      if (mounted) setState(() => _message = '下载源设置未保存，请重试');
     }
   }
 
@@ -158,6 +183,29 @@ class _GithubReleaseDialogState extends ConsumerState<GithubReleaseDialog> {
                     Text(
                       '安装包 ${(_asset!.size / 1000000).toStringAsFixed(1)} MB',
                     ),
+                  if (_asset != null) ...[
+                    const SizedBox(height: 8),
+                    DropdownButtonFormField<UpdateSource>(
+                      initialValue: _source,
+                      decoration: const InputDecoration(labelText: '下载来源'),
+                      items: [
+                        const DropdownMenuItem(
+                          value: UpdateSource.auto,
+                          child: Text('自动选择'),
+                        ),
+                        if (_asset!.trustedMirrorUrl != null)
+                          const DropdownMenuItem(
+                            value: UpdateSource.domestic,
+                            child: Text('国内源（Gitee）'),
+                          ),
+                        const DropdownMenuItem(
+                          value: UpdateSource.github,
+                          child: Text('GitHub'),
+                        ),
+                      ],
+                      onChanged: busy ? null : _changeSource,
+                    ),
+                  ],
                   if (busy) ...[
                     const SizedBox(height: 12),
                     LinearProgressIndicator(
@@ -175,9 +223,29 @@ class _GithubReleaseDialogState extends ConsumerState<GithubReleaseDialog> {
                           : '另一个版本正在下载',
                     ),
                     const Text('关闭面板后下载继续，可从“我的 → 检查更新”返回。'),
+                    if (matches && download.activeSource != null)
+                      Text('当前来源：${download.activeSource}'),
+                    if (matches)
+                      Wrap(
+                        children: [
+                          TextButton(
+                            onPressed: download.pause,
+                            child: const Text('暂停下载'),
+                          ),
+                          TextButton(
+                            onPressed: () => unawaited(download.cancel()),
+                            child: const Text('取消并删除'),
+                          ),
+                        ],
+                      ),
+                  ],
+                  if (matches && !busy && !ready && download.received > 0) ...[
+                    Text(
+                      '已保留 ${(download.received / 1000000).toStringAsFixed(1)} MB，可继续下载。',
+                    ),
                     TextButton(
-                      onPressed: download.cancel,
-                      child: const Text('取消下载'),
+                      onPressed: () => unawaited(download.cancel()),
+                      child: const Text('取消并删除'),
                     ),
                   ],
                   if (ready && Platform.isWindows)
@@ -198,7 +266,9 @@ class _GithubReleaseDialogState extends ConsumerState<GithubReleaseDialog> {
                           ? () => _open(download)
                           : () {
                               download.release = release;
-                              unawaited(download.start(_asset!));
+                              unawaited(
+                                download.start(_asset!, source: _source),
+                              );
                             },
                       icon: Icon(
                         ready
@@ -212,6 +282,8 @@ class _GithubReleaseDialogState extends ConsumerState<GithubReleaseDialog> {
                             ? Platform.isWindows
                                   ? '打开下载位置'
                                   : '安装更新'
+                            : matches && download.received > 0
+                            ? '继续下载'
                             : matches &&
                                   download.phase == UpdateDownloadPhase.error
                             ? '重新下载'

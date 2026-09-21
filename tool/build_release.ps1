@@ -16,10 +16,16 @@ param(
     [ValidateRange(1, 2100000000)]
     [int]$BuildNumber,
 
+    [string]$GiteeRepository = $env:GITEE_REPOSITORY,
+
     [switch]$DryRun
 )
 
 $ErrorActionPreference = 'Stop'
+if ($GiteeRepository -and ($GiteeRepository -notmatch '^[a-zA-Z0-9_-]+/[a-zA-Z0-9_.-]+$' -or
+    @($GiteeRepository.Split('/') | Where-Object { $_ -in @('.', '..') }).Count -gt 0)) {
+    throw 'GiteeRepository 必须是已验证的公开仓库 owner/repository，不要填写完整 URL。'
+}
 if ($Patch) {
     $Shorebird = $true
     if ($BuildName -or $BuildNumber) {
@@ -51,6 +57,7 @@ $artifactPaths = @($expectedArtifacts | ForEach-Object { Join-Path $repositoryRo
 $versionArguments = @()
 if ($BuildName) { $versionArguments += "--build-name=$BuildName" }
 if ($BuildNumber) { $versionArguments += "--build-number=$BuildNumber" }
+if ($GiteeRepository) { $versionArguments += "--dart-define=GITEE_REPOSITORY=$GiteeRepository" }
 
 if (-not (Test-Path -LiteralPath $oauthConfigPath -PathType Leaf)) {
     throw @"

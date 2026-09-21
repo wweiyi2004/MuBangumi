@@ -20,6 +20,10 @@ on:
       - "tool/package_windows_release.ps1"
       - "tool/tests/windows_package_safety_test.ps1"
       - "tool/tests/release_build_test.ps1"
+      - "tool/mirror_release.py"
+      - "tool/requirements-mirror.txt"
+      - "tool/tests/mirror_release_test.py"
+      - ".github/workflows/gitee-mirror.yml"
       - "tool/verify_repository_privacy.ps1"
       - ".gitignore"
       - ".github/workflows/flutter.yml"
@@ -41,6 +45,10 @@ on:
       - "tool/package_windows_release.ps1"
       - "tool/tests/windows_package_safety_test.ps1"
       - "tool/tests/release_build_test.ps1"
+      - "tool/mirror_release.py"
+      - "tool/requirements-mirror.txt"
+      - "tool/tests/mirror_release_test.py"
+      - ".github/workflows/gitee-mirror.yml"
       - "tool/verify_repository_privacy.ps1"
       - ".gitignore"
       - ".github/workflows/flutter.yml"
@@ -94,3 +102,8 @@ jobs:
 
       - name: Verify release build artifacts and symbols
         run: ./tool/tests/release_build_test.ps1
+
+      - name: Verify mirror publication safeguards
+        run: |
+          python -m pip install -r tool/requirements-mirror.txt
+          python -m unittest discover -s tool/tests -p mirror_release_test.py

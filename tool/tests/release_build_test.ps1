@@ -57,9 +57,10 @@ function Invoke-FixtureBuild {
 }
 
 try {
-    Invoke-FixtureBuild -Target apk -BuildName 2.2.0 -BuildNumber 25
+    Invoke-FixtureBuild -Target apk -BuildName 2.2.0 -BuildNumber 25 -GiteeRepository 'fixture/MuBangumi'
     $call = $fixture.Calls[-1]
     Assert-True ($call -contains '--split-per-abi') 'APK must split architectures'
+    Assert-True ($call -contains '--dart-define=GITEE_REPOSITORY=fixture/MuBangumi') 'Mirror configuration was not compiled into the application'
     Assert-True ($call -contains '--tree-shake-icons') 'Icon trimming must be enabled'
     Assert-True ($call -contains '--build-name=2.2.0' -and $call -contains '--build-number=25') 'Version overrides lost'
     Assert-True (($call -join ' ') -notmatch 'fixture-secret') 'Credentials leaked into command arguments'
@@ -114,6 +115,10 @@ try {
     $rejected = $false
     try { Invoke-FixtureBuild -Target apk -Patch -ReleaseVersion '2.2.0+24' -BuildNumber 25 } catch { $rejected = $true }
     Assert-True $rejected 'Patch accepted a conflicting build version'
+    $passed++
+    $rejected = $false
+    try { Invoke-FixtureBuild -Target apk -GiteeRepository 'https://gitee.com/fixture/MuBangumi' } catch { $rejected = $true }
+    Assert-True $rejected 'Mirror configuration accepted a full URL instead of owner/repository'
     $passed++
     Write-Output "Passed $passed release build checks."
 } finally {

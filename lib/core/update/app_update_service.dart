@@ -3,6 +3,7 @@ import 'package:package_info_plus/package_info_plus.dart';
 import 'package:shorebird_code_push/shorebird_code_push.dart';
 
 import 'github_release.dart';
+import 'release_catalog.dart' as catalog;
 
 /// Result of a Shorebird update check / download cycle.
 enum AppUpdatePhase {
@@ -250,12 +251,7 @@ class AppUpdateService {
   /// Latest published GitHub Release, or null if the request fails.
   Future<GithubRelease?> fetchLatestGithubRelease() async {
     try {
-      final response = await _dio.get<Map<String, dynamic>>(
-        githubLatestReleaseUrl,
-      );
-      final data = response.data;
-      if (data == null) throw const FormatException('empty release');
-      return GithubRelease.fromJson(data);
+      return await catalog.fetchReleaseCatalog(_dio);
     } catch (_) {
       throw const UpdateCheckException();
     }

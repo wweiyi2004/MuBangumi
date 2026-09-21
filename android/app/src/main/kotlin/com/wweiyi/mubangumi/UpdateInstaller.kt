@@ -23,7 +23,7 @@ object UpdateInstaller {
                     result.success(app.metaData?.get("mubangumi.buildNumber")?.toString())
                 }
                 "install" -> {
-                    val root = File(activity.cacheDir, "mubangumi-updates").canonicalFile
+                    val root = File(activity.filesDir, "mubangumi-updates").canonicalFile
                     val apk = File(call.argument<String>("path") ?: "").canonicalFile
                     require(apk.parentFile == root && apk.isFile && apk.extension == "apk")
                     val pm = activity.packageManager
