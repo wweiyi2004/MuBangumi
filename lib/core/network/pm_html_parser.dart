@@ -5,8 +5,10 @@ import '../../models/pm_models.dart';
 
 class PmHtmlParser {
   /// Only inspect the site's own account navigation, never a message author.
-  String? parseSignedInUser(String source) {
-    final document = html_parser.parse(source);
+  String? parseSignedInUser(String source) =>
+      _signedInUser(html_parser.parse(source));
+
+  String? _signedInUser(Document document) {
     final links = document.querySelectorAll(
       '#headerNeue2 > div > .idBadgerNeue a.avatar[href], #badgeUserPanel a.avatar[href], #dock a[href]',
     );
@@ -49,12 +51,35 @@ class PmHtmlParser {
   );
 
   bool looksLikeLoginPage(String source) {
-    final lower = source.toLowerCase();
-    // Require strong login-form signals; bare "guest" appears on many logged-in pages.
-    return lower.contains('name="password"') ||
-        lower.contains('id="loginform"') ||
-        (lower.contains('/login') && lower.contains('password')) ||
-        lower.contains('请先登录');
+    final document = html_parser.parse(source);
+    if (_signedInUser(document) != null) return false;
+    // A message may discuss login or quote HTML. Only actual site forms and
+    // account notices establish a lost session, never arbitrary body text.
+    for (final form in document.querySelectorAll('form')) {
+      final action = Uri.tryParse(
+        form.attributes['action'] ?? '',
+      )?.path.toLowerCase();
+      final loginForm =
+          form.id.toLowerCase() == 'loginform' ||
+          action == '/login' ||
+          action == '/followtherabbit';
+      if (loginForm &&
+          form.querySelector(
+                'input[type="password"], input[name="password"]',
+              ) !=
+              null) {
+        return true;
+      }
+    }
+    if (document.querySelector(
+          '#headerNeue2 .idBadgerNeue > .guest, #badgeUserPanel .guest',
+        ) !=
+        null) {
+      return true;
+    }
+    return document
+        .querySelectorAll('#colunmNotice, #columnNotice, .errorMessage')
+        .any((notice) => notice.text.contains('请先登录'));
   }
 
   /// Returns a user-facing website error from a PM form response, if present.

@@ -18,10 +18,7 @@ import 'pm_html_parser.dart';
 
 /// Strong signals that a classic website page is actually the login form.
 bool looksLikeWebsiteLoginPage(String source) {
-  final lower = source.toLowerCase();
-  return lower.contains('name="password"') ||
-      lower.contains('id="loginform"') ||
-      lower.contains('请先登录');
+  return PmHtmlParser().looksLikeLoginPage(source);
 }
 
 /// The P1 server rejected a private-group post/reply claiming the user is not
@@ -1067,10 +1064,11 @@ class CommunityService {
     required String content,
   }) async {
     final identity = _identityRevision;
-    final cookie = await _requireWebsiteCookieHeader();
+    final session = await _requireWebsiteSession();
+    final cookie = session.cookieHeader;
     final path = '/group/${Uri.encodeComponent(slug)}/new_topic';
-    final formhash = await _loadWebsiteFormhash(path, cookie);
-    await _verifyWebsiteWriteContext(identity, cookie);
+    final formhash = await _loadWebsiteFormhash(path, session);
+    await _verifyWebsiteWriteContext(identity, session.authenticationKey);
     final response = await _htmlDio.post<String>(
       path,
       data: {
@@ -1084,7 +1082,7 @@ class CommunityService {
         contentType: Headers.formUrlEncodedContentType,
         followRedirects: false,
         headers: {
-          'Cookie': cookie,
+          ...session.requestHeaders,
           'Referer': 'https://bgm.tv$path',
           'Origin': 'https://bgm.tv',
         },
@@ -1097,6 +1095,10 @@ class CommunityService {
       return;
     }
     final body = response.data ?? '';
+    if (status >= 500 || status == 429) {
+      throw FormatException('网站暂时无法响应（HTTP $status），请刷新确认发帖结果');
+    }
+    _throwIfWebsiteLoginPage(body, cookie);
     if (status == 401 || looksLikeWebsiteLoginPage(body)) {
       _websiteFailed(WebsiteAccessStatus.expired, cookie);
       throw const FormatException('网页版登录已过期，请重新登录网页版后再发帖');
@@ -1137,12 +1139,13 @@ class CommunityService {
     int? replyTo,
   }) async {
     final identity = _identityRevision;
-    final cookie = await _requireWebsiteCookieHeader();
+    final session = await _requireWebsiteSession();
+    final cookie = session.cookieHeader;
     final topicPath = '/group/topic/$topicId';
     // The topic page carries the session-wide formhash the form needs; the
     // GET also proves the website session can actually see the group.
-    final formhash = await _loadWebsiteFormhash(topicPath, cookie);
-    await _verifyWebsiteWriteContext(identity, cookie);
+    final formhash = await _loadWebsiteFormhash(topicPath, session);
+    await _verifyWebsiteWriteContext(identity, session.authenticationKey);
     final response = await _htmlDio.post<String>(
       '$topicPath/new_reply?ajax=1',
       data: {
@@ -1158,7 +1161,7 @@ class CommunityService {
       options: Options(
         contentType: Headers.formUrlEncodedContentType,
         headers: {
-          'Cookie': cookie,
+          ...session.requestHeaders,
           'Referer': 'https://bgm.tv$topicPath',
           'Origin': 'https://bgm.tv',
           'X-Requested-With': 'XMLHttpRequest',
@@ -1167,6 +1170,10 @@ class CommunityService {
       ),
     );
     final body = response.data ?? '';
+    if ((response.statusCode ?? 0) >= 500 || response.statusCode == 429) {
+      throw FormatException('网站暂时无法响应（HTTP ${response.statusCode}），请刷新确认回复结果');
+    }
+    _throwIfWebsiteLoginPage(body, cookie);
     if (response.statusCode == 401 || looksLikeWebsiteLoginPage(body)) {
       _websiteFailed(WebsiteAccessStatus.expired, cookie);
       throw const FormatException('网页版登录已过期，请重新登录网页版后再回复');
@@ -1194,8 +1201,12 @@ class CommunityService {
     throw const FormatException('回复结果未知，请刷新话题页确认是否已发出');
   }
 
-  Future<String> _loadWebsiteFormhash(String path, String cookie) async {
-    final html = await _fetchWebsiteHtml(path, cookie);
+  Future<String> _loadWebsiteFormhash(
+    String path,
+    WebsiteSessionSnapshot session,
+  ) async {
+    final cookie = session.cookieHeader;
+    final html = await _fetchWebsiteHtml(path, session);
     _throwIfWebsiteLoginPage(html, cookie);
     final fromPage = _htmlParser.parseFormhash(html);
     if (fromPage != null) return fromPage;
@@ -1203,40 +1214,44 @@ class CommunityService {
     // still carries the session formhash on the logout link when cookies
     // actually authenticated.
     if (path != '/') {
-      final home = await _fetchWebsiteHtml('/', cookie);
+      final home = await _fetchWebsiteHtml('/', session);
       _throwIfWebsiteLoginPage(home, cookie);
       final fromHome = _htmlParser.parseFormhash(home);
       if (fromHome != null) return fromHome;
     }
-    throw const FormatException('网页版看起来没有登录成功，请到「我的 → 设置 → Bangumi 账号」重新登录后再试');
+    throw const FormatException('暂时无法获取网页操作参数，请刷新后重试');
   }
 
   Future<void> _verifyWebsiteWriteContext(
     int identity,
-    String originalCookie,
+    String authenticationKey,
   ) async {
     if (identity != _identityRevision) {
       throw const FormatException('账号已变化，请重新操作');
     }
-    final current = await _requireWebsiteCookieHeader();
-    String key(String header) => WebsiteSessionSnapshot(
-      cookies: WebsiteSessionSnapshot.parseDocumentCookie(header),
-      syncedAt: DateTime.now(),
-    ).authenticationKey;
-    if (identity != _identityRevision || key(current) != key(originalCookie)) {
+    final current = await _requireWebsiteSession();
+    if (identity != _identityRevision ||
+        current.authenticationKey != authenticationKey) {
       throw const FormatException('网页登录已变化，请刷新页面后再提交');
     }
   }
 
-  Future<String> _fetchWebsiteHtml(String path, String cookie) async {
+  Future<String> _fetchWebsiteHtml(
+    String path,
+    WebsiteSessionSnapshot session,
+  ) async {
     final response = await _htmlDio.get<String>(
       path,
       options: Options(
-        headers: {'Cookie': cookie, 'Referer': 'https://bgm.tv/'},
+        headers: {...session.requestHeaders, 'Referer': 'https://bgm.tv/'},
+        validateStatus: (status) => status != null && status < 600,
       ),
     );
+    if ((response.statusCode ?? 0) >= 500 || response.statusCode == 429) {
+      throw FormatException('网站暂时无法响应（HTTP ${response.statusCode}），已保留登录');
+    }
     if (response.statusCode == 401) {
-      _websiteFailed(WebsiteAccessStatus.expired, cookie);
+      _websiteFailed(WebsiteAccessStatus.expired, session.cookieHeader);
       throw const FormatException('网页版登录已过期，请重新登录网页版后再试');
     }
     return response.data ?? '';
@@ -1256,9 +1271,9 @@ class CommunityService {
     }
   }
 
-  Future<String> _requireWebsiteCookieHeader() async {
+  Future<WebsiteSessionSnapshot> _requireWebsiteSession() async {
     if (websiteSessionGuard case final guard?) {
-      return (await guard()).cookieHeader;
+      return await guard();
     }
     final snapshot = await _sessionStore.read();
     final header = snapshot?.cookieHeader.trim() ?? '';
@@ -1267,7 +1282,7 @@ class CommunityService {
         '该小组为私密小组，需要走网站通道发帖或回复：请先在「我的 → 设置 → Bangumi 账号」中完成登录后重试',
       );
     }
-    return header;
+    return snapshot;
   }
 
   Future<void> postTimeline({

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -12,6 +13,7 @@ import 'package:webview_flutter_windows/webview_flutter_windows.dart'
 
 import '../core/auth/website_cookie_bridge.dart';
 import '../core/auth/website_session.dart';
+import '../core/auth/website_identity.dart';
 import '../core/external_link.dart';
 
 enum _CommunitySection {
@@ -75,6 +77,8 @@ class _CommunityWebScreenState extends ConsumerState<CommunityWebScreen>
   Timer? _captureTimer;
   bool _foreground = true;
   String? _lastAutomaticCookies;
+  Timer? _captureRetryCooldown;
+  String? _lastAttemptedCookies;
 
   @override
   void initState() {
@@ -144,16 +148,32 @@ class _CommunityWebScreenState extends ConsumerState<CommunityWebScreen>
         syncedAt: DateTime.now(),
       ).cookieHeader;
       if (automatic && cookieKey == _lastAutomaticCookies) return;
-      _lastAutomaticCookies = cookieKey;
+      if (automatic &&
+          cookieKey == _lastAttemptedCookies &&
+          _captureRetryCooldown?.isActive == true) {
+        return;
+      }
+      _lastAttemptedCookies = cookieKey;
+      _captureRetryCooldown?.cancel();
+      _captureRetryCooldown = Timer(const Duration(seconds: 5), () {});
+      final identity = await browser.captureIdentity(cookies);
+      if (!sameAccount()) return;
       await _session.attachAccount(ref.read(sessionProvider).user);
       if (!sameAccount()) return;
-      final saved = await _session.captureCookies(() async {
-        return sameAccount() ? cookies : const [];
-      }, automatic: automatic);
+      final saved = await _session.captureCookies(
+        () async {
+          return sameAccount() ? cookies : const [];
+        },
+        automatic: automatic,
+        browserIdentity: identity,
+      );
       if (!mounted || !sameAccount()) return;
       final verified = saved && await _session.ensureVerified();
       if (!mounted || !sameAccount()) return;
       if (verified) {
+        // Cache only successes. A failed probe must be retried after the page
+        // finishes login/challenge, even when the auth cookie did not change.
+        _lastAutomaticCookies = cookieKey;
         widget.onSessionSaved?.call();
       } else if (!automatic) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -183,6 +203,7 @@ class _CommunityWebScreenState extends ConsumerState<CommunityWebScreen>
   @override
   void dispose() {
     _captureTimer?.cancel();
+    _captureRetryCooldown?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
@@ -631,6 +652,58 @@ class _CommunityBrowserState extends State<_CommunityBrowser> {
     windowsController: _windowsController,
     mobileController: _mobileController,
   );
+
+  Future<WebsiteBrowserIdentity?> captureIdentity(
+    List<WebsiteCookie> cookies,
+  ) async {
+    if (_loading || !_ready) return null;
+    final beforeUrl = _currentUrl ?? _targetUrl;
+    const script = '''
+JSON.stringify({url: location.href, userAgent: navigator.userAgent,
+  html: ['#headerNeue2', '#badgeUserPanel', '#dock'].map(function(selector) {
+    var node = document.querySelector(selector);
+    return node ? node.outerHTML : '';
+  }).join('')})
+''';
+    try {
+      Object? result = Platform.isWindows
+          ? await _windowsController?.executeScript(script)
+          : await _mobileController?.runJavaScriptReturningResult(script);
+      for (var i = 0; i < 2 && result is String; i++) {
+        result = jsonDecode(result);
+      }
+      if (result is! Map ||
+          !mounted ||
+          _loading ||
+          beforeUrl != (_currentUrl ?? _targetUrl)) {
+        return null;
+      }
+      final before = WebsiteSessionSnapshot(
+        cookies: cookies,
+        syncedAt: DateTime.now(),
+      );
+      final after = WebsiteSessionSnapshot(
+        cookies: await captureCookies(),
+        syncedAt: DateTime.now(),
+      );
+      if (!mounted ||
+          _loading ||
+          beforeUrl != (_currentUrl ?? _targetUrl) ||
+          before.authenticationKey != after.authenticationKey) {
+        return null;
+      }
+      final evidence = WebsiteBrowserIdentity(
+        url: result['url']?.toString() ?? '',
+        html: result['html']?.toString() ?? '',
+        userAgent: result['userAgent']?.toString(),
+        authenticationKey: before.authenticationKey,
+      );
+      return evidence.matches(before) ? evidence : null;
+    } catch (_) {
+      // Platforms without JavaScript return values can still use the HTTP probe.
+      return null;
+    }
+  }
 
   Future<void> _updateMobileHistory() async {
     final controller = _mobileController;

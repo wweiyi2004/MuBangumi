@@ -290,7 +290,7 @@ class _PmPageState extends ConsumerState<PmPage> {
   }
 
   Future<void> _openWebFallback() async {
-    if (!await ensureWebsiteAccess(context, forceLogin: true) || !mounted) {
+    if (!await ensureWebsiteAccess(context) || !mounted) {
       return;
     }
     final cookies = await loadWebsiteSeedCookies();

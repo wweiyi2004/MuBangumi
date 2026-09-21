@@ -2,6 +2,7 @@ import 'package:mubangumi/navigation/app_destination.dart';
 import 'package:mubangumi/navigation/app_router.dart';
 import 'package:flutter/material.dart';
 import 'dart:io';
+import 'dart:convert';
 import 'package:flutter/services.dart';
 import 'package:mubangumi/core/auth/website_identity.dart';
 import 'package:mubangumi/models/bangumi_models.dart';
@@ -39,52 +40,89 @@ class _LoginStore extends WebsiteSessionStore {
 }
 
 class _LoginProbe extends WebsiteIdentityProbe {
+  _LoginProbe({this.failOnce = false});
+  final bool failOnce;
+  int calls = 0;
   @override
   Future<int> verify(
     WebsiteSessionSnapshot snapshot,
     BangumiUser expected,
-  ) async => expected.id;
+  ) async {
+    if (calls++ == 0 && failOnce) {
+      throw const WebsiteAccessException(
+        WebsiteAccessStatus.unavailable,
+        'temporary failure',
+      );
+    }
+    return expected.id;
+  }
+}
+
+class _OfflineProbe extends WebsiteIdentityProbe {
+  @override
+  Future<int> verify(
+    WebsiteSessionSnapshot snapshot,
+    BangumiUser expected,
+  ) async => throw const WebsiteAccessException(
+    WebsiteAccessStatus.unavailable,
+    '网络暂不可用，已保留登录',
+  );
+}
+
+class _UnavailableStore extends _LoginStore {
+  @override
+  Future<WebsiteSessionSnapshot?> read() async =>
+      throw StateError('storage temporarily unavailable');
 }
 
 void main() {
   testWidgets(
-    'AJAX login is captured once without a page-finished navigation',
+    'visible WebView account completes verification while HTTP probe is offline',
     (tester) async {
       if (!Platform.isWindows) return;
       final messenger =
           TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
       const prefix = 'io.jns.webview.win';
-      var loggedIn = false, saved = 0;
+      var saved = 0;
       messenger.setMockMethodCallHandler(
         const MethodChannel(prefix),
-        (call) async => call.method == 'initialize' ? {'textureId': 77} : null,
+        (call) async => call.method == 'initialize' ? {'textureId': 78} : null,
       );
       messenger.setMockMethodCallHandler(
-        const MethodChannel('$prefix/77/events'),
+        const MethodChannel('$prefix/78/events'),
         (_) async => null,
       );
-      messenger.setMockMethodCallHandler(const MethodChannel('$prefix/77'), (
+      messenger.setMockMethodCallHandler(const MethodChannel('$prefix/78'), (
         call,
       ) async {
         if (call.method == 'getCookies') {
           return [
-            if (loggedIn)
-              {
-                'name': 'chii_auth',
-                'value': 'fresh%3D==',
-                'domain': '.bgm.tv',
-                'path': '/',
-                'expires': -1.0,
-                'isSecure': true,
-                'isHttpOnly': true,
-                'sameSite': 1,
-              },
+            {
+              'name': 'chii_auth',
+              'value': 'browser-auth',
+              'domain': '.bgm.tv',
+              'path': '/',
+              'expires': -1.0,
+              'isSecure': true,
+              'isHttpOnly': true,
+              'sameSite': 1,
+            },
           ];
+        }
+        if (call.method == 'executeScript') {
+          return jsonEncode(
+            jsonEncode({
+              'url': 'https://bgm.tv/',
+              'userAgent': 'Mozilla/5.0 Test-Browser',
+              'html':
+                  '<div id="badgeUserPanel"><a class="avatar" href="/user/1"></a></div>',
+            }),
+          );
         }
         return null;
       });
       addTearDown(() {
-        for (final name in [prefix, '$prefix/77/events', '$prefix/77']) {
+        for (final name in [prefix, '$prefix/78/events', '$prefix/78']) {
           messenger.setMockMethodCallHandler(MethodChannel(name), null);
         }
       });
@@ -94,7 +132,7 @@ void main() {
           overrides: [
             sessionProvider.overrideWith((ref) => PmTestSession()),
             websiteSessionProvider.overrideWith(
-              (ref) => WebsiteSessionController(store, probe: _LoginProbe()),
+              (ref) => WebsiteSessionController(store, probe: _OfflineProbe()),
             ),
           ],
           child: MaterialApp(
@@ -110,19 +148,208 @@ void main() {
       for (var i = 0; i < 5; i++) {
         await tester.pump(const Duration(milliseconds: 100));
       }
-      loggedIn = true;
-      await tester.pump(const Duration(seconds: 2));
-      for (var i = 0; i < 5; i++) {
+      for (final event in [
+        {'type': 'urlChanged', 'value': 'https://bgm.tv/'},
+        {'type': 'loadingStateChanged', 'value': 2},
+      ]) {
+        await messenger.handlePlatformMessage(
+          '$prefix/78/events',
+          const StandardMethodCodec().encodeSuccessEnvelope(event),
+          (_) {},
+        );
+        await tester.pump();
+      }
+      for (var i = 0; i < 10; i++) {
         await tester.pump(const Duration(milliseconds: 100));
       }
       expect(saved, 1);
       expect(store.value?.verifiedUserId, 1);
-      expect(store.value?.cookies.single.value, 'fresh%3D==');
-      await tester.pump(const Duration(seconds: 4));
-      expect(saved, 1);
-      expect(store.writes, 1);
+      expect(store.value?.userAgent, 'Mozilla/5.0 Test-Browser');
       await tester.pumpWidget(const SizedBox.shrink());
       await tester.pump();
+    },
+  );
+  for (final diskFailure in [false, true]) {
+    testWidgets(
+      'temporary ${diskFailure ? 'storage' : 'network'} failure never pushes supplemental login',
+      (tester) async {
+        final store = diskFailure ? _UnavailableStore() : _LoginStore();
+        final saved = WebsiteSessionSnapshot(
+          cookies: const [WebsiteCookie(name: 'chii_auth', value: 'preserved')],
+          syncedAt: DateTime.now(),
+        );
+        store.value = saved;
+        bool? result;
+        await tester.pumpWidget(
+          ProviderScope(
+            overrides: [
+              sessionProvider.overrideWith((ref) => PmTestSession()),
+              websiteSessionStoreProvider.overrideWithValue(store),
+              websiteIdentityProbeProvider.overrideWith(
+                (ref) => _OfflineProbe(),
+              ),
+            ],
+            child: MaterialApp(
+              home: Scaffold(
+                body: Builder(
+                  builder: (context) => TextButton(
+                    onPressed: () async {
+                      result = await ensureWebsiteAccess(
+                        context,
+                        retryVerification: true,
+                      );
+                    },
+                    child: const Text('打开私信'),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+        await tester.tap(find.text('打开私信'));
+        for (var i = 0; i < 10; i++) {
+          await tester.pump(const Duration(milliseconds: 50));
+        }
+        expect(result, false);
+        expect(find.byType(WebsiteLoginScreen), findsNothing);
+        expect(find.byType(CommunityWebScreen), findsNothing);
+        expect(find.byType(SnackBar), findsOneWidget);
+        expect(store.value, same(saved));
+        expect(store.writes, 0);
+        await tester.pumpWidget(const SizedBox.shrink());
+      },
+    );
+  }
+  for (final failOnce in [false, true]) {
+    testWidgets(
+      'AJAX login recovers and is captured once (initial failure: $failOnce)',
+      (tester) async {
+        if (!Platform.isWindows) return;
+        final messenger =
+            TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+        const prefix = 'io.jns.webview.win';
+        var loggedIn = false, saved = 0;
+        final platformCalls = <String>[];
+        messenger.setMockMethodCallHandler(
+          const MethodChannel(prefix),
+          (call) async =>
+              call.method == 'initialize' ? {'textureId': 77} : null,
+        );
+        messenger.setMockMethodCallHandler(
+          const MethodChannel('$prefix/77/events'),
+          (_) async => null,
+        );
+        messenger.setMockMethodCallHandler(const MethodChannel('$prefix/77'), (
+          call,
+        ) async {
+          platformCalls.add(call.method);
+          if (call.method == 'getCookies') {
+            return [
+              if (loggedIn)
+                {
+                  'name': 'chii_auth',
+                  'value': 'fresh%3D==',
+                  'domain': '.bgm.tv',
+                  'path': '/',
+                  'expires': -1.0,
+                  'isSecure': true,
+                  'isHttpOnly': true,
+                  'sameSite': 1,
+                },
+            ];
+          }
+          return null;
+        });
+        addTearDown(() {
+          for (final name in [prefix, '$prefix/77/events', '$prefix/77']) {
+            messenger.setMockMethodCallHandler(MethodChannel(name), null);
+          }
+        });
+        final store = _LoginStore();
+        await tester.pumpWidget(
+          ProviderScope(
+            overrides: [
+              sessionProvider.overrideWith((ref) => PmTestSession()),
+              websiteSessionProvider.overrideWith(
+                (ref) => WebsiteSessionController(
+                  store,
+                  probe: _LoginProbe(failOnce: failOnce),
+                ),
+              ),
+            ],
+            child: MaterialApp(
+              home: CommunityWebScreen(
+                initialUrl: WebsiteLoginScreen.loginUrl,
+                enableCookieCapture: true,
+                showSectionSwitcher: false,
+                onSessionSaved: () => saved++,
+              ),
+            ),
+          ),
+        );
+        for (var i = 0; i < 5; i++) {
+          await tester.pump(const Duration(milliseconds: 100));
+        }
+        loggedIn = true;
+        await tester.pump(const Duration(seconds: 2));
+        for (var i = 0; i < 5; i++) {
+          await tester.pump(const Duration(milliseconds: 100));
+        }
+        if (failOnce) {
+          expect(saved, 0);
+          await tester.pump(const Duration(seconds: 6));
+          for (var i = 0; i < 5; i++) {
+            await tester.pump(const Duration(milliseconds: 100));
+          }
+        }
+        expect(
+          saved,
+          1,
+          reason: 'Native calls: $platformCalls; writes: ${store.writes}',
+        );
+        expect(store.value?.verifiedUserId, 1);
+        expect(store.value?.cookies.single.value, 'fresh%3D==');
+        await tester.pump(const Duration(seconds: 4));
+        expect(saved, 1);
+        expect(store.writes, failOnce ? 2 : 1);
+        await tester.pumpWidget(const SizedBox.shrink());
+        await tester.pump();
+      },
+    );
+  }
+  testWidgets(
+    'manual account repair opens the website after a failed HTTP probe',
+    (tester) async {
+      final store = _LoginStore()
+        ..value = WebsiteSessionSnapshot(
+          cookies: const [WebsiteCookie(name: 'chii_auth', value: 'saved')],
+          syncedAt: DateTime.now(),
+        );
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            sessionProvider.overrideWith((ref) => PmTestSession()),
+            websiteSessionStoreProvider.overrideWithValue(store),
+            websiteIdentityProbeProvider.overrideWith((ref) => _OfflineProbe()),
+          ],
+          child: MaterialApp(
+            home: Scaffold(
+              body: Builder(
+                builder: (context) => TextButton(
+                  onPressed: () => openWebsiteLoginScreen(context),
+                  child: const Text('补充验证'),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.tap(find.text('补充验证'));
+      for (var i = 0; i < 10; i++) {
+        await tester.pump(const Duration(milliseconds: 100));
+      }
+      expect(find.byType(WebsiteLoginScreen), findsOneWidget);
+      await tester.pumpWidget(const SizedBox.shrink());
     },
   );
   testWidgets('expired login hint uses normal Material text on a phone', (

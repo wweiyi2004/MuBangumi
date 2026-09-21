@@ -71,6 +71,7 @@ class WebsiteSessionSnapshot {
     this.verifiedUserId,
     this.verifiedAt,
     this.verificationVersion = 0,
+    this.userAgent,
   });
 
   final List<WebsiteCookie> cookies;
@@ -82,13 +83,28 @@ class WebsiteSessionSnapshot {
   final DateTime? verifiedAt;
   final int verificationVersion;
 
+  /// Browser identity used when these website cookies were captured.
+  final String? userAgent;
+
+  Map<String, String> get requestHeaders => {
+    'Cookie': cookieHeader,
+    if (userAgent != null &&
+        userAgent!.isNotEmpty &&
+        userAgent!.length <= 1024 &&
+        !RegExp(r'[\x00-\x1f\x7f]').hasMatch(userAgent!))
+      'User-Agent': userAgent!,
+  };
+
   bool isVerifiedFor(int userId, DateTime now) =>
       hasSessionCookies &&
       verificationVersion == 2 &&
       verifiedUserId == userId &&
       verifiedAt != null &&
       !verifiedAt!.isAfter(now) &&
-      now.difference(verifiedAt!) < const Duration(minutes: 10);
+      // The account binding belongs to these authentication cookies, not a
+      // ten-minute timer. Website responses revoke it when login really fails.
+      _authenticationKeyAt(now).isNotEmpty &&
+      _authenticationKeyAt(verifiedAt!) == _authenticationKeyAt(now);
 
   WebsiteSessionSnapshot withVerifiedUser(int userId, {DateTime? at}) =>
       WebsiteSessionSnapshot(
@@ -97,10 +113,14 @@ class WebsiteSessionSnapshot {
         verifiedUserId: userId,
         verifiedAt: at ?? DateTime.now(),
         verificationVersion: 2,
+        userAgent: userAgent,
       );
 
-  WebsiteSessionSnapshot withoutVerification() =>
-      WebsiteSessionSnapshot(cookies: cookies, syncedAt: syncedAt);
+  WebsiteSessionSnapshot withoutVerification() => WebsiteSessionSnapshot(
+    cookies: cookies,
+    syncedAt: syncedAt,
+    userAgent: userAgent,
+  );
 
   bool get hasSessionCookies => cookies.any(
     (cookie) =>
@@ -114,11 +134,13 @@ class WebsiteSessionSnapshot {
 
   /// Authentication cookies identify the session; challenge/theme cookies can
   /// refresh without invalidating a private-message draft or its form.
-  String get authenticationKey {
+  String get authenticationKey => _authenticationKeyAt(DateTime.now());
+
+  String _authenticationKeyAt(DateTime at) {
     final active = cookies
         .where(
           (cookie) =>
-              !cookie.isExpired &&
+              (cookie.expiresAt == null || cookie.expiresAt!.isAfter(at)) &&
               cookie.value.isNotEmpty &&
               cookie.looksLikeSession,
         )
@@ -146,6 +168,7 @@ class WebsiteSessionSnapshot {
     if (verifiedUserId != null) 'verified_user_id': verifiedUserId,
     if (verifiedAt != null) 'verified_at': verifiedAt!.toIso8601String(),
     'verification_version': verificationVersion,
+    if (userAgent != null) 'user_agent': userAgent,
   };
 
   factory WebsiteSessionSnapshot.fromJson(Map<String, dynamic> json) {
@@ -175,6 +198,9 @@ class WebsiteSessionSnapshot {
       verificationVersion: json['verification_version'] is int
           ? json['verification_version'] as int
           : 0,
+      userAgent: json['user_agent'] is String
+          ? json['user_agent'] as String
+          : null,
     );
   }
 

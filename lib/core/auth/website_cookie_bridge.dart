@@ -20,7 +20,7 @@ class WebsiteCookieBridge {
   static const _cookieOrigins = [bgmOrigin];
   static const _androidCookies = MethodChannel('mubangumi/website_cookies');
 
-  static Future<void> _cookieWrites = Future<void>.value();
+  static Future<void>? _cookieWrites;
   static Future<void>? _pendingCleanup;
   static bool _cleanupFailed = false;
   static bool get cleanupNeedsRetry => _cleanupFailed;
@@ -35,11 +35,17 @@ class WebsiteCookieBridge {
   }
 
   static Future<void> _writeCookies(Future<void> Function() action) {
-    final next = _cookieWrites.then((_) => action());
-    _cookieWrites = next.then<void>(
-      (_) {},
-      onError: (Object _, StackTrace _) {},
-    );
+    final previous = _cookieWrites;
+    final next = previous == null
+        ? Future<void>.sync(action)
+        : previous.then((_) => action());
+    late final Future<void> settled;
+    settled = next
+        .then<void>((_) {}, onError: (Object _, StackTrace _) {})
+        .whenComplete(() {
+          if (identical(_cookieWrites, settled)) _cookieWrites = null;
+        });
+    _cookieWrites = settled;
     return next;
   }
 

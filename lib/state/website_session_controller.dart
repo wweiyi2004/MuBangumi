@@ -42,6 +42,8 @@ class WebsiteSessionState {
   bool get isSynced =>
       status == WebsiteAccessStatus.available && hasStoredSession;
 
+  bool get requiresLogin => status.requiresLogin;
+
   String get statusLabel {
     if (!ready) return '检查中…';
     return switch (status) {
@@ -104,6 +106,7 @@ class WebsiteSessionController extends StateNotifier<WebsiteSessionState> {
   /// Each operation supersedes earlier reads and saves, including sign-out.
   int _generation = 0;
   Future<void> _writes = Future<void>.value();
+  bool _readFailed = false;
 
   WebsiteSessionState _snapshotState(
     WebsiteSessionSnapshot? snapshot, {
@@ -137,10 +140,18 @@ class WebsiteSessionController extends StateNotifier<WebsiteSessionState> {
   }
 
   Future<bool> ensureVerified({bool force = false}) {
+    if (!mounted) return Future.value(false);
+    if (force && _readFailed) return _reloadForVerification();
     final user = _expectedUser;
     final snapshot = state.snapshot;
     if (user == null) return Future.value(false);
+    if (state.status == WebsiteAccessStatus.cleanupRequired) {
+      return Future.value(false);
+    }
     if (snapshot?.hasSessionCookies != true) {
+      if (state.status == WebsiteAccessStatus.unavailable) {
+        return Future.value(false);
+      }
       state = state.copyWith(
         status: snapshot == null
             ? WebsiteAccessStatus.missing
@@ -153,12 +164,14 @@ class WebsiteSessionController extends StateNotifier<WebsiteSessionState> {
           WebsiteAccessStatus.expired,
           WebsiteAccessStatus.mismatch,
           WebsiteAccessStatus.challenge,
+          WebsiteAccessStatus.cleanupRequired,
         }.contains(state.status)) {
       return Future.value(false);
     }
-    if (!force &&
-        snapshot!.isVerifiedFor(user.id, DateTime.now()) &&
-        state.status == WebsiteAccessStatus.available) {
+    if (!force && snapshot!.isVerifiedFor(user.id, DateTime.now())) {
+      if (state.status != WebsiteAccessStatus.available) {
+        state = _snapshotState(snapshot);
+      }
       return Future.value(true);
     }
     final key = '$_generation:${user.id}:${snapshot!.authenticationKey}';
@@ -173,6 +186,14 @@ class WebsiteSessionController extends StateNotifier<WebsiteSessionState> {
         _verificationKey = null;
       }
     });
+  }
+
+  Future<bool> _reloadForVerification() async {
+    final reloading = reload();
+    final generation = _generation;
+    await reloading;
+    if (!mounted || generation != _generation || _readFailed) return false;
+    return ensureVerified(force: true);
   }
 
   Future<bool> _verify(
@@ -200,7 +221,11 @@ class WebsiteSessionController extends StateNotifier<WebsiteSessionState> {
       return true;
     } catch (error) {
       if (mounted && generation == _generation) {
+        final rejected =
+            error is WebsiteAccessException && error.status.requiresLogin;
+        final revoked = rejected ? snapshot.withoutVerification() : null;
         state = state.copyWith(
+          snapshot: revoked,
           status: error is WebsiteAccessException
               ? error.status
               : WebsiteAccessStatus.unavailable,
@@ -208,6 +233,19 @@ class WebsiteSessionController extends StateNotifier<WebsiteSessionState> {
               ? error.message
               : '账号核验暂时失败，请稍后重试',
         );
+        if (revoked != null) {
+          try {
+            await _write(() async {
+              if (mounted && generation == _generation) {
+                await _store.write(revoked);
+              }
+            });
+          } catch (_) {
+            if (mounted && generation == _generation) {
+              state = state.copyWith(message: '网站核验已失效，但状态保存失败，请重试');
+            }
+          }
+        }
       }
       return false;
     }
@@ -263,12 +301,15 @@ class WebsiteSessionController extends StateNotifier<WebsiteSessionState> {
       await _writes;
       final snapshot = await _store.read();
       if (!mounted || generation != _generation) return;
+      _readFailed = false;
       state = _snapshotState(snapshot);
     } catch (_) {
       if (!mounted || generation != _generation) return;
-      state = const WebsiteSessionState(
+      _readFailed = true;
+      state = state.copyWith(
         ready: true,
-        message: '无法读取网站登录，请重新登录网站',
+        status: WebsiteAccessStatus.unavailable,
+        message: '无法读取网站登录，已保留原记录，请重试',
       );
     }
   }
@@ -278,6 +319,7 @@ class WebsiteSessionController extends StateNotifier<WebsiteSessionState> {
   Future<bool> captureCookies(
     Future<List<WebsiteCookie>> Function() capture, {
     bool automatic = false,
+    WebsiteBrowserIdentity? browserIdentity,
   }) async {
     final generation = _generation;
     try {
@@ -296,7 +338,8 @@ class WebsiteSessionController extends StateNotifier<WebsiteSessionState> {
           )) {
         return false;
       }
-      if (snapshot.hasSessionCookies &&
+      if (browserIdentity == null &&
+          snapshot.hasSessionCookies &&
           snapshot.cookieHeader == state.snapshot?.cookieHeader) {
         return _expectedUser == null
             ? true
@@ -304,7 +347,7 @@ class WebsiteSessionController extends StateNotifier<WebsiteSessionState> {
                 force: state.status != WebsiteAccessStatus.available,
               );
       }
-      return saveCookies(cookies);
+      return saveCookies(cookies, browserIdentity: browserIdentity);
     } catch (_) {
       if (mounted && generation == _generation && !automatic) {
         state = state.copyWith(message: '无法保存登录，请重试');
@@ -316,6 +359,7 @@ class WebsiteSessionController extends StateNotifier<WebsiteSessionState> {
   Future<bool> saveCookies(
     List<WebsiteCookie> cookies, {
     DateTime? syncedAt,
+    WebsiteBrowserIdentity? browserIdentity,
   }) async {
     final generation = ++_generation;
     final cleaned = [
@@ -335,27 +379,44 @@ class WebsiteSessionController extends StateNotifier<WebsiteSessionState> {
       return false;
     }
     final previous = state.snapshot;
-    if (previous?.authenticationKey == snapshot.authenticationKey &&
-        previous?.verifiedUserId != null) {
-      snapshot = snapshot.withVerifiedUser(previous!.verifiedUserId!);
+    final browserMatches = browserIdentity?.matches(snapshot) == true;
+    snapshot = WebsiteSessionSnapshot(
+      cookies: snapshot.cookies,
+      syncedAt: snapshot.syncedAt,
+      userAgent: browserMatches
+          ? browserIdentity!.userAgent
+          : previous?.authenticationKey == snapshot.authenticationKey
+          ? previous?.userAgent
+          : null,
+    );
+    if (previous != null &&
+        previous.verifiedUserId != null &&
+        previous.isVerifiedFor(previous.verifiedUserId!, DateTime.now()) &&
+        previous.authenticationKey == snapshot.authenticationKey) {
+      snapshot = snapshot.withVerifiedUser(previous.verifiedUserId!);
       snapshot = WebsiteSessionSnapshot(
         cookies: snapshot.cookies,
         syncedAt: snapshot.syncedAt,
         verifiedUserId: previous.verifiedUserId,
         verifiedAt: previous.verifiedAt,
         verificationVersion: previous.verificationVersion,
+        userAgent: snapshot.userAgent,
       );
     }
     final expected = _expectedUser;
+    final browserIdentifier = browserIdentity?.identifierFor(snapshot);
     if (expected != null &&
-        !snapshot.isVerifiedFor(expected.id, DateTime.now())) {
+        (browserIdentifier != null ||
+            !snapshot.isVerifiedFor(expected.id, DateTime.now()))) {
       state = state.copyWith(
         snapshot: snapshot,
         status: WebsiteAccessStatus.checking,
         clearMessage: true,
       );
       try {
-        final id = await _probeOnce(snapshot, expected, generation);
+        final id = browserIdentifier != null
+            ? await _probe.verifyIdentifier(browserIdentifier, expected)
+            : await _probeOnce(snapshot, expected, generation);
         if (!mounted ||
             generation != _generation ||
             _expectedUser?.id != expected.id) {
@@ -364,6 +425,22 @@ class WebsiteSessionController extends StateNotifier<WebsiteSessionState> {
         snapshot = snapshot.withVerifiedUser(id);
       } catch (error) {
         if (mounted && generation == _generation) {
+          // A temporary probe failure must not discard the newly captured
+          // cookies. Store them unverified so restart/manual retry can recover.
+          // Explicitly mismatched accounts never replace the saved session.
+          if (error is WebsiteAccessException &&
+              error.status == WebsiteAccessStatus.unavailable) {
+            try {
+              await _write(() async {
+                if (mounted && generation == _generation) {
+                  await _store.write(snapshot.withoutVerification());
+                }
+              });
+            } catch (_) {
+              // The original verification error remains the relevant state.
+            }
+          }
+          if (!mounted || generation != _generation) return false;
           state = state.copyWith(
             status: error is WebsiteAccessException
                 ? error.status
@@ -391,6 +468,7 @@ class WebsiteSessionController extends StateNotifier<WebsiteSessionState> {
       return false;
     }
     if (!mounted || generation != _generation) return false;
+    _readFailed = false;
     state = _snapshotState(
       snapshot,
       message: expected == null ? '网站会话已保存，等待账号核验' : '账号验证完成',
@@ -436,6 +514,7 @@ class WebsiteSessionController extends StateNotifier<WebsiteSessionState> {
 
   Future<void> clear({String? message}) async {
     final generation = ++_generation;
+    _readFailed = false;
     state = WebsiteSessionState(ready: true, message: message ?? '已清除网站登录会话');
     try {
       await _write(_store.clear);
@@ -453,6 +532,7 @@ class WebsiteSessionController extends StateNotifier<WebsiteSessionState> {
   /// Reflect sign-out immediately and clear storage after pending saves.
   Future<void> markCleared({String? message}) {
     _generation++;
+    _readFailed = false;
     state = WebsiteSessionState(ready: true, message: message);
     // Complete any in-flight save before clearing it. A newer save then queues
     // after this cleanup, so an old write cannot erase the new website session.
