@@ -29,7 +29,26 @@
 
 ## 发布
 
-使用原 `2.3.1+4029` 的独立热更新基线，仅移入本轮 Dart 变更。实际补丁编号及服务端回读在发布后记录。
+使用原 `2.3.1+4029` 的独立热更新基线，仅移入本轮 Dart 变更。
+
+| 平台 | 补丁 | 服务端 ID | 通道 | 架构 |
+| --- | --- | --- | --- | --- |
+| Windows | #7 | 666979 | stable | x86_64 |
+| Android | #9 | 666994 | stable | arm、aarch64、x86_64 |
+
+服务端回读确认两者均在 stable、未回滚。主线源码 `32f91df`，Android 基线 `caa2d20`、Windows 基线 `a5aed62`，两份基线源码树相同。源码已推送，Gitee 同步成功。应用内说明使用 GitHub prerelease `v2.3.1+4029-patch.7` / `v2.3.1+4029-patch.9`。
+
+### Android 增量产物问题及纠正
+
+首次 Android 命令发布 #8 后，进一步核验发现 Gradle 快速结束且 kernel、libapp.so 内没有本轮新增读取恢复逻辑，复用了旧产物。不能仅以 CLI 成功或补丁编号增加作为本轮代码已交付的证据。
+
+已在独立 Android 基线执行 `flutter clean`，重新完成 `shorebird patch android --dry-run`，兼容检查报告 `No issues detected`，未强制放行原生或资源差异。检查重新生成的 kernel，再打开最终 AAB，确认三种架构的 libapp.so 都包含本轮新增错误处理文案。干净构建 AAB SHA-256：`54e00c4d81134c9dc657f3214fd21276b4f1f09b166d6dc26577fb501bca116e`。
+
+重新发布到 staging 得到 #9；核对该次发布使用的 AAB 内三份 libapp.so 的 SHA-256 与上述已验证构建完全一致后，将 #8（服务端 ID 666980）移至 staging，再将 #9 转入 stable。回读确认 #8 已不在稳定通道。Windows kernel 与最终 app.so 也核验到本轮新逻辑。
+
+后续旧基线补丁应继续采用清理构建、兼容预检、验证最终打包产物、先上传验证通道再转 stable 的顺序。增量缓存忽略源码变化的具体触发条件仍需单独定位。
+
+用户更新后需确认 Android #9 / Windows #7，安装版本仍为 `2.3.1+4029`。本地全量验证通过，发布时 GitHub Flutter CI 仍在执行；没有将它计作已通过。
 
 ## 协议参考
 
