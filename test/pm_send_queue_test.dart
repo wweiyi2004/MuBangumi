@@ -59,6 +59,34 @@ Future<void> until(bool Function() condition) async {
 
 void main() {
   test(
+    'authentication blocked before POST waits and resumes without an uncertain result',
+    () async {
+      final repo = MemoryPmOutboxRepository();
+      final service = _Service()..blockedBeforePost = true;
+      final queue = PmSendQueueController(
+        repository: repo,
+        service: service,
+        currentUser: () => alice,
+      );
+      final editor = await draft(repo, '未提交的消息');
+      addTearDown(queue.dispose);
+      addTearDown(editor.dispose);
+      final command = (await queue.enqueue(
+        editor,
+        receiver: '42',
+        related: 'topic',
+      ))!;
+      await until(
+        () => repo.commands[command.id]!.status == PmSendStatus.waiting,
+      );
+      expect(service.calls, isEmpty);
+      service.blockedBeforePost = false;
+      await queue.resumeWaiting();
+      await until(() => repo.commands[command.id]!.status == PmSendStatus.sent);
+      expect(service.calls, ['未提交的消息']);
+    },
+  );
+  test(
     'a changed receiver is rejected before POST and is not automatically retried',
     () async {
       final repo = MemoryPmOutboxRepository();
@@ -406,6 +434,7 @@ void main() {
 }
 
 class _Service extends PmService {
+  bool blockedBeforePost = false;
   String? receiverOverride;
   Completer<void>? gate, verifyGate;
   bool uncertain = false;
@@ -450,13 +479,16 @@ class _Service extends PmService {
   }
 
   @override
-  Future<({int userId, String authenticationKey})> verifyDraftOwner(
-    BangumiUser user,
-  ) async {
+  Future<({int userId, String authenticationKey, String requestKey})>
+  verifyDraftOwner(BangumiUser user) async {
     verifications++;
     await verifyGate?.future;
     final snapshot = await PmTestWebsiteStore().read();
-    return (userId: user.id, authenticationKey: snapshot!.authenticationKey);
+    return (
+      userId: user.id,
+      authenticationKey: snapshot!.authenticationKey,
+      requestKey: snapshot.requestKey,
+    );
   }
 
   @override
@@ -488,6 +520,7 @@ class _Service extends PmService {
     required String body,
     String? title,
   }) async {
+    if (blockedBeforePost) throw const PmPreflightAuthException('需要验证');
     repliesTo.add(form.msgReceivers);
     calls.add(body);
     await gate?.future;

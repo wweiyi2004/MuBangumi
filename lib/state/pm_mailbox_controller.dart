@@ -34,7 +34,6 @@ class PmMailboxController extends ChangeNotifier {
     loadingMore = false;
     error = null;
     moreError = null;
-    needAuth = false;
     final future = _fetch(generation, 1, append: false);
     _refresh = future;
     notifyListeners();
@@ -67,6 +66,7 @@ class PmMailboxController extends ChangeNotifier {
       _freshItems = [if (append) ..._freshItems, ...added];
       _page = page;
       loaded = true;
+      needAuth = false;
       // The HTML list has no fixed page size. Stop on empty/repeated pages.
       hasMore = added.isNotEmpty;
       // A short refresh must not discard previously loaded older contacts.

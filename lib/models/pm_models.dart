@@ -129,6 +129,12 @@ class PmException implements Exception {
   String toString() => message;
 }
 
+/// Authentication failed before any POST was dispatched; safe to resume the
+/// queued command after verification, unlike an ambiguous POST response.
+class PmPreflightAuthException extends PmAuthException {
+  const PmPreflightAuthException(super.message);
+}
+
 /// POST may have reached Bangumi; never automatically retry this result.
 class PmDeliveryUncertain extends PmException {
   const PmDeliveryUncertain() : super('发送结果尚未确认，请先核对会话，避免重复发送');

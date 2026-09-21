@@ -26,6 +26,7 @@ Future<PmDraft?> pickPmComposeDraft(
       .read(websiteSessionProvider.notifier)
       .bindVerifiedUser(
         authenticationKey: identity.authenticationKey,
+        requestKey: identity.requestKey,
         userId: user.id,
       )) {
     return null;
@@ -333,6 +334,7 @@ class _PmDraftEditorState extends ConsumerState<PmDraftEditor> {
           .read(websiteSessionProvider.notifier)
           .bindVerifiedUser(
             authenticationKey: identity.authenticationKey,
+            requestKey: identity.requestKey,
             userId: identity.userId,
           );
       if (!current()) return;

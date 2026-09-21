@@ -304,7 +304,8 @@ class _Store extends PmTestWebsiteStore {}
 class _Service extends PmService {
   late WebsiteSessionStore websiteStore;
   @override
-  Future<({int userId, String authenticationKey})> verifyDraftOwner(user) =>
+  Future<({int userId, String authenticationKey, String requestKey})>
+  verifyDraftOwner(user) =>
       PmService(sessionStore: websiteStore).verifyDraftOwner(user);
   Future<PmComposeParams>? pendingAlice;
   Future<void>? pendingReply;

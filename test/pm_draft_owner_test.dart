@@ -17,6 +17,39 @@ const user = BangumiUser(
 
 void main() {
   test(
+    'legacy owner metadata without a current verification must be checked online',
+    () async {
+      final store = _Store()
+        ..snapshot = WebsiteSessionSnapshot(
+          cookies: const [WebsiteCookie(name: 'chii_auth', value: 'legacy')],
+          syncedAt: DateTime(2026),
+          verifiedUserId: 42,
+        );
+      var requests = 0;
+      final dio = Dio()
+        ..interceptors.add(
+          InterceptorsWrapper(
+            onRequest: (options, handler) {
+              requests++;
+              handler.resolve(
+                Response<String>(
+                  requestOptions: options,
+                  statusCode: 200,
+                  data: '<div id="dock"><a href="/user/alice">Alice</a></div>',
+                ),
+              );
+            },
+          ),
+        );
+      final service = PmService(sessionStore: store, dio: dio);
+      addTearDown(service.dispose);
+      final result = await service.verifyDraftOwner(user);
+      expect(requests, 1);
+      expect(result.userId, 42);
+      expect(result.requestKey, store.snapshot!.requestKey);
+    },
+  );
+  test(
     'verified OAuth owner can restore drafts without a new website request',
     () async {
       var requests = 0;
@@ -176,6 +209,8 @@ WebsiteSessionSnapshot _session(String cookie, {int? owner}) =>
       cookies: [WebsiteCookie(name: 'chii_auth', value: cookie)],
       syncedAt: DateTime(2026),
       verifiedUserId: owner,
+      verifiedAt: owner == null ? null : DateTime(2026),
+      verificationVersion: owner == null ? 0 : 2,
     );
 
 class _Store extends WebsiteSessionStore {

@@ -165,6 +165,27 @@ void main() {
     );
   });
 
+  test(
+    'an earlier informational notice cannot hide a later submission error',
+    () {
+      const html =
+          '<div id="colunmNotice"><div class="text">操作提示</div></div>'
+          '<div class="errorMessage">发送失败，请重试</div>';
+      expect(parser.parseSubmissionError(html), '发送失败，请重试');
+      expect(parser.hasSubmissionSuccess(html), false);
+      expect(
+        parser.hasSubmissionSuccess(
+          '<div id="colunmNotice"><div class="text">短信已发送</div></div>',
+        ),
+        true,
+      );
+      expect(
+        parser.hasSubmissionSuccess('<div class="pm-message-body">短信已发送</div>'),
+        false,
+      );
+    },
+  );
+
   test('treats a success notice without a success keyword as success', () {
     expect(
       parser.parseSubmissionError(
