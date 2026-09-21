@@ -252,7 +252,11 @@ void main() {
         started.complete();
         return oldRead.future;
       }
-      return _response(options.method == 'POST' ? '<div>sent</div>' : _mailbox);
+      return _response(
+        options.method == 'POST'
+            ? '<div id="colunmNotice"><div class="text">短信已发送</div></div>'
+            : _mailbox,
+      );
     });
     final service = PmService(
       sessionStore: _Store(),

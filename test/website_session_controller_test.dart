@@ -19,6 +19,7 @@ void main() {
       expect(
         await controller.bindVerifiedUser(
           authenticationKey: 'chii_auth=a',
+          requestKey: controller.state.snapshot!.requestKey,
           userId: 42,
         ),
         isTrue,
@@ -35,6 +36,7 @@ void main() {
       expect(
         await controller.bindVerifiedUser(
           authenticationKey: 'chii_auth=a',
+          requestKey: controller.state.snapshot!.requestKey,
           userId: 42,
         ),
         isFalse,
@@ -53,6 +55,7 @@ void main() {
     await _waitFor(() => controller.state.ready);
     final binding = controller.bindVerifiedUser(
       authenticationKey: 'chii_auth=a',
+      requestKey: controller.state.snapshot!.requestKey,
       userId: 42,
     );
     await _waitFor(() => store.pendingWrite != null);

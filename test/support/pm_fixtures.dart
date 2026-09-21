@@ -42,6 +42,8 @@ class PmTestWebsiteStore extends WebsiteSessionStore {
     ],
     syncedAt: DateTime(2026),
     verifiedUserId: verifiedUserId,
+    verifiedAt: verifiedUserId == null ? null : DateTime(2026),
+    verificationVersion: verifiedUserId == null ? 0 : 2,
   );
   @override
   Future<void> write(WebsiteSessionSnapshot value) async {

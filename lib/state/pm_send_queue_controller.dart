@@ -264,7 +264,9 @@ class PmSendQueueController extends ChangeNotifier {
           }
           final uncertain =
               failure is PmDeliveryUncertain ||
-              (submitted && failure is PmAuthException) ||
+              (submitted &&
+                  failure is PmAuthException &&
+                  failure is! PmPreflightAuthException) ||
               (submitted &&
                   failure is! PmException &&
                   failure is! PmAuthException);

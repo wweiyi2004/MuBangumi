@@ -84,30 +84,30 @@ class PmHtmlParser {
 
   /// Returns a user-facing website error from a PM form response, if present.
   String? parseSubmissionError(String source) {
-    final document = html_parser.parse(source);
-    const selectors = [
-      '#colunmNotice .text',
-      '#columnNotice .text',
-      '.errorMessage',
-      '.alert-error',
-      '.alert-danger',
-      '.message.error',
-    ];
-    for (final selector in selectors) {
-      final text = document
-          .querySelector(selector)
-          ?.text
-          .replaceAll(RegExp(r'\s+'), ' ')
-          .trim();
-      if (text == null || text.isEmpty) continue;
+    for (final text in _submissionNotices(source)) {
       // Failure markers take priority: texts like "发送未成功，请稍后重试"
       // contain "成功" but must still be reported as errors.
       if (_failureNotice.hasMatch(text)) return text;
-      // Any remaining notice (e.g. "短信已发送") is informational, not an
-      // error; success notices do not necessarily contain "成功".
-      return null;
     }
     return null;
+  }
+
+  Iterable<String> _submissionNotices(String source) => html_parser
+      .parse(source)
+      .querySelectorAll(
+        '#colunmNotice .text, #columnNotice .text, .errorMessage, .alert-error, .alert-danger, .message.error',
+      )
+      .map((notice) => notice.text.replaceAll(RegExp(r'\s+'), ' ').trim())
+      .where((text) => text.isNotEmpty);
+
+  bool hasSubmissionSuccess(String source) {
+    final notices = _submissionNotices(source).toList();
+    if (notices.any(_failureNotice.hasMatch)) return false;
+    final receipt = RegExp(
+      r'(?:短信|私信|消息).{0,12}已(?:成功)?(?:发送|發送)|(?:发送|發送)成功|\bmessage (?:was |has been )?sent\b',
+      caseSensitive: false,
+    );
+    return notices.any(receipt.hasMatch);
   }
 
   bool hasSubmissionForm(String source) {

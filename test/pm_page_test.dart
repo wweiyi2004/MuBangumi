@@ -163,7 +163,8 @@ class _VerifiedSession extends WebsiteSessionController {
 class _Service extends PmService {
   late WebsiteSessionStore websiteStore;
   @override
-  Future<({int userId, String authenticationKey})> verifyDraftOwner(user) =>
+  Future<({int userId, String authenticationKey, String requestKey})>
+  verifyDraftOwner(user) =>
       PmService(sessionStore: websiteStore).verifyDraftOwner(user);
   @override
   Future<PmComposeParams> loadComposeParams(String user) async =>

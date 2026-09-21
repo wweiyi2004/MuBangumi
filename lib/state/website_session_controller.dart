@@ -85,8 +85,12 @@ class WebsiteSessionController extends StateNotifier<WebsiteSessionState> {
   final WebsiteIdentityProbe _probe;
   BangumiUser? _expectedUser;
   Future<bool>? _verification;
+  Future<void>? _attachment;
+  Future<bool>? _captureVerification;
+  int? _captureGeneration;
   String? _verificationKey;
   final _probeRequests = <String, Future<int>>{};
+  final _rejectedRequests = <String>{};
 
   Future<int> _probeOnce(
     WebsiteSessionSnapshot snapshot,
@@ -111,31 +115,50 @@ class WebsiteSessionController extends StateNotifier<WebsiteSessionState> {
   WebsiteSessionState _snapshotState(
     WebsiteSessionSnapshot? snapshot, {
     String? message,
-  }) => WebsiteSessionState(
-    ready: true,
-    snapshot: snapshot,
-    message: message,
-    status: snapshot?.hasSessionCookies != true
-        ? WebsiteAccessStatus.missing
-        : _expectedUser != null &&
-              snapshot!.isVerifiedFor(_expectedUser!.id, DateTime.now())
-        ? WebsiteAccessStatus.available
-        : WebsiteAccessStatus.unverified,
-  );
+  }) {
+    // A failed secure-storage write must not let a reload restore a binding
+    // that this running controller has already rejected.
+    if (snapshot != null && _rejectedRequests.contains(snapshot.requestKey)) {
+      snapshot = snapshot.withoutVerification();
+    }
+    return WebsiteSessionState(
+      ready: true,
+      snapshot: snapshot,
+      message: message,
+      status: snapshot?.hasSessionCookies != true
+          ? WebsiteAccessStatus.missing
+          : _expectedUser != null &&
+                snapshot!.isVerifiedFor(_expectedUser!.id, DateTime.now())
+          ? WebsiteAccessStatus.available
+          : WebsiteAccessStatus.unverified,
+    );
+  }
 
   Future<void> attachAccount(BangumiUser? user) async {
+    if (!mounted) return;
     if (_expectedUser?.id == user?.id &&
         _expectedUser?.username == user?.username) {
+      await _attachment;
       return;
     }
+    final attachment = Completer<void>();
+    _attachment = attachment.future;
     _expectedUser = user;
     _generation++;
     _verification = null;
     _verificationKey = null;
-    state = _snapshotState(state.snapshot);
-    await reload();
-    if (mounted && _expectedUser?.id == user?.id && user != null) {
-      await ensureVerified();
+    try {
+      state = _snapshotState(state.snapshot);
+      await reload();
+      if (mounted &&
+          _expectedUser?.id == user?.id &&
+          _expectedUser?.username == user?.username &&
+          user != null) {
+        await ensureVerified();
+      }
+    } finally {
+      attachment.complete();
+      if (identical(_attachment, attachment.future)) _attachment = null;
     }
   }
 
@@ -145,6 +168,9 @@ class WebsiteSessionController extends StateNotifier<WebsiteSessionState> {
     final user = _expectedUser;
     final snapshot = state.snapshot;
     if (user == null) return Future.value(false);
+    if (_captureVerification != null && _captureGeneration == _generation) {
+      return _captureVerification!;
+    }
     if (state.status == WebsiteAccessStatus.cleanupRequired) {
       return Future.value(false);
     }
@@ -168,18 +194,26 @@ class WebsiteSessionController extends StateNotifier<WebsiteSessionState> {
         }.contains(state.status)) {
       return Future.value(false);
     }
-    if (!force && snapshot!.isVerifiedFor(user.id, DateTime.now())) {
+    final key = '$_generation:${user.id}:${snapshot!.authenticationKey}';
+    if (_verification != null && _verificationKey == key) return _verification!;
+    if (!force && snapshot.isVerifiedFor(user.id, DateTime.now())) {
       if (state.status != WebsiteAccessStatus.available) {
         state = _snapshotState(snapshot);
       }
       return Future.value(true);
     }
-    final key = '$_generation:${user.id}:${snapshot!.authenticationKey}';
-    if (_verification != null && _verificationKey == key) return _verification!;
     final generation = _generation;
     _verificationKey = key;
-    final future = _verify(snapshot, user, generation);
+    final result = Completer<bool>();
+    final future = result.future;
     _verification = future;
+    unawaited(
+      _verify(
+        snapshot,
+        user,
+        generation,
+      ).then(result.complete, onError: result.completeError),
+    );
     return future.whenComplete(() {
       if (identical(_verification, future)) {
         _verification = null;
@@ -224,6 +258,12 @@ class WebsiteSessionController extends StateNotifier<WebsiteSessionState> {
         final rejected =
             error is WebsiteAccessException && error.status.requiresLogin;
         final revoked = rejected ? snapshot.withoutVerification() : null;
+        if (rejected) _rejectedRequests.add(snapshot.requestKey);
+        // Enqueue accepted revocations before notifying listeners. A listener
+        // may reload immediately; reload must wait for this durable state.
+        final saving = revoked == null
+            ? null
+            : _write(() => _store.write(revoked));
         state = state.copyWith(
           snapshot: revoked,
           status: error is WebsiteAccessException
@@ -235,11 +275,7 @@ class WebsiteSessionController extends StateNotifier<WebsiteSessionState> {
         );
         if (revoked != null) {
           try {
-            await _write(() async {
-              if (mounted && generation == _generation) {
-                await _store.write(revoked);
-              }
-            });
+            await saving;
           } catch (_) {
             if (mounted && generation == _generation) {
               state = state.copyWith(message: '网站核验已失效，但状态保存失败，请重试');
@@ -274,19 +310,20 @@ class WebsiteSessionController extends StateNotifier<WebsiteSessionState> {
 
   bool reportFailure(WebsiteAccessStatus status, String requestKey) {
     if (!mounted || state.snapshot?.requestKey != requestKey) return false;
-    final generation = ++_generation;
+    _rejectedRequests.add(requestKey);
+    ++_generation;
     _verification = null;
+    _verificationKey = null;
     final snapshot = state.snapshot!.withoutVerification();
+    // Later captures/logout queue after this write. A plain reload must not
+    // cancel it and restore the rejected binding from disk.
+    final saving = _write(() => _store.write(snapshot));
     state = state.copyWith(
       snapshot: snapshot,
       status: status,
       clearMessage: true,
     );
-    unawaited(
-      _write(() async {
-        if (mounted && generation == _generation) await _store.write(snapshot);
-      }).catchError((Object _) {}),
-    );
+    unawaited(saving.catchError((Object _) {}));
     return true;
   }
 
@@ -361,8 +398,34 @@ class WebsiteSessionController extends StateNotifier<WebsiteSessionState> {
     List<WebsiteCookie> cookies, {
     DateTime? syncedAt,
     WebsiteBrowserIdentity? browserIdentity,
-  }) async {
+  }) {
     final generation = ++_generation;
+    final result = Completer<bool>();
+    final future = result.future;
+    _captureVerification = future;
+    _captureGeneration = generation;
+    unawaited(
+      _saveCookies(
+        cookies,
+        generation: generation,
+        syncedAt: syncedAt,
+        browserIdentity: browserIdentity,
+      ).then(result.complete, onError: result.completeError),
+    );
+    return future.whenComplete(() {
+      if (identical(_captureVerification, future)) {
+        _captureVerification = null;
+        _captureGeneration = null;
+      }
+    });
+  }
+
+  Future<bool> _saveCookies(
+    List<WebsiteCookie> cookies, {
+    required int generation,
+    DateTime? syncedAt,
+    WebsiteBrowserIdentity? browserIdentity,
+  }) async {
     final cleaned = [
       for (final cookie in cookies)
         if (cookie.name.trim().isNotEmpty && cookie.value.isNotEmpty) cookie,
@@ -426,23 +489,29 @@ class WebsiteSessionController extends StateNotifier<WebsiteSessionState> {
         snapshot = snapshot.withVerifiedUser(id);
       } catch (error) {
         if (mounted && generation == _generation) {
-          // A temporary probe failure must not discard the newly captured
-          // cookies. Store them unverified so restart/manual retry can recover.
-          // Explicitly mismatched accounts never replace the saved session.
+          final unverified = snapshot.withoutVerification();
+          // Preserve the captured cookies for recovery, but never keep a
+          // verified binding in memory after persisting it as unverified.
+          // A different browser account must not replace the saved account.
+          final rejectedCurrent =
+              error is WebsiteAccessException &&
+              error.status.requiresLogin &&
+              error.status != WebsiteAccessStatus.mismatch &&
+              previous != null &&
+              previous.authenticationKey == snapshot.authenticationKey;
+          if (rejectedCurrent) _rejectedRequests.add(previous.requestKey);
           if (error is WebsiteAccessException &&
-              error.status == WebsiteAccessStatus.unavailable) {
+              (error.status == WebsiteAccessStatus.unavailable ||
+                  rejectedCurrent)) {
             try {
-              await _write(() async {
-                if (mounted && generation == _generation) {
-                  await _store.write(snapshot.withoutVerification());
-                }
-              });
+              await _write(() => _store.write(unverified));
             } catch (_) {
               // The original verification error remains the relevant state.
             }
           }
           if (!mounted || generation != _generation) return false;
           state = state.copyWith(
+            snapshot: unverified,
             status: error is WebsiteAccessException
                 ? error.status
                 : WebsiteAccessStatus.unavailable,
@@ -481,13 +550,22 @@ class WebsiteSessionController extends StateNotifier<WebsiteSessionState> {
   /// attach an identity to a different cookie session or restore a cleared one.
   Future<bool> bindVerifiedUser({
     required String authenticationKey,
+    required String requestKey,
     required int userId,
   }) async {
-    if (userId <= 0 || authenticationKey.isEmpty) return false;
-    if (state.snapshot?.authenticationKey == authenticationKey &&
-        state.snapshot?.verifiedUserId == userId) {
+    if (!mounted ||
+        userId <= 0 ||
+        authenticationKey.isEmpty ||
+        state.requiresLogin ||
+        state.status == WebsiteAccessStatus.checking ||
+        (_expectedUser != null && _expectedUser!.id != userId) ||
+        state.snapshot?.authenticationKey != authenticationKey) {
+      return false;
+    }
+    if (state.snapshot!.isVerifiedFor(userId, DateTime.now())) {
       return true;
     }
+    if (state.snapshot!.requestKey != requestKey) return false;
     final generation = ++_generation;
     var bound = false;
     try {
@@ -496,7 +574,8 @@ class WebsiteSessionController extends StateNotifier<WebsiteSessionState> {
         final snapshot = await _store.read();
         if (!mounted ||
             generation != _generation ||
-            snapshot?.authenticationKey != authenticationKey) {
+            snapshot?.authenticationKey != authenticationKey ||
+            snapshot?.requestKey != requestKey) {
           return;
         }
         final next = snapshot!.withVerifiedUser(userId);

@@ -54,21 +54,29 @@ class PmService {
   String? _cooldownKey;
   DateTime? _retryAt;
 
-  Future<({int userId, String authenticationKey})> verifyDraftOwner(
-    BangumiUser user,
-  ) async {
+  Future<({int userId, String authenticationKey, String requestKey})>
+  verifyDraftOwner(BangumiUser user) async {
     if (user.id <= 0) throw const PmAuthException('请先登录应用账号');
     final session = await _requireSession();
-    if (session.verifiedUserId != null) {
+    if (session.verificationVersion == 2 && session.verifiedUserId != null) {
       if (session.verifiedUserId != user.id) {
         throw const PmAuthException('网站登录与应用账号不一致，请登录同一个 Bangumi 账号');
       }
-      return (userId: user.id, authenticationKey: session.authenticationKey);
+      if (session.isVerifiedFor(user.id, DateTime.now())) {
+        return (
+          userId: user.id,
+          authenticationKey: session.authenticationKey,
+          requestKey: session.requestKey,
+        );
+      }
     }
     final html = await _getHtml('/');
-    if ((await _requireSession()).authenticationKey !=
-        session.authenticationKey) {
+    final current = await _requireSession();
+    if (current.authenticationKey != session.authenticationKey) {
       throw const PmAuthException('网站登录已变化，请重新核对');
+    }
+    if (current.requestKey != session.requestKey) {
+      throw const PmException('验证期间网站会话已更新，请重试核对');
     }
     final identifier = _parser.parseSignedInUser(html);
     if (identifier == null) {
@@ -78,7 +86,11 @@ class PmService {
         identifier.toLowerCase() != user.username.toLowerCase()) {
       throw const PmAuthException('网站登录与应用账号不一致，请登录同一个 Bangumi 账号');
     }
-    return (userId: user.id, authenticationKey: session.authenticationKey);
+    return (
+      userId: user.id,
+      authenticationKey: session.authenticationKey,
+      requestKey: session.requestKey,
+    );
   }
 
   Future<List<PmConversation>> loadInbox({int page = 1}) =>
@@ -185,11 +197,16 @@ class PmService {
     Map<String, dynamic> data, {
     String? expectedSession,
   }) async {
-    final session = await _requireSession();
-    _throwIfCoolingDown(session);
-    if (expectedSession != null &&
-        session.authenticationKey != expectedSession) {
-      throw const PmAuthException('网站登录已变化，请重新打开私信后再发送');
+    late final WebsiteSessionSnapshot session;
+    try {
+      session = await _requireSession();
+      _throwIfCoolingDown(session);
+      if (expectedSession != null &&
+          session.authenticationKey != expectedSession) {
+        throw const PmAuthException('网站登录已变化，请重新打开私信后再发送');
+      }
+    } on PmAuthException catch (error) {
+      throw PmPreflightAuthException(error.message);
     }
     try {
       final response = await _dio.post<String>(
@@ -232,10 +249,12 @@ class PmService {
           response.statusCode != 302) {
         throw PmException('发送失败（HTTP ${response.statusCode}）');
       }
-      // A successful send may stay on /pm/create.chii without a redirect, and
-      // the compose page always contains the submission form, so the response
-      // URL and form presence are not reliable failure signals. Success is
-      // decided by the notice parsing and status code above.
+      if (!_parser.hasSubmissionSuccess(body) &&
+          !_hasSubmissionRedirect(response)) {
+        // An HTTP 200/form alone is not an acknowledgement of a write. Keep
+        // the command for confirmation instead of silently discarding it.
+        throw const PmDeliveryUncertain();
+      }
     } on DioException catch (error) {
       if (error.response == null || (error.response?.statusCode ?? 0) >= 500) {
         throw const PmDeliveryUncertain();
@@ -246,6 +265,31 @@ class PmService {
       // refresh must not join a read that started before this submission.
       _reads.clear();
     }
+  }
+
+  bool _hasSubmissionRedirect(Response<String> response) {
+    final status = response.statusCode ?? 0;
+    final location = response.headers.value('location');
+    final destination = status >= 300 && status < 400 && location != null
+        ? Uri.parse('https://bgm.tv/pm/create.chii').resolve(location)
+        : response.redirects.isNotEmpty
+        ? response.realUri
+        : null;
+    if (destination == null ||
+        destination.scheme != 'https' ||
+        destination.host != 'bgm.tv' ||
+        destination.port != 443 ||
+        destination.userInfo.isNotEmpty) {
+      return false;
+    }
+    return const [
+          '/pm',
+          '/pm/inbox.chii',
+          '/pm/outbox.chii',
+        ].contains(destination.path) ||
+        RegExp(
+          r'^/pm/conversation/\d+(?:\.chii)?/?$',
+        ).hasMatch(destination.path);
   }
 
   Future<String> _getHtml(

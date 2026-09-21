@@ -6,6 +6,90 @@ import 'package:mubangumi/core/network/pm_service.dart';
 import 'package:mubangumi/models/pm_models.dart';
 
 void main() {
+  test(
+    'missing preflight login is distinguished from a dispatched POST',
+    () async {
+      var requests = 0;
+      final dio = Dio()
+        ..interceptors.add(
+          InterceptorsWrapper(
+            onRequest: (_, _) {
+              requests++;
+            },
+          ),
+        );
+      final service = PmService(
+        sessionStore: _MemoryWebsiteSessionStore(),
+        dio: dio,
+      );
+      addTearDown(service.dispose);
+      await expectLater(
+        service.compose(
+          params: const PmComposeParams(formhash: 'hash', msgReceivers: '42'),
+          title: 'fixture',
+          body: 'fixture',
+        ),
+        throwsA(isA<PmPreflightAuthException>()),
+      );
+      expect(requests, 0);
+    },
+  );
+  for (final target in [
+    '/pm/conversation/42.chii',
+    '/pm/inbox.chii',
+    'https://example.com/pm/inbox.chii',
+    '/pm/compose/42.chii',
+  ]) {
+    test(
+      'POST redirect is acknowledged only for an official result page: $target',
+      () async {
+        final service = _service(
+          (options) => Response<String>(
+            requestOptions: options,
+            statusCode: 302,
+            data: '',
+            headers: Headers.fromMap({
+              'location': [target],
+            }),
+          ),
+        );
+        addTearDown(service.dispose);
+        final sending = service.compose(
+          params: const PmComposeParams(formhash: 'hash', msgReceivers: '42'),
+          title: 'fixture',
+          body: 'fixture',
+        );
+        if (target.startsWith('/pm/conversation') ||
+            target == '/pm/inbox.chii') {
+          await sending;
+        } else {
+          await expectLater(sending, throwsA(isA<PmDeliveryUncertain>()));
+        }
+      },
+    );
+  }
+
+  test(
+    'an empty HTTP 200 POST response cannot silently mark a message sent',
+    () async {
+      final service = _service(
+        (options) => Response<String>(
+          requestOptions: options,
+          statusCode: 200,
+          data: '',
+        ),
+      );
+      addTearDown(service.dispose);
+      await expectLater(
+        service.compose(
+          params: const PmComposeParams(formhash: 'hash', msgReceivers: '42'),
+          title: 'fixture',
+          body: 'fixture',
+        ),
+        throwsA(isA<PmDeliveryUncertain>()),
+      );
+    },
+  );
   test('a lost POST response is uncertain rather than safe to retry', () async {
     final service = _service(
       (options) => throw DioException(
@@ -35,8 +119,9 @@ void main() {
               Response<String>(
                 requestOptions: options,
                 statusCode: 200,
-                data:
-                    '<input name="formhash" value="hash"><input name="msg_receivers" value="alice">',
+                data: options.method == 'POST'
+                    ? '<div id="colunmNotice"><div class="text">短信已发送</div></div>'
+                    : '<input name="formhash" value="hash"><input name="msg_receivers" value="alice">',
               ),
             );
           },
@@ -130,28 +215,28 @@ void main() {
     },
   );
 
-  test(
-    'treats a 200 response that stays on the compose page as sent',
-    () async {
-      final service = _service(
-        (options) => Response<String>(
-          requestOptions: options,
-          statusCode: 200,
-          data: '''
+  test('a 200 returned form without a receipt remains uncertain', () async {
+    final service = _service(
+      (options) => Response<String>(
+        requestOptions: options,
+        statusCode: 200,
+        data: '''
 <html><body>
 <form><input name="formhash" value="hash"><textarea name="msg_body"></textarea></form>
 </body></html>
 ''',
-        ),
-      );
+      ),
+    );
 
-      await service.compose(
+    await expectLater(
+      service.compose(
         params: const PmComposeParams(formhash: 'hash', msgReceivers: '42'),
         title: '标题',
         body: '内容',
-      );
-    },
-  );
+      ),
+      throwsA(isA<PmDeliveryUncertain>()),
+    );
+  });
 
   test('does not report a keyword-free success notice as a failure', () async {
     final service = _service(

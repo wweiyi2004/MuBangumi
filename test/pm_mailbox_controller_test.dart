@@ -6,6 +6,24 @@ import 'package:mubangumi/state/pm_mailbox_controller.dart';
 
 void main() {
   test(
+    'refreshing an auth failure stays blocked until a successful response',
+    () async {
+      final pending = Completer<List<PmConversation>>();
+      var calls = 0;
+      final box = PmMailboxController(({page = 1}) {
+        if (++calls == 1) throw const PmAuthException();
+        return pending.future;
+      });
+      addTearDown(box.dispose);
+      await box.refresh();
+      final refreshing = box.refresh();
+      expect(box.needAuth, true);
+      pending.complete([_item('1')]);
+      await refreshing;
+      expect(box.needAuth, false);
+    },
+  );
+  test(
     'a partial refresh retains older history and reconciles removals at the end',
     () async {
       var fresh = false;
