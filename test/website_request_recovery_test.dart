@@ -115,7 +115,7 @@ void main() {
                     statusCode: first ? (challenge ? 403 : 401) : 200,
                     data: first && challenge
                         ? '<title>Just a moment...</title>'
-                        : '<html></html>',
+                        : '<div class="pm-conversation-list"></div>',
                     headers: Headers.fromMap(
                       first && challenge
                           ? {

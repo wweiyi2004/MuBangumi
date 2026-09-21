@@ -9,6 +9,7 @@ import 'package:mubangumi/models/bangumi_models.dart';
 const signedInPage = '''
 <html><head><title>Bangumi</title></head><body>
 <div id="badgeUserPanel"><a class="avatar" href="/user/alice">Alice</a></div>
+<div class="pm-conversation-list"></div>
 <input name="formhash" value="fresh-hash">
 <script src="/cdn-cgi/challenge-platform/scripts/jsd/api.js"></script>
 </body></html>

@@ -76,7 +76,7 @@ class PmContactsView extends StatelessWidget {
             message: '私信记录加载失败，已保留当前列表',
             details: contacts.historyError,
             action: '重试私信同步',
-            onTap: () => contacts.syncHistory(),
+            onTap: () => contacts.syncHistory(more: true),
           ),
         Expanded(
           child: RefreshIndicator(

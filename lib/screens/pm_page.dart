@@ -277,8 +277,9 @@ class _PmPageState extends ConsumerState<PmPage> {
   Future<void> _syncWebsiteLogin() async {
     final saved = await openWebsiteLoginScreen(context);
     if (!mounted || saved != true) return;
-    await ref.read(websiteSessionProvider.notifier).reload();
-    unawaited(_refreshMailboxes());
+    // The access controller already committed the verified session. Join any
+    // refresh started by its listener instead of starting a second scan.
+    await _contacts.syncHistory();
     if (mounted) await _resumeConversationAfterLogin();
     if (mounted) await _resumePendingCompose();
   }

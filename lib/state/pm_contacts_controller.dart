@@ -105,14 +105,17 @@ class PmContactsController extends ChangeNotifier {
     int generation, {
     required bool more,
   }) async {
+    var fetched = 0;
     if (!more || !box.loaded || box.error != null) {
-      await box.refresh(supersede: true);
+      await box.refresh(supersede: true, preserveHistory: true);
+      fetched++;
     } else if (box.moreError != null) {
       await box.loadMore();
+      fetched++;
     }
-    // Bound one burst; the UI offers continuation rather than claiming the
-    // history is complete when a very large mailbox reaches this limit.
-    for (var page = 0; page < 100; page++) {
+    // Fetch recent history first. Older pages are an explicit continuation,
+    // not hundreds of background requests on each login or sent message.
+    for (; fetched < 3; fetched++) {
       if (_disposed ||
           generation != _historyGeneration ||
           !box.hasMore ||
