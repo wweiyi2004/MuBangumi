@@ -3,6 +3,7 @@ import 'package:mubangumi/navigation/app_router.dart';
 import 'package:flutter/material.dart';
 import 'dart:io';
 import 'dart:convert';
+import 'dart:async';
 import 'package:flutter/services.dart';
 import 'package:mubangumi/core/auth/website_identity.dart';
 import 'package:mubangumi/models/bangumi_models.dart';
@@ -69,6 +70,18 @@ class _OfflineProbe extends WebsiteIdentityProbe {
   );
 }
 
+class _RejectingProbe extends WebsiteIdentityProbe {
+  int calls = 0;
+  @override
+  Future<int> verify(
+    WebsiteSessionSnapshot snapshot,
+    BangumiUser expected,
+  ) async {
+    calls++;
+    throw const WebsiteAccessException(WebsiteAccessStatus.expired, 'expired');
+  }
+}
+
 class _UnavailableStore extends _LoginStore {
   @override
   Future<WebsiteSessionSnapshot?> read() async =>
@@ -76,6 +89,146 @@ class _UnavailableStore extends _LoginStore {
 }
 
 void main() {
+  testWidgets(
+    'expired repair opens immediately even when native initialization stalls',
+    (tester) async {
+      if (!Platform.isWindows) return;
+      const prefix = 'io.jns.webview.win';
+      final messenger =
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+      final initializing = Completer<Map<String, dynamic>>();
+      var initializations = 0;
+      final calls = <String>[];
+      final store = _LoginStore()
+        ..value = WebsiteSessionSnapshot(
+          cookies: const [WebsiteCookie(name: 'chii_auth', value: 'old')],
+          syncedAt: DateTime.now(),
+        ).withVerifiedUser(1);
+      final probe = _RejectingProbe();
+      final controller = WebsiteSessionController(store, probe: probe);
+      await controller.attachAccount(
+        const BangumiUser(
+          id: 1,
+          username: 'user1',
+          nickname: 'User 1',
+          avatarUrl: '',
+        ),
+      );
+      controller.reportFailure(
+        WebsiteAccessStatus.expired,
+        controller.state.snapshot!.requestKey,
+      );
+      messenger.setMockMethodCallHandler(const MethodChannel(prefix), (
+        call,
+      ) async {
+        if (call.method == 'initialize') {
+          initializations++;
+          if (initializations == 1) {
+            final reply = await initializing.future;
+            calls.add('reply:72');
+            return reply;
+          }
+          return {'textureId': 73};
+        }
+        calls.add('${call.method}:${call.arguments}');
+        return null;
+      });
+      for (final id in [72, 73]) {
+        messenger.setMockMethodCallHandler(
+          MethodChannel('$prefix/$id/events'),
+          (call) async {
+            calls.add('$id:${call.method}');
+            return null;
+          },
+        );
+        messenger.setMockMethodCallHandler(MethodChannel('$prefix/$id'), (
+          call,
+        ) async {
+          calls.add('$id:${call.method}');
+          if (call.method == 'getCookies') return <Object>[];
+          return null;
+        });
+      }
+      addTearDown(() {
+        for (final name in [
+          prefix,
+          '$prefix/72',
+          '$prefix/72/events',
+          '$prefix/73',
+          '$prefix/73/events',
+        ]) {
+          messenger.setMockMethodCallHandler(MethodChannel(name), null);
+        }
+      });
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            sessionProvider.overrideWith((ref) => PmTestSession()),
+            websiteSessionStoreProvider.overrideWithValue(store),
+            websiteSessionProvider.overrideWith((ref) => controller),
+          ],
+          child: MaterialApp(
+            home: Scaffold(
+              body: Builder(
+                builder: (context) => TextButton(
+                  onPressed: () => openWebsiteLoginScreen(context),
+                  child: const Text('repair'),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.tap(find.text('repair'));
+      await tester.pump(const Duration(milliseconds: 100));
+      await tester.pump(const Duration(milliseconds: 400));
+      expect(find.byType(WebsiteLoginScreen), findsOneWidget);
+      expect(
+        probe.calls,
+        0,
+        reason: 'Interactive repair must not wait for HTTP.',
+      );
+      expect(
+        initializations,
+        1,
+        reason: 'Only the visible browser is created.',
+      );
+      expect(
+        tester
+            .widget<CommunityWebScreen>(find.byType(CommunityWebScreen))
+            .seedCookies,
+        isEmpty,
+      );
+      await tester.pump(const Duration(seconds: 16));
+      expect(find.textContaining('启动超时'), findsOneWidget);
+      expect(find.text('重试'), findsOneWidget);
+      await tester.tap(find.text('重试'));
+      for (var i = 0; i < 5; i++) {
+        await tester.pump(const Duration(milliseconds: 100));
+      }
+      expect(initializations, 2);
+      expect(calls, contains('73:loadUrl'));
+      expect(find.textContaining('启动超时'), findsNothing);
+      initializing.complete({'textureId': 72});
+      for (var i = 0; i < 10 && !calls.contains('dispose:72'); i++) {
+        await tester.pump(const Duration(milliseconds: 50));
+      }
+      // EventChannel cancellation also needs the real platform message queue.
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 20)),
+      );
+      await tester.pump();
+      expect(calls, contains('dispose:72'));
+      expect(
+        calls,
+        isNot(contains('72:loadUrl')),
+        reason: 'A late native initialization must not navigate after timeout.',
+      );
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pump();
+      expect(tester.takeException(), isNull);
+    },
+  );
   for (final documentState in ['complete', 'interactive', 'loading']) {
     testWidgets(
       'visible WebView account verification respects document readiness: $documentState',

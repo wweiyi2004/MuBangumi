@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../state/session_controller.dart';
 import 'sync_issues_sheet.dart';
+import '../core/theme/app_tokens.dart';
 
 /// Shows durable local edits where the user changes and browses progress.
 class CollectionSyncStatus extends ConsumerStatefulWidget {
@@ -116,7 +117,7 @@ class _CollectionSyncStatusState extends ConsumerState<CollectionSyncStatus> {
         color: issues
             ? scheme.errorContainer.withValues(alpha: .45)
             : scheme.surfaceContainerLow,
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: AppRadius.medium,
         child: Padding(
           padding: const EdgeInsets.fromLTRB(12, 8, 8, 8),
           child: LayoutBuilder(

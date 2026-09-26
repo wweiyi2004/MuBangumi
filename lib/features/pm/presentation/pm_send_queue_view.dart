@@ -7,6 +7,7 @@ import '../../../models/pm_models.dart';
 import '../../../models/pm_send_command.dart';
 import '../../../state/pm_send_queue_controller.dart';
 import 'pm_chat_widgets.dart';
+import '../../../core/theme/app_tokens.dart';
 
 class PmQueuedBubble extends StatelessWidget {
   const PmQueuedBubble({
@@ -51,7 +52,7 @@ class PmQueuedBubble extends StatelessWidget {
             Text(
               command.label,
               style: TextStyle(
-                fontSize: 12,
+                fontSize: AppText.caption,
                 color:
                     command.status == PmSendStatus.failed ||
                         command.status == PmSendStatus.uncertain

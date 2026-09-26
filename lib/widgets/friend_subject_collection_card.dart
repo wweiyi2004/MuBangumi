@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../models/bangumi_models.dart';
 import 'community_widgets.dart';
+import '../core/theme/app_tokens.dart';
 
 /// Keeps a friend's identity, collection and comment in one readable entry.
 class FriendSubjectCollectionCard extends StatefulWidget {
@@ -48,7 +49,7 @@ class _FriendSubjectCollectionCardState
           children: [
             InkWell(
               onTap: widget.onOpenUser,
-              borderRadius: BorderRadius.circular(8),
+              borderRadius: AppRadius.small,
               child: Padding(
                 padding: const EdgeInsets.symmetric(vertical: 4),
                 child: Row(

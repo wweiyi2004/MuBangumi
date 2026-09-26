@@ -12,7 +12,7 @@ function Assert-WindowsPackageEntry {
         if ($segment -match '(?i)^(\.dart_tool|\.git|\.env(?:\..*)?|EBWebView|.*\.WebView2|Local Storage|Session Storage|IndexedDB|leveldb|Service Worker|Network|Cache|Code Cache|GPUCache|Crashpad)$' -or
             $segment -match '(?i)^(Cookies(?:-.*)?|Login Data(?:-.*)?|History(?:-.*)?|Preferences|Secure Preferences|Local State|Web Data(?:-.*)?|oauth\.local\.json|bangumi_credentials_.*|bangumi_access_token|bangumi_refresh_token|bangumi_website_session_.*)$' -or
             $segment -match '(?i)\.(sqlite|sqlite3|db)(?:[-.].*)?$' -or
-            $segment -match '(?i)\.(pem|key|pfx|p12|keystore)$') {
+            $segment -match '(?i)\.(pem|key|pfx|p12|keystore|symbols|pdb|onnx|npz|npy|safetensors|pt|pth)$') {
             throw "Private runtime data in package: $Name"
         }
     }
@@ -35,6 +35,21 @@ function Assert-NoSqlitePayload {
     if ($read -ge 15 -and [Text.Encoding]::ASCII.GetString($header, 0, 15) -eq 'SQLite format 3') {
         throw "SQLite content in package (including renamed files): $Name"
     }
+    # Scan runtime binaries too: native diagnostics can embed the build user's
+    # absolute paths even when the ZIP contains no private files. Keep a tail to
+    # catch ASCII and UTF-16 strings spanning read boundaries. Never echo data.
+    $privateRoots = @([IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..')), $env:USERPROFILE) |
+        Where-Object { $_ } | ForEach-Object { $_.Replace('\', '/').ToLowerInvariant() }
+    $tail = [Text.Encoding]::ASCII.GetString($header, 0, $read)
+    $buffer = New-Object byte[] 65536
+    do {
+        $count = $Stream.Read($buffer, 0, $buffer.Length)
+        $sample = ($tail + [Text.Encoding]::ASCII.GetString($buffer, 0, $count)).Replace("`0", '').Replace('\', '/').ToLowerInvariant()
+        if ($sample -match '[a-z]:/+users/+' -or @($privateRoots | Where-Object { $sample.Contains($_) }).Count -gt 0) {
+            throw "Personal machine path in package content: $Name"
+        }
+        $tail = $sample.Substring([Math]::Max(0, $sample.Length - 4096))
+    } while ($count -gt 0)
 }
 
 function Assert-WindowsPackageDirectory {

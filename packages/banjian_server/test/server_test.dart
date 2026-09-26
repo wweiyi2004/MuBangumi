@@ -463,6 +463,59 @@ void main() {
       );
     },
   );
+  test('scoring a round opens its comment wall to that participant', () async {
+    final other = newSecret(), third = newSecret();
+    for (final (token, name) in [(other, '小红'), (third, '小刚')]) {
+      await request(
+        '/api/join',
+        body: {
+          'op': newSecret(),
+          'event': id,
+          'invite': invite,
+          'token': token,
+          'name': name,
+        },
+      );
+    }
+    // Separate authors: one participant may post only every 3 seconds.
+    for (final (token, text) in [(member, '喜欢'), (third, '要隐藏')]) {
+      await request(
+        '/api/command',
+        token: token,
+        body: {
+          'op': newSecret(),
+          'event': id,
+          'round': round,
+          'action': 'comment',
+          'text': text,
+        },
+      );
+    }
+    Json wall() => store.view(id, token: other)['rounds'][0] as Json;
+    expect(wall()['commentsOpen'], false);
+    expect(wall()['comments'], isEmpty);
+    final hidden =
+        (store.view(id, admin: true)['rounds'][0]['comments'] as List)
+            .firstWhere((c) => c['text'] == '要隐藏');
+    await cmd('hide', {'round': round, 'comment': hidden['id'], 'value': true});
+
+    await request('/api/command', token: other, body: score(6));
+    expect(wall()['commentsOpen'], true);
+    expect((wall()['comments'] as List).map((c) => c['text']), ['喜欢']);
+    final page =
+        (await request(
+              '/api/comments?event=$id&round=$round',
+              token: other,
+            )).body
+            as Json;
+    expect((page['comments'] as List).map((c) => c['text']), ['喜欢']);
+    // The host switch is not needed, and admins get no per-viewer flag.
+    expect(wall()['publicComments'], false);
+    expect(
+      store.view(id, admin: true)['rounds'][0].containsKey('commentsOpen'),
+      false,
+    );
+  });
   test(
     'invitation rotation blocks new admission without revoking existing votes',
     () async {
@@ -516,6 +569,86 @@ void main() {
       409,
     );
   });
+  test(
+    'combined CSV puts anonymous comments beside round statistics',
+    () async {
+      final other = newSecret();
+      await request(
+        '/api/join',
+        body: {
+          'op': newSecret(),
+          'event': id,
+          'invite': invite,
+          'token': other,
+          'name': '小红',
+        },
+      );
+      await request('/api/command', token: member, body: score(8));
+      await request('/api/command', token: other, body: score(6));
+      for (final (token, text) in [(member, '好看'), (other, '要隐藏')]) {
+        await request(
+          '/api/command',
+          token: token,
+          body: {
+            'op': newSecret(),
+            'event': id,
+            'round': round,
+            'action': 'comment',
+            'text': text,
+          },
+        );
+      }
+      final hidden =
+          (store.view(id, admin: true)['rounds'][0]['comments'] as List)
+              .firstWhere((c) => c['text'] == '要隐藏');
+      await cmd('hide', {
+        'round': round,
+        'comment': hidden['id'],
+        'value': true,
+      });
+      await cmd('add', {
+        'subject': {'id': 2, 'title': '没人评论', 'summary': '', 'cover': ''},
+      });
+
+      final res = await request(
+        '/api/export?event=$id&format=combined',
+        token: admin,
+      );
+      expect(res.status, 200);
+      // The helper's UTF-8 decoder already drops the BOM.
+      final lines = (res.body as String).split('\r\n');
+      String cells(List<Object> v) => v.map((c) => '"$c"').join(',');
+      final zeros = List.filled(10, 0);
+      final dist = [...zeros]
+        ..[5] = 1
+        ..[7] = 1;
+      expect(lines, [
+        cells([
+          '番剧',
+          '人数',
+          '均分',
+          for (var i = 1; i <= 10; i++) '$i 分',
+          '匿名短评',
+          '已隐藏',
+        ]),
+        cells(['测试动画', 2, 7.0, ...dist, '好看', false]),
+        cells(['测试动画', 2, 7.0, ...dist, '要隐藏', true]),
+        '${cells(['没人评论', 0])},"",${cells(zeros)},"",""',
+      ]);
+      // Nothing links a name, or an individual score, to a comment.
+      expect(res.body, isNot(contains('小明')));
+      expect(res.body, isNot(contains('小红')));
+
+      // The in-memory export shares the streamed rows for every format.
+      for (final format in ['scores', 'comments', 'combined']) {
+        expect(
+          store.csv(id, format: format),
+          await store.exportStream(id, format: format).join(),
+          reason: format,
+        );
+      }
+    },
+  );
   test(
     'CSV neutralizes formula prefixes, exports anonymous data only',
     () async {

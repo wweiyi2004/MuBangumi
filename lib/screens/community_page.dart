@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -14,6 +13,8 @@ import 'package:webview_flutter_windows/webview_flutter_windows.dart'
 import '../core/auth/website_cookie_bridge.dart';
 import '../core/auth/website_session.dart';
 import '../core/auth/website_identity.dart';
+import '../core/diagnostics/account_diagnostics.dart';
+import '../state/account_diagnostics_provider.dart';
 import '../core/external_link.dart';
 
 enum _CommunitySection {
@@ -43,6 +44,7 @@ class CommunityWebScreen extends ConsumerStatefulWidget {
     this.enableCookieCapture = false,
     this.onSessionSaved,
     this.captureActionLabel,
+    this.requireBrowserIdentity = false,
   });
 
   final String initialUrl;
@@ -59,6 +61,7 @@ class CommunityWebScreen extends ConsumerStatefulWidget {
   final bool enableCookieCapture;
   final VoidCallback? onSessionSaved;
   final String? captureActionLabel;
+  final bool requireBrowserIdentity;
 
   @override
   ConsumerState<CommunityWebScreen> createState() => _CommunityWebScreenState();
@@ -157,7 +160,30 @@ class _CommunityWebScreenState extends ConsumerState<CommunityWebScreen>
       _captureRetryCooldown?.cancel();
       _captureRetryCooldown = Timer(const Duration(seconds: 5), () {});
       final identity = await browser.captureIdentity(cookies);
-      if (!sameAccount()) return;
+      if (!mounted || !sameAccount()) return;
+      if (identity == null &&
+          (widget.requireBrowserIdentity ||
+              ref.read(websiteSessionProvider).status ==
+                  WebsiteAccessStatus.challenge)) {
+        return;
+      }
+      // A cookie can still be present while this route displays a challenge.
+      // Do not let a separate healthy homepage probe dismiss that page.
+      if (identity != null &&
+          identity.identifierFor(
+                WebsiteSessionSnapshot(
+                  cookies: cookies,
+                  syncedAt: DateTime.now(),
+                ),
+              ) ==
+              null) {
+        if (!automatic) {
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(const SnackBar(content: Text('请在当前页面完成登录或网页验证后再核验')));
+        }
+        return;
+      }
       await _session.attachAccount(ref.read(sessionProvider).user);
       if (!sameAccount()) return;
       final saved = await _session.captureCookies(
@@ -473,7 +499,7 @@ bool isBenignEmbeddedWebViewUrl(Uri uri) {
   return target == 'blank' || target == 'srcdoc';
 }
 
-class _CommunityBrowser extends StatefulWidget {
+class _CommunityBrowser extends ConsumerStatefulWidget {
   const _CommunityBrowser({
     super.key,
     required this.initialUrl,
@@ -488,12 +514,13 @@ class _CommunityBrowser extends StatefulWidget {
   final List<WebsiteCookie> seedCookies;
 
   @override
-  State<_CommunityBrowser> createState() => _CommunityBrowserState();
+  ConsumerState<_CommunityBrowser> createState() => _CommunityBrowserState();
 }
 
-class _CommunityBrowserState extends State<_CommunityBrowser> {
+class _CommunityBrowserState extends ConsumerState<_CommunityBrowser> {
   bool get canCapture => _ready;
   windows.WebviewController? _windowsController;
+  Future<void>? _windowsInitialization;
   mobile.WebViewController? _mobileController;
   final List<StreamSubscription<dynamic>> _subscriptions = [];
 
@@ -506,6 +533,34 @@ class _CommunityBrowserState extends State<_CommunityBrowser> {
   bool _loading = true;
   bool _canGoBack = false;
   bool _canGoForward = false;
+  bool _initializing = false;
+  final _closed = Completer<void>();
+
+  Future<void> _waitForBrowser(Future<void> operation, {int seconds = 10}) =>
+      Future.any([
+        operation,
+        _closed.future,
+      ]).timeout(Duration(seconds: seconds));
+
+  void _disposeWindows(
+    windows.WebviewController controller,
+    Future<void>? startup,
+  ) {
+    unawaited(
+      () async {
+        try {
+          await startup;
+        } catch (_) {
+          // Failed initialization may still have allocated native resources.
+        }
+        await controller.dispose();
+      }().catchError((Object _) {}),
+    );
+  }
+
+  void _recordBrowser(AccountEvent event) {
+    ref.read(accountDiagnosticsProvider).record(AccountArea.website, event);
+  }
 
   @override
   void initState() {
@@ -526,14 +581,24 @@ class _CommunityBrowserState extends State<_CommunityBrowser> {
   }
 
   Future<void> _initializeWindows() async {
+    if (_initializing || !mounted) return;
+    _initializing = true;
+    setState(() {
+      _error = null;
+      _loading = true;
+      _ready = false;
+    });
+    _recordBrowser(AccountEvent.browserStarting);
     final controller = windows.WebviewController();
     _windowsController = controller;
+    final startup = _windowsInitialization = controller.initialize();
     try {
-      await controller.initialize();
-      if (!mounted) return;
+      await _waitForBrowser(startup, seconds: 15);
+      if (!mounted || !identical(_windowsController, controller)) return;
       _subscriptions.addAll([
         controller.url.listen(_handleWindowsUrl),
         controller.loadingState.listen((state) {
+          if (!mounted) return;
           _loading = state == windows.LoadingState.loading;
           _notify();
           if (state == windows.LoadingState.navigationCompleted) {
@@ -550,21 +615,47 @@ class _CommunityBrowserState extends State<_CommunityBrowser> {
           setState(() => _error = '页面加载失败，请检查网络后重试');
         }),
       ]);
-      await controller.setPopupWindowPolicy(
-        windows.WebviewPopupWindowPolicy.sameWindow,
+      await _waitForBrowser(
+        controller.setPopupWindowPolicy(
+          windows.WebviewPopupWindowPolicy.sameWindow,
+        ),
       );
-      await controller.setDefaultContextMenusEnabled(true);
-      await WebsiteCookieBridge.injectWindows(controller, widget.seedCookies);
+      if (!mounted) return;
+      await _waitForBrowser(controller.setDefaultContextMenusEnabled(true));
+      if (!mounted) return;
+      await _waitForBrowser(
+        WebsiteCookieBridge.injectWindows(controller, widget.seedCookies),
+      );
+      if (!mounted) return;
       _ready = true;
-      if (mounted) setState(() {});
-      await controller.loadUrl(_targetUrl);
+      setState(() {});
+      await _waitForBrowser(controller.loadUrl(_targetUrl));
+      if (mounted) _recordBrowser(AccountEvent.browserReady);
     } catch (error) {
       if (!mounted) return;
+      _recordBrowser(
+        error is TimeoutException
+            ? AccountEvent.browserTimeout
+            : AccountEvent.browserFailed,
+      );
+      for (final subscription in _subscriptions) {
+        unawaited(subscription.cancel());
+      }
+      _subscriptions.clear();
+      _windowsController = null;
+      // Dispose only after native creation settles, without blocking retry.
+      // A late instance must never navigate or replace the current browser.
+      _disposeWindows(controller, startup);
       setState(() {
+        _ready = false;
         _loading = false;
-        _error = '无法打开页面，请安装 Microsoft Edge WebView2 Runtime 后重试。';
+        _error = error is TimeoutException
+            ? '内置浏览器启动超时，请重试；仍无法打开时请重启应用。'
+            : '无法启动内置浏览器，请检查 Microsoft Edge WebView2 Runtime 后重试。';
       });
       _notify();
+    } finally {
+      _initializing = false;
     }
   }
 
@@ -663,52 +754,15 @@ class _CommunityBrowserState extends State<_CommunityBrowser> {
   ) async {
     if (!_ready) return null;
     final beforeUrl = _currentUrl ?? _targetUrl;
-    const script = '''
-JSON.stringify({url: location.href, readyState: document.readyState, userAgent: navigator.userAgent,
-  html: ['#headerNeue2', '#badgeUserPanel', '#dock'].map(function(selector) {
-    var node = document.querySelector(selector);
-    return node ? node.outerHTML : '';
-  }).join('')})
-''';
-    try {
-      Object? result = Platform.isWindows
+    return WebsiteBrowserIdentity.capture(
+      cookies: cookies,
+      evaluate: (script) async => Platform.isWindows
           ? await _windowsController?.executeScript(script)
-          : await _mobileController?.runJavaScriptReturningResult(script);
-      for (var i = 0; i < 2 && result is String; i++) {
-        result = jsonDecode(result);
-      }
-      if (result is! Map ||
-          !mounted ||
-          !const ['interactive', 'complete'].contains(result['readyState']) ||
-          Uri.tryParse(result['url']?.toString() ?? '') !=
-              Uri.tryParse(beforeUrl) ||
-          beforeUrl != (_currentUrl ?? _targetUrl)) {
-        return null;
-      }
-      final before = WebsiteSessionSnapshot(
-        cookies: cookies,
-        syncedAt: DateTime.now(),
-      );
-      final after = WebsiteSessionSnapshot(
-        cookies: await captureCookies(),
-        syncedAt: DateTime.now(),
-      );
-      if (!mounted ||
-          beforeUrl != (_currentUrl ?? _targetUrl) ||
-          before.authenticationKey != after.authenticationKey) {
-        return null;
-      }
-      final evidence = WebsiteBrowserIdentity(
-        url: result['url']?.toString() ?? '',
-        html: result['html']?.toString() ?? '',
-        userAgent: result['userAgent']?.toString(),
-        authenticationKey: before.authenticationKey,
-      );
-      return evidence.matches(before) ? evidence : null;
-    } catch (_) {
-      // Platforms without JavaScript return values can still use the HTTP probe.
-      return null;
-    }
+          : await _mobileController?.runJavaScriptReturningResult(script),
+      recapture: captureCookies,
+      expectedUrl: beforeUrl,
+      isCurrent: () => mounted && beforeUrl == (_currentUrl ?? _targetUrl),
+    );
   }
 
   Future<void> _updateMobileHistory() async {
@@ -776,11 +830,14 @@ JSON.stringify({url: location.href, readyState: document.readyState, userAgent: 
 
   @override
   void dispose() {
+    _closed.complete();
     for (final subscription in _subscriptions) {
       unawaited(subscription.cancel());
     }
     final windowsController = _windowsController;
-    if (windowsController != null) unawaited(windowsController.dispose());
+    if (windowsController != null) {
+      _disposeWindows(windowsController, _windowsInitialization);
+    }
     super.dispose();
   }
 

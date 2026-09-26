@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../core/theme/app_tokens.dart';
 
 class ProfileCollectionSummary extends StatelessWidget {
   const ProfileCollectionSummary({
@@ -25,7 +26,7 @@ class ProfileCollectionSummary extends StatelessWidget {
       padding: const EdgeInsets.all(24),
       decoration: BoxDecoration(
         color: scheme.surfaceContainerLow,
-        borderRadius: BorderRadius.circular(24),
+        borderRadius: AppRadius.large,
         border: Border.all(color: scheme.outlineVariant.withValues(alpha: .5)),
       ),
       child: Column(
@@ -172,7 +173,7 @@ class _SummaryAction extends StatelessWidget {
           color: Colors.transparent,
           child: InkWell(
             onTap: onTap,
-            borderRadius: BorderRadius.circular(12),
+            borderRadius: AppRadius.medium,
             child: child,
           ),
         ),

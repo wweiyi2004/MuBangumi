@@ -50,10 +50,12 @@ class RoomLocalStorage
     RoomSecretVault? vault,
     this._database,
     this._databasePath,
+    this._databaseOpener,
   }) : vault = vault ?? const PlatformRoomSecretVault();
   final String key;
   final RoomSecretVault vault;
   final Future<String> Function()? _databasePath;
+  final Future<Database> Function(String, OpenDatabaseOptions)? _databaseOpener;
   Database? _database;
   Future<Database>? _opening;
   Future<void> _tail = Future.value();
@@ -75,7 +77,7 @@ class RoomLocalStorage
       return _database!;
     }
     if (_opening != null) return _opening!;
-    return _opening = () async {
+    final opening = () async {
       final factory = Platform.isWindows || Platform.isLinux
           ? ffi.databaseFactoryFfi
           : databaseFactory;
@@ -92,20 +94,31 @@ class RoomLocalStorage
                 await directory.create(recursive: true);
                 return path.join(directory.path, 'participation.sqlite');
               }());
-      final db = await factory.openDatabase(
-        file,
-        options: OpenDatabaseOptions(
-          version: 1,
-          onConfigure: (db) async {
-            await db.rawQuery('PRAGMA journal_mode=WAL');
-            await db.execute('PRAGMA synchronous=FULL');
-          },
-          onCreate: (db, _) => _schema(db),
-        ),
+      final options = OpenDatabaseOptions(
+        version: 1,
+        onConfigure: (db) async {
+          await db.rawQuery('PRAGMA journal_mode=WAL');
+          await db.execute('PRAGMA synchronous=FULL');
+        },
+        onCreate: (db, _) => _schema(db),
       );
+      final db =
+          await (_databaseOpener?.call(file, options) ??
+              factory.openDatabase(file, options: options));
       _database = db;
       return db;
     }();
+    _opening = opening;
+    try {
+      return await opening;
+    } catch (_) {
+      // onCreate may have run inside a transaction that the platform rolled
+      // back. Both the pending Future and schema flag must be retryable.
+      _schemaReady = false;
+      rethrow;
+    } finally {
+      if (identical(_opening, opening)) _opening = null;
+    }
   }
 
   bool _schemaReady = false;

@@ -7,6 +7,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../core/network/bangumi_endpoints.dart';
 import '../core/network/network_route_probe.dart';
 import '../state/session_controller.dart';
+import '../core/theme/app_tokens.dart';
 
 const _proxyGuideUrl = 'https://catcat.blog/2026/05/bangumi-reverse-proxy';
 
@@ -150,7 +151,7 @@ class _NetworkRouteDialogState extends State<_NetworkRouteDialog> {
         padding: EdgeInsets.fromLTRB(24, 8, 24, 4),
         child: Text(
           '测速结果仅供参考。切换线路不影响登录授权、社区和官网页面。',
-          style: TextStyle(fontSize: 12),
+          style: TextStyle(fontSize: AppText.caption),
         ),
       ),
     ],

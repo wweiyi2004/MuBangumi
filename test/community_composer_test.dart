@@ -3,8 +3,65 @@ import 'package:mubangumi/navigation/app_router.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mubangumi/widgets/community_composer.dart';
+import 'package:mubangumi/core/auth/website_identity.dart';
 
 void main() {
+  testWidgets(
+    'website recovery preserves a group draft and requires a fresh explicit submission',
+    (tester) async {
+      var recovered = false, calls = 0, tokens = 0;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Builder(
+            builder: (context) => Scaffold(
+              body: TextButton(
+                onPressed: () => showCommunityComposer(
+                  context,
+                  heading: '小组回复',
+                  tokenProvider: (_) async => 'token-${++tokens}',
+                  websiteRecovery: (_) async {
+                    recovered = true;
+                    return true;
+                  },
+                  onSubmit: (_, content, token) async {
+                    calls++;
+                    expect(content, '保留我的回复');
+                    if (!recovered) {
+                      throw const WebsiteAccessException(
+                        WebsiteAccessStatus.challenge,
+                        '请完成网页验证',
+                      );
+                    }
+                    expect(token, 'token-2');
+                  },
+                ),
+                child: const Text('打开'),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.tap(find.text('打开'));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextField), '保留我的回复');
+      await tester.pump();
+      await tester.tap(find.text('发送'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('补充账号验证'));
+      await tester.pumpAndSettle();
+      expect(
+        calls,
+        1,
+        reason: 'Solving a challenge must not automatically replay a POST.',
+      );
+      expect(find.text('保留我的回复'), findsOneWidget);
+      await tester.tap(find.text('发送'));
+      await tester.pumpAndSettle();
+      expect(calls, 2);
+      expect(tokens, 2);
+      expect(find.text('小组回复'), findsNothing);
+    },
+  );
   testWidgets(
     'draft survives closing and a failed send, then clears on success',
     (tester) async {

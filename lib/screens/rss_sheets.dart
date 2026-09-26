@@ -6,6 +6,7 @@ import '../models/rss_models.dart';
 import '../models/schedule_models.dart';
 import '../state/rss_controller.dart';
 import '../widgets/subject_widgets.dart';
+import '../core/theme/app_tokens.dart';
 
 Future<void> showRssSourcesSheet(BuildContext context) {
   return showModalBottomSheet<void>(
@@ -443,7 +444,7 @@ class _RssUpdatesSheetState extends ConsumerState<_RssUpdatesSheet> {
                       final item = items[index];
                       return ListTile(
                         shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
+                          borderRadius: AppRadius.medium,
                         ),
                         tileColor: item.read
                             ? null

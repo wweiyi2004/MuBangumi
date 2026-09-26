@@ -1,3 +1,5 @@
+import 'dart:async';
+import 'dart:collection';
 import 'dart:convert';
 import 'dart:io';
 
@@ -9,6 +11,8 @@ import '../../models/pm_models.dart';
 import '../../models/bangumi_models.dart';
 import 'bangumi_user_agent.dart';
 import 'pm_html_parser.dart';
+import '../diagnostics/account_diagnostics.dart';
+import 'account_diagnostics_interceptor.dart';
 
 /// Cookie-authenticated Bangumi website PM client (HTML endpoints).
 class PmService {
@@ -18,6 +22,7 @@ class PmService {
     PmHtmlParser? parser,
     Future<void> Function(Duration)? retryDelay,
     DateTime Function()? now,
+    AccountDiagnostics? diagnostics,
   }) : _sessionStore = sessionStore ?? WebsiteSessionStore(),
        _parser = parser ?? PmHtmlParser(),
        _retryDelay = retryDelay ?? Future<void>.delayed,
@@ -37,12 +42,20 @@ class PmService {
                  'Accept': 'text/html,application/xhtml+xml',
                },
              ),
-           );
+           ) {
+    if (_dio.options.baseUrl.isEmpty) _dio.options.baseUrl = 'https://bgm.tv';
+    _dio.interceptors.add(
+      AccountDiagnosticsInterceptor(
+        diagnostics ?? AccountDiagnostics(),
+        AccountArea.privateMessages,
+      ),
+    );
+  }
 
   void dispose() => _dio.close(force: true);
   Future<WebsiteSessionSnapshot> Function()? websiteSessionGuard;
-  bool Function(WebsiteAccessStatus status, String requestKey)?
-  onWebsiteSessionFailure;
+  WebsiteSessionFailureReporter? onWebsiteSessionFailure;
+  WebsiteResponseCookieReceiver? onWebsiteResponseCookies;
 
   final WebsiteSessionStore _sessionStore;
   final PmHtmlParser _parser;
@@ -53,6 +66,40 @@ class PmService {
   final DateTime Function() _now;
   String? _cooldownKey;
   DateTime? _retryAt;
+  int _activeHtmlRequests = 0;
+  final _htmlWaiters = Queue<Completer<void>>();
+
+  Future<T> _withHtmlSlot<T>(Future<T> Function() request) async {
+    if (_activeHtmlRequests >= 2) {
+      final waiter = Completer<void>();
+      _htmlWaiters.add(waiter);
+      await waiter.future;
+    } else {
+      _activeHtmlRequests++;
+    }
+    try {
+      return await request();
+    } finally {
+      if (_htmlWaiters.isNotEmpty) {
+        _htmlWaiters.removeFirst().complete();
+      } else {
+        _activeHtmlRequests--;
+      }
+    }
+  }
+
+  Future<WebsiteSessionSnapshot> _absorbCookies(
+    Response<String> response,
+    WebsiteSessionSnapshot session,
+  ) async {
+    final cookies = parseWebsiteResponseCookies(
+      response.headers['set-cookie'],
+      response.requestOptions.uri,
+    );
+    if (cookies.isEmpty || onWebsiteResponseCookies == null) return session;
+    return await onWebsiteResponseCookies!(session.requestKey, cookies) ??
+        session;
+  }
 
   Future<({int userId, String authenticationKey, String requestKey})>
   verifyDraftOwner(BangumiUser user) async {
@@ -197,7 +244,7 @@ class PmService {
     Map<String, dynamic> data, {
     String? expectedSession,
   }) async {
-    late final WebsiteSessionSnapshot session;
+    late WebsiteSessionSnapshot session;
     try {
       session = await _requireSession();
       _throwIfCoolingDown(session);
@@ -209,26 +256,46 @@ class PmService {
       throw PmPreflightAuthException(error.message);
     }
     try {
-      final response = await _dio.post<String>(
-        '/pm/create.chii',
-        data: data,
-        options: Options(
-          contentType: Headers.formUrlEncodedContentType,
-          responseType: ResponseType.plain,
-          validateStatus: (code) => code != null && code < 600,
-          headers: {
-            ...session.requestHeaders,
-            'Referer': 'https://bgm.tv/pm',
-            'Origin': 'https://bgm.tv',
-          },
-        ),
-      );
+      final response = await _withHtmlSlot(() async {
+        late final WebsiteSessionSnapshot current;
+        try {
+          current = await _requireSession();
+        } on PmAuthException catch (error) {
+          throw PmPreflightAuthException(error.message);
+        }
+        if (current.authenticationKey != session.authenticationKey) {
+          throw const PmPreflightAuthException('网站登录已变化，请重新打开私信后再发送');
+        }
+        session = current;
+        _throwIfCoolingDown(session);
+        return _dio.post<String>(
+          '/pm/create.chii',
+          data: data,
+          options: Options(
+            contentType: Headers.formUrlEncodedContentType,
+            responseType: ResponseType.plain,
+            followRedirects: false,
+            validateStatus: (code) => code != null && code < 600,
+            headers: {
+              ...session.requestHeaders,
+              'Referer': 'https://bgm.tv/pm',
+              'Origin': 'https://bgm.tv',
+            },
+          ),
+        );
+      });
+      session = await _absorbCookies(response, session);
       final body = response.data ?? '';
       if (WebsiteIdentityProbe.isChallenge(
         body,
         cfMitigated: response.headers.value('cf-mitigated'),
       )) {
-        _reportFailure(WebsiteAccessStatus.challenge, session, submitted: true);
+        _reportFailure(
+          WebsiteAccessStatus.challenge,
+          session,
+          submitted: true,
+          recoveryUri: Uri.parse('https://bgm.tv/pm'),
+        );
         throw const PmAuthException('Bangumi 需要网页验证，请补充账号验证后继续');
       }
       if ((response.statusCode ?? 0) >= 500) throw const PmDeliveryUncertain();
@@ -236,7 +303,12 @@ class PmService {
         _recordCooldown(response, session);
         _throwIfCoolingDown(session);
       }
-      if (_parser.looksLikeLoginPage(body) || response.statusCode == 401) {
+      if (_parser.looksLikeLoginPage(body) ||
+          response.statusCode == 401 ||
+          isWebsiteLoginRedirect(
+            response.statusCode,
+            response.headers.value('location'),
+          )) {
         _reportFailure(WebsiteAccessStatus.expired, session, submitted: true);
         throw const PmAuthException();
       }
@@ -270,7 +342,7 @@ class PmService {
   bool _hasSubmissionRedirect(Response<String> response) {
     final status = response.statusCode ?? 0;
     final location = response.headers.value('location');
-    final destination = status >= 300 && status < 400 && location != null
+    final destination = const [302, 303].contains(status) && location != null
         ? Uri.parse('https://bgm.tv/pm/create.chii').resolve(location)
         : response.redirects.isNotEmpty
         ? response.realUri
@@ -318,17 +390,32 @@ class PmService {
     Map<String, dynamic>? query,
     bool retriedSession = false,
     bool retriedNetwork = false,
+    bool retriedChallenge = false,
   }) async {
     try {
-      final response = await _dio.get<String>(
-        path,
-        queryParameters: query,
-        options: Options(
-          responseType: ResponseType.plain,
-          validateStatus: (code) => code != null && code < 600,
-          headers: {...session.requestHeaders, 'Referer': 'https://bgm.tv/pm'},
-        ),
-      );
+      final response = await _withHtmlSlot(() async {
+        final current = await _requireSession();
+        if (current.authenticationKey != session.authenticationKey) {
+          throw const PmAuthException('网站登录已变化，请重新打开私信');
+        }
+        // Preserve stale-response detection for renewals while waiting in the gate.
+        session = current;
+        _throwIfCoolingDown(session);
+        return _dio.get<String>(
+          path,
+          queryParameters: query,
+          options: Options(
+            responseType: ResponseType.plain,
+            followRedirects: false,
+            validateStatus: (code) => code != null && code < 600,
+            headers: {
+              ...session.requestHeaders,
+              'Referer': 'https://bgm.tv/pm',
+            },
+          ),
+        );
+      });
+      session = await _absorbCookies(response, session);
       final current = await _requireSession();
       if (current.authenticationKey != session.authenticationKey) {
         throw const PmAuthException('网站登录已变化，请重新打开私信');
@@ -344,6 +431,7 @@ class PmService {
           query: query,
           retriedSession: true,
           retriedNetwork: retriedNetwork,
+          retriedChallenge: retriedChallenge,
         );
       }
       final html = response.data ?? '';
@@ -352,19 +440,49 @@ class PmService {
         html,
         cfMitigated: response.headers.value('cf-mitigated'),
       )) {
-        _reportFailure(WebsiteAccessStatus.challenge, session);
+        if (!retriedChallenge) {
+          await _retryDelay(const Duration(seconds: 2));
+          final renewed = await _requireSession();
+          if (renewed.authenticationKey != session.authenticationKey) {
+            throw const PmAuthException('网站登录已变化，请重新打开私信');
+          }
+          _throwIfCoolingDown(renewed);
+          return _readHtml(
+            path,
+            renewed,
+            query: query,
+            retriedSession: retriedSession,
+            retriedNetwork: retriedNetwork,
+            retriedChallenge: true,
+          );
+        }
+        _reportFailure(
+          WebsiteAccessStatus.challenge,
+          session,
+          recoveryUri: response.requestOptions.uri,
+        );
         throw const PmAuthException('Bangumi 需要网页验证，请补充账号验证后继续');
       }
       if ((response.statusCode ?? 0) >= 500 || response.statusCode == 429) {
         _recordCooldown(response, session);
         _throwIfCoolingDown(session);
         if (!retriedNetwork && _transientStatus(response.statusCode)) {
-          return _retryRead(path, session, query, retriedSession);
+          return _retryRead(
+            path,
+            session,
+            query,
+            retriedSession,
+            retriedChallenge,
+          );
         }
         throw PmException('加载失败（HTTP ${response.statusCode}），已保留登录');
       }
       if (response.statusCode == 401 ||
           location.contains('/login') ||
+          isWebsiteLoginRedirect(
+            response.statusCode,
+            response.headers.value('location'),
+          ) ||
           _parser.looksLikeLoginPage(html)) {
         _reportFailure(WebsiteAccessStatus.expired, session);
         throw const PmAuthException();
@@ -380,7 +498,13 @@ class PmService {
             DioExceptionType.receiveTimeout,
             DioExceptionType.connectionError,
           }.contains(error.type)) {
-        return _retryRead(path, session, query, retriedSession);
+        return _retryRead(
+          path,
+          session,
+          query,
+          retriedSession,
+          retriedChallenge,
+        );
       }
       throw const PmException('消息连接暂时失败，已保留登录和当前记录，请稍后重试');
     }
@@ -391,6 +515,7 @@ class PmService {
     WebsiteSessionSnapshot session,
     Map<String, dynamic>? query,
     bool retriedSession,
+    bool retriedChallenge,
   ) async {
     await _retryDelay(const Duration(milliseconds: 600));
     final current = await _requireSession();
@@ -404,6 +529,7 @@ class PmService {
       query: query,
       retriedSession: retriedSession,
       retriedNetwork: true,
+      retriedChallenge: retriedChallenge,
     );
   }
 
@@ -431,17 +557,17 @@ class PmService {
       until = _now().add(const Duration(seconds: 30));
     }
     if (until != null && until.isAfter(_now())) {
-      if (_cooldownKey != session.requestKey ||
+      if (_cooldownKey != session.authenticationKey ||
           _retryAt == null ||
           until.isAfter(_retryAt!)) {
-        _cooldownKey = session.requestKey;
+        _cooldownKey = session.authenticationKey;
         _retryAt = until;
       }
     }
   }
 
   void _throwIfCoolingDown(WebsiteSessionSnapshot session) {
-    if (_cooldownKey == session.requestKey &&
+    if (_cooldownKey == session.authenticationKey &&
         _retryAt?.isAfter(_now()) == true) {
       final seconds = (_retryAt!.difference(_now()).inMilliseconds / 1000)
           .ceil();
@@ -453,8 +579,14 @@ class PmService {
     WebsiteAccessStatus status,
     WebsiteSessionSnapshot session, {
     bool submitted = false,
+    Uri? recoveryUri,
   }) {
-    if (onWebsiteSessionFailure?.call(status, session.requestKey) == false) {
+    if (onWebsiteSessionFailure?.call(
+          status,
+          session.requestKey,
+          recoveryUri: recoveryUri,
+        ) ==
+        false) {
       if (submitted) throw const PmDeliveryUncertain();
       throw const PmException('网页登录已更新，请刷新消息后重试');
     }

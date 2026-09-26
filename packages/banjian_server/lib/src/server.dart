@@ -38,6 +38,7 @@ class RoomServer {
   final Future<WebSocket> Function(HttpRequest) _upgradeWebSocket;
   late final RoomCoverCache coverCache;
   final _coverJobs = <String, Future<void>>{};
+  final _avatarJobs = <String, Future<void>>{};
   Timer? _coverRetry;
   final RoomStore store;
   final Map<String, List<int>> assets;
@@ -68,6 +69,7 @@ class RoomServer {
         if (!_closed) {
           for (final e in store.history().where((e) => e['ended'] != true)) {
             unawaited(repairCovers(e['id']));
+            unawaited(repairAvatars(e['id']));
           }
         }
       }
@@ -117,6 +119,37 @@ class RoomServer {
           error: '封面暂未缓存，请在服务设备联网后重试',
         ))
           _broadcast();
+      }
+    }
+  }
+
+  Future<void> repairAvatars(String id) {
+    final existing = _avatarJobs[id];
+    if (existing != null) return existing;
+    final job = _repairAvatars(id).catchError((Object _) {}).whenComplete(() {
+      _avatarJobs.remove(id);
+    });
+    _avatarJobs[id] = job;
+    return job;
+  }
+
+  Future<void> _repairAvatars(String id) async {
+    final attempted = <String>{};
+    while (!_closed) {
+      final next = store
+          .pendingAvatars(id)
+          .where((m) => !attempted.contains(m.actor))
+          .firstOrNull;
+      if (next == null) return;
+      attempted.add(next.actor);
+      try {
+        final key = await coverCache.ensureAvatar(next.source);
+        if (_closed) return;
+        if (store.setMemberAvatar(id, next.actor, next.source, key))
+          _broadcast();
+      } catch (_) {
+        // Retried by the periodic job; the member keeps the default icon.
+        if (_closed) return;
       }
     }
   }
@@ -352,6 +385,8 @@ class RoomServer {
                     ? 'record.json'
                     : format == 'comments'
                     ? 'comments.csv'
+                    : format == 'combined'
+                    ? 'scores-comments.csv'
                     : 'scores.csv'}"',
               );
               if (format == 'json') {
@@ -428,6 +463,8 @@ class RoomServer {
               _rate('join:$ip', 100, 300);
               _json(r.response, store.join(c));
               _broadcast();
+              if (autoCacheCovers)
+                unawaited(repairAvatars(textField(c, 'event')));
             case '/api/command':
               _rate('write:${digest(token)}', 120, 60);
               RoomCommand.fromJson(c, participant: true);

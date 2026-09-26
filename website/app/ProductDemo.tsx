@@ -76,7 +76,7 @@ export function ProductDemo() {
   const [activeTab, setActiveTab] = useState<TabId>("home");
   const [hasInteracted, setHasInteracted] = useState(false);
   const [selectedShow, setSelectedShow] = useState(0);
-  const [episodes, setEpisodes] = useState(() => shows.map((show) => show.episode));
+  const [episodes, setEpisodes] = useState<number[]>(() => shows.map((show) => show.episode));
   const [syncVisible, setSyncVisible] = useState(false);
   const [collectionFilter, setCollectionFilter] = useState<CollectionFilter>("在看");
   const [discovery, setDiscovery] = useState<DiscoveryId>("trend");

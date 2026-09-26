@@ -1,0 +1,38 @@
+name: Android device smoke
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: device-smoke-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  emulator:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - id: toolchain
+        shell: pwsh
+        run: |
+          $v = Get-Content tool/toolchain.json -Raw | ConvertFrom-Json
+          "flutter=$($v.flutter)" >> $env:GITHUB_OUTPUT
+      - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
+        with:
+          flutter-version: ${{ steps.toolchain.outputs.flutter }}
+          channel: stable
+          cache: true
+      - run: flutter pub get --enforce-lockfile
+      - name: Run isolated platform integration tests
+        uses: ReactiveCircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2
+        with:
+          api-level: 35
+          arch: x86_64
+          target: google_apis
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
+          script: flutter test integration_test/platform_smoke_test.dart -d emulator-5554

@@ -1,0 +1,229 @@
+{
+  "head": "400040469ae1819034e4cf459bd5c8daf75b5b84",
+  "areas": {
+    "android": {
+      "files": 5,
+      "lines": 347
+    },
+    "ios": {
+      "files": 4,
+      "lines": 37
+    },
+    "lib/app.dart": {
+      "files": 1,
+      "lines": 93
+    },
+    "lib/core": {
+      "files": 64,
+      "lines": 16755
+    },
+    "lib/features": {
+      "files": 44,
+      "lines": 13160
+    },
+    "lib/main.dart": {
+      "files": 1,
+      "lines": 17
+    },
+    "lib/models": {
+      "files": 18,
+      "lines": 2978
+    },
+    "lib/navigation": {
+      "files": 2,
+      "lines": 267
+    },
+    "lib/screens": {
+      "files": 41,
+      "lines": 20144
+    },
+    "lib/state": {
+      "files": 28,
+      "lines": 6159
+    },
+    "lib/widgets": {
+      "files": 52,
+      "lines": 15315
+    },
+    "native-android": {
+      "files": 9,
+      "lines": 2209
+    },
+    "packages/banjian_server": {
+      "files": 16,
+      "lines": 4275
+    },
+    "test": {
+      "files": 179,
+      "lines": 40960
+    },
+    "tool/background_drag_benchmark.dart": {
+      "files": 1,
+      "lines": 355
+    },
+    "tool/build_release.ps1": {
+      "files": 1,
+      "lines": 196
+    },
+    "tool/community_smoke.dart": {
+      "files": 1,
+      "lines": 50
+    },
+    "tool/maintenance": {
+      "files": 2,
+      "lines": 112
+    },
+    "tool/mirror_release.py": {
+      "files": 1,
+      "lines": 283
+    },
+    "tool/package_windows_release.ps1": {
+      "files": 1,
+      "lines": 113
+    },
+    "tool/probe_windows_accessibility.ps1": {
+      "files": 1,
+      "lines": 62
+    },
+    "tool/publish_gitee.ps1": {
+      "files": 1,
+      "lines": 38
+    },
+    "tool/qa": {
+      "files": 14,
+      "lines": 1102
+    },
+    "tool/recommend_dataset": {
+      "files": 46,
+      "lines": 9783
+    },
+    "tool/semantic_retrieval": {
+      "files": 11,
+      "lines": 1501
+    },
+    "tool/tests": {
+      "files": 4,
+      "lines": 421
+    },
+    "tool/verify_architecture.py": {
+      "files": 1,
+      "lines": 51
+    },
+    "tool/verify_repository_privacy.ps1": {
+      "files": 1,
+      "lines": 39
+    },
+    "tool/verify_windows_package.ps1": {
+      "files": 1,
+      "lines": 5
+    },
+    "tool/windows_package_safety.ps1": {
+      "files": 1,
+      "lines": 80
+    },
+    "website": {
+      "files": 19,
+      "lines": 1284
+    },
+    "windows": {
+      "files": 9,
+      "lines": 728
+    }
+  },
+  "largest": [
+    {
+      "path": "lib/core/network/community_service.dart",
+      "lines": 2109
+    },
+    {
+      "path": "lib/widgets/community_widgets.dart",
+      "lines": 1738
+    },
+    {
+      "path": "lib/screens/discover_page.dart",
+      "lines": 1422
+    },
+    {
+      "path": "lib/screens/collection_stats_page.dart",
+      "lines": 1413
+    },
+    {
+      "path": "lib/features/anime_appreciation/room_pages.dart",
+      "lines": 1283
+    },
+    {
+      "path": "lib/features/anime_appreciation/room_admin_page.dart",
+      "lines": 1153
+    },
+    {
+      "path": "lib/screens/library_page.dart",
+      "lines": 1005
+    },
+    {
+      "path": "lib/screens/person_detail_screen.dart",
+      "lines": 946
+    },
+    {
+      "path": "lib/screens/auth_screen.dart",
+      "lines": 942
+    },
+    {
+      "path": "lib/core/network/community_p1_parser.dart",
+      "lines": 926
+    },
+    {
+      "path": "packages/banjian_server/lib/src/store.dart",
+      "lines": 912
+    },
+    {
+      "path": "lib/screens/community_hub_page.dart",
+      "lines": 910
+    },
+    {
+      "path": "lib/state/session_controller.dart",
+      "lines": 895
+    },
+    {
+      "path": "lib/core/network/bangumi_api.dart",
+      "lines": 875
+    },
+    {
+      "path": "lib/screens/user_profile_page.dart",
+      "lines": 832
+    },
+    {
+      "path": "lib/widgets/community_composer.dart",
+      "lines": 819
+    },
+    {
+      "path": "lib/screens/community_page.dart",
+      "lines": 811
+    },
+    {
+      "path": "lib/widgets/subject_widgets.dart",
+      "lines": 810
+    },
+    {
+      "path": "lib/features/collection/application/collection_editor.dart",
+      "lines": 790
+    },
+    {
+      "path": "lib/screens/subject_detail_screen.dart",
+      "lines": 759
+    }
+  ],
+  "workspace_changes": {
+    "modified": 64,
+    "untracked": 39
+  },
+  "integration_test_directory": false,
+  "repo_metadata": {
+    "LICENSE": false,
+    "LICENSE.md": false,
+    "CONTRIBUTING.md": false,
+    "SECURITY.md": false,
+    "AGENTS.md": false,
+    ".github/CODEOWNERS": false,
+    ".github/dependabot.yml": false
+  }
+}

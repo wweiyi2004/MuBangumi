@@ -6,7 +6,7 @@
 
 ## 本地运行
 
-需要 Node.js 22.13 或更高版本。
+使用 `.node-version` 指定的 Node.js 22.23.2，与 CI 一致。主工程不再安装未使用的 Drizzle/D1 示例依赖；原模板保留在 `docs/archive/WEBSITE_D1_SCAFFOLD.md`。
 
 ```powershell
 cd website
@@ -19,11 +19,13 @@ npm run dev
 ## 验证构建
 
 ```powershell
-npm run lint
-npm test
+npm run check
+npm run audit:security
+npx playwright install chromium
+npm run test:browser
 ```
 
-`npm test` 会重新构建主页，并检查服务端输出的标题、介绍和关键链接。
+`check` 依次运行 lint、类型检查、Workers 环境下的 SSR 检查和静态导出测试。浏览器测试在桌面和手机视口验证进度、筛选、贴贴、话题预览和横向溢出；只访问本地静态文件。
 
 GitHub Pages 静态版本使用：
 

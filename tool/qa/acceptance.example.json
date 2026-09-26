@@ -1,0 +1,19 @@
+{
+  "schema": 1,
+  "platform": "android",
+  "version": "2.4.0+4030",
+  "source_fingerprint": "replace-with-release_provenance-identity-output",
+  "completedUtc": null,
+  "evidence": "",
+  "cases": {
+    "oauth_login": "pending",
+    "saved_session": "pending",
+    "session_expiry": "pending",
+    "website_challenge": "pending",
+    "network_recovery": "pending",
+    "foreground_resume": "pending",
+    "account_switch": "pending",
+    "pm_delivery": "pending",
+    "group_write": "pending"
+  }
+}

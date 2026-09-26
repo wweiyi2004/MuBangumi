@@ -591,8 +591,10 @@ class _SubjectDetailScreenState extends ConsumerState<SubjectDetailScreen> {
                           trailing: c.rate > 0
                               ? Text(
                                   '${c.rate}',
-                                  style: const TextStyle(
-                                    color: Color(0xFFF3A646),
+                                  style: TextStyle(
+                                    color: Theme.of(
+                                      context,
+                                    ).colorScheme.tertiary,
                                     fontWeight: FontWeight.w800,
                                   ),
                                 )

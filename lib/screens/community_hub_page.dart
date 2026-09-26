@@ -575,8 +575,27 @@ class CommunityGroupBrowserState extends State<CommunityGroupBrowser> {
   @override
   void initState() {
     super.initState();
+    _service.accountChanges.addListener(_resetAccount);
+    _service.contentPreferencesChanges.addListener(_resetAccount);
     _scrollController.addListener(_onScroll);
     unawaited(_loadCacheThenRefresh());
+  }
+
+  void _resetAccount() {
+    _requestId++;
+    scheduleMicrotask(() {
+      if (!mounted) return;
+      setState(() {
+        _groups = const [];
+        _total = 0;
+        _nextOffset = 0;
+        _hasMore = true;
+        _error = null;
+        _loadMoreError = null;
+        _loadingMore = false;
+      });
+      unawaited(_loadCacheThenRefresh());
+    });
   }
 
   void _onScroll() {
@@ -602,10 +621,8 @@ class CommunityGroupBrowserState extends State<CommunityGroupBrowser> {
         setState(() {
           _groups = cached.data;
           _total = cached.total;
-          _nextOffset = cached.data.length;
-          _hasMore = _total > 0
-              ? _nextOffset < _total
-              : cached.data.length >= 20;
+          _nextOffset = cached.rawCount ?? cached.data.length;
+          _hasMore = _total > 0 ? _nextOffset < _total : _nextOffset >= 20;
         });
       } catch (_) {
         // Optional disk reads never block the network request.
@@ -642,12 +659,10 @@ class CommunityGroupBrowserState extends State<CommunityGroupBrowser> {
       setState(() {
         _groups = page.data;
         _lastSuccessfulRequest = activeRequest;
-        _nextOffset = page.data.length;
+        _nextOffset = page.rawCount ?? page.data.length;
         _hasMore =
-            page.data.isNotEmpty &&
-            (page.total > 0
-                ? _nextOffset < page.total
-                : page.data.length >= 20);
+            _nextOffset > 0 &&
+            (page.total > 0 ? _nextOffset < page.total : _nextOffset >= 20);
         _total = page.total;
         _loading = false;
       });
@@ -661,7 +676,7 @@ class CommunityGroupBrowserState extends State<CommunityGroupBrowser> {
   }
 
   Future<void> _loadMore() async {
-    if (_loading || _loadingMore || _groups.isEmpty || !_hasMore) {
+    if (_loading || _loadingMore || !_hasMore) {
       return;
     }
     final mode = _mode;
@@ -689,12 +704,11 @@ class CommunityGroupBrowserState extends State<CommunityGroupBrowser> {
           ..._groups,
           ...page.data.where((group) => known.add(group.slug)),
         ];
-        _nextOffset += page.data.length;
+        final received = page.rawCount ?? page.data.length;
+        _nextOffset += received;
         _hasMore =
-            page.data.isNotEmpty &&
-            (page.total > 0
-                ? _nextOffset < page.total
-                : page.data.length >= 20);
+            received > 0 &&
+            (page.total > 0 ? _nextOffset < page.total : received >= 20);
         _total = page.total;
       });
     } catch (error) {
@@ -730,16 +744,22 @@ class CommunityGroupBrowserState extends State<CommunityGroupBrowser> {
     unawaited(_loadCacheThenRefresh());
   }
 
-  void _openGroup(CommunityGroup group) {
-    Navigator.of(context).push(
+  Future<void> _openGroup(CommunityGroup group) async {
+    final identity = _service.identityRevision;
+    await Navigator.of(context).push(
       MaterialPageRoute<void>(
         builder: (_) => GroupRoute(group: group, service: _service),
       ),
     );
+    if (mounted && identity == _service.identityRevision) {
+      await _load(refresh: true);
+    }
   }
 
   @override
   void dispose() {
+    _service.accountChanges.removeListener(_resetAccount);
+    _service.contentPreferencesChanges.removeListener(_resetAccount);
     _scrollController
       ..removeListener(_onScroll)
       ..dispose();
@@ -848,7 +868,7 @@ class CommunityGroupBrowserState extends State<CommunityGroupBrowser> {
           ),
           itemBuilder: (context, index) {
             if (index == _groups.length) {
-              if (_groups.isEmpty) {
+              if (_groups.isEmpty && !_hasMore) {
                 return const Padding(
                   padding: EdgeInsets.all(32),
                   child: Center(child: Text('暂时没有小组')),
@@ -889,7 +909,9 @@ class CommunityGroupBrowserState extends State<CommunityGroupBrowser> {
           itemCount: _groups.length + 1,
           itemBuilder: (context, index) {
             if (index == _groups.length) {
-              if (_groups.isEmpty) return const Center(child: Text('暂时没有小组'));
+              if (_groups.isEmpty && !_hasMore) {
+                return const Center(child: Text('暂时没有小组'));
+              }
               return CommunityLoadMoreFooter(
                 loading: _loadingMore,
                 hasMore: _hasMore,

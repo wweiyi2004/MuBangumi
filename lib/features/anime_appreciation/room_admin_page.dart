@@ -7,6 +7,10 @@ import '../../state/theme_controller.dart';
 import '../../widgets/ascii_refresh.dart';
 import 'room_host.dart';
 import 'room_comments_sheet.dart';
+import 'room_danmaku.dart';
+import 'room_status_chip.dart';
+import 'room_summary_view.dart';
+import '../../core/theme/app_tokens.dart';
 
 class RoomAdminPage extends ConsumerStatefulWidget {
   const RoomAdminPage({
@@ -165,6 +169,8 @@ class _RoomAdminPageState extends ConsumerState<RoomAdminPage> {
         await _details('history');
       case 'members':
         await _details('members');
+      case 'summary':
+        await _details('summary');
       case 'playlist':
         await _details('playlist');
       case 'repair':
@@ -193,10 +199,22 @@ class _RoomAdminPageState extends ConsumerState<RoomAdminPage> {
           );
         }
       case 'json':
-      case 'scores':
-      case 'comments':
+      case 'combined':
         await _export(item);
     }
+  }
+
+  /// Bangumi avatars are cached by the room service beside the covers.
+  Widget _memberAvatar(RoomHost host, Json member) {
+    final avatar = member['avatar'] as String?;
+    final image = avatar == null || host.base == null
+        ? null
+        : NetworkImage(host.base!.resolve('/cover/$avatar').toString());
+    return CircleAvatar(
+      foregroundImage: image,
+      onForegroundImageError: image == null ? null : (_, _) {},
+      child: const Icon(Icons.person_outline),
+    );
   }
 
   Future<void> _details(String kind, {String? roundId}) async {
@@ -251,6 +269,7 @@ class _RoomAdminPageState extends ConsumerState<RoomAdminPage> {
                                   'members': '入场名单',
                                   'history': '历史活动',
                                   'stats': '评分结果',
+                                  'summary': '整场汇总',
                                   'wall': '匿名短评',
                                 }[kind] ??
                                 '活动详情',
@@ -276,13 +295,13 @@ class _RoomAdminPageState extends ConsumerState<RoomAdminPage> {
                           ? _comments(e, r)
                           : ListView(
                               children: [
+                                if (kind == 'summary')
+                                  RoomSummaryList(event: e, host: true),
                                 if (kind == 'members')
                                   for (final member
                                       in e?['members'] as List? ?? [])
                                     ListTile(
-                                      leading: const CircleAvatar(
-                                        child: Icon(Icons.person_outline),
-                                      ),
+                                      leading: _memberAvatar(host, member),
                                       title: Text(member['name']),
                                       trailing: Text(
                                         member['submitted'] == true
@@ -371,6 +390,33 @@ class _RoomAdminPageState extends ConsumerState<RoomAdminPage> {
     );
   }
 
+  Widget _sectionTitle(String title) => Text(
+    title,
+    style: Theme.of(
+      context,
+    ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
+  );
+
+  /// A host switch: outlined while off, tinted with a check once on.
+  Widget _toggle(String off, String on, bool value, VoidCallback? onPressed) =>
+      value
+      ? FilledButton.tonalIcon(
+          onPressed: onPressed,
+          icon: const Icon(Icons.check_rounded, size: 18),
+          label: Text(on, maxLines: 1, overflow: TextOverflow.ellipsis),
+        )
+      : OutlinedButton(
+          onPressed: onPressed,
+          style: _quietOutlined,
+          child: Text(off, maxLines: 1, overflow: TextOverflow.ellipsis),
+        );
+
+  /// Secondary controls read in the body color; only 下一部 is filled pink.
+  ButtonStyle get _quietOutlined => OutlinedButton.styleFrom(
+    foregroundColor: Theme.of(context).colorScheme.onSurface,
+    padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 10),
+  );
+
   Widget _panel(String title, Widget child, {Widget? action}) => Card(
     child: Padding(
       padding: const EdgeInsets.all(12),
@@ -378,12 +424,7 @@ class _RoomAdminPageState extends ConsumerState<RoomAdminPage> {
         children: [
           Row(
             children: [
-              Expanded(
-                child: Text(
-                  title,
-                  style: Theme.of(context).textTheme.titleSmall,
-                ),
-              ),
+              Expanded(child: _sectionTitle(title)),
               ?action,
             ],
           ),
@@ -411,7 +452,7 @@ class _RoomAdminPageState extends ConsumerState<RoomAdminPage> {
               padding: const EdgeInsets.symmetric(vertical: 7),
               decoration: BoxDecoration(
                 color: Theme.of(context).colorScheme.surfaceContainer,
-                borderRadius: BorderRadius.circular(12),
+                borderRadius: AppRadius.medium,
               ),
               child: Column(
                 children: [
@@ -457,7 +498,7 @@ class _RoomAdminPageState extends ConsumerState<RoomAdminPage> {
                             width: 20,
                             decoration: BoxDecoration(
                               color: Theme.of(context).colorScheme.primary,
-                              borderRadius: BorderRadius.circular(4),
+                              borderRadius: AppRadius.bar,
                             ),
                           ),
                         ),
@@ -491,7 +532,7 @@ class _RoomAdminPageState extends ConsumerState<RoomAdminPage> {
                 color: r['id'] == e?['current']
                     ? Theme.of(context).colorScheme.primaryContainer
                     : null,
-                borderRadius: BorderRadius.circular(12),
+                borderRadius: AppRadius.medium,
               ),
               child: Column(
                 children: [
@@ -645,7 +686,7 @@ class _RoomAdminPageState extends ConsumerState<RoomAdminPage> {
       ),
     ),
   );
-  Widget _currentPanel(RoomHost host, Json? e, Json? r) {
+  Widget _currentPanel(RoomHost host, Json? e, Json? r, {bool chart = false}) {
     if (r == null) {
       return _panel(
         '正在鉴赏',
@@ -674,180 +715,207 @@ class _RoomAdminPageState extends ConsumerState<RoomAdminPage> {
           children: [
             Row(
               children: [
-                Expanded(
-                  child: Text(
-                    '正在鉴赏',
-                    style: Theme.of(context).textTheme.titleSmall,
-                  ),
-                ),
-                Text(
-                  e?['ended'] == true ? '活动已结束' : _status(r['status']),
-                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: Theme.of(context).colorScheme.primary,
-                  ),
-                ),
+                Expanded(child: _sectionTitle('正在鉴赏')),
+                RoomStatusChip(status: r['status'], ended: e?['ended'] == true),
               ],
             ),
             const SizedBox(height: 10),
             Expanded(
-              child: SingleChildScrollView(
-                key: const ValueKey('admin-current-content'),
-                physics: const AlwaysScrollableScrollPhysics(),
-                child: Column(
-                  children: [
-                    Row(
-                      crossAxisAlignment: CrossAxisAlignment.center,
-                      children: [
-                        ClipRRect(
-                          borderRadius: BorderRadius.circular(10),
-                          child:
-                              (r['subject']['cover'] as String? ?? '').isEmpty
-                              ? Container(
-                                  width: 64,
-                                  height: 90,
-                                  color: Theme.of(
-                                    context,
-                                  ).colorScheme.primaryContainer,
-                                  child: const Icon(Icons.movie_outlined),
-                                )
-                              : Image.network(
-                                  host.base!
-                                      .resolve(
-                                        '/cover/${r['subject']['cover']}',
-                                      )
-                                      .toString(),
-                                  width: 64,
-                                  height: 90,
-                                  fit: BoxFit.cover,
-                                  errorBuilder: (_, _, _) => const SizedBox(
+              child: LayoutBuilder(
+                builder: (context, box) {
+                  final body = Column(
+                    children: [
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.center,
+                        children: [
+                          ClipRRect(
+                            borderRadius: AppRadius.small,
+                            child:
+                                (r['subject']['cover'] as String? ?? '').isEmpty
+                                ? Container(
                                     width: 64,
                                     height: 90,
-                                    child: Icon(Icons.movie_outlined),
+                                    color: Theme.of(
+                                      context,
+                                    ).colorScheme.primaryContainer,
+                                    child: const Icon(Icons.movie_outlined),
+                                  )
+                                : Image.network(
+                                    host.base!
+                                        .resolve(
+                                          '/cover/${r['subject']['cover']}',
+                                        )
+                                        .toString(),
+                                    width: 64,
+                                    height: 90,
+                                    fit: BoxFit.cover,
+                                    errorBuilder: (_, _, _) => const SizedBox(
+                                      width: 64,
+                                      height: 90,
+                                      child: Icon(Icons.movie_outlined),
+                                    ),
                                   ),
-                                ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                r['subject']['title'],
-                                style: Theme.of(context).textTheme.titleMedium,
-                                maxLines: 2,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                              const SizedBox(height: 8),
-                              Text(
-                                '第 ${_rounds(e).indexOf(r) + 1} / ${_rounds(e).length} 轮',
-                                style: Theme.of(context).textTheme.bodySmall,
-                              ),
-                            ],
                           ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  r['subject']['title'],
+                                  style: Theme.of(
+                                    context,
+                                  ).textTheme.titleMedium,
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                                const SizedBox(height: 8),
+                                Text(
+                                  '第 ${_rounds(e).indexOf(r) + 1} / ${_rounds(e).length} 轮',
+                                  style: Theme.of(context).textTheme.bodySmall,
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                      _metrics(r, e),
+                      const SizedBox(height: 4),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: OutlinedButton(
+                              style: _quietOutlined,
+                              onPressed: !open || _working
+                                  ? null
+                                  : () => _command(
+                                      r['status'] == 'paused'
+                                          ? 'resume'
+                                          : 'pause',
+                                      {'round': r['id']},
+                                      expected: e!,
+                                    ),
+                              child: Text(
+                                r['status'] == 'paused' ? '继续评分' : '暂停评分',
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 6),
+                          Expanded(
+                            child: OutlinedButton(
+                              style: _quietOutlined,
+                              onPressed: !open || _working
+                                  ? null
+                                  : () => _command(
+                                      'close',
+                                      {'round': r['id']},
+                                      expected: e!,
+                                      confirm: '截止后无法重新开放本轮评分，确认截止？',
+                                    ),
+                              child: const Text('截止本轮'),
+                            ),
+                          ),
+                          const SizedBox(width: 6),
+                          Expanded(
+                            child: FilledButton(
+                              style: FilledButton.styleFrom(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 4,
+                                  vertical: 10,
+                                ),
+                              ),
+                              onPressed:
+                                  next == null ||
+                                      e?['ended'] == true ||
+                                      _working
+                                  ? null
+                                  : () => _command(
+                                      'start',
+                                      {'round': next['id']},
+                                      expected: e!,
+                                      confirm: '开始下一部番剧，并截止当前轮次？',
+                                    ),
+                              child: const Text('下一部'),
+                            ),
+                          ),
+                        ],
+                      ),
+                      if (e?['ended'] == true) ...[
+                        const SizedBox(height: 8),
+                        FilledButton.tonalIcon(
+                          onPressed: () => _details('summary'),
+                          icon: const Icon(Icons.leaderboard_outlined),
+                          label: const Text('查看整场汇总'),
                         ),
                       ],
-                    ),
-                    _metrics(r, e),
-                  ],
-                ),
+                      const SizedBox(height: 8),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: _toggle(
+                              '公布结果',
+                              '结果已公布',
+                              r['published'] == true,
+                              _working
+                                  ? null
+                                  : () => _command(
+                                      'publish',
+                                      {
+                                        'round': r['id'],
+                                        'value': r['published'] != true,
+                                      },
+                                      expected: e!,
+                                      confirm: r['published'] == true
+                                          ? null
+                                          : '向参与者公布本轮均分和分布？',
+                                    ),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: _toggle(
+                              '短评墙对全员开放',
+                              '已对全员开放',
+                              r['publicComments'] == true,
+                              _working
+                                  ? null
+                                  : () => _command('comments', {
+                                      'round': r['id'],
+                                      'value': r['publicComments'] != true,
+                                    }, expected: e!),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  );
+                  if (!chart || box.maxHeight < 420) {
+                    return SingleChildScrollView(
+                      key: const ValueKey('admin-current-content'),
+                      physics: const AlwaysScrollableScrollPhysics(),
+                      child: body,
+                    );
+                  }
+                  return Column(
+                    key: const ValueKey('admin-current-content'),
+                    children: [
+                      body,
+                      const SizedBox(height: 16),
+                      Row(
+                        children: [
+                          Expanded(child: _sectionTitle('评分分布')),
+                          IconButton(
+                            tooltip: '详细统计',
+                            onPressed: () => _details('stats'),
+                            icon: const Icon(Icons.open_in_full, size: 16),
+                          ),
+                        ],
+                      ),
+                      Expanded(child: _distribution(r)),
+                    ],
+                  );
+                },
               ),
-            ),
-            const SizedBox(height: 8),
-            Row(
-              children: [
-                Expanded(
-                  child: OutlinedButton(
-                    style: OutlinedButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 4,
-                        vertical: 10,
-                      ),
-                    ),
-                    onPressed: !open || _working
-                        ? null
-                        : () => _command(
-                            r['status'] == 'paused' ? 'resume' : 'pause',
-                            {'round': r['id']},
-                            expected: e!,
-                          ),
-                    child: Text(r['status'] == 'paused' ? '继续评分' : '暂停评分'),
-                  ),
-                ),
-                const SizedBox(width: 6),
-                Expanded(
-                  child: OutlinedButton(
-                    style: OutlinedButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 4,
-                        vertical: 10,
-                      ),
-                    ),
-                    onPressed: !open || _working
-                        ? null
-                        : () => _command(
-                            'close',
-                            {'round': r['id']},
-                            expected: e!,
-                            confirm: '截止后无法重新开放本轮评分，确认截止？',
-                          ),
-                    child: const Text('截止本轮'),
-                  ),
-                ),
-                const SizedBox(width: 6),
-                Expanded(
-                  child: FilledButton(
-                    style: FilledButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 4,
-                        vertical: 10,
-                      ),
-                    ),
-                    onPressed: next == null || e?['ended'] == true || _working
-                        ? null
-                        : () => _command(
-                            'start',
-                            {'round': next['id']},
-                            expected: e!,
-                            confirm: '开始下一部番剧，并截止当前轮次？',
-                          ),
-                    child: const Text('下一部'),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            Row(
-              children: [
-                Expanded(
-                  child: FilledButton.tonal(
-                    onPressed: _working
-                        ? null
-                        : () => _command(
-                            'publish',
-                            {'round': r['id'], 'value': r['published'] != true},
-                            expected: e!,
-                            confirm: r['published'] == true
-                                ? null
-                                : '向参与者公布本轮均分和分布？',
-                          ),
-                    child: Text(r['published'] == true ? '结果已公布' : '公布结果'),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: FilledButton.tonal(
-                    onPressed: _working
-                        ? null
-                        : () => _command('comments', {
-                            'round': r['id'],
-                            'value': r['publicComments'] != true,
-                          }, expected: e!),
-                    child: Text(
-                      r['publicComments'] == true ? '短评墙已开启' : '开放短评墙',
-                    ),
-                  ),
-                ),
-              ],
             ),
           ],
         ),
@@ -895,10 +963,13 @@ class _RoomAdminPageState extends ConsumerState<RoomAdminPage> {
                 const PopupMenuItem(value: 'rename', child: Text('修改名称')),
                 const PopupMenuItem(value: 'playlist', child: Text('番单排序')),
                 const PopupMenuItem(value: 'members', child: Text('入场名单')),
+                const PopupMenuItem(value: 'summary', child: Text('整场汇总')),
                 const PopupMenuItem(value: 'repair', child: Text('补全封面')),
                 const PopupMenuDivider(),
-                const PopupMenuItem(value: 'scores', child: Text('导出评分 CSV')),
-                const PopupMenuItem(value: 'comments', child: Text('导出短评 CSV')),
+                const PopupMenuItem(
+                  value: 'combined',
+                  child: Text('导出评分与短评 CSV'),
+                ),
                 const PopupMenuItem(value: 'json', child: Text('导出活动 JSON')),
               ],
               const PopupMenuItem(value: 'history', child: Text('历史活动')),
@@ -916,224 +987,209 @@ class _RoomAdminPageState extends ConsumerState<RoomAdminPage> {
         key: _refresh,
         onRefresh: _load,
         child: host.running
-            ? LayoutBuilder(
-                builder: (context, box) {
-                  final wide = box.maxWidth >= 1000;
-                  return Center(
-                    child: ConstrainedBox(
-                      constraints: const BoxConstraints(
-                        maxWidth: 1440,
-                        maxHeight: 900,
-                      ),
-                      child: Padding(
-                        padding: const EdgeInsets.fromLTRB(12, 4, 12, 10),
-                        child: Column(
-                          children: [
-                            Row(
-                              children: [
-                                Icon(
-                                  Icons.circle,
-                                  size: 8,
-                                  color: host.liveConnected
-                                      ? Colors.green
-                                      : Theme.of(context).colorScheme.primary,
-                                ),
-                                const SizedBox(width: 7),
-                                Expanded(
-                                  child: Text(
-                                    '${host.liveConnected ? '实时连接' : '自动同步'} · ${e?['memberCount'] ?? 0} 个参与身份 · ${e?['connections'] ?? 0} 个在线连接',
-                                    maxLines: 2,
-                                    style: Theme.of(
-                                      context,
-                                    ).textTheme.bodySmall,
-                                  ),
-                                ),
-                                if (e != null && e['ended'] != true) ...[
-                                  TextButton.icon(
-                                    onPressed: _working
-                                        ? null
-                                        : () => Navigator.of(context).push(
-                                            MaterialPageRoute<void>(
-                                              builder: widget.subjectPicker,
-                                            ),
-                                          ),
-                                    icon: const Icon(
-                                      Icons.playlist_add,
-                                      size: 18,
-                                    ),
-                                    label: const Text('选番'),
-                                  ),
-                                  TextButton.icon(
-                                    onPressed: _working
-                                        ? null
-                                        : () => _run(widget.onInvite),
-                                    icon: const Icon(Icons.qr_code, size: 18),
-                                    label: const Text('邀请'),
-                                  ),
-                                ],
-                              ],
-                            ),
-                            if (host.error != null)
-                              Text(
-                                host.error!,
-                                maxLines: 2,
-                                overflow: TextOverflow.ellipsis,
-                                style: TextStyle(
-                                  color: Theme.of(context).colorScheme.error,
-                                ),
-                              ),
-                            if (host.hasPendingCommand)
+            ? RoomDanmaku(
+                event: e,
+                child: LayoutBuilder(
+                  builder: (context, box) {
+                    final wide = box.maxWidth >= 1000;
+                    return Center(
+                      child: ConstrainedBox(
+                        constraints: const BoxConstraints(
+                          maxWidth: 1440,
+                          maxHeight: 900,
+                        ),
+                        child: Padding(
+                          padding: const EdgeInsets.fromLTRB(12, 4, 12, 10),
+                          child: Column(
+                            children: [
                               Row(
                                 children: [
-                                  const Expanded(child: Text('上次操作尚未确认')),
-                                  TextButton(
-                                    onPressed: () => _run(host.retryCommand),
-                                    child: const Text('核对'),
+                                  Icon(
+                                    Icons.circle,
+                                    size: 8,
+                                    color: host.liveConnected
+                                        ? Colors.green
+                                        : Theme.of(context).colorScheme.primary,
                                   ),
-                                ],
-                              ),
-                            const SizedBox(height: 8),
-                            Expanded(
-                              child: e == null
-                                  ? _pullableCenter(
-                                      FilledButton.icon(
-                                        onPressed: () => _name(true),
-                                        icon: const Icon(Icons.add),
-                                        label: const Text('创建番键会'),
-                                      ),
-                                    )
-                                  : wide
-                                  ? Row(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.stretch,
-                                      children: [
-                                        Expanded(
-                                          flex: 2,
-                                          child: _panel(
-                                            '鉴赏路线',
-                                            _playlist(host, e),
-                                            action: IconButton(
-                                              tooltip: '调整番单',
-                                              onPressed: () =>
-                                                  _details('playlist'),
-                                              icon: const Icon(
-                                                Icons.tune,
-                                                size: 18,
-                                              ),
-                                            ),
-                                          ),
-                                        ),
-                                        const SizedBox(width: 10),
-                                        Expanded(
-                                          flex: 4,
-                                          child: Column(
-                                            children: [
-                                              Expanded(
-                                                child: _currentPanel(
-                                                  host,
-                                                  e,
-                                                  r,
-                                                ),
-                                              ),
-                                              if (box.maxHeight >= 640) ...[
-                                                const SizedBox(height: 10),
-                                                SizedBox(
-                                                  height: 136,
-                                                  child: _panel(
-                                                    '评分分布',
-                                                    _distribution(r),
-                                                    action: IconButton(
-                                                      tooltip: '详细统计',
-                                                      onPressed: () =>
-                                                          _details('stats'),
-                                                      icon: const Icon(
-                                                        Icons.open_in_full,
-                                                        size: 16,
-                                                      ),
-                                                    ),
-                                                  ),
-                                                ),
-                                              ],
-                                            ],
-                                          ),
-                                        ),
-                                        const SizedBox(width: 10),
-                                        Expanded(
-                                          flex: 3,
-                                          child: _panel(
-                                            '匿名短评',
-                                            _comments(e, r),
-                                          ),
-                                        ),
-                                      ],
-                                    )
-                                  : _currentPanel(host, e, r),
-                            ),
-                            if (e != null) ...[
-                              const SizedBox(height: 8),
-                              Row(
-                                children: [
-                                  Text(
-                                    '$done / ${rounds.length} 轮完成',
-                                    style: Theme.of(
-                                      context,
-                                    ).textTheme.bodySmall,
-                                  ),
-                                  const SizedBox(width: 12),
+                                  const SizedBox(width: 7),
                                   Expanded(
-                                    child: LinearProgressIndicator(
-                                      value: rounds.isEmpty
-                                          ? 0
-                                          : done / rounds.length,
-                                      minHeight: 5,
-                                      borderRadius: BorderRadius.circular(4),
+                                    child: Text(
+                                      '${host.liveConnected ? '实时连接' : '自动同步'} · ${e?['memberCount'] ?? 0} 个参与身份 · ${e?['connections'] ?? 0} 个在线连接',
+                                      maxLines: 2,
+                                      style: Theme.of(
+                                        context,
+                                      ).textTheme.bodySmall,
                                     ),
                                   ),
-                                  if (wide)
-                                    TextButton(
-                                      onPressed: () => _details('members'),
-                                      child: const Text('入场名单'),
+                                  if (e != null && e['ended'] != true) ...[
+                                    TextButton.icon(
+                                      onPressed: _working
+                                          ? null
+                                          : () => Navigator.of(context).push(
+                                              MaterialPageRoute<void>(
+                                                builder: widget.subjectPicker,
+                                              ),
+                                            ),
+                                      icon: const Icon(
+                                        Icons.playlist_add,
+                                        size: 18,
+                                      ),
+                                      label: const Text('选番'),
                                     ),
+                                    TextButton.icon(
+                                      onPressed: _working
+                                          ? null
+                                          : () => _run(widget.onInvite),
+                                      icon: const Icon(Icons.qr_code, size: 18),
+                                      label: const Text('邀请'),
+                                    ),
+                                  ],
                                 ],
                               ),
-                              if (!wide)
+                              if (host.error != null)
+                                Text(
+                                  host.error!,
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    color: Theme.of(context).colorScheme.error,
+                                  ),
+                                ),
+                              if (host.hasPendingCommand)
                                 Row(
-                                  mainAxisAlignment:
-                                      MainAxisAlignment.spaceAround,
                                   children: [
-                                    TextButton.icon(
-                                      onPressed: () => _details('playlist'),
-                                      icon: const Icon(
-                                        Icons.view_list_outlined,
-                                        size: 17,
-                                      ),
-                                      label: const Text('番单'),
-                                    ),
-                                    TextButton.icon(
-                                      onPressed: () => _details('stats'),
-                                      icon: const Icon(
-                                        Icons.bar_chart,
-                                        size: 17,
-                                      ),
-                                      label: const Text('统计'),
-                                    ),
-                                    TextButton.icon(
-                                      onPressed: () => _details('wall'),
-                                      icon: const Icon(
-                                        Icons.forum_outlined,
-                                        size: 17,
-                                      ),
-                                      label: const Text('短评'),
+                                    const Expanded(child: Text('上次操作尚未确认')),
+                                    TextButton(
+                                      onPressed: () => _run(host.retryCommand),
+                                      child: const Text('核对'),
                                     ),
                                   ],
                                 ),
+                              const SizedBox(height: 8),
+                              Expanded(
+                                child: e == null
+                                    ? _pullableCenter(
+                                        FilledButton.icon(
+                                          onPressed: () => _name(true),
+                                          icon: const Icon(Icons.add),
+                                          label: const Text('创建番键会'),
+                                        ),
+                                      )
+                                    : wide
+                                    ? Row(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.stretch,
+                                        children: [
+                                          Expanded(
+                                            flex: 2,
+                                            child: _panel(
+                                              '鉴赏路线',
+                                              _playlist(host, e),
+                                              action: IconButton(
+                                                tooltip: '调整番单',
+                                                onPressed: () =>
+                                                    _details('playlist'),
+                                                icon: const Icon(
+                                                  Icons.tune,
+                                                  size: 18,
+                                                ),
+                                              ),
+                                            ),
+                                          ),
+                                          const SizedBox(width: 10),
+                                          Expanded(
+                                            flex: 4,
+                                            child: Column(
+                                              children: [
+                                                Expanded(
+                                                  child: _currentPanel(
+                                                    host,
+                                                    e,
+                                                    r,
+                                                    chart: true,
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                          ),
+                                          const SizedBox(width: 10),
+                                          Expanded(
+                                            flex: 3,
+                                            child: _panel(
+                                              '匿名短评',
+                                              _comments(e, r),
+                                            ),
+                                          ),
+                                        ],
+                                      )
+                                    : _currentPanel(host, e, r),
+                              ),
+                              if (e != null) ...[
+                                const SizedBox(height: 8),
+                                Row(
+                                  children: [
+                                    Text(
+                                      '$done / ${rounds.length} 轮完成',
+                                      style: Theme.of(
+                                        context,
+                                      ).textTheme.bodySmall,
+                                    ),
+                                    const SizedBox(width: 12),
+                                    Expanded(
+                                      child: LinearProgressIndicator(
+                                        value: rounds.isEmpty
+                                            ? 0
+                                            : done / rounds.length,
+                                        minHeight: 5,
+                                        borderRadius: AppRadius.round,
+                                      ),
+                                    ),
+                                    if (wide)
+                                      TextButton(
+                                        onPressed: () => _details('members'),
+                                        child: const Text('入场名单'),
+                                      ),
+                                  ],
+                                ),
+                                if (!wide)
+                                  Row(
+                                    mainAxisAlignment:
+                                        MainAxisAlignment.spaceAround,
+                                    children: [
+                                      TextButton.icon(
+                                        onPressed: () => _details('playlist'),
+                                        icon: const Icon(
+                                          Icons.view_list_outlined,
+                                          size: 17,
+                                        ),
+                                        label: const Text('番单'),
+                                      ),
+                                      TextButton.icon(
+                                        onPressed: () => _details('stats'),
+                                        icon: const Icon(
+                                          Icons.bar_chart,
+                                          size: 17,
+                                        ),
+                                        label: const Text('统计'),
+                                      ),
+                                      TextButton.icon(
+                                        onPressed: () => _details('wall'),
+                                        icon: const Icon(
+                                          Icons.forum_outlined,
+                                          size: 17,
+                                        ),
+                                        label: const Text('短评'),
+                                      ),
+                                    ],
+                                  ),
+                              ],
                             ],
-                          ],
+                          ),
                         ),
                       ),
-                    ),
-                  );
-                },
+                    );
+                  },
+                ),
               )
             : Center(
                 child: Column(

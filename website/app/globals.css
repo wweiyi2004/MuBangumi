@@ -144,7 +144,7 @@ svg {
   width: 460px;
   height: 460px;
   top: 20px;
-  right: -140px;
+  right: clamp(-140px, calc((1180px - 100vw) / 2), 0px);
   background: radial-gradient(circle, rgba(255, 219, 228, 0.88), rgba(255, 244, 247, 0) 67%);
 }
 

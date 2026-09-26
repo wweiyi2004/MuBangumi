@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mubangumi/core/auth/bangumi_oauth.dart';
 import 'package:mubangumi/core/auth/website_session.dart';
+import 'package:mubangumi/core/auth/website_identity.dart';
 import 'package:mubangumi/core/network/bangumi_api.dart';
 import 'package:mubangumi/core/network/bangumi_endpoints.dart';
 import 'package:mubangumi/core/storage/bangumi_sync_store.dart';
@@ -461,6 +462,53 @@ void main() {
       expect(website.snapshot!.verifiedUserId, isNull);
     },
   );
+
+  for (final owner in ['tester', 'other-user']) {
+    test(
+      'OAuth retains captured browser identity and binds only matching website owner: $owner',
+      () async {
+        final store = _MemoryTokenStore(config: null)
+          ..accessToken = null
+          ..refreshToken = null
+          ..expiresAt = null;
+        final oauth = _HangingAuthorizeOAuth();
+        final website = _MemoryWebsiteSessionStore();
+        final controller = buildController(
+          store: store,
+          oauth: oauth,
+          websiteSessionStore: website,
+        );
+        addTearDown(controller.dispose);
+        await _waitFor(() => controller.state.phase == SessionPhase.signedOut);
+        final login = controller.signInWithOAuth(
+          config,
+          websiteCookies: () => const [
+            WebsiteCookie(name: 'chii_auth', value: 'oauth-cookie'),
+          ],
+          websiteIdentity: () => WebsiteBrowserIdentity(
+            url: 'https://bgm.tv/oauth/authorize',
+            html:
+                '<div id="badgeUserPanel"><a class="avatar" href="/user/$owner">User</a></div>',
+            authenticationKey: 'chii_auth=oauth-cookie',
+            userAgent: 'Android-WebView/test',
+          ),
+        );
+        oauth.completer.complete(
+          OAuthTokenBundle(
+            accessToken: 'token',
+            refreshToken: 'refresh',
+            expiresAt: DateTime.now().add(const Duration(days: 1)),
+          ),
+        );
+        expect(await login, true);
+        expect(
+          website.snapshot!.requestHeaders['User-Agent'],
+          'Android-WebView/test',
+        );
+        expect(website.snapshot!.verifiedUserId, owner == 'tester' ? 1 : null);
+      },
+    );
+  }
 
   test('OAuth failure never persists captured website cookies', () async {
     final website = _MemoryWebsiteSessionStore();

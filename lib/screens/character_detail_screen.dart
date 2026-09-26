@@ -10,6 +10,7 @@ import '../state/session_controller.dart';
 import '../widgets/subject_widgets.dart';
 import '../widgets/mono_collection_button.dart';
 import '../models/community_models.dart';
+import '../core/theme/app_tokens.dart';
 
 class CharacterDetailScreen extends ConsumerStatefulWidget {
   const CharacterDetailScreen({
@@ -286,7 +287,7 @@ class _MonoHeader extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             ClipRRect(
-              borderRadius: BorderRadius.circular(14),
+              borderRadius: AppRadius.medium,
               child: SizedBox(
                 width: 96,
                 height: 128,
@@ -379,7 +380,7 @@ class _Thumb extends StatelessWidget {
       );
     }
     return ClipRRect(
-      borderRadius: BorderRadius.circular(8),
+      borderRadius: AppRadius.small,
       child: SizedBox(width: 44, height: 60, child: child),
     );
   }

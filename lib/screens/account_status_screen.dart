@@ -5,6 +5,7 @@ import '../state/session_controller.dart';
 import '../state/website_session_controller.dart';
 import 'website_login_screen.dart';
 import '../widgets/account_content_preferences_tile.dart';
+import '../widgets/account_diagnostics_dialog.dart';
 
 class AccountStatusScreen extends ConsumerWidget {
   const AccountStatusScreen({super.key});
@@ -58,9 +59,7 @@ class AccountStatusScreen extends ConsumerWidget {
                 ),
                 if (!website.isSynced)
                   FilledButton.icon(
-                    onPressed: checking
-                        ? null
-                        : () => openWebsiteLoginScreen(context),
+                    onPressed: () => openWebsiteLoginScreen(context),
                     icon: const Icon(Icons.login),
                     label: const Text('补充账号验证'),
                   ),
@@ -85,6 +84,13 @@ class AccountStatusScreen extends ConsumerWidget {
             ),
           ],
           const SizedBox(height: 24),
+          ListTile(
+            contentPadding: EdgeInsets.zero,
+            leading: const Icon(Icons.troubleshoot),
+            title: const Text('登录诊断'),
+            subtitle: const Text('查看状态记录并导出排查信息'),
+            onTap: () => showAccountDiagnostics(context),
+          ),
           const Text('网页登录过期不会清除收藏账号。需要时完成验证，即可继续原来的聊天或小组操作。'),
         ],
       ),

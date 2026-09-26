@@ -9,6 +9,7 @@ import '../core/network/bangumi_endpoints.dart';
 import '../core/social/friend_qr.dart';
 import '../core/social/friend_qr_export.dart';
 import '../models/bangumi_models.dart';
+import '../core/theme/app_tokens.dart';
 
 Future<void> showMyFriendQrSheet(BuildContext context, BangumiUser user) {
   return showFriendQrSheet(context, user, mine: true);
@@ -118,7 +119,7 @@ class _FriendQrSheetState extends State<_FriendQrSheet> {
               child: DecoratedBox(
                 decoration: BoxDecoration(
                   color: Colors.white,
-                  borderRadius: BorderRadius.circular(20),
+                  borderRadius: AppRadius.large,
                 ),
                 child: Padding(
                   padding: const EdgeInsets.fromLTRB(20, 20, 20, 12),
@@ -142,7 +143,7 @@ class _FriendQrSheetState extends State<_FriendQrSheet> {
                       ListTile(
                         contentPadding: EdgeInsets.zero,
                         leading: CircleAvatar(
-                          backgroundColor: const Color(0xFFFFD6E4),
+                          backgroundColor: AppPalette.qrAvatar,
                           backgroundImage: widget.user.avatarUrl.isEmpty
                               ? null
                               : CachedNetworkImageProvider(

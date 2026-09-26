@@ -39,3 +39,6 @@ yarn-error.log*
 /.wrangler/
 /outputs/
 /work/
+*.tsbuildinfo
+/test-results/
+/playwright-report/

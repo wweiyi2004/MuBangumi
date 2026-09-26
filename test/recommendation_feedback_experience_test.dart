@@ -20,6 +20,58 @@ final _boundary = GlobalKey();
 const _firstTitle = '星际旅途：在遥远的星海中寻找故乡的少年';
 
 void main() {
+  testWidgets('compact conditions remain editable and retain their selection', (
+    tester,
+  ) async {
+    final env = _Environment();
+    await _show(tester, env);
+    expect(find.text('最低评分'), findsNothing);
+    await tester.tap(find.text('更多条件'));
+    await tester.pumpAndSettle();
+    await _reveal(tester, find.text('9 分以上'));
+    await tester.tap(find.text('9 分以上'));
+    await tester.pumpAndSettle();
+    await _reveal(tester, find.text('更多条件'));
+    await tester.tap(find.text('更多条件'));
+    await tester.pumpAndSettle();
+    expect(find.text('9 分以上 · 年份不限'), findsOneWidget);
+    await tester.tap(find.text('更多条件'));
+    await tester.pumpAndSettle();
+    expect(
+      tester
+          .widget<ChoiceChip>(
+            find.ancestor(
+              of: find.text('9 分以上'),
+              matching: find.byType(ChoiceChip),
+            ),
+          )
+          .selected,
+      true,
+    );
+  });
+  testWidgets(
+    'ticket adds a wish through collection storage and removes the owned recommendation',
+    (tester) async {
+      final env = _Environment();
+      await _show(tester, env);
+      await _run(tester);
+      final action = find.descendant(
+        of: find.byKey(const ValueKey('recommendation-100')),
+        matching: find.text('加入想看'),
+      );
+      await _reveal(tester, action);
+      await tester.tap(action);
+      await tester.pumpAndSettle();
+      expect(
+        env.session.state.collections
+            .singleWhere((c) => c.subjectId == 100)
+            .type,
+        CollectionType.wish,
+      );
+      expect(find.byKey(const ValueKey('recommendation-100')), findsNothing);
+      expect(find.text('已加入想看'), findsOneWidget);
+    },
+  );
   testWidgets(
     'restore failure remains visible and retry works on a short phone screen',
     (tester) async {

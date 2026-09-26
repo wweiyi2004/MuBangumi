@@ -691,6 +691,7 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
                         child: Padding(
                           padding: EdgeInsets.all(24),
                           child: EmptyState(
+                            scene: ProjectionScene.collection,
                             icon: Icons.filter_alt_off_outlined,
                             title: '没有符合条件的收藏',
                             message: '换个类型、分类、搜索词或清除筛选条件试试看。',

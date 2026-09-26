@@ -361,7 +361,7 @@ class CollectionEditor implements EpisodeCollectionReader {
         _view = _view.copyWith(clearEpisodeUndo: true);
       }
       try {
-        await _snapshotCache.clearCollections(username);
+        await _snapshotCache.invalidateCollection(username, subjectId);
         if (mutation.kind != BangumiMutationKind.collection ||
             mutation.payload['complete_episodes'] == true) {
           await _snapshotCache.clearEpisodeCollections(
@@ -431,7 +431,11 @@ class CollectionEditor implements EpisodeCollectionReader {
       } else {
         try {
           // Online progress still reconciles edits made on other devices.
-          episodes = await _api.getEpisodeCollections(subjectId);
+          // The snapshot is also used by the all-types offline episode grid.
+          episodes = await _api.getEpisodeCollections(
+            subjectId,
+            episodeType: null,
+          );
         } catch (_) {
           episodes = await readEpisodeSnapshot(subjectId) ?? const [];
           if (episodes.isEmpty) rethrow;

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../core/theme/app_tokens.dart';
 
 /// Progress describes completed stages, not a guessed network percentage.
 class LoginProgress extends StatelessWidget {
@@ -27,7 +28,7 @@ class LoginProgress extends StatelessWidget {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         ClipRRect(
-                          borderRadius: BorderRadius.circular(4),
+                          borderRadius: AppRadius.round,
                           child: LinearProgressIndicator(
                             value: index < stage
                                 ? 1

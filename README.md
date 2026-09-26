@@ -2,13 +2,15 @@
 
 项目主页：<https://wweiyi2004.github.io/MuBangumi/>
 
-发布维护：[Gitee 双平台发布与断点续传配置](docs/GITEE_MIRROR.md)。镜像不可用时自动回退 GitHub。
+发布维护：[Gitee 双平台发布与断点续传配置](docs/GITEE_MIRROR.md)。未配置 Gitee 镜像时继续使用 GitHub 下载。
 
 MuBangumi 是一个使用 Flutter 编写的第三方 Bangumi 追番客户端，一套代码覆盖 Android、iOS 和 Windows。
 
 > 本项目是非官方客户端，与 Bangumi 番组计划官方无隶属关系。条目、收藏和章节数据来自 [Bangumi API](https://github.com/bangumi/api)。
 
-当前版本：**v2.3.0+28**
+当前版本：**v2.4.0+4030**
+
+开发与维护入口：[CONTRIBUTING.md](CONTRIBUTING.md)。固定工具版本、全仓校验、设备验收与发布来源记录均从这里进入。
 
 后续体验改进的阶段、验收标准与进展见 [长期体验改进计划](docs/UX_ROADMAP.md)。
 
@@ -95,20 +97,21 @@ API 的 OAuth 登录可直接调用 next.bgm.tv P1 完成电波提醒与加/删�
 
 ## 开始运行
 
-环境要求：Flutter 3.44 或兼容版本、Dart 3.12 或兼容版本。
+维护工具版本以 `tool/toolchain.json` 为准：官方 Flutter 3.44.7、Dart 3.12；本地 SDK 通过 `tool/toolchain.ps1` 选择，不更改全局 SDK 或 Shorebird 基线。
 
 ```powershell
-flutter pub get
-flutter run -d windows
+. ./tool/toolchain.ps1
+Invoke-MuFlutter -Arguments @('pub','get','--enforce-lockfile')
+Invoke-MuFlutter -Arguments @('run','-d','windows')
 ```
 
 连接 Android 设备后：
 
 ```powershell
-flutter run -d android
+Invoke-MuFlutter -Arguments @('run','-d','<flutter devices 显示的设备 ID>')
 ```
 
-iOS 工程已生成，但 iOS 编译和签名必须在安装了 Xcode 的 macOS 上完成。
+iOS 工程最低支持 iOS 14，以匹配当前原生插件要求；编译和签名必须在安装了 Xcode 的 macOS 上完成。本次发行不提供 iOS 安装包，模拟器编译由 macOS CI 单独验证。
 
 ## 登录
 
@@ -154,7 +157,7 @@ OAuth 的 Token、刷新凭据与应用配置会在账号验证成功后整组�
 - 启动后延迟 2 秒在后台检查（登录界面也可接收修复）；回到前台时检查，30 分钟内不重复请求。自动提醒在登录后以页内提示显示，输入时收起，不自动弹窗。有 Shorebird patch 时后台下载，下次完整启动生效。
 - 启动与手动检查合并执行，避免重复下载和重复弹窗。补丁仅在下次完整启动时生效，不会中断当前操作。
 - GitHub 正式版支持版本号与构建号比较。点开提示查看摘要与完整 Markdown 公告，可「下载更新 / 明天提醒 / 跳过此版本」。跳过只作用于该 tag；提醒延期持久化 24 小时。网络失败明确提示，不误报为已是最新版。
-- Android 自动匹配 ABI，下载后检查大小与 SHA256，安装前核对包名、版本和签名，再交给系统确认。Windows 下载 x64 便携 ZIP 后打开所在目录，用户解压到新目录启动。关闭面板不取消下载，可从“我的 → 检查更新”返回；退出整个应用后重新下载，不支持跨进程断点续传。
+- Android 自动匹配 ABI，下载后检查大小与 SHA256，安装前核对包名、版本和签名，再交给系统确认。Windows 下载 x64 便携 ZIP 后打开所在目录，用户解压到新目录启动。支持暂停、恢复及应用重启后续传；关闭面板不取消下载，可从“我的 → 检查更新”返回。自动模式下镜像不支持 Range 时尝试 GitHub 续传；可用来源均不支持时安全重新下载，完整校验通过后才交给安装或打开流程。取消下载会删除未完成文件。
 - 自动下载要求 GitHub 资产包含 SHA256 digest，并使用 `MuBangumi-版本-build构建号-android-架构.apk` 或 `MuBangumi-版本-build构建号-windows-x64.zip` 命名。缺少匹配包或校验信息时保留发布页入口。正式发布使用唯一的 `v版本+构建号` tag，避免替换已发布版本。
 - 「我的」→「检查更新」可手动检查；手动检查仍会展示已跳过的版本。
 - 必须用 Shorebird 打的包用户才能收到 patch；普通 `flutter run` / `flutter build` **不会**启用 updater。
@@ -175,13 +178,15 @@ OAuth 的 Token、刷新凭据与应用配置会在账号验证成功后整组�
 
 `shorebird.yaml` 中 `auto_update: false`，由应用内控制检查与下载，以便展示更新就绪提示。
 
-从 `2.3.1+4029` 起恢复使用 Shorebird 整包基线，Android 分发包含全部 ABI 的通用 APK。内部 build 从 28 提升为 4029，是为了超过旧分架构 APK 的最高 versionCode 4028；后续整包按 4030、4031 递增。`2.3.0+28` 普通 Flutter 包需要先覆盖安装该新基线，之后才能接收匹配的 Dart 热补丁。
+`2.4.0+4030` 使用固定版本的官方 Flutter 构建 Android / Windows 整包，通过 GitHub 整包更新；本版没有启用 Shorebird 热补丁，也没有更改原有 `2.3.1+4029` Shorebird 基线。Android 使用通用 APK，versionCode 为 4030，高于旧通用包的 4029 和旧分架构包的最高值 4028。后续建立新的 Shorebird 基线须单独完成对应发布验收。
 
 发布脚本固定使用 Shorebird Flutter `3.44.7` 创建基线，补丁自动使用服务端记录的对应引擎版本。补丁必须明确指定完整基线版本，避免误发到其他版本。可加 `-DryRun` 只验证构建；不要在补丁中混入原生插件、权限或资源变更。
 
 需要补丁专属公告时，可创建标为预发布的 GitHub Release，tag 使用 `v2.1.1+11-patch.1`（末尾为实际补丁编号），body 填写该补丁说明。应用只读取匹配基线和补丁的公告；公告不存在或网络不可达时仍可应用更新。完整版本公告继续通过正式 GitHub Release 提供。
 
 ## 构建
+
+工具版本与完整命令见 [维护入口](CONTRIBUTING.md)。下方真实 Shorebird 发布命令还须传入 `-VerificationReport` 和对应平台的 `-AcceptanceReport`；示例中的基线版本应替换为实际目标基线。脚本在上传前核对干净源码、最近 7 天的验证及人工验收，输出 `provenance.json`。调试构建通过 `tool/verify_all.ps1 -Mode Full` 运行；未提交改动的普通本地 Release 构建须显式加 `-AllowDirty`。
 
 Windows：
 
@@ -233,6 +238,8 @@ APK 分架构的 versionCode 包含架构偏移，后续发布需保持各架构
 体积实测、Windows 图标裁剪限制及验收结果见 [安装包体积优化记录](docs/qa/PACKAGE_SIZE.md)。
 
 ## 项目结构
+
+文档入口见 [docs/README.md](docs/README.md)，发布、验证和本地清理工具见 [tool/README.md](tool/README.md)。
 
 仓库包含 Flutter 主应用、由主应用复用且可独立部署的番键会服务包，以及四个独立的卫星模块：
 

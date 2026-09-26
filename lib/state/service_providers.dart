@@ -3,10 +3,12 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../core/network/community_service.dart';
 import '../core/network/pm_service.dart';
 import 'website_session_controller.dart';
+import 'account_diagnostics_provider.dart';
 
 /// Services are owned by a ProviderContainer, never by process-wide auth state.
 final communityServiceProvider = Provider<CommunityService>((ref) {
   final service = CommunityService(
+    diagnostics: ref.watch(accountDiagnosticsProvider),
     sessionStore: ref.watch(websiteSessionStoreProvider),
   );
   ref.onDispose(service.dispose);
@@ -14,6 +16,7 @@ final communityServiceProvider = Provider<CommunityService>((ref) {
 });
 final pmServiceProvider = Provider<PmService>((ref) {
   final service = PmService(
+    diagnostics: ref.watch(accountDiagnosticsProvider),
     sessionStore: ref.watch(websiteSessionStoreProvider),
   );
   ref.onDispose(service.dispose);

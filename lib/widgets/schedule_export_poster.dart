@@ -11,6 +11,7 @@ import 'package:path_provider/path_provider.dart';
 
 import '../core/network/bangumi_endpoints.dart';
 import '../models/schedule_models.dart';
+import '../core/theme/app_tokens.dart';
 
 /// Fixed-width share poster for a local season schedule.
 class ScheduleExportPoster extends StatelessWidget {
@@ -678,7 +679,7 @@ class _ScheduleExportDialogState extends State<_ScheduleExportDialog> {
             const SizedBox(height: 14),
             Expanded(
               child: ClipRRect(
-                borderRadius: BorderRadius.circular(12),
+                borderRadius: AppRadius.medium,
                 child: ColoredBox(
                   color: theme.colorScheme.surfaceContainerHighest,
                   child: Stack(

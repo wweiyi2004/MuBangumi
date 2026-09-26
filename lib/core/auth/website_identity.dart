@@ -1,8 +1,11 @@
+import 'dart:convert';
 import 'package:dio/dio.dart';
 import 'package:html/parser.dart' as html_parser;
 import '../../models/bangumi_models.dart';
 import '../network/bangumi_user_agent.dart';
 import '../network/pm_html_parser.dart';
+import '../diagnostics/account_diagnostics.dart';
+import '../network/account_diagnostics_interceptor.dart';
 import 'website_session.dart';
 
 enum WebsiteAccessStatus {
@@ -33,6 +36,42 @@ class WebsiteAccessException implements Exception {
   String toString() => message;
 }
 
+typedef WebsiteSessionFailureReporter =
+    bool Function(
+      WebsiteAccessStatus status,
+      String requestKey, {
+      Uri? recoveryUri,
+    });
+
+/// Inspect a redirect without following a credential-bearing request or POST.
+bool isWebsiteLoginRedirect(int? statusCode, String? location) {
+  if (statusCode == null ||
+      statusCode < 300 ||
+      statusCode >= 400 ||
+      location == null) {
+    return false;
+  }
+  final target = Uri.tryParse(location);
+  if (target == null) return false;
+  final uri = Uri.parse('https://bgm.tv/').resolveUri(target);
+  return uri.scheme == 'https' &&
+      uri.host == 'bgm.tv' &&
+      uri.port == 443 &&
+      uri.userInfo.isEmpty &&
+      const ['/login', '/login/'].contains(uri.path);
+}
+
+/// Recovery carries no credentials and must stay on the classic website.
+Uri? websiteRecoveryUri(Uri? uri) =>
+    uri != null &&
+        uri.scheme == 'https' &&
+        uri.host == 'bgm.tv' &&
+        uri.port == 443 &&
+        uri.userInfo.isEmpty &&
+        !uri.path.startsWith('/logout')
+    ? uri.replace(fragment: '')
+    : null;
+
 /// Evidence read from the active app-owned WebView, tied to a stable cookie
 /// capture. Only official page chrome is provided, never message/topic content.
 class WebsiteBrowserIdentity {
@@ -44,6 +83,57 @@ class WebsiteBrowserIdentity {
   });
   final String url, html, authenticationKey;
   final String? userAgent;
+
+  static const captureScript = '''
+JSON.stringify({url: location.href, readyState: document.readyState, userAgent: navigator.userAgent,
+  html: ['#headerNeue2', '#badgeUserPanel', '#dock'].map(function(selector) {
+    var node = document.querySelector(selector);
+    return node ? node.outerHTML : '';
+  }).join('')})
+''';
+
+  static Future<WebsiteBrowserIdentity?> capture({
+    required List<WebsiteCookie> cookies,
+    required Future<Object?> Function(String) evaluate,
+    required Future<List<WebsiteCookie>> Function() recapture,
+    required bool Function() isCurrent,
+    String? expectedUrl,
+  }) async {
+    try {
+      Object? result = await evaluate(captureScript);
+      for (var i = 0; i < 2 && result is String; i++) {
+        result = jsonDecode(result);
+      }
+      if (!isCurrent() ||
+          result is! Map ||
+          !const ['interactive', 'complete'].contains(result['readyState']) ||
+          (expectedUrl != null &&
+              Uri.tryParse(result['url']?.toString() ?? '') !=
+                  Uri.tryParse(expectedUrl))) {
+        return null;
+      }
+      final before = WebsiteSessionSnapshot(
+        cookies: cookies,
+        syncedAt: DateTime.now(),
+      );
+      final after = WebsiteSessionSnapshot(
+        cookies: await recapture(),
+        syncedAt: DateTime.now(),
+      );
+      if (!isCurrent() || before.authenticationKey != after.authenticationKey) {
+        return null;
+      }
+      final identity = WebsiteBrowserIdentity(
+        url: result['url']?.toString() ?? '',
+        html: result['html']?.toString() ?? '',
+        userAgent: result['userAgent']?.toString(),
+        authenticationKey: before.authenticationKey,
+      );
+      return identity.matches(before) ? identity : null;
+    } catch (_) {
+      return null;
+    }
+  }
 
   bool matches(WebsiteSessionSnapshot snapshot) {
     final uri = Uri.tryParse(url);
@@ -63,21 +153,55 @@ class WebsiteBrowserIdentity {
 
 /// A Cookie-only probe. API Authorization must never stand in for website identity.
 class WebsiteIdentityProbe {
-  WebsiteIdentityProbe({Dio? dio})
-    : _dio =
-          dio ??
-          Dio(
-            BaseOptions(
-              connectTimeout: const Duration(seconds: 12),
-              receiveTimeout: const Duration(seconds: 15),
-              headers: const {'User-Agent': muBangumiUserAgent},
-            ),
-          ) {
+  WebsiteIdentityProbe({
+    Dio? dio,
+    AccountDiagnostics? diagnostics,
+    Future<void> Function(Duration)? retryDelay,
+  }) : _retryDelay = retryDelay ?? Future<void>.delayed,
+       _dio =
+           dio ??
+           Dio(
+             BaseOptions(
+               connectTimeout: const Duration(seconds: 12),
+               receiveTimeout: const Duration(seconds: 15),
+               headers: const {'User-Agent': muBangumiUserAgent},
+             ),
+           ) {
     _dio.options.headers.removeWhere(
       (key, _) => key.toLowerCase() == 'authorization',
     );
+    _dio.interceptors.add(
+      AccountDiagnosticsInterceptor(
+        diagnostics ?? AccountDiagnostics(),
+        AccountArea.website,
+      ),
+    );
   }
   final Dio _dio;
+  final Future<void> Function(Duration) _retryDelay;
+  WebsiteResponseCookieReceiver? onWebsiteResponseCookies;
+
+  Future<WebsiteSessionSnapshot?> _absorbCookies(
+    Response<String> response,
+    WebsiteSessionSnapshot snapshot,
+  ) async {
+    final cookies = parseWebsiteResponseCookies(
+      response.headers['set-cookie'],
+      response.requestOptions.uri,
+    );
+    if (cookies.isEmpty || onWebsiteResponseCookies == null) return snapshot;
+    final current = await onWebsiteResponseCookies!(
+      snapshot.requestKey,
+      cookies,
+    );
+    if (current == null) {
+      throw const WebsiteAccessException(
+        WebsiteAccessStatus.unavailable,
+        '网站会话已更新，请重试核验',
+      );
+    }
+    return current;
+  }
 
   static bool isChallenge(String html, {String? cfMitigated}) {
     // Cloudflare also injects challenge-platform/scripts/jsd into ordinary,
@@ -138,7 +262,7 @@ class WebsiteIdentityProbe {
       _dio.options.headers.removeWhere(
         (key, _) => key.toLowerCase() == 'authorization',
       );
-      final response = await _dio.get<String>(
+      var response = await _dio.get<String>(
         'https://bgm.tv/',
         options: Options(
           headers: snapshot.requestHeaders,
@@ -147,6 +271,23 @@ class WebsiteIdentityProbe {
           validateStatus: (status) => status != null && status < 600,
         ),
       );
+      var current = await _absorbCookies(response, snapshot) ?? snapshot;
+      if (isChallenge(
+        response.data ?? '',
+        cfMitigated: response.headers.value('cf-mitigated'),
+      )) {
+        await _retryDelay(const Duration(seconds: 2));
+        response = await _dio.get<String>(
+          'https://bgm.tv/',
+          options: Options(
+            headers: current.requestHeaders,
+            responseType: ResponseType.plain,
+            followRedirects: false,
+            validateStatus: (status) => status != null && status < 600,
+          ),
+        );
+        current = await _absorbCookies(response, current) ?? current;
+      }
       final html = response.data ?? '';
       if (isChallenge(
         html,
@@ -165,11 +306,10 @@ class WebsiteIdentityProbe {
       }
       final identifier = PmHtmlParser().parseSignedInUser(html);
       if (response.statusCode == 401 ||
-          (response.statusCode != null &&
-              response.statusCode! >= 300 &&
-              response.statusCode! < 400 &&
-              Uri.tryParse(response.headers.value('location') ?? '')?.path ==
-                  '/login') ||
+          isWebsiteLoginRedirect(
+            response.statusCode,
+            response.headers.value('location'),
+          ) ||
           (identifier == null && PmHtmlParser().looksLikeLoginPage(html))) {
         throw const WebsiteAccessException(
           WebsiteAccessStatus.expired,

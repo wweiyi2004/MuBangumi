@@ -8,6 +8,7 @@ import '../core/network/bangumi_endpoints.dart';
 import '../core/network/community_service.dart';
 import '../core/auth/website_cookie_bridge.dart';
 import '../core/auth/website_session.dart';
+import '../core/auth/website_identity.dart';
 import '../core/storage/bangumi_sync_store.dart';
 import '../core/storage/snapshot_cache.dart';
 import '../core/storage/token_store.dart';
@@ -41,12 +42,14 @@ class _PendingVerification {
     required this.tokens,
     this.config,
     this.websiteCookies,
+    this.websiteIdentity,
   });
 
   final String token;
   final OAuthTokenBundle tokens;
   final OAuthConfig? config;
   final List<WebsiteCookie>? websiteCookies;
+  final WebsiteBrowserIdentity? websiteIdentity;
 }
 
 class SessionController extends StateNotifier<SessionState>
@@ -302,6 +305,7 @@ class SessionController extends StateNotifier<SessionState>
       tokens: pending.tokens,
       config: pending.config,
       websiteCookies: pending.websiteCookies,
+      websiteIdentity: pending.websiteIdentity,
     );
   }
 
@@ -381,6 +385,7 @@ class SessionController extends StateNotifier<SessionState>
     OAuthConfig config, {
     OAuthAuthorizationLauncher? launchAuthorization,
     List<WebsiteCookie> Function()? websiteCookies,
+    WebsiteBrowserIdentity? Function()? websiteIdentity,
   }) async {
     if (state.phase != SessionPhase.signedOut ||
         state.authActivity != AuthActivity.idle) {
@@ -405,6 +410,7 @@ class SessionController extends StateNotifier<SessionState>
         tokens: tokens,
         config: config,
         websiteCookies: websiteCookies?.call(),
+        websiteIdentity: websiteIdentity?.call(),
       );
     } catch (error) {
       if (!_isCurrentAuth(generation)) return false;
@@ -449,6 +455,7 @@ class SessionController extends StateNotifier<SessionState>
     OAuthTokenBundle? tokens,
     OAuthConfig? config,
     List<WebsiteCookie>? websiteCookies,
+    WebsiteBrowserIdentity? websiteIdentity,
   }) async {
     if (!_isCurrentAuth(generation)) return false;
     if (persist) {
@@ -529,10 +536,22 @@ class SessionController extends StateNotifier<SessionState>
         // a failed login. Collections are fetched independently below.
       }
       if (websiteCookies != null && websiteCookies.isNotEmpty) {
-        final website = WebsiteSessionSnapshot(
+        var website = WebsiteSessionSnapshot(
           cookies: websiteCookies,
           syncedAt: DateTime.now(),
         );
+        if (websiteIdentity?.matches(website) == true) {
+          website = WebsiteSessionSnapshot(
+            cookies: website.cookies,
+            syncedAt: website.syncedAt,
+            userAgent: websiteIdentity!.userAgent,
+          );
+          final identifier = websiteIdentity.identifierFor(website);
+          if (identifier == '${user.id}' ||
+              identifier?.toLowerCase() == user.username.toLowerCase()) {
+            website = website.withVerifiedUser(user.id);
+          }
+        }
         if (website.hasSessionCookies) {
           try {
             if (!await _credentials.writeCurrent(generation, () async {
@@ -607,6 +626,7 @@ class SessionController extends StateNotifier<SessionState>
             tokens: tokens,
             config: config,
             websiteCookies: websiteCookies,
+            websiteIdentity: websiteIdentity,
           );
         }
         state = SessionState(

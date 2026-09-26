@@ -4,6 +4,7 @@ import '../../../state/pm_mailbox_controller.dart';
 import '../../../widgets/community_loading.dart';
 import 'pm_avatar.dart';
 import '../../../widgets/social_chat_style.dart';
+import '../../../core/theme/app_tokens.dart';
 
 class PmSegmentedTabs extends StatelessWidget {
   const PmSegmentedTabs({
@@ -27,7 +28,7 @@ class PmSegmentedTabs extends StatelessWidget {
       padding: const EdgeInsets.all(4),
       decoration: BoxDecoration(
         color: SocialChatStyle.canvas(context),
-        borderRadius: BorderRadius.circular(10),
+        borderRadius: AppRadius.small,
       ),
       child: Row(
         children: [
@@ -68,9 +69,9 @@ class PmSegmentedTabs extends StatelessWidget {
       color: selected ? SocialChatStyle.paper(context) : Colors.transparent,
       elevation: 0,
       shadowColor: Colors.black26,
-      borderRadius: BorderRadius.circular(8),
+      borderRadius: AppRadius.small,
       child: InkWell(
-        borderRadius: BorderRadius.circular(8),
+        borderRadius: AppRadius.small,
         onTap: onTap,
         child: Padding(
           padding: const EdgeInsets.symmetric(vertical: 7),
@@ -108,7 +109,7 @@ class PmSegmentedTabs extends StatelessWidget {
                   ),
                   decoration: BoxDecoration(
                     color: SocialChatStyle.accent(context),
-                    borderRadius: BorderRadius.circular(999),
+                    borderRadius: AppRadius.round,
                   ),
                   child: Text(
                     badge > 99 ? '99+' : '$badge',
@@ -272,10 +273,10 @@ class _PmConversationTile extends StatelessWidget {
       color: selected
           ? SocialChatStyle.accent(context).withValues(alpha: .09)
           : Colors.transparent,
-      borderRadius: BorderRadius.circular(10),
+      borderRadius: AppRadius.small,
       child: InkWell(
         onTap: onTap,
-        borderRadius: BorderRadius.circular(10),
+        borderRadius: AppRadius.small,
         child: Semantics(
           selected: selected,
           label: item.isUnread ? '未读会话' : null,
@@ -338,7 +339,7 @@ class _PmConversationTile extends StatelessWidget {
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
                                 style: TextStyle(
-                                  fontSize: 12,
+                                  fontSize: AppText.caption,
                                   color: scheme.onSurfaceVariant,
                                 ),
                               ),
@@ -421,7 +422,7 @@ class _PmStateCard extends StatelessWidget {
                       scheme.secondary.withValues(alpha: .12),
                     ],
                   ),
-                  borderRadius: BorderRadius.circular(24),
+                  borderRadius: AppRadius.large,
                 ),
                 child: Icon(icon, size: 36, color: scheme.primary),
               ),

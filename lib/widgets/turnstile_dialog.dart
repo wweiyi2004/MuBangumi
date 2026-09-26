@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:webview_flutter/webview_flutter.dart' as mobile;
 import 'package:webview_flutter_android/webview_flutter_android.dart';
 import 'package:webview_flutter_platform_interface/webview_flutter_platform_interface.dart';
+import '../core/theme/app_tokens.dart';
 import 'package:webview_flutter_windows/webview_flutter_windows.dart'
     as windows;
 
@@ -210,7 +211,7 @@ class _TurnstileDialogState extends State<_TurnstileDialog> {
           children: [
             Expanded(
               child: ClipRRect(
-                borderRadius: BorderRadius.circular(8),
+                borderRadius: AppRadius.small,
                 child: TurnstileView(
                   key: _key,
                   onToken: (token) {

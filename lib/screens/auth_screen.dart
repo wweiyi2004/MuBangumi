@@ -10,6 +10,7 @@ import '../widgets/brand_mark.dart';
 import '../core/auth/bangumi_oauth.dart';
 import '../core/auth/oauth_builtin.dart';
 import '../core/auth/website_session.dart';
+import '../core/auth/website_identity.dart';
 import '../core/auth/website_cookie_bridge.dart';
 import '../state/session_controller.dart';
 import '../widgets/network_route_picker.dart';
@@ -85,6 +86,7 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
       }
       if (config == null || !mounted) return;
       List<WebsiteCookie> websiteCookies = const [];
+      WebsiteBrowserIdentity? websiteIdentity;
       final login = ref
           .read(sessionProvider.notifier)
           .signInWithOAuth(
@@ -93,8 +95,11 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
               uri,
               callback,
               onCookiesCaptured: (cookies) => websiteCookies = cookies,
+              onBrowserIdentityCaptured: (identity) =>
+                  websiteIdentity = identity,
             ),
             websiteCookies: () => websiteCookies,
+            websiteIdentity: () => websiteIdentity,
           );
       _startingOAuth = false;
       final signedIn = await login;
@@ -130,6 +135,7 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
     Uri authorizationUri,
     Future<Uri> callback, {
     ValueChanged<List<WebsiteCookie>>? onCookiesCaptured,
+    ValueChanged<WebsiteBrowserIdentity>? onBrowserIdentityCaptured,
   }) async {
     try {
       await WebsiteCookieBridge.waitForPendingCleanup();
@@ -143,6 +149,7 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
         authorizationUri: authorizationUri,
         callback: callback,
         onCookiesCaptured: onCookiesCaptured,
+        onBrowserIdentityCaptured: onBrowserIdentityCaptured,
         onAuthorizationRedirect: ref
             .read(bangumiOAuthProvider)
             .acceptEmbeddedRedirect,

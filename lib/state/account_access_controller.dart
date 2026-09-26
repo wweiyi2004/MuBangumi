@@ -1,29 +1,49 @@
 import 'dart:async';
+import 'dart:io';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../core/auth/website_session.dart';
 import '../models/bangumi_models.dart';
 import 'session_controller.dart';
 import 'website_session_controller.dart';
 import 'service_providers.dart';
+import 'account_diagnostics_provider.dart';
+import '../core/diagnostics/account_diagnostics.dart';
 
 /// One coordination point; the existing API session remains the account owner.
 final accountAccessProvider = Provider<AccountAccessController>((ref) {
   final website = ref.read(websiteSessionProvider.notifier);
   final pm = ref.watch(pmServiceProvider);
   final community = ref.watch(communityServiceProvider);
+  final diagnostics = ref.watch(accountDiagnosticsProvider);
   final access = AccountAccessController(
     website: website,
     currentUser: () => ref.read(sessionProvider).user,
   );
-  ref.listen(
-    sessionProvider.select((state) => state.user),
-    (_, user) => access.accountChanged(user),
-    fireImmediately: true,
-  );
+  ref.listen(sessionProvider.select((state) => state.user), (previous, user) {
+    if (previous?.id != user?.id || previous?.username != user?.username) {
+      diagnostics.clear();
+    }
+    access.accountChanged(user);
+    diagnostics.record(
+      AccountArea.website,
+      AccountEvent.accountChanged,
+      generation: access.revision,
+      state: user == null ? 0 : 1,
+    );
+  }, fireImmediately: true);
+  ref.listen(websiteSessionProvider.select((state) => state.status), (_, next) {
+    diagnostics.record(
+      AccountArea.website,
+      AccountEvent.stateChanged,
+      state: next.index,
+      generation: access.revision,
+    );
+  });
   final guard = access.requireWebsiteSession;
   final failure = website.reportFailure;
   pm.websiteSessionGuard = guard;
   pm.onWebsiteSessionFailure = failure;
+  pm.onWebsiteResponseCookies = access.absorbWebsiteResponseCookies;
   community.websiteSessionGuard = guard;
   community.onWebsiteSessionFailure = failure;
   ref.onDispose(() {
@@ -31,6 +51,7 @@ final accountAccessProvider = Provider<AccountAccessController>((ref) {
     if (identical(pm.websiteSessionGuard, guard)) {
       pm.websiteSessionGuard = null;
       pm.onWebsiteSessionFailure = null;
+      pm.onWebsiteResponseCookies = null;
     }
     if (identical(community.websiteSessionGuard, guard)) {
       community.websiteSessionGuard = null;
@@ -75,6 +96,19 @@ class AccountAccessController {
       );
     }
     return result;
+  }
+
+  Future<WebsiteSessionSnapshot?> absorbWebsiteResponseCookies(
+    String requestKey,
+    List<Cookie> cookies,
+  ) {
+    final user = currentUser();
+    if (_disposed || user == null) return Future.value();
+    return website.absorbResponseCookies(
+      requestKey,
+      cookies,
+      ownerUserId: user.id,
+    );
   }
 
   Future<bool> verify({bool force = false}) async {

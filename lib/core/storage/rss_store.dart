@@ -117,23 +117,48 @@ class RssStore {
   });
 
   /// Insert matched items; ignore duplicates by (source_id, guid).
-  Future<int> insertItemsIgnoreDup(List<RssItem> items) => _write(() async {
+  Future<int> insertItemsIgnoreDup(
+    List<RssItem> items, {
+    bool validateBindings = false,
+  }) => _write(() async {
     if (items.isEmpty) return 0;
     final db = await _open();
-    var added = 0;
-    final batch = db.batch();
-    for (final item in items) {
-      batch.insert(
-        'rss_items',
-        item.toRow(),
-        conflictAlgorithm: ConflictAlgorithm.ignore,
-      );
-    }
-    final results = await batch.commit(noResult: false);
-    for (final result in results) {
-      if (result is int && result > 0) added++;
-    }
-    return added;
+    return db.transaction((txn) async {
+      // A network response can arrive after its source was deleted. Check
+      // existence in the same transaction as insertion so it stays deleted.
+      final sources = await txn.query('rss_sources', columns: ['id']);
+      final sourceIds = {for (final row in sources) row['id']};
+      final bindings = validateBindings
+          ? (await txn.query(
+              'rss_bindings',
+              where: 'enabled = 1',
+            )).map(RssBinding.fromRow).toList()
+          : const <RssBinding>[];
+      var added = 0;
+      final batch = txn.batch();
+      for (final item in items) {
+        if (!sourceIds.contains(item.sourceId)) continue;
+        if (validateBindings &&
+            !bindings.any(
+              (binding) =>
+                  binding.sourceId == item.sourceId &&
+                  binding.subjectId == item.subjectId &&
+                  binding.matchesTitle(item.title),
+            )) {
+          continue;
+        }
+        batch.insert(
+          'rss_items',
+          item.toRow(),
+          conflictAlgorithm: ConflictAlgorithm.ignore,
+        );
+      }
+      final results = await batch.commit(noResult: false);
+      for (final result in results) {
+        if (result is int && result > 0) added++;
+      }
+      return added;
+    });
   });
 
   Future<List<RssItem>> listItems({

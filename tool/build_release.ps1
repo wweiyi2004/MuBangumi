@@ -6,9 +6,11 @@ param(
 
     [switch]$Patch,
 
+    [switch]$UniversalApk,
+
     [string]$ReleaseVersion,
 
-    [string]$FlutterVersion = '3.44.7',
+    [string]$FlutterVersion,
 
     [ValidatePattern('^\d+\.\d+\.\d+$')]
     [string]$BuildName,
@@ -18,10 +20,19 @@ param(
 
     [string]$GiteeRepository = $env:GITEE_REPOSITORY,
 
-    [switch]$DryRun
+    [switch]$DryRun,
+    [switch]$AllowDirty,
+    [string]$VerificationReport,
+    [string]$AcceptanceReport
 )
 
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'toolchain.ps1')
+if ($UniversalApk -and ($Target -ne 'apk' -or $Patch)) {
+    throw '-UniversalApk requires a full APK build.'
+}
+if (-not $FlutterVersion) { $FlutterVersion = $script:MuVersions.flutter }
+if (-not $Patch -and $FlutterVersion -ne $script:MuVersions.flutter) { throw 'FlutterVersion 必须与 tool/toolchain.json 保持一致。' }
 if ($GiteeRepository -and ($GiteeRepository -notmatch '^[a-zA-Z0-9_-]+/[a-zA-Z0-9_.-]+$' -or
     @($GiteeRepository.Split('/') | Where-Object { $_ -in @('.', '..') }).Count -gt 0)) {
     throw 'GiteeRepository 必须是已验证的公开仓库 owner/repository，不要填写完整 URL。'
@@ -39,7 +50,7 @@ $repositoryRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 $oauthConfigPath = Join-Path $repositoryRoot 'config\oauth.local.json'
 $expectedArtifacts = @(switch ($Target) {
     'apk'       {
-        if ($Shorebird) {
+        if ($Shorebird -or $UniversalApk) {
             'build\app\outputs\flutter-apk\app-release.apk'
         } else {
             foreach ($abi in @('armeabi-v7a', 'arm64-v8a', 'x86_64')) {
@@ -91,6 +102,21 @@ if ([string]::IsNullOrWhiteSpace($clientId) -or
 
 Push-Location $repositoryRoot
 try {
+    $versionLine = ((Get-Content pubspec.yaml | Where-Object { $_ -match '^version:\s*' } | Select-Object -First 1) -replace '^version:\s*','').Trim()
+    if ($versionLine -notmatch '^(\d+\.\d+\.\d+)\+(\d+)$') { throw 'pubspec.yaml 需要明确的版本与构建号。' }
+    $effectiveVersion = $(if ($BuildName) { $BuildName } else { $Matches[1] }) + '+' + $(if ($BuildNumber) { $BuildNumber } else { $Matches[2] })
+    $recordDirectory = Join-Path $repositoryRoot ('release-symbols\provenance-' + $Target + '-' + [guid]::NewGuid().ToString('N'))
+    $provenanceFile = Join-Path $recordDirectory 'provenance.json'
+    $kind = if ($DryRun) { 'dry-run' } elseif ($Patch) { 'shorebird-patch' } elseif ($Shorebird) { 'shorebird-release' } else { 'build' }
+    $provenanceArguments = @('tool/release_provenance.py','create','--root',$repositoryRoot,'--out',$provenanceFile,
+        '--sdk-metadata',(Join-Path (Get-MuFlutterRoot) 'bin/cache/flutter.version.json'),
+        '--target',$Target,'--kind',$kind,'--version',$effectiveVersion)
+    if ($AllowDirty -or $DryRun) { $provenanceArguments += '--allow-dirty' }
+    if ($ReleaseVersion) { $provenanceArguments += @('--baseline',$ReleaseVersion) }
+    if ($VerificationReport) { $provenanceArguments += @('--verification',([IO.Path]::GetFullPath($VerificationReport))) }
+    if ($AcceptanceReport) { $provenanceArguments += @('--acceptance',([IO.Path]::GetFullPath($AcceptanceReport))) }
+    & python @provenanceArguments
+    if ($LASTEXITCODE) { throw '发布前检查未通过，尚未运行构建或上传；请查看上方具体原因。' }
     if ($Shorebird) {
         if (-not (Get-Command shorebird -ErrorAction SilentlyContinue)) {
             throw '未找到 Shorebird CLI，请先安装并完成 shorebird login。'
@@ -114,13 +140,10 @@ try {
             }
         }
         # Keep existing Shorebird base/patch compilation options compatible.
-        $arguments += @('--', "--dart-define-from-file=$oauthConfigPath") + $versionArguments
+        $arguments += @('--', '--no-pub', "--dart-define-from-file=$oauthConfigPath") + $versionArguments
         Write-Host "使用本地 OAuth 配置构建 Shorebird $platform（不会打印密钥）"
         & shorebird @arguments
     } else {
-        if (-not (Get-Command flutter -ErrorAction SilentlyContinue)) {
-            throw '未找到 Flutter CLI。'
-        }
         if ($DryRun) {
             throw '-DryRun 仅适用于 Shorebird 构建。'
         }
@@ -133,11 +156,11 @@ try {
         # must not overwrite the symbols needed to diagnose an older artifact.
         $symbolDirectory = Join-Path $repositoryRoot ('release-symbols\' + $Target + '-' + [guid]::NewGuid().ToString('N'))
         New-Item -ItemType Directory -Path $symbolDirectory | Out-Null
-        $arguments = @('build', $Target, '--release', '--tree-shake-icons',
+        $arguments = @('build', $Target, '--release', '--no-pub', '--tree-shake-icons',
             "--split-debug-info=$symbolDirectory", "--dart-define-from-file=$oauthConfigPath") + $versionArguments
-        if ($Target -eq 'apk') { $arguments += '--split-per-abi' }
+        if ($Target -eq 'apk' -and -not $UniversalApk) { $arguments += '--split-per-abi' }
         Write-Host "使用本地 OAuth 配置构建 Flutter $Target release（不会打印密钥）"
-        & flutter @arguments
+        Invoke-MuFlutter -Arguments $arguments
     }
 
     if ($LASTEXITCODE -ne 0) {
@@ -145,12 +168,17 @@ try {
     }
 
     if ($DryRun) {
+        & python tool/release_provenance.py finish --root $repositoryRoot --manifest $provenanceFile
+        if ($LASTEXITCODE) { throw 'Dry-run 来源记录校验失败。' }
         Write-Host 'Shorebird dry-run 校验通过。'
         return
     }
 
     if ($Patch) {
+        & python tool/release_provenance.py finish --root $repositoryRoot --manifest $provenanceFile
+        if ($LASTEXITCODE) { throw '上传后来源记录校验失败，请核对远端结果。' }
         Write-Host "Shorebird 补丁发布完成，基线：$ReleaseVersion。"
+        Write-Host "来源记录：$provenanceFile；核对服务器编号后用 release_provenance.py patch-receipt 补全回执。"
         return
     }
 
@@ -184,6 +212,7 @@ try {
         [ordered]@{
             CreatedUtc = [DateTime]::UtcNow.ToString('o')
             Target = $Target
+            Provenance = [IO.Path]::GetRelativePath($symbolDirectory, $provenanceFile)
             Artifacts = $records
             Symbols = @($symbols | ForEach-Object {
                 [ordered]@{ File = $_.Name; SHA256 = (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash }
@@ -191,6 +220,18 @@ try {
         } | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath (Join-Path $symbolDirectory 'build.json') -Encoding utf8
         Write-Host "请单独备份调试符号及产物校验记录（不随安装包发布）：$symbolDirectory"
     }
+    $finishArguments = @('tool/release_provenance.py','finish','--root',$repositoryRoot,'--manifest',$provenanceFile)
+    foreach ($artifactPath in $artifactPaths) { $finishArguments += @('--artifact',$artifactPath) }
+    if (-not $Shorebird) { foreach ($symbol in $symbols) { $finishArguments += @('--symbol',$symbol.FullName) } }
+    & python @finishArguments
+    if ($LASTEXITCODE) { throw '构建来源或产物记录校验失败。' }
+    Write-Host "来源与校验记录：$provenanceFile"
+} catch {
+    $buildFailure = $_
+    if ($provenanceFile -and (Test-Path -LiteralPath $provenanceFile)) {
+        & python tool/release_provenance.py finish --root $repositoryRoot --manifest $provenanceFile --failed | Out-Null
+    }
+    throw $buildFailure
 } finally {
     Pop-Location
 }

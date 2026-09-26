@@ -6,10 +6,12 @@ class CommunityRefreshStatus extends StatelessWidget {
     required this.loading,
     required this.error,
     required this.onRetry,
+    this.message = '刷新失败，已保留当前内容',
   });
   final bool loading;
   final String? error;
   final VoidCallback onRetry;
+  final String message;
 
   @override
   Widget build(BuildContext context) {
@@ -19,7 +21,7 @@ class CommunityRefreshStatus extends StatelessWidget {
       children: [
         const Icon(Icons.cloud_off_rounded, size: 18),
         const SizedBox(width: 8),
-        const Expanded(child: Text('刷新失败，已保留当前内容')),
+        Expanded(child: Text(message)),
         TextButton(onPressed: onRetry, child: const Text('重试')),
       ],
     );

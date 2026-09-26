@@ -15,7 +15,7 @@
     if(r.subject.cover!==undefined&&typeof r.subject.cover!=='string')invalid('cover');
     if(r.subject.cover&& !/^[a-f0-9]{64}$/.test(r.subject.cover))invalid('cover');
     if(!['waiting','open','paused','closed'].includes(r.status))invalid('round.status');
-    bool(r.published,'published');bool(r.publicComments,'publicComments');integer(r.count,'count',0,500);
+    bool(r.published,'published');bool(r.publicComments,'publicComments');if(r.commentsOpen!==undefined)bool(r.commentsOpen,'commentsOpen');integer(r.count,'count',0,500);
     if(r.myScore!=null)integer(r.myScore,'myScore',1,10);
     if(!Array.isArray(r.comments)||r.comments.length>5000)invalid('comments');r.comments.forEach(comment);
     if(r.commentsTotal!==undefined)integer(r.commentsTotal,'commentsTotal',r.comments.length,5000);
@@ -28,7 +28,7 @@
     if(v.revision!==undefined)integer(v.revision,'revision',1);
     if(!Array.isArray(v.rounds)||v.rounds.length>100)invalid('rounds');v.rounds.forEach(round);
     if(new Set(v.rounds.map(r=>r.id)).size!==v.rounds.length)invalid('round IDs');
-    if(v.current!=null&&!v.rounds.some(r=>r.id===v.current))invalid('current');if(v.members){if(!Array.isArray(v.members)||v.members.length>500)invalid('members');v.members.forEach(m=>{text(m.name,'member.name',40);bool(m.submitted,'submitted');Object.freeze(m);});Object.freeze(v.members);}Object.freeze(v.rounds);Object.freeze(v);checkedSnapshots.add(v);return v;
+    if(v.current!=null&&!v.rounds.some(r=>r.id===v.current))invalid('current');if(v.members){if(!Array.isArray(v.members)||v.members.length>500)invalid('members');v.members.forEach(m=>{text(m.name,'member.name',40);bool(m.submitted,'submitted');if(m.avatar!==undefined&&(typeof m.avatar!=='string'||!/^[a-f0-9]{64}$/.test(m.avatar)))invalid('member.avatar');Object.freeze(m);});Object.freeze(v.members);}Object.freeze(v.rounds);Object.freeze(v);checkedSnapshots.add(v);return v;
   }
   function merge(previous,payload){
     object(payload,'snapshot');if(payload.type!=='delta')return snapshot(payload);
@@ -40,6 +40,9 @@
     const result={...previous,...payload,rounds:previous.rounds.map(r=>changes.get(r.id)||r)};delete result.type;delete result.baseRevision;return snapshot(result);
   }
   function commentsPage(v){object(v,'comments page');id(v.event,'event');id(v.round,'round');integer(v.revision,'revision',1);integer(v.total,'total',0,5000);if(v.nextCursor!==null)integer(v.nextCursor,'cursor',1);if(!Array.isArray(v.comments)||v.comments.length>100)invalid('comments');v.comments.forEach(comment);return v;}
-  const api=Object.freeze({snapshotBytes,snapshot,merge,commentsPage});
+  // Same rule as roomSummary() in lib/src/room_summary.dart: highest mean first,
+  // equal means share a rank, then more ratings and playlist order.
+  function summary(v){const rated=(v?.rounds||[]).map((r,i)=>({r,i})).filter(({r})=>r.stats&&r.stats.count>0);rated.sort((a,b)=>b.r.stats.mean-a.r.stats.mean||b.r.stats.count-a.r.stats.count||a.i-b.i);const out=[];rated.forEach((x,i)=>out.push({rank:i>0&&rated[i-1].r.stats.mean===x.r.stats.mean?out[i-1].rank:i+1,r:x.r}));return out;}
+  const api=Object.freeze({snapshotBytes,snapshot,merge,commentsPage,summary});
   root.RoomProtocol=api;if(typeof module!=='undefined')module.exports=api;
 })(globalThis);

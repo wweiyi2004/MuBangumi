@@ -88,10 +88,16 @@ class CommunityP1Parser {
     Map<String, dynamic>? membersPage,
     Map<String, dynamic>? moderatorsPage,
     Map<String, dynamic>? topicsPage,
+    Set<CommunityGroupSection> unavailableSections = const {},
   }) {
     final group = _parseGroup(json);
     if (group == null) throw const FormatException('小组数据不完整');
     final membership = _map(json['membership']);
+    final role = CommunityGroupRole.fromApi(membership?['role']);
+    final hasMembershipIdentity =
+        membership != null &&
+        (_integer(membership['uid']) > 0 ||
+            _dateTime(membership['joinedAt']) != null);
     final recentTopics = topicsPage == null
         ? const <CommunityTopic>[]
         : parseGroupTopics(topicsPage)
@@ -118,18 +124,27 @@ class CommunityP1Parser {
       postCount: _integer(json['posts']),
       accessible: json['accessible'] != false,
       joinedAt: _dateTime(membership?['joinedAt']),
+      membershipJoined:
+          hasMembershipIdentity &&
+          (!membership.containsKey('role') || role?.isActive == true),
+      membershipRole: hasMembershipIdentity ? role : null,
       members: membersPage == null ? const [] : parseMembers(membersPage),
       moderators: moderatorsPage == null
           ? const []
           : parseMembers(moderatorsPage),
       recentTopics: recentTopics,
+      unavailableSections: unavailableSections,
     );
   }
 
-  List<CommunityUser> parseMembers(Map<String, dynamic> page) => _pageData(page)
-      .map((json) => _parseUser(_map(json['user'])))
-      .whereType<CommunityUser>()
-      .toList();
+  List<CommunityUser> parseMembers(Map<String, dynamic> page) {
+    final seen = <int>{};
+    return _pageData(page)
+        .map((json) => _parseUser(_map(json['user'])))
+        .whereType<CommunityUser>()
+        .where((user) => seen.add(user.id))
+        .toList();
+  }
 
   List<CommunityTimelineItem> parseTimeline(
     List<dynamic> data, {

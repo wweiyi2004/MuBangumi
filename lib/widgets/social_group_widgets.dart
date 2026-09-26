@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../models/community_models.dart';
 import 'community_widgets.dart';
 import 'social_chat_style.dart';
+import '../core/theme/app_tokens.dart';
 
 class GroupConversationTile extends StatelessWidget {
   const GroupConversationTile({
@@ -44,7 +45,7 @@ class GroupConversationTile extends StatelessWidget {
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
-                    fontSize: 12,
+                    fontSize: AppText.caption,
                     color: Theme.of(context).colorScheme.onSurfaceVariant,
                   ),
                 ),
@@ -111,7 +112,7 @@ class GroupDiscussionTile extends StatelessWidget {
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(
-                      fontSize: 12,
+                      fontSize: AppText.caption,
                       color: Theme.of(context).colorScheme.onSurfaceVariant,
                     ),
                   ),

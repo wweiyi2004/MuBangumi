@@ -258,7 +258,7 @@ class ParticipationController extends ChangeNotifier {
 
   Future<Json> preview(RoomInvite target) async =>
       (await locate(target)).preview;
-  Future<void> join(RoomInvite target, String name) async {
+  Future<void> join(RoomInvite target, String name, {String? avatar}) async {
     if (busy) return;
     if (name.trim().isEmpty || name.runes.length > 40) {
       throw const RoomError(400, '请填写 1–40 字的活动显示名');
@@ -313,10 +313,12 @@ class ParticipationController extends ChangeNotifier {
       data.addAll({
         'url': target.url,
         'name': name.trim(),
+        'avatar': ?avatar,
         'active': false,
         'archives': archives,
         'op': newSecret(),
       });
+      if (avatar == null) data.remove('avatar');
       // Save token before sending join; retrying after a lost response recovers
       // the same participant rather than registering a second identity.
       await _persist(data);
@@ -341,6 +343,7 @@ class ParticipationController extends ChangeNotifier {
         'invite': target.secret,
         'token': data['token'],
         'name': data['name'],
+        'avatar': ?data['avatar'],
       });
       await _mutate((value) => value['active'] = true);
       await refresh();

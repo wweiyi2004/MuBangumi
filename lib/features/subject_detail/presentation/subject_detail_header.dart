@@ -86,7 +86,7 @@ class SubjectDetailHeader extends StatelessWidget {
                   _Meta(
                     icon: Icons.star_rounded,
                     text: subject.score.toStringAsFixed(2),
-                    color: const Color(0xFFF3A646),
+                    color: Theme.of(context).colorScheme.tertiary,
                     compact: compact,
                   ),
                 if (subject.rank > 0)
@@ -124,7 +124,7 @@ class SubjectDetailHeader extends StatelessWidget {
                   _Meta(
                     icon: Icons.warning_amber_rounded,
                     text: 'NSFW',
-                    color: const Color(0xFFE95383),
+                    color: Theme.of(context).colorScheme.primary,
                     compact: compact,
                   ),
               ],

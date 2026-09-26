@@ -14,6 +14,8 @@ import 'package:mubangumi/features/anime_appreciation/room_connection.dart';
 import 'package:mubangumi/features/anime_appreciation/room_host.dart';
 import 'package:mubangumi/features/anime_appreciation/room_pages.dart';
 import 'package:mubangumi/features/anime_appreciation/room_admin_page.dart';
+import 'package:mubangumi/features/anime_appreciation/room_wifi_share.dart';
+import 'package:qr_flutter/qr_flutter.dart';
 import 'package:mubangumi/state/session_controller.dart';
 import 'support/pm_fixtures.dart';
 
@@ -47,7 +49,13 @@ Json sample() => {
       'stats': null,
       'published': false,
       'publicComments': false,
-      'comments': [],
+      // The new server opens the wall once this participant has scored.
+      'commentsOpen': true,
+      'comments': [
+        {'id': 'c1', 'text': '作画和配乐都在线，节奏很舒服。', 'hidden': false},
+        {'id': 'c2', 'text': '辛美尔那段真的哭了', 'hidden': false},
+        {'id': 'c3', 'text': '我觉得第一集就很好看', 'hidden': false, 'mine': true},
+      ],
     },
     {
       'id': 'second',
@@ -108,6 +116,16 @@ class PreviewParticipation extends ParticipationController {
     event!['memberCount'] = 13;
     notifyListeners();
   }
+}
+
+class PreviewWifiVault implements RoomSecretVault {
+  final values = <String, String>{};
+  @override
+  Future<String?> read(String key) async => values[key];
+  @override
+  Future<void> write(String key, String value) async => values[key] = value;
+  @override
+  Future<void> delete(String key) async => values.remove(key);
 }
 
 class PreviewHost extends RoomHost {
@@ -173,10 +191,13 @@ void main() {
         controller.event!['rounds'][0]['subject']['cover'] = 'a' * 64;
       }
       final host = PreviewHost();
+      final wifiVault = PreviewWifiVault();
+      await const RoomWifiNetwork('番键会热点', 'preview-pass').save(wifiVault);
       final container = ProviderContainer(
         overrides: [
           participationProvider.overrideWith((_) => controller),
           roomHostProvider.overrideWith((_) => host),
+          roomWifiVaultProvider.overrideWithValue(wifiVault),
           sessionProvider.overrideWith((_) => PmTestSession()),
         ],
       );
@@ -311,6 +332,11 @@ void main() {
             .data!;
         expect(RoomInvite.parse(link)!.candidates.length, 2);
         expect(find.textContaining('其他扫码工具直接进入网页'), findsOneWidget);
+        expect(find.byType(QrImageView), findsNWidgets(2));
+        expect(
+          find.byKey(const ValueKey('WIFI:T:WPA;S:番键会热点;P:preview-pass;;')),
+          findsOneWidget,
+        );
         Navigator.of(tester.element(find.text('本机参与'))).pop();
         await tester.pumpAndSettle();
         await tester.ensureVisible(find.text('进入管理'));
@@ -338,4 +364,74 @@ void main() {
       debugDefaultTargetPlatformOverride = null;
     });
   }
+
+  testWidgets('invite without an activity asks to create one first', (
+    tester,
+  ) async {
+    final host = PreviewHost()
+      ..event = null
+      ..history = [];
+    final container = ProviderContainer(
+      overrides: [
+        roomHostProvider.overrideWith((_) => host),
+        roomWifiVaultProvider.overrideWithValue(PreviewWifiVault()),
+      ],
+    );
+    addTearDown(container.dispose);
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: RoomHostPage()),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final invite = find.widgetWithText(OutlinedButton, '邀请参与');
+    await tester.ensureVisible(invite);
+    expect(tester.widget<OutlinedButton>(invite).onPressed, isNotNull);
+    await tester.tap(invite);
+    await tester.pumpAndSettle();
+    expect(find.text('先创建番键会'), findsOneWidget);
+    await tester.tap(find.text('取消'));
+    await tester.pumpAndSettle();
+    expect(find.byType(QrImageView), findsNothing);
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump(const Duration(seconds: 1));
+  });
+
+  testWidgets('an ended activity offers the whole-activity summary', (
+    tester,
+  ) async {
+    final controller = PreviewParticipation();
+    controller.event!
+      ..['ended'] = true
+      ..['rounds'][0]['status'] = 'closed'
+      ..['rounds'][0]['stats'] = {
+        'count': 9,
+        'mean': 7.8,
+        'distribution': [0, 0, 0, 0, 0, 1, 2, 4, 2, 0],
+      };
+    final container = ProviderContainer(
+      overrides: [
+        participationProvider.overrideWith((_) => controller),
+        sessionProvider.overrideWith((_) => PmTestSession()),
+      ],
+    );
+    addTearDown(container.dispose);
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: MaterialApp(home: RoomParticipationPage(invite: target)),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('活动已结束，记录仍可查看'), findsOneWidget);
+    await tester.ensureVisible(find.text('查看整场汇总'));
+    await tester.tap(find.text('查看整场汇总'));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('按均分排名'), findsOneWidget);
+    expect(find.text('7.8'), findsOneWidget);
+    expect(find.text('9 人评分 · 我打了 8 分'), findsOneWidget);
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump(const Duration(seconds: 1));
+  });
 }

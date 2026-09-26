@@ -9,6 +9,7 @@ import '../state/system_appearance_controller.dart';
 import '../widgets/app_background.dart';
 import '../widgets/app_slider.dart';
 import '../widgets/subject_widgets.dart';
+import '../core/theme/app_tokens.dart';
 
 Future<void> showBackgroundSettingsSheet(
   BuildContext context,
@@ -277,7 +278,7 @@ class BackgroundSettingsPreview extends StatelessWidget {
     final base = Theme.of(context);
     final themed = applyBackgroundTheme(base, settings);
     return ClipRRect(
-      borderRadius: BorderRadius.circular(14),
+      borderRadius: AppRadius.medium,
       child: SizedBox(
         height: 196,
         child: Theme(

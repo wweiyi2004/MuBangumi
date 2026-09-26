@@ -13,6 +13,7 @@ import '../state/notify_controller.dart';
 import '../widgets/subject_widgets.dart';
 import '../widgets/social_chat_style.dart';
 import 'community_timeline_page.dart';
+import '../core/theme/app_tokens.dart';
 
 class NotifyPage extends ConsumerStatefulWidget {
   const NotifyPage({super.key, this.embedded = false});
@@ -409,7 +410,7 @@ class _NotifyPageState extends ConsumerState<NotifyPage> {
                     elevation: 0,
                     margin: const EdgeInsets.symmetric(vertical: 2),
                     shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(10),
+                      borderRadius: AppRadius.small,
                     ),
                     color: notice.unread
                         ? SocialChatStyle.accent(context).withValues(alpha: .07)
@@ -457,7 +458,7 @@ class _NotifyPageState extends ConsumerState<NotifyPage> {
                                 ),
                                 decoration: BoxDecoration(
                                   color: SocialChatStyle.canvas(context),
-                                  borderRadius: BorderRadius.circular(8),
+                                  borderRadius: AppRadius.small,
                                 ),
                                 child: Text(
                                   content,

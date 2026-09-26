@@ -14,6 +14,7 @@ import '../state/session_controller.dart';
 import '../widgets/subject_widgets.dart';
 import '../widgets/mono_collection_button.dart';
 import '../models/community_models.dart';
+import '../core/theme/app_tokens.dart';
 
 const _companyDetailBatchSize = 36;
 const _companyDetailConcurrency = 4;
@@ -882,7 +883,7 @@ class _CompanySourceNote extends StatelessWidget {
     return DecoratedBox(
       decoration: BoxDecoration(
         color: scheme.surfaceContainerLow,
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: AppRadius.medium,
       ),
       child: Padding(
         padding: const EdgeInsets.all(14),
@@ -939,7 +940,7 @@ class _Thumb extends StatelessWidget {
       );
     }
     return ClipRRect(
-      borderRadius: BorderRadius.circular(8),
+      borderRadius: AppRadius.small,
       child: SizedBox(width: 44, height: 60, child: child),
     );
   }

@@ -55,7 +55,7 @@ void main() {
     final contacts = PmContactsController(
       inbox: inbox,
       outbox: outbox,
-      loadFriends: () async => [alice],
+      loadFriends: ({bool refresh = false}) async => [alice],
     );
     addTearDown(() {
       contacts.dispose();
@@ -63,11 +63,11 @@ void main() {
       outbox.dispose();
     });
     await contacts.refresh();
-    expect(pages, [1, 2, 3]);
+    expect(pages, [1]);
     expect(contacts.historyIncomplete, true);
     await contacts.syncHistory(more: true);
-    expect(pages, [1, 2, 3, 4, 5, 6]);
-    expect(inbox.items, hasLength(6));
+    expect(pages, [1, 2]);
+    expect(inbox.items, hasLength(2));
   });
   test(
     'all friends remain visible, and UID and username histories share one contact',
@@ -123,7 +123,7 @@ void main() {
   );
 
   test(
-    'both mailboxes automatically page while the friend list is independent',
+    'both mailboxes load only the first page until history is requested',
     () async {
       final incoming = <int>[], outgoing = <int>[];
       final inbox = PmMailboxController(({page = 1}) async {
@@ -137,9 +137,13 @@ void main() {
       final contacts = PmContactsController(
         inbox: inbox,
         outbox: outbox,
-        loadFriends: () async => [alice, quiet],
+        loadFriends: ({bool refresh = false}) async => [alice, quiet],
       );
       await contacts.refresh();
+      expect(incoming, [1]);
+      expect(outgoing, [1]);
+      await contacts.syncHistory(more: true);
+      await contacts.syncHistory(more: true);
       expect(incoming, [1, 2, 3]);
       expect(outgoing, [1, 2]);
       expect(contacts.items, hasLength(2));
@@ -161,7 +165,7 @@ void main() {
       final contacts = PmContactsController(
         inbox: inbox,
         outbox: outbox,
-        loadFriends: () => friends.future,
+        loadFriends: ({bool refresh = false}) => friends.future,
       );
       final pending = contacts.refresh();
       contacts.reset(clearFriends: true, requireAuth: true);
@@ -188,7 +192,7 @@ void main() {
       final contacts = PmContactsController(
         inbox: inbox,
         outbox: outbox,
-        loadFriends: () async => [alice, quiet],
+        loadFriends: ({bool refresh = false}) async => [alice, quiet],
       );
       await contacts.refresh();
       expect(contacts.items, hasLength(2));
@@ -207,6 +211,7 @@ void main() {
       final service = _Service(store);
       final container = ProviderContainer(
         overrides: [
+          pmFriendsCacheProvider.overrideWithValue(PmTestFriendsCache()),
           sessionProvider.overrideWith((ref) => PmTestSession()),
           websiteSessionStoreProvider.overrideWithValue(store),
           pmDraftRepositoryProvider.overrideWithValue(

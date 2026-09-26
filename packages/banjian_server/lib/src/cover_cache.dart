@@ -12,7 +12,8 @@ class RoomCoverImage {
 
 typedef RoomCoverLoader = Future<RoomCoverImage> Function(Uri uri);
 
-/// Only selected Bangumi artwork is fetched; never arbitrary participant URLs.
+/// Only selected Bangumi artwork and Bangumi user avatars are fetched; never
+/// arbitrary participant URLs.
 class RoomCoverCache {
   RoomCoverCache(this.store, {required this.lookup, RoomCoverLoader? loader})
     : loader = loader ?? download;
@@ -53,6 +54,28 @@ class RoomCoverCache {
     return key;
   }
 
+  /// Caches a participant's Bangumi avatar so admin pages load it from the
+  /// room service (the web CSP only allows same-origin images).
+  Future<String> ensureAvatar(String raw) async {
+    if (closed) throw const RoomError(503, '服务已停止');
+    final source = roomAvatarUri(raw);
+    if (source == null) throw const RoomError(400, '头像来源无效');
+    final key = digest(source.toString());
+    if (contains(key)) return key;
+    final image = await loader(source);
+    if (closed) throw const RoomError(503, '服务已停止');
+    if (image.bytes.isEmpty ||
+        image.bytes.length > 2 * 1024 * 1024 ||
+        !validCoverImage(image))
+      throw const RoomError(502, '头像图片格式无效');
+    store.db.execute('INSERT OR REPLACE INTO covers VALUES(?,?,?)', [
+      key,
+      image.mime,
+      Uint8List.fromList(image.bytes),
+    ]);
+    return key;
+  }
+
   static bool validCoverImage(RoomCoverImage image) {
     final b = image.bytes;
     return (image.mime == 'image/jpeg' &&
@@ -70,7 +93,8 @@ class RoomCoverCache {
   }
 
   static Future<RoomCoverImage> download(Uri uri) async {
-    if (roomCoverUri(uri.toString()) == null)
+    if (roomCoverUri(uri.toString()) == null &&
+        roomAvatarUri(uri.toString()) == null)
       throw const RoomError(400, '封面来源无效');
     final client = HttpClient()..connectionTimeout = const Duration(seconds: 6);
     try {

@@ -239,6 +239,21 @@ void main() {
     expect(store.view(id, admin: true)['memberCount'], 1);
   });
   test(
+    'rejoining with a Bangumi avatar queues it for the member list',
+    () async {
+      const avatar = 'https://lain.bgm.tv/pic/user/l/000/00/00/1.jpg';
+      await c.leave();
+      await c.join(invite, '测试昵称', avatar: avatar);
+      expect(memory.value!['avatar'], avatar);
+      expect(store.pendingAvatars(id).single.source, avatar);
+      // Signed out later: the stored picture is not resent.
+      await c.leave();
+      await c.join(invite, '测试昵称');
+      expect(memory.value!.containsKey('avatar'), false);
+      expect(store.view(id, admin: true)['memberCount'], 1);
+    },
+  );
+  test(
     'the same room reached through another address keeps its participant identity',
     () async {
       final token = memory.value!['token'];

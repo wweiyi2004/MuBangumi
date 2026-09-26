@@ -63,6 +63,14 @@ if(MSVC AND TARGET connectivity_plus_plugin)
   target_compile_options(connectivity_plus_plugin PRIVATE /utf-8)
 endif()
 
+# WIL's default Release diagnostics embed absolute header paths in the WebView
+# DLL. Keep line numbers and return addresses without distributing build paths.
+# Debug builds retain full diagnostics; symbols are archived separately.
+if(MSVC AND TARGET webview_flutter_windows_plugin)
+  target_compile_definitions(webview_flutter_windows_plugin PRIVATE
+    "$<$<CONFIG:Release>:RESULT_DIAGNOSTICS_LEVEL=2>")
+endif()
+
 
 # === Installation ===
 # Support files are copied into place next to the executable, so that it can

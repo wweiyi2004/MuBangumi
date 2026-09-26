@@ -19,6 +19,7 @@ import 'calendar_page.dart';
 import 'fan_recommend_page.dart';
 import 'notify_page.dart';
 import 'library_page.dart';
+import '../core/theme/app_tokens.dart';
 
 class HomePage extends ConsumerWidget {
   const HomePage({
@@ -455,7 +456,7 @@ class _HomeCollectionSkeleton extends StatelessWidget {
             itemBuilder: (_, _) => DecoratedBox(
               decoration: BoxDecoration(
                 color: scheme.surfaceContainerHighest,
-                borderRadius: BorderRadius.circular(12),
+                borderRadius: AppRadius.medium,
               ),
             ),
           );
@@ -485,28 +486,28 @@ class _HomeQuickActions extends StatelessWidget {
         icon: Icons.calendar_view_week_rounded,
         title: '新番表',
         subtitle: '我的一周',
-        color: const Color(0xFF7C6CE7),
+        color: AppPalette.shortcutSchedule,
         onTap: onSchedule,
       ),
       (
         icon: Icons.live_tv_rounded,
         title: '每日放送',
         subtitle: '官方日历',
-        color: const Color(0xFFE95383),
+        color: AppPalette.shortcutCalendar,
         onTap: onCalendar,
       ),
       (
         icon: Icons.auto_awesome_rounded,
         title: '番会荐',
         subtitle: '按口味推荐',
-        color: const Color(0xFFE38A3F),
+        color: AppPalette.shortcutRecommend,
         onTap: onRecommend,
       ),
       (
         icon: Icons.travel_explore_rounded,
         title: '找新番',
         subtitle: '榜单与搜索',
-        color: const Color(0xFF2CA69A),
+        color: AppPalette.shortcutDiscover,
         onTap: onDiscover,
       ),
     ];
@@ -542,7 +543,7 @@ class _HomeQuickActions extends StatelessWidget {
                         vertical: 8,
                       ),
                       shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(8),
+                        borderRadius: AppRadius.small,
                       ),
                     ),
                     onPressed: action.onTap,

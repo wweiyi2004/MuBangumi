@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:dio/dio.dart';
@@ -6,6 +7,7 @@ import 'package:flutter/foundation.dart';
 import '../../core/storage/community_cache.dart';
 import '../../models/bangumi_models.dart';
 import '../../models/community_models.dart';
+import '../../models/community_topic_submission.dart';
 import '../../models/account_content_preferences.dart';
 import '../auth/website_session.dart';
 import '../auth/website_identity.dart';
@@ -15,15 +17,18 @@ import 'bangumi_user_agent.dart';
 import 'community_html_parser.dart';
 import 'community_p1_parser.dart';
 import 'pm_html_parser.dart';
+import '../diagnostics/account_diagnostics.dart';
+import 'account_diagnostics_interceptor.dart';
+import 'community_write_client.dart';
+import 'community_website_client.dart';
 
 /// Strong signals that a classic website page is actually the login form.
 bool looksLikeWebsiteLoginPage(String source) {
   return PmHtmlParser().looksLikeLoginPage(source);
 }
 
-/// The P1 server rejected a private-group post/reply claiming the user is not
-/// a member. As of 2026-08 the server checks membership with the user/group
-/// ids swapped, so even the group owner gets this error.
+/// An explicit P1 membership rejection. Some server versions disagree with the
+/// classic website's membership check; only this refusal permits its fallback.
 class PrivateGroupMembershipException implements Exception {
   const PrivateGroupMembershipException(this.groupName);
 
@@ -41,7 +46,9 @@ class CommunityService {
     Dio? p1Dio,
     WebsiteSessionStore? sessionStore,
     CommunityCache? cache,
-  }) : _sessionStore = sessionStore ?? WebsiteSessionStore(),
+    AccountDiagnostics? diagnostics,
+  }) : _diagnostics = diagnostics ?? AccountDiagnostics(),
+       _sessionStore = sessionStore ?? WebsiteSessionStore(),
        _persistentCache = cache ?? CommunityCache.shared,
        _htmlDio =
            htmlDio ??
@@ -70,20 +77,17 @@ class CommunityService {
                  'Accept': 'application/json',
                },
              ),
-           );
+           ) {
+    _htmlDio.interceptors.add(
+      AccountDiagnosticsInterceptor(_diagnostics, AccountArea.communityWebsite),
+    );
+    _p1Dio.interceptors.add(
+      AccountDiagnosticsInterceptor(_diagnostics, AccountArea.communityApi),
+    );
+  }
 
   Future<WebsiteSessionSnapshot> Function()? websiteSessionGuard;
-  bool Function(WebsiteAccessStatus status, String requestKey)?
-  onWebsiteSessionFailure;
-
-  void _websiteFailed(
-    WebsiteAccessStatus status,
-    WebsiteSessionSnapshot session,
-  ) {
-    if (onWebsiteSessionFailure?.call(status, session.requestKey) == false) {
-      throw const FormatException('网页登录已更新，请刷新页面并确认提交结果后重试');
-    }
-  }
+  WebsiteSessionFailureReporter? onWebsiteSessionFailure;
 
   @visibleForTesting
   CommunityService.test({
@@ -111,6 +115,20 @@ class CommunityService {
 
   final Dio _htmlDio;
   final Dio _p1Dio;
+  final AccountDiagnostics _diagnostics;
+  late final _writes = CommunityWriteClient(
+    dio: _p1Dio,
+    readIdentity: () => _identityRevision,
+    isAuthenticated: () => isAuthenticated,
+    refresh: () async => await onUnauthorizedRefresh?.call() ?? false,
+    diagnostics: _diagnostics,
+  );
+  late final _website = CommunityWebsiteClient(
+    dio: _htmlDio,
+    readIdentity: () => _identityRevision,
+    requireSession: _requireWebsiteSession,
+    readFailureReporter: () => onWebsiteSessionFailure,
+  );
   final WebsiteSessionStore _sessionStore;
   final CommunityHtmlParser _htmlParser = CommunityHtmlParser();
   final CommunityP1Parser _p1Parser = CommunityP1Parser();
@@ -158,6 +176,48 @@ class CommunityService {
   String _currentAvatarUrl = '';
   final _accountChanges = ValueNotifier<String?>(null);
   int _identityRevision = 0;
+  int _friendRevision = 0;
+  int _groupMembershipRevision = 0;
+
+  void _checkIdentity(int identity) {
+    if (identity != _identityRevision) {
+      throw const FormatException('登录账号已变化，请重新操作');
+    }
+  }
+
+  (int, int) get _friendContext => (_identityRevision, _friendRevision);
+  void _checkFriendContext((int, int) context) {
+    if (context != _friendContext) {
+      throw const FormatException('账号或好友关系已变化，请刷新好友列表');
+    }
+  }
+
+  void _invalidateFriendRelations() {
+    _friendRevision++;
+    _friendsCache.clear();
+    _jsonCache.removeWhere(
+      (key) =>
+          key.contains('/users/') ||
+          key.contains('/notify') ||
+          key.startsWith('list:/timeline'),
+    );
+  }
+
+  (int, int, int) get _groupContext =>
+      (_identityRevision, _groupMembershipRevision, _contentRevision);
+  void _checkGroupContext((int, int, int) context) {
+    if (context != _groupContext) {
+      throw const FormatException('账号或小组状态已变化，请刷新小组');
+    }
+  }
+
+  /// A website membership operation must not reuse a pre-operation API read.
+  void invalidateGroupMembership() {
+    _groupMembershipRevision++;
+    _jsonCache.removeWhere((key) => key.startsWith('/groups'));
+    _htmlCache.removeWhere((key) => key.contains('/group'));
+  }
+
   int get identityRevision => _identityRevision;
 
   ValueListenable<String?> get accountChanges => _accountChanges;
@@ -224,11 +284,13 @@ class CommunityService {
   String? get currentUsername => _currentUsername;
 
   void setAccessToken(String? token) {
+    final wasAuthenticated = isAuthenticated;
     if (token == null || token.trim().isEmpty) {
       _p1Dio.options.headers.remove('Authorization');
     } else {
       _p1Dio.options.headers['Authorization'] = 'Bearer ${token.trim()}';
     }
+    if (wasAuthenticated != isAuthenticated) _identityRevision++;
     _jsonCache.clear();
     _friendsCache.clear();
   }
@@ -414,7 +476,7 @@ class CommunityService {
     await _removeTimelineSnapshots();
   }
 
-  /// Retry only a rejected credential, never a timeout or an uncertain write.
+  /// Business error mapping stays here; the client owns account guards and retry.
   Future<Object?> _nativeWrite(
     String method,
     String path, {
@@ -422,44 +484,17 @@ class CommunityService {
     bool accountPreferences = false,
   }) async {
     _requireAuthentication();
-    final identity = _identityRevision;
-    for (var attempt = 0; attempt < 2; attempt++) {
-      if (identity != _identityRevision || !isAuthenticated) {
-        throw const FormatException('登录账号已变化，请重新操作');
+    try {
+      return await _writes.send(method, path, data: data);
+    } on DioException catch (error) {
+      if (method == 'POST' && error.response == null) {
+        throw Exception('提交结果尚未确认，请先查看日志列表，确认没有发布后再重试');
       }
-      try {
-        final response = await _p1Dio.request<Object?>(
-          '/p1$path',
-          data: method == 'DELETE' ? null : data,
-          options: Options(
-            method: method,
-            contentType: Headers.jsonContentType,
-            validateStatus: (status) =>
-                status != null && status >= 200 && status < 300,
-          ),
-        );
-        return response.data;
-      } on DioException catch (error) {
-        if (attempt == 0 &&
-            identity == _identityRevision &&
-            _isRefreshableAuthFailure(
-              error,
-              oneShot: data.containsKey('turnstileToken'),
-            ) &&
-            onUnauthorizedRefresh != null &&
-            await onUnauthorizedRefresh!()) {
-          continue;
-        }
-        if (method == 'POST' && error.response == null) {
-          throw Exception('提交结果尚未确认，请先查看日志列表，确认没有发布后再重试');
-        }
-        if (accountPreferences) {
-          throw AccountContentPreferencesException(error.response?.statusCode);
-        }
-        throw Exception(_postErrorMessage(error));
+      if (accountPreferences) {
+        throw AccountContentPreferencesException(error.response?.statusCode);
       }
+      throw Exception(_postErrorMessage(error));
     }
-    throw const FormatException('未能完成请求，请重新操作');
   }
 
   Future<CommunityPageResult<BangumiUser>> loadFriends(
@@ -468,6 +503,7 @@ class CommunityService {
     int offset = 0,
     bool refresh = false,
   }) async {
+    final context = _friendContext;
     final cacheKey = '$username:$limit:$offset';
     if (!refresh) {
       final cached = _friendsCache[cacheKey];
@@ -482,6 +518,7 @@ class CommunityService {
       query: {'limit': limit, 'offset': offset},
       refresh: refresh,
     );
+    _checkFriendContext(context);
     final data = json['data'];
     final users = data is List
         ? data
@@ -492,8 +529,13 @@ class CommunityService {
               .where((user) => user.username.isNotEmpty)
               .toList()
         : const <BangumiUser>[];
-    final total = (json['total'] as num?)?.toInt() ?? users.length;
-    final page = CommunityPageResult(data: users, total: total);
+    final rawCount = data is List ? data.length : 0;
+    final total = (json['total'] as num?)?.toInt() ?? rawCount;
+    final page = CommunityPageResult(
+      data: users,
+      total: total,
+      rawCount: rawCount,
+    );
     _storeIn(
       _friendsCache,
       cacheKey,
@@ -510,6 +552,7 @@ class CommunityService {
     bool refresh = false,
     int pageSize = 30,
   }) async {
+    final context = _friendContext;
     final friends = <BangumiUser>[];
     final known = <String>{};
     var offset = 0;
@@ -518,18 +561,20 @@ class CommunityService {
     do {
       final page = await loadFriends(
         username,
-        limit: pageSize,
+        limit: pageSize.clamp(1, 100),
         offset: offset,
         refresh: refresh,
       );
+      _checkFriendContext(context);
       for (final friend in page.data) {
         final key = friend.username.trim().toLowerCase();
         if (key.isNotEmpty && known.add(key)) friends.add(friend);
       }
       total = page.total;
       pages++;
-      if (page.data.isEmpty || pages >= maxFriendPages) break;
-      offset += page.data.length;
+      final consumed = page.rawCount ?? page.data.length;
+      if (consumed == 0 || pages >= maxFriendPages) break;
+      offset += consumed;
     } while (offset < total);
     return friends;
   }
@@ -606,11 +651,18 @@ class CommunityService {
     CommunityGroupMode mode,
     CommunityGroupSort sort,
   ) async {
+    if (mode.requiresLogin && !isAuthenticated) return null;
+    final context = _groupContext;
     final json = await _readSnapshot(_groupCacheKey(mode, sort));
-    if (json == null) return null;
+    if (json == null ||
+        context != _groupContext ||
+        (mode.requiresLogin && !isAuthenticated)) {
+      return null;
+    }
     return CommunityPageResult(
       data: _p1Parser.parseGroups(json),
       total: _pageTotal(json),
+      rawCount: (json['data'] as List?)?.length ?? 0,
     );
   }
 
@@ -621,7 +673,9 @@ class CommunityService {
     int offset = 0,
     bool refresh = false,
   }) async {
+    if (mode.requiresLogin) _requireAuthentication();
     final identity = _identityRevision;
+    final context = _groupContext;
     final json = await _getJson(
       '/groups',
       query: {
@@ -632,6 +686,8 @@ class CommunityService {
       },
       refresh: refresh,
     );
+    _checkGroupContext(context);
+    if (mode.requiresLogin) _requireAuthentication();
     if (offset == 0) {
       await _writeSnapshot(
         _groupCacheKey(mode, sort),
@@ -640,22 +696,31 @@ class CommunityService {
         accountScoped: mode.requiresLogin,
       );
     }
+    _checkGroupContext(context);
+    if (mode.requiresLogin) _requireAuthentication();
     return CommunityPageResult(
       data: _p1Parser.parseGroups(json),
       total: _pageTotal(json),
+      rawCount: (json['data'] as List?)?.length ?? 0,
     );
   }
 
   Future<CommunityGroupDetail?> readCachedGroupDetail(String slug) async {
+    final context = _groupContext;
     final bundle = await _readSnapshot('group:$slug');
-    if (bundle == null) return null;
+    if (bundle == null || context != _groupContext) return null;
     return _parseGroupBundle(bundle);
   }
 
-  Future<CommunityGroupDetail> loadGroupPreview(String slug) async =>
-      _p1Parser.parseGroupDetail(
-        await _getJson('/groups/${Uri.encodeComponent(slug)}', refresh: true),
-      );
+  Future<CommunityGroupDetail> loadGroupPreview(String slug) async {
+    final context = _groupContext;
+    final json = await _getJson(
+      '/groups/${Uri.encodeComponent(slug)}',
+      refresh: true,
+    );
+    _checkGroupContext(context);
+    return _p1Parser.parseGroupDetail(json);
+  }
 
   Future<CommunityPageResult<CommunityTopic>> loadGroupTopics(
     String slug, {
@@ -663,11 +728,13 @@ class CommunityService {
     int limit = 20,
     bool refresh = false,
   }) async {
+    final context = _groupContext;
     final page = await _getJson(
       '/groups/${Uri.encodeComponent(slug)}/topics',
       query: {'limit': limit.clamp(1, 100), 'offset': offset},
       refresh: refresh,
     );
+    _checkGroupContext(context);
     return CommunityPageResult(
       data: _p1Parser.parseGroupTopics(page),
       total: _pageTotal(page),
@@ -682,11 +749,13 @@ class CommunityService {
     int? role,
     bool refresh = false,
   }) async {
+    final context = _groupContext;
     final page = await _getJson(
       '/groups/${Uri.encodeComponent(slug)}/members',
       query: {'limit': limit.clamp(1, 100), 'offset': offset, 'role': ?role},
       refresh: refresh,
     );
+    _checkGroupContext(context);
     return CommunityPageResult(
       data: _p1Parser.parseMembers(page),
       total: _pageTotal(page),
@@ -786,30 +855,60 @@ class CommunityService {
     bool refresh = false,
   }) async {
     final identity = _identityRevision;
+    final context = _groupContext;
     final encoded = Uri.encodeComponent(slug);
+    Future<Map<String, dynamic>?> optionalPage(
+      String path,
+      Map<String, dynamic> query,
+    ) async {
+      try {
+        final page = await _getJson(
+          path,
+          query: query,
+          refresh: refresh,
+        ).timeout(const Duration(seconds: 12));
+        if (page['data'] is! List) return null;
+        return page;
+      } catch (_) {
+        return null;
+      }
+    }
+
     final values = await Future.wait([
       _getJson('/groups/$encoded', refresh: refresh),
-      _getJson(
-        '/groups/$encoded/members',
-        query: const {'role': 0, 'limit': 20, 'offset': 0},
-        refresh: refresh,
-      ),
-      _getJson(
-        '/groups/$encoded/members',
-        query: const {'role': 1, 'limit': 10, 'offset': 0},
-        refresh: refresh,
-      ),
-      _getJson(
-        '/groups/$encoded/topics',
-        query: const {'limit': 20, 'offset': 0},
-        refresh: refresh,
-      ),
+      optionalPage('/groups/$encoded/members', {
+        'role': CommunityGroupRole.member.value,
+        'limit': 20,
+        'offset': 0,
+      }),
+      optionalPage('/groups/$encoded/members', {
+        'role': CommunityGroupRole.creator.value,
+        'limit': 10,
+        'offset': 0,
+      }),
+      optionalPage('/groups/$encoded/members', {
+        'role': CommunityGroupRole.moderator.value,
+        'limit': 10,
+        'offset': 0,
+      }),
+      optionalPage('/groups/$encoded/topics', const {'limit': 20, 'offset': 0}),
     ]);
+    _checkGroupContext(context);
+    final managementRows = <dynamic>[
+      ...(values[2]?['data'] as List? ?? const []),
+      ...(values[3]?['data'] as List? ?? const []),
+    ];
     final bundle = <String, dynamic>{
       'group': values[0],
       'members': values[1],
-      'moderators': values[2],
-      'topics': values[3],
+      'moderators': {'data': managementRows},
+      'topics': values[4],
+      'unavailable_sections': [
+        if (values[1] == null) CommunityGroupSection.members.name,
+        if (values[2] == null || values[3] == null)
+          CommunityGroupSection.moderators.name,
+        if (values[4] == null) CommunityGroupSection.topics.name,
+      ],
     };
     await _writeSnapshot(
       'group:$slug',
@@ -817,6 +916,7 @@ class CommunityService {
       identity: identity,
       accountScoped: true,
     );
+    _checkGroupContext(context);
     return _parseGroupBundle(bundle);
   }
 
@@ -930,7 +1030,7 @@ class CommunityService {
     return _p1Parser.parseTimelineReplies(data);
   }
 
-  Future<void> createGroupTopic({
+  Future<CommunityTopic> createGroupTopic({
     required String slug,
     required String title,
     required String content,
@@ -948,8 +1048,9 @@ class CommunityService {
     }
     final token = _requireTurnstileToken(turnstileToken);
     final encoded = Uri.encodeComponent(slug);
+    int? topicId;
     try {
-      await _postJson(
+      final result = await _postJson(
         '/groups/$encoded/topics',
         data: {
           'title': trimmedTitle,
@@ -957,14 +1058,15 @@ class CommunityService {
           'turnstileToken': token,
         },
       );
+      topicId = parseCreatedCommunityTopicId(result);
+      if (topicId == null) throw const CommunitySubmissionUncertain();
     } on PrivateGroupMembershipException {
       if (identity != _identityRevision) {
         throw const FormatException('账号已变化，请重新发起讨论');
       }
-      // Same P1 membership-id swap as replies: the official create-topic
-      // endpoint rejects even the group owner. The classic website form
-      // checks membership correctly.
-      await _createGroupTopicViaWebsite(
+      // The API explicitly refused the write. A website membership check can
+      // recover compatibility; an uncertain POST never takes this fallback.
+      topicId = await _website.createGroupTopic(
         slug: slug,
         title: trimmedTitle,
         content: trimmedContent,
@@ -973,6 +1075,110 @@ class CommunityService {
     _jsonCache.removeWhere(
       (key) => key.contains('/groups/$encoded') || key.contains('/topics'),
     );
+    return createdGroupTopic(slug: slug, title: trimmedTitle, id: topicId);
+  }
+
+  CommunityTopic createdGroupTopic({
+    required String slug,
+    required String title,
+    required int id,
+  }) => CommunityTopic(
+    id: id,
+    kind: CommunityTopicKind.group,
+    title: title,
+    url: 'https://bgm.tv/rakuen/topic/group/$id',
+    webUrl: 'https://bgm.tv/group/topic/$id',
+    sourceUrl: 'https://bgm.tv/group/${Uri.encodeComponent(slug)}',
+  );
+
+  /// Read-only reconciliation. A missing match is inconclusive (moderation,
+  /// indexing delay, or an older page), never permission to replay the POST.
+  Future<CommunityTopic?> findSubmittedGroupTopic({
+    required String slug,
+    required String title,
+    required String content,
+    required DateTime? attemptedAt,
+  }) async {
+    _requireAuthentication();
+    final identity = _identityRevision;
+    final username = _currentUsername;
+    if (username == null) throw const FormatException('请先确认当前账号');
+    void guard() {
+      if (identity != _identityRevision ||
+          !isAuthenticated ||
+          username != _currentUsername) {
+        throw const FormatException('账号已变化，请返回原账号核对发帖结果');
+      }
+    }
+
+    String normalize(String value) => value.replaceAll('\r\n', '\n').trim();
+    final now = DateTime.now().toUtc();
+    final lower =
+        attemptedAt?.subtract(const Duration(seconds: 5)) ??
+        now.subtract(const Duration(hours: 24));
+    final upper = attemptedAt?.add(const Duration(minutes: 5)) ?? now;
+    bool matches(Map value) {
+      final creator = value['creator'];
+      final seconds = value['createdAt'];
+      final created = seconds is num
+          ? DateTime.fromMillisecondsSinceEpoch(
+              (seconds * 1000).round(),
+              isUtc: true,
+            )
+          : null;
+      return creator is Map &&
+          creator['username']?.toString().toLowerCase() ==
+              username.toLowerCase() &&
+          value['title'] == title.trim() &&
+          created != null &&
+          !created.isBefore(lower) &&
+          !created.isAfter(upper);
+    }
+
+    final found = <int>{};
+    var inspected = 0;
+    for (var offset = 0; offset < 100; offset += 50) {
+      guard();
+      final page = await _getJson(
+        '/groups/-/topics',
+        query: {'mode': 'created', 'limit': 50, 'offset': offset},
+        refresh: true,
+      );
+      guard();
+      final rows = page['data'];
+      if (rows is! List) throw const FormatException('无法读取已发表话题，请稍后核对');
+      for (final row in rows.whereType<Map>()) {
+        final id = parseCreatedCommunityTopicId(row);
+        if (id == null || !matches(row)) continue;
+        if (++inspected > 5) return null;
+        final detail = await _getJson('/groups/-/topics/$id', refresh: true);
+        guard();
+        final group = detail['group'];
+        final replies = detail['replies'];
+        if (!matches(detail) ||
+            group is! Map ||
+            group['name'] != slug ||
+            replies is! List ||
+            replies.isEmpty ||
+            replies.first is! Map) {
+          continue;
+        }
+        final original = replies.first as Map;
+        final author = original['creator'];
+        if (author is Map &&
+            author['username']?.toString().toLowerCase() ==
+                username.toLowerCase() &&
+            original['content'] is String &&
+            normalize(original['content'] as String) == normalize(content)) {
+          found.add(id);
+        }
+      }
+      if (rows.length < 50) break;
+    }
+    guard();
+    return found.length == 1
+        ? createdGroupTopic(slug: slug, title: title.trim(), id: found.single)
+        : null;
   }
 
   Future<void> replyToTopic({
@@ -1047,249 +1253,15 @@ class CommunityService {
       if (identity != _identityRevision) {
         throw const FormatException('账号已变化，请重新回复');
       }
-      // The P1 server currently checks private-group membership with the
-      // user/group ids swapped, so even the group owner is rejected. Fall
-      // back to the classic website form, which validates membership
-      // correctly. Only group topics can raise this error.
-      await _replyToGroupTopicViaWebsite(
+      // Only an explicit private-group refusal can fall back to the classic
+      // website's independent membership check.
+      await _website.replyToGroupTopic(
         topicId: id,
         content: trimmed,
         replyTo: replyTo,
       );
     }
     _invalidateThread(topic);
-  }
-
-  /// Creates a group topic through the classic website form
-  /// (`/group/{slug}/new_topic`) using the stored website session.
-  Future<void> _createGroupTopicViaWebsite({
-    required String slug,
-    required String title,
-    required String content,
-  }) async {
-    final identity = _identityRevision;
-    final session = await _requireWebsiteSession();
-    final path = '/group/${Uri.encodeComponent(slug)}/new_topic';
-    final formhash = await _loadWebsiteFormhash(path, session);
-    await _verifyWebsiteWriteContext(identity, session.authenticationKey);
-    final response = await _htmlDio.post<String>(
-      path,
-      data: {
-        'formhash': formhash,
-        'title': title,
-        'subject': title,
-        'content': content,
-        'submit': 'submit',
-      },
-      options: Options(
-        contentType: Headers.formUrlEncodedContentType,
-        followRedirects: false,
-        headers: {
-          ...session.requestHeaders,
-          'Referer': 'https://bgm.tv$path',
-          'Origin': 'https://bgm.tv',
-        },
-        validateStatus: (status) => status != null && status < 500,
-      ),
-    );
-    final status = response.statusCode ?? 0;
-    final location = response.headers.value('location') ?? '';
-    if (status >= 300 && status < 400 && location.contains('/group/topic/')) {
-      return;
-    }
-    final body = response.data ?? '';
-    _throwIfWebsiteChallenge(
-      body,
-      session,
-      cfMitigated: response.headers.value('cf-mitigated'),
-    );
-    if (status >= 500 || status == 429) {
-      throw FormatException('网站暂时无法响应（HTTP $status），请刷新确认发帖结果');
-    }
-    _throwIfWebsiteLoginPage(body, session);
-    if (status == 401 || looksLikeWebsiteLoginPage(body)) {
-      _websiteFailed(WebsiteAccessStatus.expired, session);
-      throw const FormatException('网页版登录已过期，请重新登录网页版后再发帖');
-    }
-    Object? decoded;
-    try {
-      decoded = jsonDecode(body);
-    } catch (_) {
-      decoded = null;
-    }
-    if (decoded is Map) {
-      if (decoded['id'] != null ||
-          decoded.containsKey('topic') ||
-          decoded['status'] == 'ok') {
-        return;
-      }
-      final detail = decoded['error'] ?? decoded['message'];
-      if (detail != null && detail.toString().trim().isNotEmpty) {
-        throw FormatException('发帖失败：${detail.toString().trim()}');
-      }
-    }
-    final notice = PmHtmlParser().parseSubmissionError(body);
-    if (notice != null) throw FormatException('发帖失败：$notice');
-    if (status >= 400) {
-      throw FormatException('发帖失败（HTTP $status）');
-    }
-    throw const FormatException('发帖结果未知，请刷新小组页确认是否已发出');
-  }
-
-  /// Posts a group topic reply through the classic website form
-  /// (`/group/topic/{id}/new_reply`) using the stored website session.
-  Future<void> _replyToGroupTopicViaWebsite({
-    required int topicId,
-    required String content,
-    int? replyTo,
-  }) async {
-    final identity = _identityRevision;
-    final session = await _requireWebsiteSession();
-    final topicPath = '/group/topic/$topicId';
-    // The topic page carries the session-wide formhash the form needs; the
-    // GET also proves the website session can actually see the group.
-    final formhash = await _loadWebsiteFormhash(topicPath, session);
-    await _verifyWebsiteWriteContext(identity, session.authenticationKey);
-    final response = await _htmlDio.post<String>(
-      '$topicPath/new_reply?ajax=1',
-      data: {
-        'lastview': '',
-        'formhash': formhash,
-        'content': content,
-        'submit': 'submit',
-        if (replyTo != null && replyTo > 0) ...{
-          'topic_id': '$topicId',
-          'related': '$replyTo',
-        },
-      },
-      options: Options(
-        contentType: Headers.formUrlEncodedContentType,
-        headers: {
-          ...session.requestHeaders,
-          'Referer': 'https://bgm.tv$topicPath',
-          'Origin': 'https://bgm.tv',
-          'X-Requested-With': 'XMLHttpRequest',
-        },
-        validateStatus: (status) => status != null && status < 500,
-      ),
-    );
-    final body = response.data ?? '';
-    _throwIfWebsiteChallenge(
-      body,
-      session,
-      cfMitigated: response.headers.value('cf-mitigated'),
-    );
-    if ((response.statusCode ?? 0) >= 500 || response.statusCode == 429) {
-      throw FormatException('网站暂时无法响应（HTTP ${response.statusCode}），请刷新确认回复结果');
-    }
-    _throwIfWebsiteLoginPage(body, session);
-    if (response.statusCode == 401 || looksLikeWebsiteLoginPage(body)) {
-      _websiteFailed(WebsiteAccessStatus.expired, session);
-      throw const FormatException('网页版登录已过期，请重新登录网页版后再回复');
-    }
-    // With ?ajax=1 the classic site answers JSON: {"posts": …} on success.
-    Object? decoded;
-    try {
-      decoded = jsonDecode(body);
-    } catch (_) {
-      decoded = null;
-    }
-    if (decoded is Map) {
-      if (decoded.containsKey('posts') || decoded['status'] == 'ok') return;
-      final detail = decoded['error'] ?? decoded['message'];
-      if (detail != null && detail.toString().trim().isNotEmpty) {
-        throw FormatException('回复失败：${detail.toString().trim()}');
-      }
-    }
-    final notice = PmHtmlParser().parseSubmissionError(body);
-    if (notice != null) throw FormatException('回复失败：$notice');
-    final status = response.statusCode;
-    if (status != null && status >= 400) {
-      throw FormatException('回复失败（HTTP $status）');
-    }
-    throw const FormatException('回复结果未知，请刷新话题页确认是否已发出');
-  }
-
-  Future<String> _loadWebsiteFormhash(
-    String path,
-    WebsiteSessionSnapshot session,
-  ) async {
-    final html = await _fetchWebsiteHtml(path, session);
-    _throwIfWebsiteLoginPage(html, session);
-    final fromPage = _htmlParser.parseFormhash(html);
-    if (fromPage != null) return fromPage;
-    // Private-group / permission pages omit the reply form. The homepage
-    // still carries the session formhash on the logout link when cookies
-    // actually authenticated.
-    if (path != '/') {
-      final home = await _fetchWebsiteHtml('/', session);
-      _throwIfWebsiteLoginPage(home, session);
-      final fromHome = _htmlParser.parseFormhash(home);
-      if (fromHome != null) return fromHome;
-    }
-    throw const FormatException('暂时无法获取网页操作参数，请刷新后重试');
-  }
-
-  Future<void> _verifyWebsiteWriteContext(
-    int identity,
-    String authenticationKey,
-  ) async {
-    if (identity != _identityRevision) {
-      throw const FormatException('账号已变化，请重新操作');
-    }
-    final current = await _requireWebsiteSession();
-    if (identity != _identityRevision ||
-        current.authenticationKey != authenticationKey) {
-      throw const FormatException('网页登录已变化，请刷新页面后再提交');
-    }
-  }
-
-  Future<String> _fetchWebsiteHtml(
-    String path,
-    WebsiteSessionSnapshot session,
-  ) async {
-    final response = await _htmlDio.get<String>(
-      path,
-      options: Options(
-        headers: {...session.requestHeaders, 'Referer': 'https://bgm.tv/'},
-        validateStatus: (status) => status != null && status < 600,
-      ),
-    );
-    _throwIfWebsiteChallenge(
-      response.data ?? '',
-      session,
-      cfMitigated: response.headers.value('cf-mitigated'),
-    );
-    if ((response.statusCode ?? 0) >= 500 || response.statusCode == 429) {
-      throw FormatException('网站暂时无法响应（HTTP ${response.statusCode}），已保留登录');
-    }
-    if (response.statusCode == 401) {
-      _websiteFailed(WebsiteAccessStatus.expired, session);
-      throw const FormatException('网页版登录已过期，请重新登录网页版后再试');
-    }
-    return response.data ?? '';
-  }
-
-  void _throwIfWebsiteChallenge(
-    String html,
-    WebsiteSessionSnapshot session, {
-    String? cfMitigated,
-  }) {
-    if (WebsiteIdentityProbe.isChallenge(html, cfMitigated: cfMitigated)) {
-      _websiteFailed(WebsiteAccessStatus.challenge, session);
-      throw const WebsiteAccessException(
-        WebsiteAccessStatus.challenge,
-        'Bangumi 需要网页验证，请补充账号验证后继续',
-      );
-    }
-  }
-
-  void _throwIfWebsiteLoginPage(String html, WebsiteSessionSnapshot session) {
-    _throwIfWebsiteChallenge(html, session);
-    if (looksLikeWebsiteLoginPage(html)) {
-      _websiteFailed(WebsiteAccessStatus.expired, session);
-      throw const FormatException('网页版登录已过期，请重新登录网页版后再试');
-    }
   }
 
   Future<WebsiteSessionSnapshot> _requireWebsiteSession() async {
@@ -1299,7 +1271,8 @@ class CommunityService {
     final snapshot = await _sessionStore.read();
     final header = snapshot?.cookieHeader.trim() ?? '';
     if (snapshot == null || header.isEmpty || !snapshot.hasSessionCookies) {
-      throw const FormatException(
+      throw const WebsiteAccessException(
+        WebsiteAccessStatus.missing,
         '该小组为私密小组，需要走网站通道发帖或回复：请先在「我的 → 设置 → Bangumi 账号」中完成登录后重试',
       );
     }
@@ -1350,6 +1323,14 @@ class CommunityService {
       membersPage: _map(bundle['members']),
       moderatorsPage: _map(bundle['moderators']),
       topicsPage: _map(bundle['topics']),
+      unavailableSections: {
+        for (final section in CommunityGroupSection.values)
+          if ((bundle['unavailable_sections'] as List?)?.contains(
+                section.name,
+              ) ==
+              true)
+            section,
+      },
     );
   }
 
@@ -1445,6 +1426,9 @@ class CommunityService {
     CommunityTopic topic, {
     bool refresh = false,
   }) async {
+    if (topic.kind == CommunityTopicKind.group) {
+      return _loadGroupTopic(topic, refresh: refresh);
+    }
     if (!topic.kind.isDiscussion && topic.kind.apiArea != null) {
       final id = resolveTopicId(topic);
       if (id == null) throw const FormatException('无法识别讨论编号');
@@ -1493,6 +1477,56 @@ class CommunityService {
     }
     final html = await _getHtml(topic.webUrl, refresh: refresh);
     return _htmlParser.parseTopicDetail(html, topic);
+  }
+
+  Future<CommunityTopicDetail> _loadGroupTopic(
+    CommunityTopic topic, {
+    required bool refresh,
+  }) async {
+    final context = _groupContext;
+    final id = resolveTopicId(topic);
+    if (id == null) throw const FormatException('无法识别话题编号');
+    try {
+      final json = await _getJson('/groups/-/topics/$id', refresh: refresh);
+      _checkGroupContext(context);
+      if (json['replies'] is! List) throw const FormatException('话题数据不完整');
+      final detail = _p1Parser.parseTopicDetail(json, topic);
+      if (detail.posts.isEmpty) throw const FormatException('话题正文暂时不可见');
+      return detail;
+    } catch (_) {
+      _checkGroupContext(context);
+    }
+    // Public content can still be read without a website login. Never send
+    // website cookies to a URL supplied by a feed or to an unrelated host.
+    final path = '/group/topic/$id';
+    try {
+      final html = await _getHtml(path, refresh: refresh);
+      _checkGroupContext(context);
+      final detail = _htmlParser.parseTopicDetail(html, topic);
+      if (!looksLikeWebsiteLoginPage(html) &&
+          !WebsiteIdentityProbe.isChallenge(html) &&
+          detail.posts.isNotEmpty) {
+        return detail;
+      }
+    } catch (_) {
+      _checkGroupContext(context);
+    }
+    if (!isAuthenticated) throw const FormatException('话题暂时不可见，请登录后重试或在官网核对');
+    final session = await _requireWebsiteSession();
+    _checkGroupContext(context);
+    final html = await _website.fetchHtml(path, session);
+    _checkGroupContext(context);
+    _website.checkLoginPage(html, session);
+    final current = await _requireWebsiteSession();
+    _checkGroupContext(context);
+    if (current.authenticationKey != session.authenticationKey) {
+      throw const FormatException('网页登录已变化，请重新打开话题');
+    }
+    final detail = _htmlParser.parseTopicDetail(html, topic);
+    if (detail.posts.isEmpty) {
+      throw const FormatException('暂时无法读取话题正文，请在官网核对小组权限或稍后重试');
+    }
+    return detail;
   }
 
   Future<List<CommunityTopic>> _loadGroupTopics({required bool refresh}) async {
@@ -1627,39 +1661,61 @@ class CommunityService {
     Map<String, dynamic>? query,
     bool refresh = false,
   }) async {
+    final identity = _identityRevision;
     final uri = Uri.parse(
       path,
     ).replace(queryParameters: _stringQueryParameters(query));
-    return await _jsonCache.get(
-          '$uri',
-          () => _fetchJson(path, query: query),
-          refresh: refresh,
-        )
-        as Map<String, dynamic>;
+    final result =
+        await _jsonCache.get(
+              '$uri',
+              () => _fetchJson(path, query: query),
+              refresh: refresh,
+            )
+            as Map<String, dynamic>;
+    _checkIdentity(identity);
+    return result;
   }
 
   Future<Map<String, dynamic>> _fetchJson(
     String path, {
     Map<String, dynamic>? query,
+  }) => _fetchP1<Map<String, dynamic>>(path, query: query);
+
+  Future<T> _fetchP1<T>(
+    String path, {
+    Map<String, dynamic>? query,
     bool retriedAuth = false,
+    int? identity,
   }) async {
+    identity ??= _identityRevision;
     DioException? lastError;
     for (var attempt = 0; attempt < 3; attempt++) {
+      _checkIdentity(identity);
       try {
-        final response = await _p1Dio.get<Map<String, dynamic>>(
+        final response = await _p1Dio.get<T>(
           '/p1$path',
           queryParameters: query,
         );
+        _checkIdentity(identity);
         final json = response.data;
         if (json == null) throw const FormatException('Bangumi 返回了空数据');
         return json;
       } on DioException catch (error) {
+        _checkIdentity(identity);
         lastError = error;
         if (!retriedAuth &&
             _isRefreshableAuthFailure(error) &&
-            onUnauthorizedRefresh != null &&
-            await onUnauthorizedRefresh!()) {
-          return _fetchJson(path, query: query, retriedAuth: true);
+            onUnauthorizedRefresh != null) {
+          final refreshed = await onUnauthorizedRefresh!();
+          _checkIdentity(identity);
+          if (refreshed) {
+            return _fetchP1<T>(
+              path,
+              query: query,
+              retriedAuth: true,
+              identity: identity,
+            );
+          }
         }
         if (!_shouldRetry(error, attempt)) break;
         await Future<void>.delayed(Duration(milliseconds: 250 * (attempt + 1)));
@@ -1674,46 +1730,25 @@ class CommunityService {
     Map<String, dynamic>? query,
     bool refresh = false,
   }) async {
+    final identity = _identityRevision;
     final uri = Uri.parse(
       path,
     ).replace(queryParameters: _stringQueryParameters(query));
-    return await _jsonCache.get(
-          'list:$uri',
-          () => _fetchJsonList(path, query: query),
-          refresh: refresh,
-        )
-        as List<dynamic>;
+    final result =
+        await _jsonCache.get(
+              'list:$uri',
+              () => _fetchJsonList(path, query: query),
+              refresh: refresh,
+            )
+            as List<dynamic>;
+    _checkIdentity(identity);
+    return result;
   }
 
   Future<List<dynamic>> _fetchJsonList(
     String path, {
     Map<String, dynamic>? query,
-    bool retriedAuth = false,
-  }) async {
-    DioException? lastError;
-    for (var attempt = 0; attempt < 3; attempt++) {
-      try {
-        final response = await _p1Dio.get<List<dynamic>>(
-          '/p1$path',
-          queryParameters: query,
-        );
-        final data = response.data;
-        if (data == null) throw const FormatException('Bangumi 返回了空数据');
-        return data;
-      } on DioException catch (error) {
-        lastError = error;
-        if (!retriedAuth &&
-            _isRefreshableAuthFailure(error) &&
-            onUnauthorizedRefresh != null &&
-            await onUnauthorizedRefresh!()) {
-          return _fetchJsonList(path, query: query, retriedAuth: true);
-        }
-        if (!_shouldRetry(error, attempt)) break;
-        await Future<void>.delayed(Duration(milliseconds: 250 * (attempt + 1)));
-      }
-    }
-    throw Exception(_errorMessage(lastError?.response?.statusCode));
-  }
+  }) => _fetchP1<List<dynamic>>(path, query: query);
 
   /// 电波提醒（P1 OAuth，无需网站 Cookie）。
   Future<CommunityPageResult<BangumiNotice>> loadNotices({
@@ -1800,10 +1835,7 @@ class CommunityService {
     if (value.isEmpty) throw Exception('用户名无效');
     final encoded = Uri.encodeComponent(value);
     await _putJson('/friends/$encoded', data: const {});
-    _friendsCache.clear();
-    _jsonCache.removeWhere(
-      (key) => key.contains('/users/$encoded') || key.contains('/notify'),
-    );
+    _invalidateFriendRelations();
   }
 
   /// Accepts exactly the user carried by a P1 friend-request notice.
@@ -1821,8 +1853,7 @@ class CommunityService {
     if (value.isEmpty) throw Exception('用户名无效');
     final encoded = Uri.encodeComponent(value);
     await _deleteJson('/friends/$encoded');
-    _friendsCache.clear();
-    _jsonCache.removeWhere((key) => key.contains('/users/$encoded'));
+    _invalidateFriendRelations();
   }
 
   /// Returns whether [username] is already a friend.
@@ -1832,45 +1863,23 @@ class CommunityService {
   /// friends list.
   Future<bool> isFriend(String username) async {
     _requireAuthentication();
+    final context = _friendContext;
     final value = username.trim();
     if (value.isEmpty) return false;
     final me = _currentUsername;
     if (me != null && value.toLowerCase() == me.toLowerCase()) return false;
     final json = await _getJson('/users/${Uri.encodeComponent(value)}');
+    _checkFriendContext(context);
     return json['isFriend'] == true;
   }
 
-  Future<void> _postJson(
+  Future<Object?> _postJson(
     String path, {
     Map<String, dynamic> data = const {},
-    bool retriedAuth = false,
   }) async {
-    final identity = _identityRevision;
     try {
-      await _p1Dio.post<Object?>(
-        '/p1$path',
-        data: data,
-        options: Options(
-          contentType: Headers.jsonContentType,
-          headers: const {'Accept': 'application/json'},
-          validateStatus: (status) =>
-              status != null && status >= 200 && status < 300,
-        ),
-      );
+      return await _writes.send('POST', path, data: data);
     } on DioException catch (error) {
-      if (!retriedAuth &&
-          _isRefreshableAuthFailure(
-            error,
-            oneShot: data.containsKey('turnstileToken'),
-          ) &&
-          onUnauthorizedRefresh != null &&
-          await onUnauthorizedRefresh!()) {
-        if (identity != _identityRevision || !isAuthenticated) {
-          throw const FormatException('登录账号已变化，请重新操作');
-        }
-        await _postJson(path, data: data, retriedAuth: true);
-        return;
-      }
       final privateGroup = _privateGroupName(error.response?.data);
       final responseData = error.response?.data;
       final joinGroupFirst =
@@ -1882,13 +1891,15 @@ class CommunityService {
                 'join group first',
               ) ??
               false);
-      if (privateGroup != null || joinGroupFirst) {
+      if ((privateGroup != null &&
+              const [401, 403].contains(error.response?.statusCode)) ||
+          joinGroupFirst) {
         throw PrivateGroupMembershipException(privateGroup ?? '');
       }
       if (error.response == null || (error.response?.statusCode ?? 0) >= 500) {
-        throw Exception('提交结果暂未确认，请先刷新页面确认，避免重复发送');
+        throw const CommunitySubmissionUncertain('提交结果暂未确认，请先核对结果，避免重复发送');
       }
-      throw Exception(_postErrorMessage(error));
+      throw CommunitySubmissionRejected(_postErrorMessage(error));
     }
   }
 
@@ -1905,67 +1916,24 @@ class CommunityService {
   Future<void> _putJson(
     String path, {
     Map<String, dynamic> data = const {},
-    bool retriedAuth = false,
   }) async {
     try {
-      await _p1Dio.put<Object?>(
-        '/p1$path',
-        data: data,
-        options: Options(
-          contentType: Headers.jsonContentType,
-          headers: const {'Accept': 'application/json'},
-          validateStatus: (status) =>
-              status != null && status >= 200 && status < 300,
-        ),
-      );
+      await _writes.send('PUT', path, data: data);
     } on DioException catch (error) {
-      if (!retriedAuth &&
-          _isRefreshableAuthFailure(error) &&
-          onUnauthorizedRefresh != null &&
-          await onUnauthorizedRefresh!()) {
-        await _putJson(path, data: data, retriedAuth: true);
-        return;
-      }
       throw Exception(_postErrorMessage(error));
     }
   }
 
-  Future<void> _deleteJson(String path, {bool retriedAuth = false}) async {
+  Future<void> _deleteJson(String path) async {
     try {
-      await _p1Dio.delete<Object?>(
-        '/p1$path',
-        options: Options(
-          headers: const {'Accept': 'application/json'},
-          validateStatus: (status) =>
-              status != null && status >= 200 && status < 300,
-        ),
-      );
+      await _writes.send('DELETE', path);
     } on DioException catch (error) {
-      if (!retriedAuth &&
-          _isRefreshableAuthFailure(error) &&
-          onUnauthorizedRefresh != null &&
-          await onUnauthorizedRefresh!()) {
-        await _deleteJson(path, retriedAuth: true);
-        return;
-      }
       throw Exception(_postErrorMessage(error));
     }
   }
 
-  /// Only credential 401s justify an OAuth refresh + retry. Domain 401s such
-  /// as CAPTCHA_ERROR or NOT_JOIN_PRIVATE_GROUP_ERROR must not be retried:
-  /// the one-shot Turnstile token is already consumed by then, so a blind
-  /// retry fails with a bogus captcha error that masks the real cause.
-  bool _isRefreshableAuthFailure(DioException error, {bool oneShot = false}) {
-    if (error.response?.statusCode != 401) return false;
-    final data = error.response?.data;
-    if (data is! Map) return !oneShot;
-    final code = data['code']?.toString();
-    return (code == null && !oneShot) ||
-        code == 'TOKEN_INVALID' ||
-        code == 'NEED_LOGIN' ||
-        code == 'AUTHORIZATION_INVALID';
-  }
+  bool _isRefreshableAuthFailure(DioException error, {bool oneShot = false}) =>
+      CommunityWriteClient.isCredentialFailure(error, oneShot: oneShot);
 
   String _postErrorMessage(DioException error) {
     final status = error.response?.statusCode;

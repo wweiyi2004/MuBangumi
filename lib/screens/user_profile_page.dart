@@ -21,6 +21,7 @@ import '../widgets/subject_widgets.dart';
 import 'collection_comparison_page.dart';
 import 'pm_page.dart';
 import 'community_target_navigation.dart';
+import '../core/theme/app_tokens.dart';
 
 class UserProfilePage extends ConsumerStatefulWidget {
   const UserProfilePage({super.key, required this.username, this.seed});
@@ -796,9 +797,9 @@ class _StatCard extends StatelessWidget {
         color: selected
             ? scheme.primaryContainer.withValues(alpha: .75)
             : scheme.surfaceContainerHighest,
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: AppRadius.medium,
         child: InkWell(
-          borderRadius: BorderRadius.circular(14),
+          borderRadius: AppRadius.medium,
           onTap: onTap,
           child: Padding(
             padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 8),

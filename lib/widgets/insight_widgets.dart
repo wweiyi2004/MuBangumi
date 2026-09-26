@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../core/theme/app_tokens.dart';
 
 class InsightHero extends StatelessWidget {
   const InsightHero({
@@ -21,7 +22,7 @@ class InsightHero extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(24),
       decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(26),
+        borderRadius: AppRadius.large,
         gradient: LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
@@ -93,7 +94,7 @@ class InsightMetric extends StatelessWidget {
       padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
         color: scheme.surfaceContainerLow,
-        borderRadius: BorderRadius.circular(20),
+        borderRadius: AppRadius.large,
         border: Border.all(color: scheme.outlineVariant.withValues(alpha: .5)),
       ),
       child: Column(

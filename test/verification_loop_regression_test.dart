@@ -64,7 +64,7 @@ void main() {
                 },
               ),
             )
-            ..onWebsiteSessionFailure = (status, _) {
+            ..onWebsiteSessionFailure = (status, _, {Uri? recoveryUri}) {
               failures.add(status);
               return true;
             };
@@ -269,7 +269,7 @@ void main() {
       final failures = <WebsiteAccessStatus>[];
       final service =
           PmService(sessionStore: Store(), dio: responding(signedInPage))
-            ..onWebsiteSessionFailure = (status, _) {
+            ..onWebsiteSessionFailure = (status, _, {Uri? recoveryUri}) {
               failures.add(status);
               return true;
             };

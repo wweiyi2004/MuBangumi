@@ -43,10 +43,10 @@ class _MessagesPageState extends ConsumerState<MessagesPage> {
         _opened.add(index);
       }),
       onFriends: () async {
-        await Navigator.of(
-          context,
-        ).push(MaterialPageRoute<void>(builder: (_) => const FriendsPage()));
-        if (mounted) setState(() => _friendsRevision++);
+        final changed = await Navigator.of(context).push<bool>(
+          MaterialPageRoute<bool>(builder: (_) => const FriendsPage()),
+        );
+        if (changed == true && mounted) setState(() => _friendsRevision++);
       },
       content: IndexedStack(
         index: _tab,

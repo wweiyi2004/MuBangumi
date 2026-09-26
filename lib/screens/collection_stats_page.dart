@@ -13,6 +13,7 @@ import '../widgets/insight_widgets.dart';
 import '../models/bangumi_models.dart';
 import '../models/collection_coverage.dart';
 import '../widgets/subject_widgets.dart';
+import '../core/theme/app_tokens.dart';
 
 enum _ExportAction { save, share }
 
@@ -1102,7 +1103,7 @@ class _RatingChart extends StatelessWidget {
                           onTap: counts[rating] == 0
                               ? null
                               : () => onRating(rating),
-                          borderRadius: BorderRadius.circular(8),
+                          borderRadius: AppRadius.small,
                           child: Padding(
                             padding: const EdgeInsets.symmetric(horizontal: 3),
                             child: Column(
@@ -1133,7 +1134,7 @@ class _RatingChart extends StatelessWidget {
                                         : rating >= 8
                                         ? scheme.primary
                                         : scheme.primary.withValues(alpha: .45),
-                                    borderRadius: BorderRadius.circular(5),
+                                    borderRadius: AppRadius.bar,
                                   ),
                                 ),
                                 const SizedBox(height: 8),
@@ -1178,7 +1179,7 @@ class _DistributionRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) => InkWell(
     onTap: onTap,
-    borderRadius: BorderRadius.circular(8),
+    borderRadius: AppRadius.small,
     child: Padding(
       padding: const EdgeInsets.symmetric(vertical: 6),
       child: Column(
@@ -1202,7 +1203,7 @@ class _DistributionRow extends StatelessWidget {
           LinearProgressIndicator(
             value: total == 0 ? 0 : count / total,
             minHeight: 6,
-            borderRadius: BorderRadius.circular(8),
+            borderRadius: AppRadius.small,
             backgroundColor: Theme.of(
               context,
             ).colorScheme.surfaceContainerHighest,
@@ -1254,7 +1255,7 @@ class _MonthActivity extends StatelessWidget {
                           label: '${i + 1}月，${counts[i]}条更新',
                           child: InkWell(
                             onTap: () => onSelected(i + 1),
-                            borderRadius: BorderRadius.circular(8),
+                            borderRadius: AppRadius.small,
                             child: Tooltip(
                               message: '${i + 1}月 · ${counts[i]} 条更新',
                               child: Padding(
@@ -1290,7 +1291,7 @@ class _MonthActivity extends StatelessWidget {
                                                     ? .55
                                                     : .2,
                                               ),
-                                        borderRadius: BorderRadius.circular(5),
+                                        borderRadius: AppRadius.bar,
                                       ),
                                     ),
                                     const SizedBox(height: 8),

@@ -19,7 +19,7 @@ MuBangumi 的原生 Android **原型**，使用 Kotlin、Jetpack Compose 和 Mat
 - 用户资料、收藏统计、深色/浅色主题
 - 无 Token 的演示模式
 
-除 Access Token 获取需要打开 Bangumi 网页外，社区详情、好友和电波提醒都在应用内完成。Flutter 版依赖网站 Cookie 或第三方服务的私信、二维码、评分历史、海报导出和热更新能力没有混入原生核心，后续可以在此模块上继续逐项迁移。
+除 Access Token 获取需要打开 Bangumi 网页外，社区详情、好友和电波提醒都在应用内完成。Flutter 版依赖网站 Cookie 或第三方服务的私信、二维码、评分历史、海报导出和热更新能力没有迁入此原型；本目录只保留历史参考，不继续功能迁移。
 
 ## 构建
 

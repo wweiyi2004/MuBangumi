@@ -106,6 +106,8 @@ class RoundSnapshot {
       count = _int(data, 'count', max: 500),
       published = _bool(data, 'published'),
       publicComments = _bool(data, 'publicComments') {
+    // Participant-only; older servers only had the host switch.
+    commentsOpen = _bool(data, 'commentsOpen', fallback: publicComments);
     status =
         RoundStatus.values.where((s) => s.name == data['status']).firstOrNull ??
         _invalid('status');
@@ -156,6 +158,7 @@ class RoundSnapshot {
   final String id;
   final int count;
   final bool published, publicComments;
+  late final bool commentsOpen;
   late final RoundStatus status;
   late final int subjectId, commentsTotal;
   late final String title;
@@ -198,9 +201,15 @@ class RoomSnapshot {
       members = List.unmodifiable(
         rawMembers.map((raw) {
           final m = _map(raw, 'member');
+          final avatar = m['avatar'];
+          if (avatar != null &&
+              (avatar is! String ||
+                  !RegExp(r'^[a-f0-9]{64}$').hasMatch(avatar)))
+            _invalid('member.avatar');
           return Map<String, dynamic>.unmodifiable({
             'name': _text(m, 'name', max: 40),
             'submitted': _bool(m, 'submitted'),
+            'avatar': ?avatar,
           });
         }),
       );

@@ -416,7 +416,10 @@ class _RecoveringRss extends ScheduleRssStore {
   @override
   Future<RssSource> upsertSource(RssSource source) async => source;
   @override
-  Future<int> insertItemsIgnoreDup(List<RssItem> items) async => items.length;
+  Future<int> insertItemsIgnoreDup(
+    List<RssItem> items, {
+    bool validateBindings = false,
+  }) async => items.length;
 }
 
 class _QueuedViews implements ScheduleViewRepository {

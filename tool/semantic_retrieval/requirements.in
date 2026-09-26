@@ -1,0 +1,6 @@
+# Inference/evaluation only. No PyTorch, training or remote inference required.
+numpy==2.2.6
+tokenizers==0.21.4
+onnxruntime==1.22.1
+scikit-learn==1.7.1
+pytest==8.4.1

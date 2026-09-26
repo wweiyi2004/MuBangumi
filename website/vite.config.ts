@@ -10,9 +10,11 @@ const { d1, r2 } = hostingConfig;
 
 // macOS Seatbelt blocks FSEvents, so Codex previews need polling for HMR.
 const isCodexSeatbeltSandbox = process.env.CODEX_SANDBOX === "seatbelt";
+const isStaticExport = process.env.GITHUB_PAGES === "true";
 
 const localBindingConfig = {
   main: "./worker/index.ts",
+  compatibility_date: "2026-09-21",
   compatibility_flags: ["nodejs_compat"],
   d1_databases: d1
     ? [
@@ -50,10 +52,10 @@ export default defineConfig(async () => {
     plugins: [
       vinext(),
       sites(),
-      cloudflare({
+      ...(!isStaticExport ? [cloudflare({
         viteEnvironment: { name: "rsc", childEnvironments: ["ssr"] },
         config: localBindingConfig,
-      }),
+      })] : []),
     ],
   };
 });

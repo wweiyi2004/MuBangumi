@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../models/netaba_models.dart';
+import '../core/theme/app_tokens.dart';
 
 /// Compact sparkline used in trending lists.
 class ScoreSparkline extends StatelessWidget {
@@ -185,7 +186,7 @@ class _ScoreHistoryPanelState extends State<ScoreHistoryPanel> {
               onTap: compact && hasBody
                   ? () => setState(() => _expanded = !_expanded)
                   : null,
-              borderRadius: BorderRadius.circular(8),
+              borderRadius: AppRadius.small,
               child: Row(
                 children: [
                   Expanded(

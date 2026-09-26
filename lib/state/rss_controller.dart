@@ -412,10 +412,15 @@ class RssController extends StateNotifier<RssState> {
       }
 
       final now = _now();
+      // Bindings may have been edited or removed while the feed was in flight.
+      final currentBindings = await _store.listBindings(sourceId: source.id);
+      if (!_valid(epoch)) return 0;
       final matched = <RssItem>[];
       for (final entry in result.entries) {
         // v1: only keep entries that match a bound subject.
-        for (final binding in bindings) {
+        for (final binding in currentBindings.where(
+          (b) => b.enabled && b.sourceId == source.id,
+        )) {
           if (!binding.matchesTitle(entry.title)) continue;
           matched.add(
             RssItem(
@@ -433,7 +438,10 @@ class RssController extends StateNotifier<RssState> {
         }
       }
 
-      final added = await _store.insertItemsIgnoreDup(matched);
+      final added = await _store.insertItemsIgnoreDup(
+        matched,
+        validateBindings: true,
+      );
       if (!_valid(epoch)) return 0;
       await _store.upsertSource(
         source.copyWith(

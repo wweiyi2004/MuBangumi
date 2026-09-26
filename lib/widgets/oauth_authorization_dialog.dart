@@ -10,6 +10,7 @@ import 'package:webview_flutter_windows/webview_flutter_windows.dart'
 
 import '../core/auth/website_cookie_bridge.dart';
 import '../core/auth/website_session.dart';
+import '../core/auth/website_identity.dart';
 import '../core/auth/bangumi_oauth.dart';
 
 /// Official authorization shares the app WebView cookie jar on mobile and Windows.
@@ -23,6 +24,7 @@ Future<bool> showOAuthAuthorizationDialog(
   required Uri authorizationUri,
   required Future<Uri> callback,
   ValueChanged<List<WebsiteCookie>>? onCookiesCaptured,
+  ValueChanged<WebsiteBrowserIdentity>? onBrowserIdentityCaptured,
   bool Function(Uri)? onAuthorizationRedirect,
 }) async =>
     await showDialog<bool>(
@@ -32,6 +34,7 @@ Future<bool> showOAuthAuthorizationDialog(
         authorizationUri: authorizationUri,
         callback: callback,
         onCookiesCaptured: onCookiesCaptured,
+        onBrowserIdentityCaptured: onBrowserIdentityCaptured,
         onAuthorizationRedirect: onAuthorizationRedirect,
       ),
     ) ??
@@ -42,12 +45,14 @@ class _OAuthAuthorizationDialog extends StatefulWidget {
     required this.authorizationUri,
     required this.callback,
     this.onCookiesCaptured,
+    this.onBrowserIdentityCaptured,
     this.onAuthorizationRedirect,
   });
 
   final Uri authorizationUri;
   final Future<Uri> callback;
   final ValueChanged<List<WebsiteCookie>>? onCookiesCaptured;
+  final ValueChanged<WebsiteBrowserIdentity>? onBrowserIdentityCaptured;
   final bool Function(Uri)? onAuthorizationRedirect;
 
   @override
@@ -60,6 +65,7 @@ class _OAuthAuthorizationDialogState extends State<_OAuthAuthorizationDialog> {
   mobile.WebViewController? _mobileController;
   bool _usedExternalBrowser = false;
   List<WebsiteCookie> _redirectCookies = const [];
+  WebsiteBrowserIdentity? _redirectIdentity;
   final List<StreamSubscription<dynamic>> _subscriptions = [];
 
   bool _ready = false;
@@ -98,6 +104,14 @@ class _OAuthAuthorizationDialogState extends State<_OAuthAuthorizationDialog> {
             : await _captureCookies().timeout(const Duration(seconds: 3));
         if (mounted && !_finished && !_disposed) {
           widget.onCookiesCaptured?.call(cookies);
+          final identity =
+              _redirectIdentity ??
+              await _captureIdentity(
+                cookies,
+              ).timeout(const Duration(seconds: 3));
+          if (mounted && !_finished && !_disposed && identity != null) {
+            widget.onBrowserIdentityCaptured?.call(identity);
+          }
         }
       } catch (_) {
         // Website-session capture is optional; never lose a valid OAuth callback.
@@ -109,6 +123,18 @@ class _OAuthAuthorizationDialogState extends State<_OAuthAuthorizationDialog> {
   Future<List<WebsiteCookie>> _captureCookies() => WebsiteCookieBridge.capture(
     windowsController: _controller,
     mobileController: _mobileController,
+  );
+
+  Future<WebsiteBrowserIdentity?> _captureIdentity(
+    List<WebsiteCookie> cookies,
+  ) => WebsiteBrowserIdentity.capture(
+    cookies: cookies,
+    evaluate: (script) async => Platform.isWindows
+        ? await _controller?.executeScript(script)
+        : await _mobileController?.runJavaScriptReturningResult(script),
+    recapture: _captureCookies,
+    isCurrent: () =>
+        mounted && !_finished && !_disposed && !_usedExternalBrowser,
   );
 
   Future<void> _initializeMobile() async {
@@ -135,6 +161,9 @@ class _OAuthAuthorizationDialogState extends State<_OAuthAuthorizationDialog> {
                 _redirectCookies = await _captureCookies().timeout(
                   const Duration(seconds: 3),
                 );
+                _redirectIdentity = await _captureIdentity(
+                  _redirectCookies,
+                ).timeout(const Duration(seconds: 3));
               } catch (_) {}
               if (widget.onAuthorizationRedirect?.call(uri) == true) {
                 return mobile.NavigationDecision.prevent;

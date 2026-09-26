@@ -8,6 +8,7 @@ import '../../../widgets/readable_subject_title.dart';
 import '../../../state/app_providers.dart';
 import '../../../state/schedule_controller.dart';
 import '../application/schedule_search_controller.dart';
+import '../../../core/theme/app_tokens.dart';
 
 Future<void> showScheduleSearchSheet(BuildContext context) =>
     showModalBottomSheet<void>(
@@ -210,7 +211,7 @@ class _ScheduleSearchSheetState extends ConsumerState<ScheduleSearchSheet> {
                       final waiting = _autoDay && _search.calendarLoading;
                       return ListTile(
                         shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(14),
+                          borderRadius: AppRadius.medium,
                         ),
                         tileColor: Theme.of(
                           context,

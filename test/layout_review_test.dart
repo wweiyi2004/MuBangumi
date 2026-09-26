@@ -1,3 +1,4 @@
+import 'package:mubangumi/state/pm_contacts_controller.dart';
 import 'package:mubangumi/navigation/app_destination.dart';
 import 'package:mubangumi/navigation/app_router.dart';
 import 'dart:io';
@@ -54,6 +55,7 @@ void main() {
       final website = PmTestWebsiteStore();
       final container = ProviderContainer(
         overrides: [
+          pmFriendsCacheProvider.overrideWithValue(PmTestFriendsCache()),
           sessionProvider.overrideWith((ref) => PmTestSession()),
           websiteSessionStoreProvider.overrideWithValue(website),
           pmDraftRepositoryProvider.overrideWithValue(

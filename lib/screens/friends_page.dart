@@ -29,6 +29,10 @@ class _FriendsPageState extends ConsumerState<FriendsPage> {
 
   List<BangumiUser> _friends = const [];
   int _total = 0;
+  int _nextOffset = 0;
+  bool _hasMore = false;
+  bool _removingFriend = false;
+  bool _changed = false;
   bool _loading = true;
   bool _loadingMore = false;
   String? _error;
@@ -42,17 +46,43 @@ class _FriendsPageState extends ConsumerState<FriendsPage> {
   }
 
   bool get _isOwnList {
+    final me = ref.read(sessionProvider).user?.username;
+    if (me == null) return false;
     final override = widget.username?.trim();
     if (override == null || override.isEmpty) return true;
-    final me = ref.read(sessionProvider).user?.username;
-    return me != null && me.toLowerCase() == override.toLowerCase();
+    return me.toLowerCase() == override.toLowerCase();
   }
 
   @override
   void initState() {
     super.initState();
     _scrollController.addListener(_onScroll);
+    ref.listenManual(
+      sessionProvider.select((state) => (state.user?.id, state.user?.username)),
+      (_, _) => _resetAccount(),
+    );
     Future.microtask(() => _load(refresh: true));
+  }
+
+  @override
+  void didUpdateWidget(covariant FriendsPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.username != widget.username) _resetAccount();
+  }
+
+  void _resetAccount() {
+    _requestId++;
+    _queryController.clear();
+    setState(() {
+      _changed = false;
+      _friends = const [];
+      _total = _nextOffset = 0;
+      _hasMore = _loadingMore = false;
+      _loading = true;
+      _error = null;
+      _query = '';
+    });
+    unawaited(Future.microtask(() => _load(refresh: true)));
   }
 
   @override
@@ -71,17 +101,22 @@ class _FriendsPageState extends ConsumerState<FriendsPage> {
   }
 
   Future<void> _load({bool refresh = false}) async {
+    if (!mounted) return;
+    final requestId = ++_requestId;
     final username = _username;
     if (username.isEmpty) {
       setState(() {
         _loading = false;
+        _friends = const [];
+        _total = _nextOffset = 0;
+        _hasMore = _loadingMore = false;
         _error = '无法识别当前用户';
       });
       return;
     }
-    final requestId = ++_requestId;
     setState(() {
       _loading = true;
+      _loadingMore = false;
       _error = null;
     });
     try {
@@ -90,6 +125,8 @@ class _FriendsPageState extends ConsumerState<FriendsPage> {
       setState(() {
         _friends = page.data;
         _total = page.total;
+        _nextOffset = page.rawCount ?? page.data.length;
+        _hasMore = _nextOffset > 0 && _nextOffset < _total;
         _loading = false;
       });
     } catch (error) {
@@ -102,28 +139,26 @@ class _FriendsPageState extends ConsumerState<FriendsPage> {
   }
 
   Future<void> _loadMore() async {
-    if (_loading ||
-        _loadingMore ||
-        _friends.isEmpty ||
-        (_total > 0 && _friends.length >= _total)) {
+    if (!mounted || _loading || _loadingMore || !_hasMore) {
       return;
     }
     final username = _username;
     final requestId = _requestId;
     setState(() => _loadingMore = true);
     try {
-      final page = await _service.loadFriends(
-        username,
-        offset: _friends.length,
-      );
+      final page = await _service.loadFriends(username, offset: _nextOffset);
       if (!mounted || requestId != _requestId) return;
-      final known = _friends.map((user) => user.username).toSet();
+      final known = _friends.map((user) => user.username.toLowerCase()).toSet();
       setState(() {
         _friends = [
           ..._friends,
-          ...page.data.where((user) => known.add(user.username)),
+          ...page.data.where((user) => known.add(user.username.toLowerCase())),
         ];
         _total = page.total;
+        final consumed = page.rawCount ?? page.data.length;
+        _nextOffset += consumed;
+        _hasMore = consumed > 0 && _nextOffset < _total;
+        _error = null;
       });
     } catch (error) {
       if (!mounted || requestId != _requestId) return;
@@ -131,7 +166,9 @@ class _FriendsPageState extends ConsumerState<FriendsPage> {
         _error = error.toString().replaceFirst('Exception: ', '');
       });
     } finally {
-      if (mounted) setState(() => _loadingMore = false);
+      if (mounted && requestId == _requestId) {
+        setState(() => _loadingMore = false);
+      }
     }
   }
 
@@ -153,7 +190,15 @@ class _FriendsPageState extends ConsumerState<FriendsPage> {
   }
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) => PopScope<bool>(
+    canPop: !_changed,
+    onPopInvokedWithResult: (didPop, result) {
+      if (!didPop) Navigator.of(context).pop(true);
+    },
+    child: _buildPage(context),
+  );
+
+  Widget _buildPage(BuildContext context) {
     final items = _filtered;
     final me = ref.watch(sessionProvider).user;
     return Scaffold(
@@ -173,7 +218,12 @@ class _FriendsPageState extends ConsumerState<FriendsPage> {
                   context,
                   myUsername: me.username,
                 );
-                if (added && mounted) await _load(refresh: true);
+                if (added &&
+                    mounted &&
+                    me.id == ref.read(sessionProvider).user?.id) {
+                  setState(() => _changed = true);
+                  await _load(refresh: true);
+                }
               },
               icon: const Icon(Icons.qr_code_scanner_rounded),
             ),
@@ -246,7 +296,7 @@ class _FriendsPageState extends ConsumerState<FriendsPage> {
                     );
                   }
                   if (index == items.length + 1) {
-                    if (items.isEmpty) {
+                    if (items.isEmpty && !_hasMore) {
                       return const Padding(
                         padding: EdgeInsets.symmetric(vertical: 60),
                         child: EmptyState(
@@ -261,10 +311,17 @@ class _FriendsPageState extends ConsumerState<FriendsPage> {
                       child: Center(
                         child: _loadingMore
                             ? const CircularProgressIndicator()
-                            : Text(
-                                _total > 0 && _friends.length >= _total
-                                    ? '已经到底了'
-                                    : '继续向下浏览',
+                            : Column(
+                                children: [
+                                  if (_error != null) Text(_error!),
+                                  if (_hasMore)
+                                    TextButton(
+                                      onPressed: _loadMore,
+                                      child: const Text('加载更多好友'),
+                                    )
+                                  else
+                                    const Text('已经到底了'),
+                                ],
                               ),
                       ),
                     );
@@ -273,9 +330,7 @@ class _FriendsPageState extends ConsumerState<FriendsPage> {
                   return _FriendTile(
                     user: friend,
                     onTap: () => _openFriend(friend),
-                    onRemove: widget.username == null
-                        ? () => _removeFriend(friend)
-                        : null,
+                    onRemove: _isOwnList ? () => _removeFriend(friend) : null,
                   );
                 },
               ),
@@ -284,44 +339,60 @@ class _FriendsPageState extends ConsumerState<FriendsPage> {
   }
 
   Future<void> _removeFriend(BangumiUser friend) async {
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('解除好友'),
-        content: Text('确定与 ${friend.displayName} 解除好友关系？'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('取消'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('解除'),
-          ),
-        ],
-      ),
-    );
-    if (ok != true || !mounted) return;
+    if (_removingFriend || !_isOwnList) return;
+    _removingFriend = true;
+    final identity = _service.identityRevision;
+    final owner = ref.read(sessionProvider).user?.id;
+    bool isCurrent() =>
+        mounted &&
+        identity == _service.identityRevision &&
+        owner == ref.read(sessionProvider).user?.id &&
+        _isOwnList;
     try {
-      await _service.removeFriend(friend.username);
-      if (!mounted) return;
-      setState(() {
-        _friends = [
-          for (final item in _friends)
-            if (item.username != friend.username) item,
-        ];
-        if (_total > 0) _total -= 1;
-      });
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('已解除与 ${friend.displayName} 的好友关系')),
-      );
-    } catch (error) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(error.toString().replaceFirst('Exception: ', '')),
+      final ok = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('解除好友'),
+          content: Text('确定与 ${friend.displayName} 解除好友关系？'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('取消'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('解除'),
+            ),
+          ],
         ),
       );
+      if (ok != true || !isCurrent()) return;
+      try {
+        await _service.removeFriend(friend.username);
+        if (!mounted || !isCurrent()) return;
+        setState(() {
+          _changed = true;
+          _friends = [
+            for (final item in _friends)
+              if (item.username != friend.username) item,
+          ];
+          if (_total > 0) _total -= 1;
+          if (_nextOffset > 0) _nextOffset -= 1;
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('已解除与 ${friend.displayName} 的好友关系')),
+        );
+        await _load(refresh: true);
+      } catch (error) {
+        if (!mounted || !isCurrent()) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(error.toString().replaceFirst('Exception: ', '')),
+          ),
+        );
+      }
+    } finally {
+      _removingFriend = false;
     }
   }
 }

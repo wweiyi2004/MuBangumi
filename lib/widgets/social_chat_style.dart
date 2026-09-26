@@ -1,17 +1,26 @@
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
+import '../core/theme/app_tokens.dart';
 
+/// Chat, group and notification surfaces. Everything derives from the app
+/// theme so messages share the brand accent with the rest of MuBangumi.
 abstract final class SocialChatStyle {
   static bool dark(BuildContext context) =>
       Theme.of(context).brightness == Brightness.dark;
-  static Color paper(BuildContext context) =>
-      dark(context) ? const Color(0xFF1D2026) : Colors.white;
-  static Color canvas(BuildContext context) =>
-      dark(context) ? const Color(0xFF171A20) : const Color(0xFFF4F6F9);
-  static Color accent(BuildContext context) =>
-      dark(context) ? const Color(0xFF8CC8FF) : const Color(0xFF287BC1);
-  static Color ownBubble(BuildContext context) =>
-      dark(context) ? const Color(0xFF24445C) : const Color(0xFFDDEFFF);
+  static ColorScheme _scheme(BuildContext context) =>
+      Theme.of(context).colorScheme;
+  static Color paper(BuildContext context) => dark(context)
+      ? _scheme(context).surfaceContainer
+      : _scheme(context).surface;
+  static Color canvas(BuildContext context) => dark(context)
+      ? _scheme(context).surfaceContainerLow
+      : _scheme(context).surfaceContainer;
+  static Color accent(BuildContext context) => _scheme(context).primary;
+  // A tint rather than primaryContainer keeps body text on its usual color.
+  static Color ownBubble(BuildContext context) => Color.alphaBlend(
+    accent(context).withValues(alpha: dark(context) ? .22 : .12),
+    paper(context),
+  );
 }
 
 class SocialSectionTabs extends StatelessWidget {
@@ -86,7 +95,7 @@ class SocialSectionTabs extends StatelessWidget {
                         color: index == selected
                             ? SocialChatStyle.accent(context)
                             : Colors.transparent,
-                        borderRadius: BorderRadius.circular(3),
+                        borderRadius: AppRadius.round,
                       ),
                     ),
                   ],
@@ -114,10 +123,10 @@ class DiscussionReplyBar extends StatelessWidget {
             Expanded(
               child: Material(
                 color: SocialChatStyle.canvas(context),
-                borderRadius: BorderRadius.circular(10),
+                borderRadius: AppRadius.small,
                 child: InkWell(
                   onTap: onReply,
-                  borderRadius: BorderRadius.circular(10),
+                  borderRadius: AppRadius.small,
                   child: Padding(
                     padding: const EdgeInsets.all(13),
                     child: Text(

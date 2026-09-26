@@ -6,6 +6,7 @@ import '../core/backup/backup_plan.dart';
 import '../models/library_batch.dart';
 import '../state/backup_providers.dart';
 import '../state/session_controller.dart';
+import '../core/theme/app_tokens.dart';
 
 class BackupPage extends ConsumerStatefulWidget {
   const BackupPage({super.key});
@@ -497,7 +498,7 @@ class _BackupPageState extends ConsumerState<BackupPage> {
       color: error
           ? Theme.of(context).colorScheme.errorContainer
           : Theme.of(context).colorScheme.surfaceContainerHigh,
-      borderRadius: BorderRadius.circular(12),
+      borderRadius: AppRadius.medium,
     ),
     child: Text(
       message,
