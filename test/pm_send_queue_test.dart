@@ -1,3 +1,4 @@
+import 'package:mubangumi/state/pm_contacts_controller.dart';
 import 'package:mubangumi/navigation/app_destination.dart';
 import 'package:mubangumi/navigation/app_router.dart';
 import 'dart:async';
@@ -262,6 +263,7 @@ void main() {
       final service = _Service()..gate = Completer<void>();
       final container = ProviderContainer(
         overrides: [
+          pmFriendsCacheProvider.overrideWithValue(PmTestFriendsCache()),
           sessionProvider.overrideWith((ref) => PmTestSession()),
           websiteSessionStoreProvider.overrideWithValue(PmTestWebsiteStore()),
           pmDraftRepositoryProvider.overrideWithValue(repo),
@@ -318,6 +320,7 @@ void main() {
       final service = _Service()..gate = Completer<void>();
       final container = ProviderContainer(
         overrides: [
+          pmFriendsCacheProvider.overrideWithValue(PmTestFriendsCache()),
           sessionProvider.overrideWith((ref) => PmTestSession()),
           websiteSessionStoreProvider.overrideWithValue(PmTestWebsiteStore()),
           pmDraftRepositoryProvider.overrideWithValue(repo),
@@ -385,6 +388,7 @@ void main() {
       final service = _Service()..gate = Completer<void>();
       final container = ProviderContainer(
         overrides: [
+          pmFriendsCacheProvider.overrideWithValue(PmTestFriendsCache()),
           sessionProvider.overrideWith((ref) => PmTestSession()),
           websiteSessionStoreProvider.overrideWithValue(PmTestWebsiteStore()),
           pmDraftRepositoryProvider.overrideWithValue(repo),

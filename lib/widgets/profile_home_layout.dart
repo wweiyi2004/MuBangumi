@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/cupertino.dart';
 import 'community_widgets.dart';
+import '../core/theme/app_tokens.dart';
 
 class ProfileHomeLayout extends StatelessWidget {
   const ProfileHomeLayout({
@@ -34,8 +35,8 @@ class ProfileHomeLayout extends StatelessWidget {
     final colors = Theme.of(context).colorScheme;
     final compact = MediaQuery.sizeOf(context).width < 600;
     final paper = Theme.of(context).brightness == Brightness.dark
-        ? const Color(0xFF191B20)
-        : Colors.white;
+        ? colors.surfaceContainer
+        : colors.surface;
     final inset = compact ? 20.0 : 32.0;
     return Center(
       child: ConstrainedBox(
@@ -172,7 +173,7 @@ class ProfileHomeLayout extends StatelessWidget {
                                                     overflow:
                                                         TextOverflow.ellipsis,
                                                     style: TextStyle(
-                                                      fontSize: 12,
+                                                      fontSize: AppText.caption,
                                                       color: colors
                                                           .onSurfaceVariant,
                                                     ),
@@ -270,12 +271,8 @@ class _SpaceCover extends StatelessWidget {
               colors: accessible
                   ? [paper, paper]
                   : dark
-                  ? [const Color(0xFF393245), const Color(0xFF283D43), paper]
-                  : [
-                      const Color(0xFFF2DDE5),
-                      const Color(0xFFE3E9F2),
-                      const Color(0xFFEAF1EC),
-                    ],
+                  ? [...AppPalette.profileHeaderDark, paper]
+                  : AppPalette.profileHeaderLight,
             ),
           ),
         ),
@@ -487,7 +484,7 @@ class PersonalFeedTabs extends StatelessWidget {
                             color: selected == index
                                 ? colors.primary
                                 : Colors.transparent,
-                            borderRadius: BorderRadius.circular(3),
+                            borderRadius: AppRadius.round,
                           ),
                         ),
                       ],
@@ -510,7 +507,7 @@ class _Stat extends StatelessWidget {
   Widget build(BuildContext context) => Expanded(
     child: InkWell(
       onTap: onTap,
-      borderRadius: BorderRadius.circular(8),
+      borderRadius: AppRadius.small,
       child: Padding(
         padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 3),
         child: Wrap(
@@ -526,7 +523,7 @@ class _Stat extends StatelessWidget {
             Text(
               label,
               style: TextStyle(
-                fontSize: 12,
+                fontSize: AppText.caption,
                 color: Theme.of(context).colorScheme.onSurfaceVariant,
               ),
             ),

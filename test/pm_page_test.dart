@@ -1,3 +1,4 @@
+import 'package:mubangumi/state/pm_contacts_controller.dart';
 import 'package:mubangumi/navigation/app_destination.dart';
 import 'package:mubangumi/navigation/app_router.dart';
 import 'support/memory_pm_draft_repository.dart';
@@ -36,8 +37,11 @@ void main() {
       final service = _Service();
       await _show(tester, service);
       expect(find.text('收件1'), findsOneWidget);
+      expect(find.text('收件2'), findsNothing);
+      await tester.tap(find.text('继续同步历史会话'));
+      await tester.pumpAndSettle();
       expect(find.text('收件2'), findsOneWidget);
-      expect(service.inboxPages, [1, 2, 3]);
+      expect(service.inboxPages, [1, 2]);
       expect(find.text('旧发件'), findsOneWidget);
       expect(service.outboxPages, [1, 2]);
       await tester.tap(find.byType(FloatingActionButton));
@@ -50,9 +54,12 @@ void main() {
       await tester.tap(find.text('发送短信'));
       await tester.pumpAndSettle();
       expect(find.text('新发件'), findsOneWidget);
-      expect(find.text('旧发件'), findsNothing);
-      expect(service.outboxPages, [1, 2, 1, 2]);
-      expect(service.inboxPages, [1, 2, 3, 1, 2, 3]);
+      expect(
+        find.text('旧发件'),
+        findsOneWidget,
+      ); // Retained until the refreshed scan ends.
+      expect(service.outboxPages, [1, 2, 1]);
+      expect(service.inboxPages, [1, 2, 1]);
       expect(tester.takeException(), isNull);
     },
   );
@@ -112,6 +119,7 @@ Future<ProviderContainer> _show(
   service.websiteStore = websiteStore;
   final container = ProviderContainer(
     overrides: [
+      pmFriendsCacheProvider.overrideWithValue(PmTestFriendsCache()),
       sessionProvider.overrideWith((ref) => PmTestSession()),
       pmDraftRepositoryProvider.overrideWithValue(MemoryPmDraftRepository()),
       websiteSessionStoreProvider.overrideWithValue(websiteStore),

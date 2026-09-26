@@ -1,6 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
-import 'package:flutter/foundation.dart';
+import 'projection_art.dart';
 
 /// A small MuBangumi projection window, shared by initial loading and pulling
 /// a scrollable from its top edge. Live data pushes never trigger this widget.
@@ -47,6 +47,21 @@ class AsciiRefreshState extends State<AsciiRefresh>
       _complete = false;
   double _pull = 0;
   bool get _reduced => MediaQuery.disableAnimationsOf(context);
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_reduced) {
+      _frames.stop();
+      _frames.value = .7;
+      if (_busy) {
+        _reveal.stop();
+        _reveal.value = 1;
+      }
+    } else if (_busy && !_complete && !_frames.isAnimating) {
+      _frames.repeat();
+    }
+  }
+
   @override
   void initState() {
     super.initState();
@@ -134,7 +149,11 @@ class AsciiRefreshState extends State<AsciiRefresh>
         unawaited(refresh());
       } else {
         _pull = 0;
-        unawaited(_reveal.reverse());
+        if (_reduced) {
+          _reveal.value = 0;
+        } else {
+          unawaited(_reveal.reverse());
+        }
       }
     }
     return false;
@@ -179,55 +198,10 @@ class AsciiRefreshState extends State<AsciiRefresh>
                     child: AnimatedBuilder(
                       animation: _frames,
                       builder: (context, _) {
-                        final trail = const [
-                          '·       ',
-                          '  ·     ',
-                          '    ·   ',
-                          '      · ',
-                        ][(_frames.value * 4).floor().clamp(0, 3)];
-                        final colors = Theme.of(context).colorScheme;
-                        final style = TextStyle(
-                          fontFamily:
-                              defaultTargetPlatform == TargetPlatform.windows
-                              ? 'Consolas'
-                              : 'monospace',
-                          fontSize: 12,
-                          height: 1.05,
-                          color: colors.onSurfaceVariant,
-                        );
-                        return Text.rich(
-                          TextSpan(
-                            style: style,
-                            children: [
-                              const TextSpan(text: '╭───────────╮\n│ '),
-                              WidgetSpan(
-                                alignment: PlaceholderAlignment.middle,
-                                child: SizedBox(
-                                  width: 7.2,
-                                  height: 12,
-                                  child: FittedBox(
-                                    fit: BoxFit.contain,
-                                    child: Icon(
-                                      _complete
-                                          ? (_failed
-                                                ? Icons.priority_high
-                                                : Icons.check)
-                                          : Icons.play_arrow,
-                                      size: 12,
-                                      color: _failed
-                                          ? colors.error
-                                          : colors.primary,
-                                    ),
-                                  ),
-                                ),
-                              ),
-                              TextSpan(
-                                text:
-                                    ' ${_complete ? '        ' : trail}│\n╰───────────╯',
-                              ),
-                            ],
-                          ),
-                          textScaler: TextScaler.noScaling,
+                        return ProjectionGlyph(
+                          progress: _frames.value,
+                          complete: _complete,
+                          failed: _failed,
                         );
                       },
                     ),

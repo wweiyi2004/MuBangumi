@@ -1,6 +1,8 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
+import 'app_tokens.dart';
+
 class AppTheme {
   static const seed = Color(0xFFE95383);
   static const ink = Color(0xFF1D2433);
@@ -18,6 +20,12 @@ class AppTheme {
     fontFamily: _fontFamily,
     fontFamilyFallback: _fontFallback,
     fontWeight: FontWeight.w600,
+  );
+
+  static ButtonStyle get _filledButtonStyle => FilledButton.styleFrom(
+    minimumSize: const Size(48, 48),
+    shape: const RoundedRectangleBorder(borderRadius: AppRadius.round),
+    textStyle: _controlTextStyle,
   );
 
   static const _fontFallback = [
@@ -44,7 +52,7 @@ class AppTheme {
           brightness: Brightness.dark,
         ).copyWith(
           primary: const Color(0xFFFF77A2),
-          secondary: const Color(0xFFA99AF7),
+          secondary: const Color(0xFF5CC4B8),
           tertiary: const Color(0xFFF1B654),
           surface: const Color(0xFF121219),
           surfaceContainerLowest: night,
@@ -69,36 +77,34 @@ class AppTheme {
         surfaceTintColor: Colors.transparent,
       ),
       cardTheme: CardThemeData(
-        color: scheme.surface,
+        color: scheme.surfaceContainer,
         elevation: 0,
         margin: EdgeInsets.zero,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+        shape: const RoundedRectangleBorder(borderRadius: AppRadius.medium),
       ),
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
         fillColor: scheme.surfaceContainerLow,
         border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(16),
+          borderRadius: AppRadius.medium,
           borderSide: BorderSide.none,
         ),
         enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(16),
+          borderRadius: AppRadius.medium,
           borderSide: BorderSide.none,
         ),
         focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(16),
+          borderRadius: AppRadius.medium,
           borderSide: BorderSide(color: scheme.primary, width: 1.5),
         ),
       ),
-      filledButtonTheme: FilledButtonThemeData(
-        style: FilledButton.styleFrom(textStyle: _controlTextStyle),
-      ),
+      filledButtonTheme: FilledButtonThemeData(style: _filledButtonStyle),
       chipTheme: ChipThemeData(
         labelStyle: _controlTextStyle.copyWith(color: scheme.onSurface),
         secondaryLabelStyle: _controlTextStyle.copyWith(color: scheme.primary),
         backgroundColor: Colors.transparent,
         selectedColor: scheme.primaryContainer.withValues(alpha: .55),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(9)),
+        shape: const RoundedRectangleBorder(borderRadius: AppRadius.small),
         side: BorderSide.none,
       ),
       navigationBarTheme: NavigationBarThemeData(
@@ -112,6 +118,10 @@ class AppTheme {
         indicatorColor: Colors.transparent,
       ),
       dividerTheme: DividerThemeData(color: scheme.outlineVariant, space: 1),
+      floatingActionButtonTheme: FloatingActionButtonThemeData(
+        backgroundColor: scheme.primary,
+        foregroundColor: scheme.onPrimary,
+      ),
       pageTransitionsTheme: _pageTransitions,
     );
   }
@@ -149,7 +159,7 @@ class AppTheme {
         elevation: 0,
         color: scheme.surface,
         margin: EdgeInsets.zero,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+        shape: const RoundedRectangleBorder(borderRadius: AppRadius.medium),
       ),
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
@@ -159,33 +169,25 @@ class AppTheme {
           vertical: 15,
         ),
         border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(16),
+          borderRadius: AppRadius.medium,
           borderSide: BorderSide.none,
         ),
         enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(16),
+          borderRadius: AppRadius.medium,
           borderSide: BorderSide.none,
         ),
         focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(16),
+          borderRadius: AppRadius.medium,
           borderSide: const BorderSide(color: seed, width: 1.5),
         ),
       ),
-      filledButtonTheme: FilledButtonThemeData(
-        style: FilledButton.styleFrom(
-          minimumSize: const Size(48, 48),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(15),
-          ),
-          textStyle: _controlTextStyle,
-        ),
-      ),
+      filledButtonTheme: FilledButtonThemeData(style: _filledButtonStyle),
       chipTheme: ChipThemeData(
         backgroundColor: Colors.transparent,
         selectedColor: const Color(0xFFFFE8EF),
         disabledColor: const Color(0xFFE9E9EF),
         checkmarkColor: seed,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(9)),
+        shape: const RoundedRectangleBorder(borderRadius: AppRadius.small),
         side: BorderSide.none,
         labelStyle: _controlTextStyle.copyWith(color: ink),
         secondaryLabelStyle: _controlTextStyle.copyWith(color: seed),
@@ -204,7 +206,7 @@ class AppTheme {
       dividerTheme: const DividerThemeData(color: Color(0x141D2433), space: 1),
       snackBarTheme: SnackBarThemeData(
         behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+        shape: const RoundedRectangleBorder(borderRadius: AppRadius.medium),
       ),
       pageTransitionsTheme: _pageTransitions,
     );

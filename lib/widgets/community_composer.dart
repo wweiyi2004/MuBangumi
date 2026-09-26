@@ -4,6 +4,9 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 
 import '../core/storage/community_draft_store.dart';
+import '../core/auth/website_identity.dart';
+import '../models/community_topic_submission.dart';
+import '../screens/website_login_screen.dart';
 export '../core/storage/community_draft_store.dart' show communityDraftKey;
 
 import 'turnstile_dialog.dart';
@@ -12,6 +15,9 @@ import 'community_rich_content.dart';
 typedef CommunitySubmit =
     Future<void> Function(String title, String content, String token);
 typedef CommunityTokenProvider = Future<String?> Function(BuildContext context);
+typedef CommunityWebsiteRecovery = Future<bool> Function(BuildContext context);
+typedef CommunityConfirmSubmission =
+    Future<bool> Function(String title, String content, DateTime? attemptedAt);
 
 /// Optional in-memory draft for callers without a persistent account key.
 class CommunityDraft {
@@ -64,11 +70,15 @@ Future<bool> showCommunityComposer(
   CommunityDraftRepository? draftStore,
   bool Function()? isAccountCurrent,
   CommunityTokenProvider? tokenProvider,
+  CommunityWebsiteRecovery? websiteRecovery,
   String initialTitle = '',
   String initialContent = '',
   bool requireVerification = true,
   String submitLabel = '发送',
   CommunityBlogDraft? blogDraft,
+  CommunityTopicDraft? topicDraft,
+  CommunityConfirmSubmission? confirmSubmission,
+  Future<void> Function()? inspectSubmission,
 }) async =>
     await showDialog<bool>(
       context: context,
@@ -82,11 +92,17 @@ Future<bool> showCommunityComposer(
         replyContext: replyContext,
         maxLength: maxLength,
         tokenProvider: tokenProvider ?? showTurnstileDialog,
+        websiteRecovery:
+            websiteRecovery ??
+            (context) async => await openWebsiteLoginScreen(context) == true,
         initialTitle: initialTitle,
         initialContent: initialContent,
         requireVerification: requireVerification,
         submitLabel: submitLabel,
         blogDraft: blogDraft,
+        topicDraft: topicDraft,
+        confirmSubmission: confirmSubmission,
+        inspectSubmission: inspectSubmission,
         draft: draft,
         draftKey: draftKey,
         draftStore: draftStore ?? CommunityDraftStore.shared,
@@ -102,6 +118,7 @@ class _CommunityComposerDialog extends StatefulWidget {
     required this.requireTitle,
     required this.contentLabel,
     required this.tokenProvider,
+    required this.websiteRecovery,
     this.warning,
     this.replyContext,
     this.maxLength,
@@ -114,6 +131,9 @@ class _CommunityComposerDialog extends StatefulWidget {
     required this.requireVerification,
     required this.submitLabel,
     this.blogDraft,
+    this.topicDraft,
+    this.confirmSubmission,
+    this.inspectSubmission,
   });
 
   final String heading;
@@ -123,9 +143,13 @@ class _CommunityComposerDialog extends StatefulWidget {
   final bool requireVerification;
   final String submitLabel;
   final CommunityBlogDraft? blogDraft;
+  final CommunityTopicDraft? topicDraft;
+  final CommunityConfirmSubmission? confirmSubmission;
+  final Future<void> Function()? inspectSubmission;
   final bool requireTitle;
   final String contentLabel;
   final CommunityTokenProvider tokenProvider;
+  final CommunityWebsiteRecovery websiteRecovery;
   final String? warning;
   final String? replyContext;
   final int? maxLength;
@@ -153,6 +177,8 @@ class _CommunityComposerDialogState extends State<_CommunityComposerDialog> {
   bool _sent = false;
   bool _preview = false;
   bool _submitting = false;
+  bool _confirming = false;
+  bool _needsWebsiteAccess = false;
   String? _error;
   String? _draftError;
   bool _restoring = false;
@@ -171,7 +197,17 @@ class _CommunityComposerDialogState extends State<_CommunityComposerDialog> {
   late final AppLifecycleListener _lifecycle;
 
   bool get _locked => _submitting || _restoring || _closing;
-  bool get _editable => !_locked && (widget.draftKey == null || _loadedDraft);
+  bool get _pending => widget.topicDraft?.pending == true;
+  bool get _editable =>
+      !_locked && !_pending && (widget.draftKey == null || _loadedDraft);
+  String _encodeContent(String value) =>
+      widget.topicDraft?.encode(value) ??
+      widget.blogDraft?.encode(value) ??
+      value;
+
+  String _message(Object error) => error is FormatException
+      ? error.message
+      : error.toString().replaceFirst(RegExp(r'^Exception:\s*'), '');
 
   @override
   void initState() {
@@ -197,7 +233,10 @@ class _CommunityComposerDialogState extends State<_CommunityComposerDialog> {
       if (!mounted) return;
       _storedRevision = slot.revision;
       if (draft != null) {
-        final body = widget.blogDraft?.restore(draft.content) ?? draft.content;
+        final body =
+            widget.topicDraft?.restore(draft.content) ??
+            widget.blogDraft?.restore(draft.content) ??
+            draft.content;
         _titleController.text = draft.title;
         _contentController.text = body;
         _tagsController.text = widget.blogDraft?.tags.join(' ') ?? '';
@@ -262,9 +301,7 @@ class _CommunityComposerDialogState extends State<_CommunityComposerDialog> {
     final revision = _draftRevision;
     final draft = (
       title: _titleController.text,
-      content:
-          widget.blogDraft?.encode(_contentController.text) ??
-          _contentController.text,
+      content: _encodeContent(_contentController.text),
     );
     if (mounted) setState(() => _savingDraft = true);
     try {
@@ -309,6 +346,7 @@ class _CommunityComposerDialogState extends State<_CommunityComposerDialog> {
   }
 
   bool get _canSubmit {
+    if (_pending) return false;
     if (widget.draftKey != null && !_loadedDraft) return false;
     if (_contentController.text.trim().isEmpty) return false;
     if (widget.requireTitle && _titleController.text.trim().isEmpty) {
@@ -324,6 +362,7 @@ class _CommunityComposerDialogState extends State<_CommunityComposerDialog> {
     // Turnstile dialogs and trigger duplicate submissions.
     setState(() {
       _submitting = true;
+      _needsWebsiteAccess = false;
       _error = null;
     });
     try {
@@ -341,46 +380,176 @@ class _CommunityComposerDialogState extends State<_CommunityComposerDialog> {
         });
         return;
       }
+      if (widget.topicDraft case final submission?) {
+        submission.attemptedAt = DateTime.now().toUtc();
+        submission.confirmedId = null;
+        _dirty = true;
+        _draftRevision++;
+        if (!await _saveDraft() || !mounted) {
+          if (mounted) setState(() => _submitting = false);
+          return;
+        }
+        _checkAccount();
+      }
       await widget.onSubmit(
         _titleController.text.trim(),
         _contentController.text.trim(),
         token?.trim() ?? '',
       );
-      _sent = true;
-      _saveTimer?.cancel();
-      widget.draft?.clear();
-      try {
-        if (widget.draftKey case final key?) {
-          await _persistDraft(key, (title: '', content: ''));
-        }
-      } catch (_) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('发送成功，但本地草稿未能清除，请勿重复发送')),
-          );
-        }
-      }
-      if (mounted) {
-        setState(() => _allowPop = true);
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (mounted) Navigator.of(context).pop(true);
-        });
-      }
+      await _finishSent();
     } catch (error) {
+      if (!mounted) return;
+      if (_pending &&
+          (error is CommunitySubmissionRejected ||
+              error is WebsiteAccessException)) {
+        widget.topicDraft!.clearAttempt();
+        _dirty = true;
+        _draftRevision++;
+        await _saveDraft();
+      }
       if (!mounted) return;
       setState(() {
         _submitting = false;
-        _error = error
-            .toString()
-            .replaceFirst('Exception: ', '')
-            .replaceFirst('FormatException: ', '');
+        _needsWebsiteAccess =
+            error is WebsiteAccessException && error.status.requiresLogin;
+        _error = _pending ? '发帖结果待确认，请核对发布结果；内容已保留，请勿重复提交。' : _message(error);
       });
     }
+  }
+
+  Future<void> _finishSent() async {
+    // Keep the receipt in the draft before clearing it, so a failed cleanup
+    // or restart does not turn a confirmed publication back into editable text.
+    if (widget.topicDraft?.confirmedId != null) {
+      _dirty = true;
+      _draftRevision++;
+      await _saveDraft();
+    }
+    _sent = true;
+    _saveTimer?.cancel();
+    widget.draft?.clear();
+    try {
+      if (widget.draftKey case final key?) {
+        await _persistDraft(key, (title: '', content: ''));
+      }
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('发送成功，但本地草稿未能清除，请勿重复发送')));
+      }
+    }
+    if (mounted) {
+      setState(() => _allowPop = true);
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) Navigator.of(context).pop(true);
+      });
+    }
+  }
+
+  Future<void> _confirmSubmission() async {
+    if (_locked ||
+        (!_pending && !_canSubmit) ||
+        widget.confirmSubmission == null) {
+      return;
+    }
+    setState(() {
+      _submitting = true;
+      _confirming = true;
+      _error = null;
+    });
+    try {
+      _checkAccount();
+      final found = await widget.confirmSubmission!(
+        _titleController.text.trim(),
+        _contentController.text.trim(),
+        widget.topicDraft?.attemptedAt,
+      );
+      if (!mounted) return;
+      _checkAccount();
+      if (found) {
+        widget.topicDraft?.attemptedAt ??= DateTime.now().toUtc();
+        await _finishSent();
+      } else {
+        setState(() => _error = '暂未找到可确认的帖子，可能有延迟或正在审核；这不代表发布失败，请稍后再次核对或查看官网。');
+      }
+    } catch (_) {
+      if (mounted) setState(() => _error = '暂时无法核对，请确认原账号和网络后重试；不会重新发送帖子。');
+    } finally {
+      if (mounted) {
+        setState(() {
+          _submitting = false;
+          _confirming = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _resetSubmission() async {
+    if (_locked || !_pending) return;
+    final reset = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('确认未发布？'),
+        content: const Text(
+          '列表暂未显示不代表发布失败，帖子可能正在审核。只有确认未发出后才恢复编辑，否则再次发送会产生重复帖子。',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('继续核对'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('已确认未发出'),
+          ),
+        ],
+      ),
+    );
+    if (reset != true || !mounted) return;
+    if (widget.isAccountCurrent?.call() == false) {
+      setState(() => _error = '账号已变化，请返回原账号后继续核对');
+      return;
+    }
+    widget.topicDraft!.clearAttempt();
+    setState(() {
+      _dirty = true;
+      _draftRevision++;
+      _error = null;
+    });
+    await _saveDraft();
   }
 
   void _checkAccount() {
     if (widget.isAccountCurrent?.call() == false) {
       throw const FormatException('登录账号已变化，请返回原账号后继续编辑和发送');
+    }
+  }
+
+  Future<void> _recoverWebsiteAccess() async {
+    if (_locked) return;
+    setState(() => _submitting = true);
+    try {
+      _checkAccount();
+      if (!await _saveDraft() || !mounted) return;
+      final recovered = await widget.websiteRecovery(context);
+      if (!mounted) return;
+      _checkAccount();
+      if (recovered) {
+        setState(() {
+          _needsWebsiteAccess = false;
+          _error = null;
+        });
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('账号验证完成，内容已保留，请再次点击发送')));
+      }
+    } catch (error) {
+      if (mounted) {
+        setState(() => _error = _message(error));
+      }
+    } finally {
+      if (mounted) setState(() => _submitting = false);
     }
   }
 
@@ -393,9 +562,7 @@ class _CommunityComposerDialogState extends State<_CommunityComposerDialog> {
       unawaited(
         _persistDraft(widget.draftKey!, (
           title: _titleController.text,
-          content:
-              widget.blogDraft?.encode(_contentController.text) ??
-              _contentController.text,
+          content: _encodeContent(_contentController.text),
         )).catchError((Object _) {}),
       );
     }
@@ -424,6 +591,11 @@ class _CommunityComposerDialogState extends State<_CommunityComposerDialog> {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               if (_restoring) const LinearProgressIndicator(),
+              if (!_pending && widget.confirmSubmission != null)
+                TextButton(
+                  onPressed: !_locked && _canSubmit ? _confirmSubmission : null,
+                  child: const Text('核对是否已发布（最近 24 小时）'),
+                ),
               if (widget.replyContext case final excerpt?) ...[
                 Container(
                   width: double.infinity,
@@ -581,6 +753,25 @@ class _CommunityComposerDialogState extends State<_CommunityComposerDialog> {
                   style: TextStyle(color: Theme.of(context).colorScheme.error),
                 ),
               ],
+              if (_pending) ...[
+                const SizedBox(height: 8),
+                const Text('上次提交结果待确认。核对只读取已发表话题，不会重新发送。'),
+                TextButton(
+                  onPressed: _locked ? null : _resetSubmission,
+                  child: const Text('确认未发出后恢复编辑'),
+                ),
+              ],
+              if (widget.inspectSubmission != null)
+                TextButton(
+                  onPressed: _locked ? null : widget.inspectSubmission,
+                  child: const Text('查看小组官网'),
+                ),
+              if (_needsWebsiteAccess)
+                TextButton.icon(
+                  onPressed: _locked ? null : _recoverWebsiteAccess,
+                  icon: const Icon(Icons.verified_user_outlined),
+                  label: const Text('补充账号验证'),
+                ),
             ],
           ),
         ),
@@ -589,9 +780,11 @@ class _CommunityComposerDialogState extends State<_CommunityComposerDialog> {
         TextButton(
           onPressed: _locked ? null : _close,
           child: Text(
-            (widget.draft != null || widget.draftKey != null) &&
-                    (_titleController.text.isNotEmpty ||
-                        _contentController.text.isNotEmpty)
+            _pending
+                ? '保留并关闭'
+                : (widget.draft != null || widget.draftKey != null) &&
+                      (_titleController.text.isNotEmpty ||
+                          _contentController.text.isNotEmpty)
                 ? '稍后再写'
                 : '取消',
           ),
@@ -609,7 +802,13 @@ class _CommunityComposerDialogState extends State<_CommunityComposerDialog> {
             child: const Text('不保存并关闭'),
           ),
         FilledButton.icon(
-          onPressed: _canSubmit && !_locked ? _submit : null,
+          onPressed: _locked
+              ? null
+              : _pending
+              ? _confirmSubmission
+              : _canSubmit
+              ? _submit
+              : null,
           icon: _submitting
               ? const SizedBox.square(
                   dimension: 16,
@@ -617,7 +816,13 @@ class _CommunityComposerDialogState extends State<_CommunityComposerDialog> {
                 )
               : const Icon(Icons.send_rounded),
           label: Text(
-            _submitting ? '${widget.submitLabel}中' : widget.submitLabel,
+            _confirming
+                ? '正在核对…'
+                : _pending
+                ? (_submitting ? '正在核对…' : '核对发布结果')
+                : _submitting
+                ? '${widget.submitLabel}中'
+                : widget.submitLabel,
           ),
         ),
       ],

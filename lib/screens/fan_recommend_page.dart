@@ -1,6 +1,7 @@
 import '../navigation/app_destination.dart';
 import 'package:flutter/material.dart';
-import '../widgets/readable_subject_title.dart';
+import '../widgets/projection_art.dart';
+import '../widgets/recommendation_ticket.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/layout/app_layout.dart';
@@ -36,6 +37,34 @@ class _FanRecommendPageState extends ConsumerState<FanRecommendPage> {
   FanRecommendRequest? _rankRequest;
   FanTasteProfile? _rankTaste;
   bool _hasSuccessfulRun = false;
+  final _addingWishes = <int>{};
+
+  Future<void> _addWish(Subject subject, int ownerId) async {
+    if (_addingWishes.contains(subject.id) ||
+        ownerId <= 0 ||
+        ref.read(sessionProvider).user?.id != ownerId) {
+      return;
+    }
+    final session = ref.read(sessionProvider.notifier);
+    final account = session.batchAccount;
+    setState(() => _addingWishes.add(subject.id));
+    try {
+      final error = await session.changeCollection(
+        subject,
+        CollectionType.wish,
+        expectedAccount: account,
+      );
+      if (mounted && ref.read(sessionProvider).user?.id == ownerId) {
+        showAppMessage(context, error ?? '已加入想看');
+      }
+    } catch (_) {
+      if (mounted && ref.read(sessionProvider).user?.id == ownerId) {
+        showAppMessage(context, '暂时无法加入想看，请重试');
+      }
+    } finally {
+      if (mounted) setState(() => _addingWishes.remove(subject.id));
+    }
+  }
 
   List<FanRecommendItem> _rankVisible(Set<int> hidden, Set<int> owned) {
     final request = _rankRequest, taste = _rankTaste;
@@ -334,10 +363,10 @@ class _FanRecommendPageState extends ConsumerState<FanRecommendPage> {
         ],
       ),
       body: ListView(
-        padding: AppLayout.pageInsets(context, top: 12, bottom: 40),
+        padding: AppLayout.pageInsets(context).copyWith(top: 6, bottom: 24),
         children: [
           _HeroBanner(taste: taste),
-          const SizedBox(height: 16),
+          const SizedBox(height: 10),
           SegmentedButton<bool>(
             segments: const [
               ButtonSegment(
@@ -356,7 +385,7 @@ class _FanRecommendPageState extends ConsumerState<FanRecommendPage> {
               setState(() => _modeTaste = value.first);
             },
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 10),
           if (_modeTaste) ...[
             Text(
               '根据你收藏里的高分动画标签来推荐，并自动跳过已在库中的作品。',
@@ -448,50 +477,69 @@ class _FanRecommendPageState extends ConsumerState<FanRecommendPage> {
               ],
             ),
           ],
-          const SizedBox(height: 16),
-          Text(
-            '筛选',
-            style: Theme.of(
-              context,
-            ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800),
-          ),
-          const SizedBox(height: 8),
-          Text('最低评分', style: Theme.of(context).textTheme.labelLarge),
-          const SizedBox(height: 6),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              for (final rating in [0, 6, 7, 8, 9])
-                ChoiceChip(
-                  label: Text(rating == 0 ? '不限' : '$rating 分以上'),
-                  selected: _minimumRating == rating,
-                  onSelected: (_) => setState(() => _minimumRating = rating),
-                ),
-            ],
-          ),
           const SizedBox(height: 10),
-          Text('开播年份', style: Theme.of(context).textTheme.labelLarge),
-          const SizedBox(height: 6),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
+          ExpansionTile(
+            tilePadding: EdgeInsets.zero,
+            childrenPadding: const EdgeInsets.only(bottom: 6),
+            shape: const Border(),
+            collapsedShape: const Border(),
+            dense: true,
+            title: Text('更多条件', style: Theme.of(context).textTheme.labelLarge),
+            subtitle: Text(
+              '${_minimumRating == 0 ? '评分不限' : '$_minimumRating 分以上'} · ${_startYear == 0 ? '年份不限' : '$_startYear 年起'}',
+              style: Theme.of(
+                context,
+              ).textTheme.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
+            ),
             children: [
-              for (final year in [
-                0,
-                DateTime.now().year - 2,
-                DateTime.now().year - 5,
-                2015,
-                2010,
-              ])
-                ChoiceChip(
-                  label: Text(year == 0 ? '不限' : '$year 起'),
-                  selected: _startYear == year,
-                  onSelected: (_) => setState(() => _startYear = year),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('最低评分', style: Theme.of(context).textTheme.labelLarge),
+                    const SizedBox(height: 6),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        for (final rating in [0, 6, 7, 8, 9])
+                          ChoiceChip(
+                            label: Text(rating == 0 ? '不限' : '$rating 分以上'),
+                            selected: _minimumRating == rating,
+                            onSelected: (_) =>
+                                setState(() => _minimumRating = rating),
+                          ),
+                      ],
+                    ),
+                    const SizedBox(height: 10),
+                    Text('开播年份', style: Theme.of(context).textTheme.labelLarge),
+                    const SizedBox(height: 6),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        for (final year in [
+                          0,
+                          DateTime.now().year - 2,
+                          DateTime.now().year - 5,
+                          2015,
+                          2010,
+                        ])
+                          ChoiceChip(
+                            label: Text(year == 0 ? '不限' : '$year 起'),
+                            selected: _startYear == year,
+                            onSelected: (_) =>
+                                setState(() => _startYear = year),
+                          ),
+                      ],
+                    ),
+                  ],
                 ),
+              ),
             ],
           ),
-          const SizedBox(height: 18),
+          const SizedBox(height: 12),
           SizedBox(
             width: double.infinity,
             child: FilledButton.icon(
@@ -569,7 +617,7 @@ class _FanRecommendPageState extends ConsumerState<FanRecommendPage> {
             ),
           ],
           if (results.isNotEmpty) ...[
-            SizedBox(height: AppLayout.blockGap(context)),
+            const SizedBox(height: 14),
             Row(
               children: [
                 Expanded(
@@ -586,8 +634,13 @@ class _FanRecommendPageState extends ConsumerState<FanRecommendPage> {
             ),
             const SizedBox(height: 12),
             for (var i = 0; i < results.length; i++) ...[
-              _RecommendTile(
+              RecommendationTicket(
                 key: ValueKey('recommendation-${results[i].subject.id}'),
+                onWish:
+                    ownerId <= 0 ||
+                        _addingWishes.contains(results[i].subject.id)
+                    ? null
+                    : () => _addWish(results[i].subject, ownerId),
                 onHide: feedback.pending.contains(results[i].subject.id)
                     ? null
                     : () => _hide(results[i].subject, ownerId),
@@ -613,181 +666,40 @@ class _FanRecommendPageState extends ConsumerState<FanRecommendPage> {
 
 class _HeroBanner extends StatelessWidget {
   const _HeroBanner({required this.taste});
-
   final FanTasteProfile? taste;
-
   @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(18),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(20),
-        gradient: const LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [Color(0xFFE95383), Color(0xFF8B6CEF)],
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.symmetric(vertical: 2),
+    child: Row(
+      children: [
+        const ProjectionIllustration(
+          scene: ProjectionScene.discover,
+          width: 64,
         ),
-        boxShadow: [
-          BoxShadow(
-            color: const Color(0xFFE95383).withValues(alpha: 0.28),
-            blurRadius: 18,
-            offset: const Offset(0, 8),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                  color: Colors.white.withValues(alpha: 0.18),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: const Icon(
-                  Icons.theater_comedy_rounded,
-                  color: Colors.white,
-                ),
-              ),
-              const SizedBox(width: 10),
-              const Expanded(
-                child: Text(
-                  '番会荐',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 22,
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 10),
-          Text(
-            taste?.hasTaste == true
-                ? '读过你的收藏口味，也可以随时换成自己的一句话需求。'
-                : '告诉我想看什么，或先积累一点高分收藏，让推荐更懂你。',
-            style: const TextStyle(color: Colors.white70, height: 1.4),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _RecommendTile extends StatelessWidget {
-  const _RecommendTile({
-    super.key,
-    required this.onHide,
-    required this.index,
-    required this.item,
-    required this.onTap,
-    this.compact = false,
-  });
-
-  final int index;
-  final FanRecommendItem item;
-  final VoidCallback onTap;
-  final VoidCallback? onHide;
-  final bool compact;
-
-  @override
-  Widget build(BuildContext context) {
-    final subject = item.subject;
-    final scheme = Theme.of(context).colorScheme;
-    return Card(
-      clipBehavior: Clip.antiAlias,
-      child: InkWell(
-        onTap: onTap,
-        child: Padding(
-          padding: EdgeInsets.all(compact ? 10 : 12),
-          child: Row(
+        const SizedBox(width: 8),
+        Expanded(
+          child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              SizedBox(
-                width: 28,
-                child: Text(
-                  '$index',
-                  textAlign: TextAlign.center,
-                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.w800,
-                    color: scheme.primary,
-                  ),
+              Text(
+                '为下一次心动留一张票',
+                style: Theme.of(
+                  context,
+                ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
+              ),
+              const SizedBox(height: 5),
+              Text(
+                taste?.hasTaste == true
+                    ? '从你的收藏口味出发，发现下一部作品。'
+                    : '写下想看的方向，挑一部合心意的作品。',
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
                 ),
               ),
-              SubjectCover(
-                subject: subject,
-                width: compact ? 58 : 66,
-                height: compact ? 82 : 92,
-                borderRadius: 10,
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    ReadableSubjectTitle(
-                      subject.displayName,
-                      maxLines: 2,
-                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      [
-                        if (subject.score > 0)
-                          '★ ${subject.score.toStringAsFixed(1)}',
-                        if (subject.rank > 0) '#${subject.rank}',
-                        if (subject.date.isNotEmpty) subject.date,
-                      ].join(' · '),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: scheme.onSurfaceVariant,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    Wrap(
-                      spacing: 6,
-                      runSpacing: 6,
-                      children: [
-                        for (final reason in item.reasons.take(3))
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 8,
-                              vertical: 4,
-                            ),
-                            decoration: BoxDecoration(
-                              color: scheme.primaryContainer.withValues(
-                                alpha: 0.55,
-                              ),
-                              borderRadius: BorderRadius.circular(999),
-                            ),
-                            child: Text(
-                              reason,
-                              style: Theme.of(context).textTheme.labelSmall
-                                  ?.copyWith(fontWeight: FontWeight.w700),
-                            ),
-                          ),
-                      ],
-                    ),
-                    TextButton.icon(
-                      onPressed: onHide,
-                      icon: const Icon(Icons.thumb_down_outlined, size: 18),
-                      label: const Text('不感兴趣'),
-                    ),
-                  ],
-                ),
-              ),
-              Icon(Icons.chevron_right_rounded, color: scheme.onSurfaceVariant),
             ],
           ),
         ),
-      ),
-    );
-  }
+      ],
+    ),
+  );
 }

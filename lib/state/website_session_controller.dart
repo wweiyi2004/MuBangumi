@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -6,11 +7,14 @@ import '../core/auth/website_cookie_bridge.dart';
 import '../core/auth/website_session.dart';
 import '../core/auth/website_identity.dart';
 import '../models/bangumi_models.dart';
+import '../core/diagnostics/account_diagnostics.dart';
+import 'account_diagnostics_provider.dart';
 export '../core/auth/website_identity.dart'
     show WebsiteAccessStatus, WebsiteAccessException;
 
 final websiteIdentityProbeProvider = Provider<WebsiteIdentityProbe>(
-  (ref) => WebsiteIdentityProbe(),
+  (ref) =>
+      WebsiteIdentityProbe(diagnostics: ref.watch(accountDiagnosticsProvider)),
 );
 
 final websiteSessionStoreProvider = Provider<WebsiteSessionStore>((ref) {
@@ -22,6 +26,7 @@ final websiteSessionProvider =
       return WebsiteSessionController(
         ref.watch(websiteSessionStoreProvider),
         probe: ref.watch(websiteIdentityProbeProvider),
+        diagnostics: ref.watch(accountDiagnosticsProvider),
       );
     });
 
@@ -31,12 +36,14 @@ class WebsiteSessionState {
     this.snapshot,
     this.message,
     this.status = WebsiteAccessStatus.missing,
+    this.recoveryUri,
   });
 
   final bool ready;
   final WebsiteSessionSnapshot? snapshot;
   final String? message;
   final WebsiteAccessStatus status;
+  final Uri? recoveryUri;
 
   bool get hasStoredSession => snapshot?.hasSessionCookies == true;
   bool get isSynced =>
@@ -66,23 +73,31 @@ class WebsiteSessionState {
     bool clearSnapshot = false,
     bool clearMessage = false,
     WebsiteAccessStatus? status,
+    Uri? recoveryUri,
   }) => WebsiteSessionState(
     ready: ready ?? this.ready,
     snapshot: clearSnapshot ? null : snapshot ?? this.snapshot,
     message: clearMessage ? null : message ?? this.message,
     status: status ?? this.status,
+    recoveryUri: recoveryUri ?? this.recoveryUri,
   );
 }
 
 class WebsiteSessionController extends StateNotifier<WebsiteSessionState> {
-  WebsiteSessionController(this._store, {WebsiteIdentityProbe? probe})
-    : _probe = probe ?? WebsiteIdentityProbe(),
-      super(const WebsiteSessionState()) {
+  WebsiteSessionController(
+    this._store, {
+    WebsiteIdentityProbe? probe,
+    AccountDiagnostics? diagnostics,
+  }) : _probe = probe ?? WebsiteIdentityProbe(diagnostics: diagnostics),
+       _diagnostics = diagnostics ?? AccountDiagnostics(),
+       super(const WebsiteSessionState()) {
+    _probe.onWebsiteResponseCookies = absorbResponseCookies;
     unawaited(reload());
   }
 
   final WebsiteSessionStore _store;
   final WebsiteIdentityProbe _probe;
+  final AccountDiagnostics _diagnostics;
   BangumiUser? _expectedUser;
   Future<bool>? _verification;
   Future<void>? _attachment;
@@ -91,6 +106,8 @@ class WebsiteSessionController extends StateNotifier<WebsiteSessionState> {
   String? _verificationKey;
   final _probeRequests = <String, Future<int>>{};
   final _rejectedRequests = <String>{};
+  final _oldAccountRequests = <String>{};
+  bool _verifyingResponseAuth = false;
 
   Future<int> _probeOnce(
     WebsiteSessionSnapshot snapshot,
@@ -111,6 +128,7 @@ class WebsiteSessionController extends StateNotifier<WebsiteSessionState> {
   int _generation = 0;
   Future<void> _writes = Future<void>.value();
   bool _readFailed = false;
+  Future<bool>? _storageRecovery;
 
   WebsiteSessionState _snapshotState(
     WebsiteSessionSnapshot? snapshot, {
@@ -143,6 +161,9 @@ class WebsiteSessionController extends StateNotifier<WebsiteSessionState> {
     }
     final attachment = Completer<void>();
     _attachment = attachment.future;
+    if (_expectedUser != null && state.snapshot != null) {
+      _oldAccountRequests.add(state.snapshot!.requestKey);
+    }
     _expectedUser = user;
     _generation++;
     _verification = null;
@@ -154,6 +175,23 @@ class WebsiteSessionController extends StateNotifier<WebsiteSessionState> {
           _expectedUser?.id == user?.id &&
           _expectedUser?.username == user?.username &&
           user != null) {
+        final snapshot = state.snapshot;
+        if (snapshot != null &&
+            _oldAccountRequests.contains(snapshot.requestKey)) {
+          final generation = _generation;
+          final renewed = snapshot.withRenewedRequestKey();
+          state = _snapshotState(renewed);
+          try {
+            await _write(() async {
+              if (mounted && generation == _generation) {
+                await _store.write(renewed);
+              }
+            });
+          } catch (_) {
+            // The renewed in-memory request context still rejects late responses.
+          }
+          if (!mounted || generation != _generation) return;
+        }
         await ensureVerified();
       }
     } finally {
@@ -164,7 +202,7 @@ class WebsiteSessionController extends StateNotifier<WebsiteSessionState> {
 
   Future<bool> ensureVerified({bool force = false}) {
     if (!mounted) return Future.value(false);
-    if (force && _readFailed) return _reloadForVerification();
+    if (_readFailed) return _reloadForVerification(force: force);
     final user = _expectedUser;
     final snapshot = state.snapshot;
     if (user == null) return Future.value(false);
@@ -222,12 +260,20 @@ class WebsiteSessionController extends StateNotifier<WebsiteSessionState> {
     });
   }
 
-  Future<bool> _reloadForVerification() async {
-    final reloading = reload();
-    final generation = _generation;
-    await reloading;
-    if (!mounted || generation != _generation || _readFailed) return false;
-    return ensureVerified(force: true);
+  Future<bool> _reloadForVerification({required bool force}) {
+    final active = _storageRecovery;
+    if (active != null) return active;
+    final future = () async {
+      final reloading = reload();
+      final generation = _generation;
+      await reloading;
+      if (!mounted || generation != _generation || _readFailed) return false;
+      return ensureVerified(force: force);
+    }();
+    _storageRecovery = future;
+    return future.whenComplete(() {
+      if (identical(_storageRecovery, future)) _storageRecovery = null;
+    });
   }
 
   Future<bool> _verify(
@@ -246,7 +292,7 @@ class WebsiteSessionController extends StateNotifier<WebsiteSessionState> {
           _expectedUser?.id != user.id) {
         return false;
       }
-      final verified = snapshot.withVerifiedUser(id);
+      final verified = (state.snapshot ?? snapshot).withVerifiedUser(id);
       await _write(() async {
         if (mounted && generation == _generation) await _store.write(verified);
       });
@@ -257,7 +303,9 @@ class WebsiteSessionController extends StateNotifier<WebsiteSessionState> {
       if (mounted && generation == _generation) {
         final rejected =
             error is WebsiteAccessException && error.status.requiresLogin;
-        final revoked = rejected ? snapshot.withoutVerification() : null;
+        final revoked = rejected
+            ? (state.snapshot ?? snapshot).withoutVerification()
+            : null;
         if (rejected) _rejectedRequests.add(snapshot.requestKey);
         // Enqueue accepted revocations before notifying listeners. A listener
         // may reload immediately; reload must wait for this durable state.
@@ -308,8 +356,118 @@ class WebsiteSessionController extends StateNotifier<WebsiteSessionState> {
     return state.snapshot!;
   }
 
-  bool reportFailure(WebsiteAccessStatus status, String requestKey) {
+  Future<WebsiteSessionSnapshot?> absorbResponseCookies(
+    String requestKey,
+    List<Cookie> cookies, {
+    int? ownerUserId,
+  }) async {
+    final previous = state.snapshot;
+    if (!mounted ||
+        previous == null ||
+        previous.requestKey != requestKey ||
+        (ownerUserId != null && previous.verifiedUserId != ownerUserId) ||
+        _oldAccountRequests.contains(requestKey) ||
+        (_expectedUser != null &&
+            previous.verifiedUserId != null &&
+            previous.verifiedUserId != _expectedUser!.id)) {
+      return null;
+    }
+    final merged = [...previous.cookies];
+    final now = DateTime.now();
+    var changed = false;
+    for (final cookie in cookies) {
+      final domain = (cookie.domain ?? '').toLowerCase().replaceFirst(
+        RegExp(r'^\.'),
+        '',
+      );
+      if (!const {'bgm.tv', 'bangumi.tv', 'chii.in'}.contains(domain)) continue;
+      final path = cookie.path?.isNotEmpty == true ? cookie.path! : '/';
+      final index = merged.indexWhere(
+        (item) =>
+            item.name == cookie.name &&
+            item.domain.toLowerCase().replaceFirst(RegExp(r'^\.'), '') ==
+                domain &&
+            item.path == path,
+      );
+      final expires = cookie.maxAge != null
+          ? now.add(Duration(seconds: cookie.maxAge!))
+          : cookie.expires;
+      final deleted = expires != null && !expires.isAfter(now);
+      if (deleted) {
+        if (index >= 0) {
+          merged.removeAt(index);
+          changed = true;
+        }
+        continue;
+      }
+      if (index >= 0 && merged[index].value == cookie.value) continue;
+      final next = WebsiteCookie(
+        name: cookie.name,
+        value: cookie.value,
+        domain: domain,
+        path: path,
+        expiresAt: expires,
+        isSecure: cookie.secure,
+        isHttpOnly: cookie.httpOnly,
+      );
+      if (index >= 0) {
+        merged[index] = next;
+      } else {
+        merged.add(next);
+      }
+      changed = true;
+    }
+    if (!changed) return previous;
+    final next = WebsiteSessionSnapshot(
+      cookies: merged,
+      syncedAt: previous.syncedAt,
+      verifiedUserId: previous.verifiedUserId,
+      verifiedAt: previous.verifiedAt,
+      verificationVersion: previous.verificationVersion,
+      verificationId: previous.verificationId,
+      userAgent: previous.userAgent,
+    );
+    if (next.authenticationKey != previous.authenticationKey) {
+      if (_verifyingResponseAuth) return null;
+      _verifyingResponseAuth = true;
+      try {
+        await saveCookies(merged);
+      } finally {
+        _verifyingResponseAuth = false;
+      }
+      return null;
+    }
+    final generation = _generation;
+    final saving = _write(() async {
+      if (mounted && generation == _generation) await _store.write(next);
+    });
+    state = state.copyWith(snapshot: next);
+    try {
+      await saving;
+    } catch (_) {
+      if (mounted && generation == _generation) {
+        state = state.copyWith(message: '网站会话更新未能保存，请稍后重试');
+      }
+    }
+    return mounted &&
+            generation == _generation &&
+            state.snapshot?.requestKey == next.requestKey
+        ? next
+        : null;
+  }
+
+  bool reportFailure(
+    WebsiteAccessStatus status,
+    String requestKey, {
+    Uri? recoveryUri,
+  }) {
     if (!mounted || state.snapshot?.requestKey != requestKey) return false;
+    _diagnostics.record(
+      AccountArea.website,
+      AccountEvent.sessionRejected,
+      state: status.index,
+      generation: _generation,
+    );
     _rejectedRequests.add(requestKey);
     ++_generation;
     _verification = null;
@@ -321,6 +479,7 @@ class WebsiteSessionController extends StateNotifier<WebsiteSessionState> {
     state = state.copyWith(
       snapshot: snapshot,
       status: status,
+      recoveryUri: websiteRecoveryUri(recoveryUri),
       clearMessage: true,
     );
     unawaited(saving.catchError((Object _) {}));
@@ -340,10 +499,20 @@ class WebsiteSessionController extends StateNotifier<WebsiteSessionState> {
       final snapshot = await _store.read();
       if (!mounted || generation != _generation) return;
       _readFailed = false;
+      _diagnostics.record(
+        AccountArea.website,
+        AccountEvent.storageReadSucceeded,
+        generation: generation,
+      );
       state = _snapshotState(snapshot);
     } catch (_) {
       if (!mounted || generation != _generation) return;
       _readFailed = true;
+      _diagnostics.record(
+        AccountArea.website,
+        AccountEvent.storageReadFailed,
+        generation: generation,
+      );
       state = state.copyWith(
         ready: true,
         status: WebsiteAccessStatus.unavailable,
@@ -443,6 +612,9 @@ class WebsiteSessionController extends StateNotifier<WebsiteSessionState> {
       return false;
     }
     final previous = state.snapshot;
+    _diagnostics.observeBrowser(
+      browserIdentity?.userAgent ?? previous?.userAgent,
+    );
     final browserMatches = browserIdentity?.matches(snapshot) == true;
     snapshot = WebsiteSessionSnapshot(
       cookies: snapshot.cookies,
@@ -464,6 +636,7 @@ class WebsiteSessionController extends StateNotifier<WebsiteSessionState> {
         verifiedUserId: previous.verifiedUserId,
         verifiedAt: previous.verifiedAt,
         verificationVersion: previous.verificationVersion,
+        verificationId: previous.verificationId,
         userAgent: snapshot.userAgent,
       );
     }
@@ -486,9 +659,10 @@ class WebsiteSessionController extends StateNotifier<WebsiteSessionState> {
             _expectedUser?.id != expected.id) {
           return false;
         }
-        snapshot = snapshot.withVerifiedUser(id);
+        snapshot = (state.snapshot ?? snapshot).withVerifiedUser(id);
       } catch (error) {
         if (mounted && generation == _generation) {
+          snapshot = state.snapshot ?? snapshot;
           final unverified = snapshot.withoutVerification();
           // Preserve the captured cookies for recovery, but never keep a
           // verified binding in memory after persisting it as unverified.

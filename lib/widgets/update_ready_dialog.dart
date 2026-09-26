@@ -5,6 +5,7 @@ import 'package:flutter_markdown_plus/flutter_markdown_plus.dart';
 
 import '../core/external_link.dart';
 import '../core/update/app_update_service.dart';
+import '../core/theme/app_tokens.dart';
 
 /// Shows the Shorebird "restart to apply" dialog with Markdown release notes.
 Future<bool?> showUpdateReadyDialog(
@@ -53,7 +54,7 @@ class UpdateReadyDialog extends StatelessWidget {
       ),
       codeblockDecoration: BoxDecoration(
         color: scheme.surfaceContainerHighest,
-        borderRadius: BorderRadius.circular(10),
+        borderRadius: AppRadius.small,
       ),
       horizontalRuleDecoration: BoxDecoration(
         border: Border(top: BorderSide(color: scheme.outlineVariant, width: 1)),

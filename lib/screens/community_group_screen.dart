@@ -9,11 +9,11 @@ import '../widgets/social_chat_style.dart';
 
 import '../core/network/community_service.dart';
 import '../models/community_models.dart';
+import '../models/community_topic_submission.dart';
 import '../widgets/community_composer.dart';
 import '../widgets/community_widgets.dart';
 import '../widgets/community_loading.dart';
 import '../widgets/group_qr_sheet.dart';
-import 'community_page.dart';
 import 'website_login_screen.dart';
 
 class CommunityGroupScreen extends StatefulWidget {
@@ -39,6 +39,8 @@ class _CommunityGroupScreenState extends State<CommunityGroupScreen> {
   int _requestId = 0;
   int _lastSuccessfulRequest = -1;
   String? _error;
+  CommunityTopic? _publishedTopic;
+  bool _membershipBusy = false;
 
   String get _slug => widget.group.slug.isNotEmpty
       ? widget.group.slug
@@ -49,6 +51,7 @@ class _CommunityGroupScreenState extends State<CommunityGroupScreen> {
     super.initState();
     _detail = widget.initialDetail;
     _service.accountChanges.addListener(_resetAccount);
+    _service.contentPreferencesChanges.addListener(_resetAccount);
     unawaited(_loadCacheThenRefresh());
   }
 
@@ -56,7 +59,10 @@ class _CommunityGroupScreenState extends State<CommunityGroupScreen> {
     _requestId++;
     scheduleMicrotask(() {
       if (!mounted) return;
-      setState(() => _detail = null);
+      setState(() {
+        _detail = null;
+        _publishedTopic = null;
+      });
       unawaited(_load(refresh: true));
     });
   }
@@ -65,6 +71,7 @@ class _CommunityGroupScreenState extends State<CommunityGroupScreen> {
   void dispose() {
     _requestId++;
     _service.accountChanges.removeListener(_resetAccount);
+    _service.contentPreferencesChanges.removeListener(_resetAccount);
     super.dispose();
   }
 
@@ -121,24 +128,40 @@ class _CommunityGroupScreenState extends State<CommunityGroupScreen> {
   }
 
   Future<void> _openMembershipOnWeb() async {
+    if (_membershipBusy || !mounted) return;
+    final identity = _service.identityRevision;
+    setState(() => _membershipBusy = true);
+    try {
+      await _runMembershipOnWeb();
+    } catch (error) {
+      if (mounted && identity == _service.identityRevision) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              error is FormatException ? error.message : '暂时无法打开小组页面，请检查登录后重试',
+            ),
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _membershipBusy = false);
+    }
+  }
+
+  Future<void> _runMembershipOnWeb() async {
     // P1 暂无加入/退出小组写接口；应用内 WebView 完成网站会话操作后可返回刷新。
     if (!mounted) return;
     final identity = _service.identityRevision;
-    if (!await ensureWebsiteAccess(context) || !mounted) return;
-    final cookies = await loadWebsiteSeedCookies();
-    if (!mounted) return;
-    await Navigator.of(context).push(
-      MaterialPageRoute<void>(
-        builder: (_) => CommunityWebScreen(
-          initialUrl: widget.group.url,
-          title: _detail?.isJoined == true ? '退出小组' : '加入小组',
-          showSectionSwitcher: false,
-          seedCookies: cookies,
-          loginHint: cookies.isEmpty ? '请在此登录后加入或退出小组。' : '若页面提示登录，请重新登录后继续。',
-        ),
-      ),
+    await openSeededCommunityWeb(
+      context,
+      initialUrl: 'https://bgm.tv/group/${Uri.encodeComponent(_slug)}',
+      title: _detail?.canManage == true ? '管理小组' : '小组成员设置',
+      showSectionSwitcher: false,
+      loginHint: '可在此加入、退出或管理小组。',
     );
     if (!mounted || identity != _service.identityRevision) return;
+    _requestId++;
+    _service.invalidateGroupMembership();
     try {
       final preview = await _service.loadGroupPreview(_slug);
       if (!mounted || identity != _service.identityRevision) return;
@@ -153,24 +176,60 @@ class _CommunityGroupScreenState extends State<CommunityGroupScreen> {
 
   Future<void> _createTopic() async {
     final draftAccount = _service.currentUsername;
+    final identity = _service.identityRevision;
+    final submission = CommunityTopicDraft();
+    CommunityTopic? receipt;
     final sent = await showCommunityComposer(
       context,
       heading: '在「${_detail?.group.name ?? widget.group.name}」发帖',
       requireTitle: true,
       isAccountCurrent: () =>
-          _service.isAuthenticated && _service.currentUsername == draftAccount,
+          _service.isAuthenticated &&
+          _service.currentUsername == draftAccount &&
+          _service.identityRevision == identity,
       draftKey: communityDraftKey(draftAccount, ['group', _slug]),
-      onSubmit: (title, content, token) => _service.createGroupTopic(
-        slug: _slug,
-        title: title,
-        content: content,
-        turnstileToken: token,
+      topicDraft: submission,
+      submitLabel: '发布',
+      onSubmit: (title, content, token) async {
+        receipt = await _service.createGroupTopic(
+          slug: _slug,
+          title: title,
+          content: content,
+          turnstileToken: token,
+        );
+        submission.confirmedId = receipt!.id;
+      },
+      confirmSubmission: (title, content, attemptedAt) async {
+        final id = submission.confirmedId;
+        receipt = id != null
+            ? _service.createdGroupTopic(slug: _slug, title: title, id: id)
+            : await _service.findSubmittedGroupTopic(
+                slug: _slug,
+                title: title,
+                content: content,
+                attemptedAt: attemptedAt,
+              );
+        submission.confirmedId = receipt?.id;
+        return receipt != null;
+      },
+      inspectSubmission: _openWeb,
+    );
+    if (!sent ||
+        !mounted ||
+        identity != _service.identityRevision ||
+        receipt == null) {
+      return;
+    }
+    setState(() => _publishedTopic = receipt);
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('已确认发布：帖子 #${receipt!.id}'),
+        action: SnackBarAction(
+          label: '查看帖子',
+          onPressed: () => _openTopic(receipt!),
+        ),
       ),
     );
-    if (!sent || !mounted) return;
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(const SnackBar(content: Text('话题已发布')));
     await _load(refresh: true);
   }
 
@@ -266,10 +325,32 @@ class _CommunityGroupScreenState extends State<CommunityGroupScreen> {
       body: SafeArea(
         child: Column(
           children: [
+            if (_publishedTopic case final published?)
+              ListTile(
+                leading: const Icon(Icons.check_circle_outline),
+                title: Text(
+                  '已确认发布：${published.title}',
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                subtitle: Text('帖子 #${published.id} · 列表可能延迟显示或等待审核'),
+                trailing: TextButton(
+                  onPressed: () => _openTopic(published),
+                  child: const Text('查看帖子'),
+                ),
+              ),
             if (_detail != null)
               CommunityRefreshStatus(
                 loading: _loading,
-                error: _error,
+                error:
+                    _error ??
+                    (_detail!.unavailableSections.isEmpty
+                        ? null
+                        : '部分小组内容加载失败，成员状态和已加载内容仍可使用'),
+                message:
+                    _error == null && _detail!.unavailableSections.isNotEmpty
+                    ? '部分小组内容加载失败，已保留成员状态和可用内容'
+                    : '刷新失败，已保留当前内容',
                 onRetry: () => _load(refresh: true),
               ),
             Expanded(child: _buildBody()),
@@ -303,7 +384,9 @@ class _CommunityGroupScreenState extends State<CommunityGroupScreen> {
                 children: [
                   _GroupHeader(
                     detail: detail,
-                    onOpenMembershipPage: _openMembershipOnWeb,
+                    onOpenMembershipPage: _membershipBusy
+                        ? null
+                        : _openMembershipOnWeb,
                   ),
                   ExpansionTile(
                     title: const Text('小组资料'),
@@ -321,7 +404,7 @@ class _CommunityGroupScreenState extends State<CommunityGroupScreen> {
                       if (detail.moderators.isNotEmpty) ...[
                         const SizedBox(height: 20),
                         _SectionTitle(
-                          title: '管理员',
+                          title: '创建者与管理员',
                           count: detail.moderators.length,
                         ),
                         const SizedBox(height: 9),
@@ -362,7 +445,26 @@ class _CommunityGroupScreenState extends State<CommunityGroupScreen> {
                   ),
                   _SectionTitle(title: '小组讨论', count: detail.group.topicCount),
                   const SizedBox(height: 9),
-                  if (detail.recentTopics.isEmpty)
+                  if (detail.unavailableSections.contains(
+                    CommunityGroupSection.topics,
+                  ))
+                    Card(
+                      child: Padding(
+                        padding: const EdgeInsets.all(20),
+                        child: Column(
+                          children: [
+                            const Text('话题暂时未能加载，不代表小组没有帖子'),
+                            TextButton(
+                              onPressed: _loading
+                                  ? null
+                                  : () => _load(refresh: true),
+                              child: const Text('重新加载话题'),
+                            ),
+                          ],
+                        ),
+                      ),
+                    )
+                  else if (detail.recentTopics.isEmpty)
                     const Card(
                       child: Padding(
                         padding: EdgeInsets.all(24),
@@ -391,7 +493,7 @@ class _GroupHeader extends StatelessWidget {
     required this.onOpenMembershipPage,
   });
   final CommunityGroupDetail detail;
-  final VoidCallback onOpenMembershipPage;
+  final VoidCallback? onOpenMembershipPage;
   @override
   Widget build(BuildContext context) => Padding(
     padding: const EdgeInsets.only(bottom: 8),
@@ -411,7 +513,11 @@ class _GroupHeader extends StatelessWidget {
           style: TextButton.styleFrom(
             foregroundColor: SocialChatStyle.accent(context),
           ),
-          child: Text(detail.isJoined ? '已加入' : '加入'),
+          child: Text(
+            detail.canManage
+                ? '${detail.membershipLabel} · 管理'
+                : detail.membershipLabel,
+          ),
         ),
       ],
     ),

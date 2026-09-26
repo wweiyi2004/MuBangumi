@@ -16,7 +16,6 @@ import '../core/network/pm_service.dart';
 import '../state/website_session_controller.dart';
 import '../state/pm_mailbox_controller.dart';
 import '../state/session_controller.dart';
-import 'community_page.dart';
 import 'website_login_screen.dart';
 import '../features/pm/presentation/pm_contacts_view.dart';
 import '../features/pm/presentation/pm_conversation_screen.dart';
@@ -52,13 +51,14 @@ class _PmPageState extends ConsumerState<PmPage> {
   late final _contacts = PmContactsController(
     inbox: _inbox,
     outbox: _outbox,
-    loadFriends: () {
+    cache: ref.read(pmFriendsCacheProvider),
+    loadFriends: ({bool refresh = false}) {
       final user = ref.read(sessionProvider).user;
       if (user == null) return Future.value(<BangumiUser>[]);
       return widget.friendsLoader?.call(user.username) ??
           communityServiceFor(
             context,
-          ).loadAllFriends(user.username, pageSize: 100, refresh: true);
+          ).loadAllFriends(user.username, pageSize: 100, refresh: refresh);
     },
   );
   String? _openingContactKey;
@@ -87,9 +87,11 @@ class _PmPageState extends ConsumerState<PmPage> {
       _resumeAfterLogin = null;
       _openingContactKey = null;
       _search.clear();
-      _contacts.reset(clearFriends: true, requireAuth: true);
+      unawaited(_contacts.attachAccount(next, requireAuth: true));
       setState(() => _selected = null);
-      if (next != null) unawaited(_contacts.refreshFriends());
+      if (next != null && ref.read(websiteSessionProvider).isSynced) {
+        unawaited(_contacts.syncHistory());
+      }
     });
     ref.listenManual(websiteSessionProvider, (previous, next) {
       final keyChanged =
@@ -158,7 +160,8 @@ class _PmPageState extends ConsumerState<PmPage> {
   }
 
   Future<void> _bootstrap() async {
-    unawaited(_contacts.refresh());
+    unawaited(_contacts.attachAccount(ref.read(sessionProvider).user?.id));
+    unawaited(_contacts.syncHistory());
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) unawaited(_resumePendingCompose());
     });
@@ -291,21 +294,12 @@ class _PmPageState extends ConsumerState<PmPage> {
   }
 
   Future<void> _openWebFallback() async {
-    if (!await ensureWebsiteAccess(context) || !mounted) {
-      return;
-    }
-    final cookies = await loadWebsiteSeedCookies();
-    if (!mounted) return;
-    await Navigator.of(context).push(
-      MaterialPageRoute<void>(
-        builder: (_) => CommunityWebScreen(
-          initialUrl: 'https://bgm.tv/pm',
-          title: '站内短信（网页）',
-          showSectionSwitcher: false,
-          seedCookies: cookies,
-          loginHint: '可在官网查看和发送私信。',
-        ),
-      ),
+    await openSeededCommunityWeb(
+      context,
+      initialUrl: 'https://bgm.tv/pm',
+      title: '站内短信（网页）',
+      showSectionSwitcher: false,
+      loginHint: '可在官网查看和发送私信。',
     );
   }
 
@@ -433,7 +427,7 @@ class _PmPageState extends ConsumerState<PmPage> {
                       tooltip: '刷新',
                       onPressed: contacts.busy
                           ? null
-                          : () => contacts.refresh(),
+                          : () => contacts.refresh(forceFriends: true),
                       icon: const Icon(Icons.refresh_rounded),
                     ),
                     IconButton(

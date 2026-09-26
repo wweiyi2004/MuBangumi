@@ -12,7 +12,10 @@ import 'room_connection.dart';
 import 'participant_workspace.dart';
 import 'room_host.dart';
 import 'room_admin_page.dart';
+import 'room_danmaku.dart';
+import 'room_wifi_share.dart';
 import '../../widgets/ascii_refresh.dart';
+import '../tier_print/tier_print_page.dart';
 
 void roomMessage(BuildContext context, Object text) {
   if (context.mounted) {
@@ -37,6 +40,18 @@ class ExperimentalFeaturesPage extends StatelessWidget {
       children: [
         const Text('提前体验正在完善的新功能。', style: TextStyle(color: Colors.grey)),
         const SizedBox(height: 16),
+        Card(
+          child: ListTile(
+            contentPadding: const EdgeInsets.all(18),
+            leading: const Icon(Icons.content_cut),
+            title: const Text('从夯到拉 · 打印工坊'),
+            subtitle: const Text('季度 / 全年封面裁剪页与同尺寸排行榜底板'),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(builder: (_) => const TierPrintPage()),
+            ),
+          ),
+        ),
         Card(
           child: ListTile(
             contentPadding: const EdgeInsets.all(18),
@@ -136,9 +151,16 @@ class _RoomHostPageState extends ConsumerState<RoomHostPage> {
 
   Future<void> _invite(RoomHost host) async {
     if (_working) return;
+    // A freshly started service has no activity yet; create one on the way.
+    String? title;
+    if (!host.history.any((v) => v['ended'] != true)) {
+      title = await _input('先创建番键会', initial: '今晚的番键会');
+      if (title == null || title.isEmpty || !mounted) return;
+    }
     setState(() => _working = true);
     late RoomInvite invite;
     try {
+      if (title != null) await host.command('create', {'title': title});
       invite = await host.prepareInvite(preferred: _address);
     } catch (e) {
       if (mounted) roomMessage(context, e);
@@ -149,6 +171,21 @@ class _RoomHostPageState extends ConsumerState<RoomHostPage> {
     if (!mounted) return;
     final e = host.event;
     if (e == null) return;
+    final lan = !host.remote && isPrivateLanHost(invite.base.host);
+    Widget joinCode(double size) => Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        if (lan) ...[
+          Text('② 连上后扫码参与', style: Theme.of(context).textTheme.titleSmall),
+          const SizedBox(height: 12),
+        ],
+        Container(
+          color: Colors.white,
+          padding: const EdgeInsets.all(12),
+          child: QrImageView(data: invite.url, size: size),
+        ),
+      ],
+    );
     await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
@@ -188,11 +225,29 @@ class _RoomHostPageState extends ConsumerState<RoomHostPage> {
                   const SizedBox(height: 8),
                   const Text('扫码加入 · 有名入场，匿名评分'),
                   const SizedBox(height: 20),
-                  Container(
-                    color: Colors.white,
-                    padding: const EdgeInsets.all(12),
-                    child: QrImageView(data: invite.url, size: 230),
-                  ),
+                  if (!lan)
+                    joinCode(230)
+                  else
+                    LayoutBuilder(
+                      builder: (context, box) => box.maxWidth >= 520
+                          ? Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Expanded(
+                                  child: RoomWifiJoinCard(qrSize: 200),
+                                ),
+                                const SizedBox(width: 24),
+                                Expanded(child: joinCode(200)),
+                              ],
+                            )
+                          : Column(
+                              children: [
+                                const RoomWifiJoinCard(),
+                                const SizedBox(height: 24),
+                                joinCode(230),
+                              ],
+                            ),
+                    ),
                   const SizedBox(height: 16),
                   SelectableText(invite.url, textAlign: TextAlign.center),
                   const SizedBox(height: 16),
@@ -225,7 +280,7 @@ class _RoomHostPageState extends ConsumerState<RoomHostPage> {
                         ? '此链接可通过网络参与，不包含管理密码。'
                         : !isPrivateLanHost(invite.base.host)
                         ? '当前仅支持本机参与。请连接 Wi-Fi / 开启热点后重新分享二维码。'
-                        : '连接同一 Wi-Fi / 热点后扫码：MuBangumi 自动寻找可用地址，其他扫码工具直接进入网页。二维码只包含参与权限。',
+                        : '对方先用系统相机扫 ① 加入网络，再扫 ② 参与：MuBangumi 自动寻找可用地址，其他扫码工具直接进入网页。参与二维码只包含参与权限。',
                     style: Theme.of(context).textTheme.bodySmall,
                   ),
                 ],
@@ -267,6 +322,7 @@ class _RoomHostPageState extends ConsumerState<RoomHostPage> {
     final host = ref.watch(roomHostProvider);
     final e = host.event;
     final disabled = host.busy || _working;
+    final hasActive = host.history.any((v) => v['ended'] != true);
     if (_address != null && !host.addresses.contains(_address)) {
       _address = null;
     }
@@ -524,8 +580,11 @@ class _RoomHostPageState extends ConsumerState<RoomHostPage> {
                                 label: const Text('进入管理'),
                               ),
                               OutlinedButton.icon(
+                                // Viewing an ended activity while another is
+                                // live must not create a second one.
                                 onPressed:
-                                    e == null || e['ended'] == true || disabled
+                                    disabled ||
+                                        (e?['ended'] == true && hasActive)
                                     ? null
                                     : () => _invite(host),
                                 icon: const Icon(Icons.qr_code),
@@ -679,7 +738,7 @@ class _RoomHostPageState extends ConsumerState<RoomHostPage> {
                         ),
                       ),
                     ),
-                  if (e == null || !host.history.any((v) => v['ended'] != true))
+                  if (e == null || !hasActive)
                     FilledButton.icon(
                       onPressed: disabled
                           ? null
@@ -990,6 +1049,12 @@ class _RoomParticipationPageState extends ConsumerState<RoomParticipationPage> {
     _name.text = ref.read(sessionProvider).user?.displayName ?? '';
   }
 
+  /// Signed-in users enter with their Bangumi avatar on the member list.
+  String? get _avatar {
+    final url = ref.read(sessionProvider).user?.avatarUrl ?? '';
+    return roomAvatarUri(url) == null ? null : url;
+  }
+
   Future<void> _load() async {
     if (mounted) {
       setState(() {
@@ -1122,51 +1187,55 @@ class _RoomParticipationPageState extends ConsumerState<RoomParticipationPage> {
           }
         },
         child: joined
-            ? ParticipantWorkspace(
-                controller: c,
-                comment: _comment,
-                focus: _commentFocus,
-                score: _score,
-                busy: _submitting,
-                keyboardVisible: MediaQuery.viewInsetsOf(context).bottom > 0,
-                onScore: (value) => setState(() {
-                  _score = value;
-                  unawaited(
-                    c.saveDraft(round!['id'], score: value).catchError((
-                      Object e,
-                    ) {
-                      if (context.mounted) roomMessage(context, e);
-                    }),
-                  );
-                }),
-                onDraft: (text) {
-                  _draftTimer?.cancel();
-                  final id = round!['id'] as String;
-                  _draftTimer = Timer(
-                    const Duration(milliseconds: 300),
-                    () => unawaited(
-                      c.saveDraft(id, text: text).catchError((Object e) {
+            ? RoomDanmaku(
+                event: c.event,
+                child: ParticipantWorkspace(
+                  controller: c,
+                  comment: _comment,
+                  focus: _commentFocus,
+                  score: _score,
+                  busy: _submitting,
+                  keyboardVisible: MediaQuery.viewInsetsOf(context).bottom > 0,
+                  onScore: (value) => setState(() {
+                    _score = value;
+                    unawaited(
+                      c.saveDraft(round!['id'], score: value).catchError((
+                        Object e,
+                      ) {
                         if (context.mounted) roomMessage(context, e);
                       }),
-                    ),
-                  );
-                },
-                onSubmitScore: () => _action(
-                  () => c.submit('score', score: _score, roundId: round!['id']),
+                    );
+                  }),
+                  onDraft: (text) {
+                    _draftTimer?.cancel();
+                    final id = round!['id'] as String;
+                    _draftTimer = Timer(
+                      const Duration(milliseconds: 300),
+                      () => unawaited(
+                        c.saveDraft(id, text: text).catchError((Object e) {
+                          if (context.mounted) roomMessage(context, e);
+                        }),
+                      ),
+                    );
+                  },
+                  onSubmitScore: () => _action(
+                    () =>
+                        c.submit('score', score: _score, roundId: round!['id']),
+                  ),
+                  onSubmitComment: () => _action(() async {
+                    final text = _comment.text.trim();
+                    if (text.isEmpty) return;
+                    final id = round!['id'] as String;
+                    _draftTimer?.cancel();
+                    await c.saveDraft(id, text: text);
+                    await c.submit('comment', text: text, roundId: id);
+                    if (mounted &&
+                        _editorRound == id &&
+                        _comment.text.trim() == text) {
+                      _comment.clear();
+                    }
+                  }),
                 ),
-                onSubmitComment: () => _action(() async {
-                  final text = _comment.text.trim();
-                  if (text.isEmpty) return;
-                  final id = round!['id'] as String;
-                  _draftTimer?.cancel();
-                  await c.saveDraft(id, text: text);
-                  await c.submit('comment', text: text, roundId: id);
-                  if (mounted &&
-                      _editorRound == id &&
-                      _comment.text.trim() == text) {
-                    _comment.clear();
-                  }
-                }),
               )
             : Center(
                 child: ConstrainedBox(
@@ -1232,8 +1301,8 @@ class _RoomParticipationPageState extends ConsumerState<RoomParticipationPage> {
                             style: TextStyle(fontWeight: FontWeight.bold),
                           ),
                           const SizedBox(height: 10),
-                          const Text(
-                            '主持人会看到你的名字和是否提交。普通管理页面、导出记录不展示姓名与分数或评论的对应关系。',
+                          Text(
+                            '主持人会看到你的名字${_avatar == null ? '' : '、Bangumi 头像'}和是否提交。普通管理页面、导出记录不展示姓名与分数或评论的对应关系。',
                           ),
                           const SizedBox(height: 8),
                           Text(
@@ -1255,7 +1324,11 @@ class _RoomParticipationPageState extends ConsumerState<RoomParticipationPage> {
                                     await c.leave();
                                   }
                                   try {
-                                    await c.join(widget.invite, _name.text);
+                                    await c.join(
+                                      widget.invite,
+                                      _name.text,
+                                      avatar: _avatar,
+                                    );
                                   } catch (_) {
                                     // A route may change after preview; retry should discover again.
                                     if (mounted) unawaited(_load());

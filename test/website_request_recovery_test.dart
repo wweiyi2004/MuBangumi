@@ -288,7 +288,9 @@ void main() {
             content: 'fixture',
             turnstileToken: 'fixture',
           ),
-          throwsA(isA<FormatException>()),
+          throwsA(
+            renew ? isA<FormatException>() : isA<WebsiteAccessException>(),
+          ),
         );
         expect(writes, 0);
         expect(controller.state.isSynced, renew);

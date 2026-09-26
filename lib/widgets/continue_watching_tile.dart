@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../models/bangumi_models.dart';
 import 'subject_widgets.dart';
+import '../core/theme/app_tokens.dart';
 
 /// Progress is the user's recorded history, not a claim of resource availability.
 class ContinueWatchingTile extends StatelessWidget {
@@ -30,7 +31,7 @@ class ContinueWatchingTile extends StatelessWidget {
     final scheme = Theme.of(context).colorScheme;
     return Material(
       color: scheme.surface,
-      borderRadius: BorderRadius.circular(12),
+      borderRadius: AppRadius.medium,
       clipBehavior: Clip.antiAlias,
       child: InkWell(
         onTap: onOpen,

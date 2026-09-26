@@ -1,3 +1,4 @@
+import 'package:mubangumi/state/pm_contacts_controller.dart';
 import 'package:mubangumi/navigation/app_destination.dart';
 import 'package:mubangumi/navigation/app_router.dart';
 import 'dart:async';
@@ -327,6 +328,7 @@ class _Env {
   late final service = _Service(store);
   late final container = ProviderContainer(
     overrides: [
+      pmFriendsCacheProvider.overrideWithValue(PmTestFriendsCache()),
       sessionProvider.overrideWith((ref) => PmTestSession()),
       pmDraftRepositoryProvider.overrideWithValue(repo),
       websiteSessionStoreProvider.overrideWithValue(store),

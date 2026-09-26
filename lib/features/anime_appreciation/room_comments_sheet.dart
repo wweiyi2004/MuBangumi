@@ -8,7 +8,7 @@ String roomCommentsStateKey(Json? event, String round) {
   final r = rounds.where((v) => v['id'] == round).firstOrNull;
   // Historical pages stay stable while new comments arrive. Moderation and
   // visibility changes still invalidate them; the main preview remains live.
-  return '${event?['id']}:${event?['version']}:${r?['publicComments']}';
+  return '${event?['id']}:${event?['version']}:${r?['commentsOpen'] ?? r?['publicComments']}';
 }
 
 Future<void> showRoomComments(

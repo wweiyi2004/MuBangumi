@@ -1,15 +1,16 @@
+import '../features/discover/application/discover_controller.dart';
+import '../features/discover/domain/discover_query.dart';
+import '../features/discover/presentation/discover_result_widgets.dart';
+export '../features/discover/domain/discover_query.dart';
 import '../navigation/app_destination.dart';
 export '../navigation/app_destination.dart' show openDiscoverTagSearch;
 import 'dart:async';
 
-import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/layout/app_layout.dart';
-import '../core/network/bangumi_endpoints.dart';
 import '../core/network/bangumi_support.dart';
-import '../core/storage/snapshot_cache.dart';
 import '../core/storage/browsing_store.dart';
 import '../models/bangumi_models.dart';
 import '../models/subject_search_filter.dart';
@@ -18,44 +19,6 @@ import '../widgets/episode_grid_sheet.dart';
 import '../widgets/subject_widgets.dart';
 import '../widgets/recent_searches.dart';
 import '../widgets/discover_filters_sheet.dart';
-
-enum DiscoverSearchTarget { subject, character, person }
-
-const discoverEarliestAnimeYear = 1906;
-const _discoverEarliestOtherYear = 1900;
-
-enum DiscoverQueryMode {
-  browse,
-  subjectSearch,
-  characterPrompt,
-  characterSearch,
-  personPrompt,
-  personSearch,
-}
-
-DiscoverQueryMode resolveDiscoverQueryMode({
-  required DiscoverSearchTarget target,
-  required String keyword,
-  required String tag,
-  List<String> metaTags = const [],
-  bool filterSearch = false,
-}) {
-  final hasKeyword = keyword.trim().isNotEmpty;
-  return switch (target) {
-    DiscoverSearchTarget.subject =>
-      hasKeyword || tag.trim().isNotEmpty || metaTags.isNotEmpty || filterSearch
-          ? DiscoverQueryMode.subjectSearch
-          : DiscoverQueryMode.browse,
-    DiscoverSearchTarget.character =>
-      hasKeyword
-          ? DiscoverQueryMode.characterSearch
-          : DiscoverQueryMode.characterPrompt,
-    DiscoverSearchTarget.person =>
-      hasKeyword
-          ? DiscoverQueryMode.personSearch
-          : DiscoverQueryMode.personPrompt,
-  };
-}
 
 final discoverCollectionsProvider = Provider<List<UserCollection>>(
   (ref) => ref.watch(sessionProvider.select((state) => state.collections)),
@@ -81,18 +44,16 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
   final _searchController = TextEditingController();
   final _scrollController = ScrollController();
   Timer? _debounce;
-  List<Subject> _subjects = const [];
-  bool _loading = false;
-
-  /// Background refresh while keeping previous list visible (stale-while-revalidate).
-  bool _refreshing = false;
-  bool _loadingMore = false;
-  bool _hasMore = true;
-  String? _error;
-  String? _pageError;
-  int _requestId = 0;
-  int _offset = 0;
-  static const _pageSize = 24;
+  late final DiscoverController _results;
+  List<Subject> get _subjects => _results.subjects;
+  List<CharacterDetail> get _characters => _results.characters;
+  List<PersonDetail> get _persons => _results.persons;
+  bool get _loading => _results.loading;
+  bool get _refreshing => _results.refreshing;
+  bool get _loadingMore => _results.loadingMore;
+  bool get _hasMore => _results.hasMore;
+  String? get _error => _results.error;
+  String? get _pageError => _results.pageError;
 
   late SubjectType _subjectType;
   late int _browseYear;
@@ -108,8 +69,6 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
   late String _tag;
   List<String> _metaTags = const [];
   DiscoverSearchTarget _searchTarget = DiscoverSearchTarget.subject;
-  List<CharacterDetail> _characters = const [];
-  List<PersonDetail> _persons = const [];
 
   DiscoverQueryMode get _queryMode => resolveDiscoverQueryMode(
     target: _searchTarget,
@@ -136,7 +95,7 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
 
   int get _earliestDiscoverYear => _subjectType == SubjectType.anime
       ? discoverEarliestAnimeYear
-      : _discoverEarliestOtherYear;
+      : discoverEarliestOtherYear;
 
   String get _searchHint => switch (_searchTarget) {
     DiscoverSearchTarget.character => '搜索角色，例如：鲁路修',
@@ -180,53 +139,41 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
     _browseQuarter = (now.month - 1) ~/ 3;
     _subjectType = widget.initialSubjectType ?? SubjectType.anime;
     _tag = widget.initialTag.trim();
+    _results = DiscoverController(
+      api: ref.read(bangumiApiProvider),
+      cache: ref.read(snapshotCacheProvider),
+      query: _query,
+      onChanged: () {
+        if (mounted) setState(() {});
+      },
+    );
     _scrollController.addListener(_onScroll);
     Future.microtask(() {
       unawaited(_startCurrentQuery());
     });
   }
 
-  String get _browseCacheKey => SnapshotCache.discoverBrowseKey(
-    type: _subjectType,
-    year: _browseYear,
-    quarter: _browseQuarter,
-    sort: _browseSort,
-    supportsSeason: _supportsSeason,
+  DiscoverQuery get _query => DiscoverQuery(
+    target: _searchTarget,
+    keyword: _searchController.text.trim(),
+    tag: _tag,
+    metaTags: _metaTags,
+    filterSearch: _filterSearch,
+    subjectType: _subjectType,
+    browseYear: _browseYear,
+    browseQuarter: _browseQuarter,
+    browseSort: _browseSort,
+    searchSort: _searchSort,
+    minimumRating: _minimumRating,
+    ratingExclusive: _ratingExclusive,
+    startYear: _startYear,
+    endYear: _endYear,
   );
-
-  int _lastSuccessfulBrowseRequest = -1;
-
-  Future<void> _hydrateBrowseCacheIfNeeded(int requestId) async {
-    if (_queryMode != DiscoverQueryMode.browse) return;
-    final key = _browseCacheKey;
-    try {
-      final cached = await ref
-          .read(snapshotCacheProvider)
-          .readDiscoverBrowse(key);
-      if (!mounted || cached == null || cached.isEmpty) return;
-      if (_browseCacheKey != key) return;
-      if (_queryMode != DiscoverQueryMode.browse ||
-          requestId != _requestId ||
-          _lastSuccessfulBrowseRequest == requestId) {
-        return;
-      }
-      final refreshing = _loading || _refreshing;
-      setState(() {
-        _subjects = cached;
-        _offset = cached.length;
-        _hasMore = cached.length >= _pageSize;
-        _loading = false;
-        _refreshing = refreshing;
-        _error = null;
-      });
-    } catch (_) {
-      // Disk cache is best-effort.
-    }
-  }
 
   @override
   void dispose() {
     _debounce?.cancel();
+    _results.dispose();
     _scrollController
       ..removeListener(_onScroll)
       ..dispose();
@@ -243,44 +190,13 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
 
   void _onSearchChanged(String value) {
     _debounce?.cancel();
-    _requestId++;
-    final nextMode = resolveDiscoverQueryMode(
-      target: _searchTarget,
-      keyword: value,
-      tag: _tag,
-      metaTags: _metaTags,
-      filterSearch: _filterSearch,
-    );
-    setState(() {
-      _error = null;
-      _offset = 0;
-      _hasMore = false;
-      _loadingMore = false;
-      // Keep previous results visible; only full-spinner when nothing to show.
-      final empty = switch (_searchTarget) {
-        DiscoverSearchTarget.subject => _subjects.isEmpty,
-        DiscoverSearchTarget.character => _characters.isEmpty,
-        DiscoverSearchTarget.person => _persons.isEmpty,
-      };
-      _loading = switch (nextMode) {
-        DiscoverQueryMode.characterPrompt ||
-        DiscoverQueryMode.personPrompt => false,
-        _ => empty,
-      };
-      _refreshing = switch (nextMode) {
-        DiscoverQueryMode.characterPrompt ||
-        DiscoverQueryMode.personPrompt => false,
-        _ => !empty,
-      };
-    });
+    _results.prepareSearch(_query);
     _debounce = Timer(const Duration(milliseconds: 450), _startCurrentQuery);
   }
 
-  Future<void> _startCurrentQuery() async {
-    _runCurrentQuery();
-    if (_queryMode == DiscoverQueryMode.browse) {
-      unawaited(_hydrateBrowseCacheIfNeeded(_requestId));
-    }
+  Future<void> _startCurrentQuery() {
+    _debounce?.cancel();
+    return _results.start(_query);
   }
 
   void _selectSubjectType(SubjectType type) {
@@ -293,9 +209,8 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
       final now = DateTime.now();
       _browseYear = now.year;
       _browseQuarter = (now.month - 1) ~/ 3;
-      _error = null;
-      _subjects = const [];
-      _loading = false;
+      _results.clearError();
+      _results.clearSubjects();
     });
     unawaited(_startCurrentQuery());
   }
@@ -375,286 +290,8 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
     });
   }
 
-  void _runCurrentQuery() {
-    _debounce?.cancel();
-    _offset = 0;
-    _loadingMore = false;
-    _hasMore = true;
-    _pageError = null;
-    final keyword = _searchController.text.trim();
-    switch (_queryMode) {
-      case DiscoverQueryMode.subjectSearch:
-        unawaited(_search(keyword));
-      case DiscoverQueryMode.characterSearch:
-        unawaited(_searchCharacters(keyword));
-      case DiscoverQueryMode.personSearch:
-        unawaited(_searchPersons(keyword));
-      case DiscoverQueryMode.browse:
-        setState(() {
-          _characters = const [];
-          _persons = const [];
-        });
-        unawaited(_loadBrowse());
-      case DiscoverQueryMode.characterPrompt:
-        _showSearchPrompt(DiscoverSearchTarget.character);
-      case DiscoverQueryMode.personPrompt:
-        _showSearchPrompt(DiscoverSearchTarget.person);
-    }
-  }
-
-  void _showSearchPrompt(DiscoverSearchTarget target) {
-    _requestId++;
-    setState(() {
-      _loading = false;
-      _refreshing = false;
-      _loadingMore = false;
-      _hasMore = false;
-      _offset = 0;
-      _error = null;
-      _subjects = const [];
-      _characters = const [];
-      _persons = const [];
-    });
-  }
-
-  Future<void> _searchCharacters(String keyword, {bool append = false}) async {
-    final requestId = append ? _requestId : ++_requestId;
-    final offset = append ? _offset : 0;
-    setState(() {
-      if (append) {
-        _loadingMore = true;
-      } else {
-        final empty = _characters.isEmpty;
-        _loading = empty;
-        _refreshing = !empty;
-        _error = null;
-        if (empty) {
-          _offset = 0;
-          _hasMore = true;
-        }
-      }
-    });
-    try {
-      final items = await ref
-          .read(bangumiApiProvider)
-          .searchCharacters(keyword, limit: _pageSize, offset: offset);
-      if (!mounted || requestId != _requestId) return;
-      setState(() {
-        _characters = append ? [..._characters, ...items] : items;
-        _offset = offset + items.length;
-        _hasMore = items.length >= _pageSize;
-        _loading = false;
-        _refreshing = false;
-        _loadingMore = false;
-        _error = null;
-      });
-    } catch (error) {
-      if (!mounted || requestId != _requestId) return;
-      setState(() {
-        _loading = false;
-        _refreshing = false;
-        _loadingMore = false;
-        if (!append && _characters.isEmpty) {
-          _error = error.toString().replaceFirst('Exception: ', '');
-        }
-      });
-    }
-  }
-
-  Future<void> _searchPersons(String keyword, {bool append = false}) async {
-    final requestId = append ? _requestId : ++_requestId;
-    final offset = append ? _offset : 0;
-    setState(() {
-      if (append) {
-        _loadingMore = true;
-      } else {
-        final empty = _persons.isEmpty;
-        _loading = empty;
-        _refreshing = !empty;
-        _error = null;
-        if (empty) {
-          _offset = 0;
-          _hasMore = true;
-        }
-      }
-    });
-    try {
-      final items = await ref
-          .read(bangumiApiProvider)
-          .searchPersons(keyword, limit: _pageSize, offset: offset);
-      if (!mounted || requestId != _requestId) return;
-      setState(() {
-        _persons = append ? [..._persons, ...items] : items;
-        _offset = offset + items.length;
-        _hasMore = items.length >= _pageSize;
-        _loading = false;
-        _refreshing = false;
-        _loadingMore = false;
-        _error = null;
-      });
-    } catch (error) {
-      if (!mounted || requestId != _requestId) return;
-      setState(() {
-        _loading = false;
-        _refreshing = false;
-        _loadingMore = false;
-        if (!append && _persons.isEmpty) {
-          _error = error.toString().replaceFirst('Exception: ', '');
-        }
-      });
-    }
-  }
-
-  Future<void> _loadBrowse({bool append = false}) async {
-    final requestId = append ? _requestId : ++_requestId;
-    final offset = append ? _offset : 0;
-    setState(() {
-      if (append) {
-        _loadingMore = true;
-      } else {
-        final empty = _subjects.isEmpty;
-        _loading = empty;
-        _refreshing = !empty;
-        _error = null;
-        if (empty) {
-          _offset = 0;
-          _hasMore = true;
-        }
-      }
-    });
-    try {
-      final api = ref.read(bangumiApiProvider);
-      final subjects = _supportsSeason
-          ? await api.browseSubjects(
-              type: _subjectType,
-              year: _browseYear,
-              month: _browseQuarter * 3 + 1,
-              sort: 'rank',
-              limit: _pageSize,
-              offset: offset,
-            )
-          : await api.browseSubjects(
-              type: _subjectType,
-              year: _browseYear,
-              sort: _browseSort,
-              limit: _pageSize,
-              offset: offset,
-            );
-      if (!mounted || requestId != _requestId) return;
-      setState(() {
-        _subjects = append ? [..._subjects, ...subjects] : subjects;
-        _offset = offset + subjects.length;
-        _hasMore = subjects.length >= _pageSize;
-        _loading = false;
-        _refreshing = false;
-        _loadingMore = false;
-        _error = null;
-      });
-      _lastSuccessfulBrowseRequest = requestId;
-      if (!append) {
-        unawaited(
-          ref
-              .read(snapshotCacheProvider)
-              .writeDiscoverBrowse(_browseCacheKey, subjects)
-              .catchError((Object _) {}),
-        );
-      }
-    } catch (error) {
-      if (!mounted || requestId != _requestId) return;
-      setState(() {
-        _loading = false;
-        _refreshing = false;
-        _loadingMore = false;
-        // Keep stale list; only surface error when there is nothing to show.
-        if (!append && _subjects.isEmpty) {
-          _error = error.toString().replaceFirst('Exception: ', '');
-        }
-      });
-    }
-  }
-
-  Future<void> _search(String keyword, {bool append = false}) async {
-    final requestId = append ? _requestId : ++_requestId;
-    final offset = append ? _offset : 0;
-    setState(() {
-      if (append) {
-        _loadingMore = true;
-      } else {
-        final empty = _subjects.isEmpty;
-        _loading = empty;
-        _refreshing = !empty;
-        _error = null;
-        if (empty) {
-          _offset = 0;
-          _hasMore = true;
-        }
-        _characters = const [];
-        _persons = const [];
-      }
-    });
-    try {
-      final tags = _tag
-          .split(RegExp(r'[,，\s]+'))
-          .map((item) => item.trim())
-          .where((item) => item.isNotEmpty)
-          .toList();
-      final subjects = await ref
-          .read(bangumiApiProvider)
-          .searchSubjects(
-            keyword,
-            sort: _searchSort,
-            minimumRating: _minimumRating,
-            ratingExclusive: _ratingExclusive,
-            startYear: _startYear,
-            endYear: _endYear,
-            tags: tags,
-            metaTags: _metaTags,
-            subjectType: _subjectType,
-            limit: _pageSize,
-            offset: offset,
-          );
-      if (!mounted || requestId != _requestId) return;
-      setState(() {
-        _subjects = append ? [..._subjects, ...subjects] : subjects;
-        _offset = offset + subjects.length;
-        _hasMore = subjects.length >= _pageSize;
-        _loading = false;
-        _refreshing = false;
-        _loadingMore = false;
-        _error = null;
-        _pageError = null;
-      });
-    } catch (error) {
-      if (!mounted || requestId != _requestId) return;
-      setState(() {
-        _loading = false;
-        _refreshing = false;
-        _loadingMore = false;
-        if (!append && _subjects.isEmpty) {
-          _error = error.toString().replaceFirst('Exception: ', '');
-        }
-        if (append) _pageError = '后续结果加载失败，请重试';
-      });
-    }
-  }
-
-  Future<void> _loadMore() async {
-    if (!_hasMore || _loadingMore || _loading || _refreshing) return;
-    final keyword = _searchController.text.trim();
-    switch (_queryMode) {
-      case DiscoverQueryMode.subjectSearch:
-        await _search(keyword, append: true);
-      case DiscoverQueryMode.characterSearch:
-        await _searchCharacters(keyword, append: true);
-      case DiscoverQueryMode.personSearch:
-        await _searchPersons(keyword, append: true);
-      case DiscoverQueryMode.browse:
-        await _loadBrowse(append: true);
-      case DiscoverQueryMode.characterPrompt:
-      case DiscoverQueryMode.personPrompt:
-        return;
-    }
-  }
+  void _runCurrentQuery() => unawaited(_startCurrentQuery());
+  Future<void> _loadMore() => _results.loadMore();
 
   @override
   Widget build(BuildContext context) {
@@ -779,7 +416,7 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
                   if (_searchTarget == target) return;
                   setState(() {
                     _searchTarget = target;
-                    _error = null;
+                    _results.clearError();
                   });
                   _runCurrentQuery();
                 },
@@ -974,15 +611,19 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
           ]
         : const <Widget>[];
     if (_queryMode == DiscoverQueryMode.characterPrompt) {
-      return [box(const _SearchPrompt(target: DiscoverSearchTarget.character))];
+      return [
+        box(const DiscoverSearchPrompt(target: DiscoverSearchTarget.character)),
+      ];
     }
     if (_queryMode == DiscoverQueryMode.personPrompt) {
-      return [box(const _SearchPrompt(target: DiscoverSearchTarget.person))];
+      return [
+        box(const DiscoverSearchPrompt(target: DiscoverSearchTarget.person)),
+      ];
     }
     if (_searchingCharacters && _characters.isEmpty) {
       return [
         box(
-          _EmptyDiscoverState(
+          EmptyDiscoverState(
             searching: true,
             resultLabel: '角色',
             activeFilterCount: 0,
@@ -997,7 +638,7 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
     if (_searchingPersons && _persons.isEmpty) {
       return [
         box(
-          _EmptyDiscoverState(
+          EmptyDiscoverState(
             searching: true,
             resultLabel: '人物',
             activeFilterCount: 0,
@@ -1029,7 +670,7 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
           )
         else
           box(
-            _EmptyDiscoverState(
+            EmptyDiscoverState(
               searching: _searching,
               resultLabel: _subjectType.label,
               activeFilterCount: _activeFilterCount,
@@ -1064,7 +705,7 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
               final character = _characters[index];
               return ListTile(
                 contentPadding: EdgeInsets.zero,
-                leading: _DiscoverMonoThumb(url: character.imageUrl),
+                leading: DiscoverMonoThumb(url: character.imageUrl),
                 title: Text(character.displayName),
                 subtitle: character.name != character.displayName
                     ? Text(character.name)
@@ -1088,7 +729,7 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
             final personMeta = [if (kind.isNotEmpty) kind, ...person.career];
             return ListTile(
               contentPadding: EdgeInsets.zero,
-              leading: _DiscoverMonoThumb(
+              leading: DiscoverMonoThumb(
                 url: person.imageUrl,
                 round: person.type != 2,
               ),
@@ -1253,8 +894,7 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
       _hideCollected = result.hideCollected;
       _metaTags = result.metaTags;
       _tag = result.tag;
-      _subjects = const [];
-      _loading = false;
+      _results.clearSubjects();
     });
     if (_scrollController.hasClients) _scrollController.jumpTo(0);
     unawaited(_startCurrentQuery());
@@ -1278,144 +918,4 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
     'date' => '最新',
     _ => '排名',
   };
-}
-
-class _EmptyDiscoverState extends StatelessWidget {
-  const _EmptyDiscoverState({
-    required this.searching,
-    required this.resultLabel,
-    required this.activeFilterCount,
-    required this.keyword,
-    required this.onClearFilters,
-    required this.onClearSearch,
-    required this.onOpenFilters,
-  });
-
-  final bool searching;
-  final String resultLabel;
-  final int activeFilterCount;
-  final String keyword;
-  final VoidCallback onClearFilters;
-  final VoidCallback onClearSearch;
-  final VoidCallback onOpenFilters;
-
-  @override
-  Widget build(BuildContext context) {
-    final title = searching ? '没有找到相关$resultLabel' : '这里暂时没有内容';
-    final message = searching
-        ? activeFilterCount > 0
-              ? keyword.isEmpty
-                    ? '当前标签与筛选条件没有结果。可清除筛选后重试。'
-                    : '关键词「$keyword」在当前筛选下没有结果。可清除筛选，或换更短关键词。'
-              : '关键词「$keyword」没有匹配的$resultLabel。试试换类型，或缩短关键词。'
-        : '当前浏览条件下没有条目，试试换年份/季度，或直接搜索作品名。';
-
-    return SizedBox(
-      width: double.infinity,
-      child: EmptyState(
-        icon: Icons.search_off_rounded,
-        title: title,
-        message: message,
-        action: Wrap(
-          spacing: 10,
-          runSpacing: 10,
-          alignment: WrapAlignment.center,
-          children: [
-            if (searching && activeFilterCount > 0)
-              FilledButton.tonalIcon(
-                onPressed: onClearFilters,
-                icon: const Icon(Icons.filter_alt_off_rounded),
-                label: const Text('清除筛选'),
-              ),
-            if (searching)
-              FilledButton.tonalIcon(
-                onPressed: onClearSearch,
-                icon: const Icon(Icons.clear_rounded),
-                label: const Text('清空搜索'),
-              ),
-            if (!searching && activeFilterCount > 0)
-              FilledButton.tonalIcon(
-                onPressed: onClearFilters,
-                icon: const Icon(Icons.restart_alt_rounded),
-                label: const Text('重置浏览条件'),
-              ),
-            if (!searching || activeFilterCount > 0)
-              OutlinedButton.icon(
-                onPressed: onOpenFilters,
-                icon: const Icon(Icons.tune_rounded),
-                label: const Text('调整筛选'),
-              ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _SearchPrompt extends StatelessWidget {
-  const _SearchPrompt({required this.target});
-
-  final DiscoverSearchTarget target;
-
-  @override
-  Widget build(BuildContext context) {
-    final label = target == DiscoverSearchTarget.character ? '角色' : '人物';
-    final example = target == DiscoverSearchTarget.character ? '鲁路修' : '福山润';
-    return SizedBox(
-      width: double.infinity,
-      child: EmptyState(
-        icon: target == DiscoverSearchTarget.character
-            ? Icons.face_retouching_natural_rounded
-            : Icons.person_search_rounded,
-        title: '输入$label名开始搜索',
-        message: '例如：$example。这里不会混入条目季度榜。',
-      ),
-    );
-  }
-}
-
-class _DiscoverMonoThumb extends StatelessWidget {
-  const _DiscoverMonoThumb({required this.url, this.round = false});
-
-  final String url;
-  final bool round;
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    final child = url.isEmpty
-        ? ColoredBox(
-            color: scheme.surfaceContainerHighest,
-            child: Icon(
-              round ? Icons.person_rounded : Icons.face_rounded,
-              size: 20,
-            ),
-          )
-        : CachedNetworkImage(
-            imageUrl: BangumiEndpoints.imageUrl(
-              url,
-              size: BangumiImageSize.grid,
-            ),
-            fit: BoxFit.cover,
-            fadeInDuration: Duration.zero,
-            fadeOutDuration: Duration.zero,
-            memCacheWidth: 88,
-            memCacheHeight: 120,
-            errorWidget: (_, _, _) => ColoredBox(
-              color: scheme.surfaceContainerHighest,
-              child: const Icon(Icons.broken_image_outlined, size: 18),
-            ),
-          );
-    if (round) {
-      return CircleAvatar(
-        radius: 22,
-        backgroundColor: scheme.surfaceContainerHighest,
-        child: ClipOval(child: SizedBox(width: 44, height: 44, child: child)),
-      );
-    }
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(8),
-      child: SizedBox(width: 44, height: 60, child: child),
-    );
-  }
 }

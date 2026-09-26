@@ -4,6 +4,7 @@ import '../../../core/network/bangumi_support.dart';
 import '../../../core/insights/subject_meta_insights.dart';
 import '../../../core/network/bangumi_endpoints.dart';
 import '../../../widgets/subject_widgets.dart';
+import '../../../core/theme/app_tokens.dart';
 
 class SubjectMetaCount extends StatelessWidget {
   const SubjectMetaCount(this.label, {super.key});
@@ -166,7 +167,7 @@ class _CharacterCard extends StatelessWidget {
     final scheme = Theme.of(context).colorScheme;
     return Material(
       color: scheme.surfaceContainerLow,
-      borderRadius: BorderRadius.circular(14),
+      borderRadius: AppRadius.medium,
       clipBehavior: Clip.antiAlias,
       child: InkWell(
         onTap: onTap,
@@ -340,7 +341,7 @@ class _StaffPersonCard extends StatelessWidget {
         : person.career.join(' / ');
     return Material(
       color: scheme.surfaceContainerLow,
-      borderRadius: BorderRadius.circular(14),
+      borderRadius: AppRadius.medium,
       clipBehavior: Clip.antiAlias,
       child: InkWell(
         onTap: onTap,

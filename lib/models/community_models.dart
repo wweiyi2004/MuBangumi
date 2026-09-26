@@ -273,6 +273,27 @@ class CommunityUser {
   String get webUrl => 'https://bgm.tv/user/$username';
 }
 
+enum CommunityGroupSection { members, moderators, topics }
+
+/// Official P1 GroupMemberRole values. Membership records also exist for
+/// visitors and blocked users, so presence alone does not establish membership.
+enum CommunityGroupRole {
+  visitor(-2, '访客'),
+  guest(-1, '未加入'),
+  member(0, '已加入'),
+  creator(1, '创建者'),
+  moderator(2, '管理员'),
+  blocked(3, '已被限制');
+
+  const CommunityGroupRole(this.value, this.label);
+  final int value;
+  final String label;
+  bool get isActive => this == member || this == creator || this == moderator;
+  bool get canManage => this == creator || this == moderator;
+  static CommunityGroupRole? fromApi(Object? value) =>
+      values.where((role) => role.value == value).firstOrNull;
+}
+
 class CommunityGroupDetail {
   const CommunityGroupDetail({
     required this.group,
@@ -280,9 +301,12 @@ class CommunityGroupDetail {
     this.postCount = 0,
     this.accessible = true,
     this.joinedAt,
+    this.membershipJoined,
+    this.membershipRole,
     this.members = const [],
     this.moderators = const [],
     this.recentTopics = const [],
+    this.unavailableSections = const {},
   });
 
   final CommunityGroup group;
@@ -290,12 +314,21 @@ class CommunityGroupDetail {
   final int postCount;
   final bool accessible;
   final DateTime? joinedAt;
+  final bool? membershipJoined;
+  final CommunityGroupRole? membershipRole;
   final List<CommunityUser> members;
   final List<CommunityUser> moderators;
   final List<CommunityTopic> recentTopics;
+  final Set<CommunityGroupSection> unavailableSections;
 
-  bool get isJoined => joinedAt != null;
-  bool get canCreateTopic => accessible || isJoined;
+  bool get isJoined =>
+      (membershipRole?.isActive ?? true) &&
+      (membershipJoined ?? joinedAt != null);
+  bool get canManage => isJoined && membershipRole?.canManage == true;
+  String get membershipLabel =>
+      membershipRole?.label ?? (isJoined ? '已加入' : '加入');
+  bool get canCreateTopic =>
+      membershipRole != CommunityGroupRole.blocked && (accessible || isJoined);
 }
 
 /// P1 `/p1/notify` notice item (电波提醒).

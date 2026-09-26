@@ -1,0 +1,28 @@
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule: {interval: weekly}
+    groups:
+      actions: {patterns: ['*']}
+  - package-ecosystem: npm
+    directory: /website
+    schedule: {interval: weekly}
+    open-pull-requests-limit: 4
+    groups:
+      website-runtime:
+        patterns: ['react*', 'vinext', 'vite', '@vitejs/*', '@cloudflare/*', 'wrangler']
+      development:
+        dependency-type: development
+        exclude-patterns: ['react*', 'vinext', 'vite', '@vitejs/*', '@cloudflare/*', 'wrangler']
+  - package-ecosystem: pub
+    directory: /
+    schedule: {interval: monthly}
+    open-pull-requests-limit: 3
+    groups:
+      compatible-patches:
+        update-types: [patch]
+  - package-ecosystem: pip
+    directories: ['/tool', '/tool/recommend_dataset', '/tool/semantic_retrieval']
+    schedule: {interval: monthly}
+    open-pull-requests-limit: 3

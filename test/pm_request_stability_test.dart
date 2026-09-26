@@ -87,7 +87,7 @@ void main() {
               dio: Dio()..httpClientAdapter = adapter,
               retryDelay: (_) async {},
             )
-            ..onWebsiteSessionFailure = (status, _) {
+            ..onWebsiteSessionFailure = (status, _, {Uri? recoveryUri}) {
               failures.add(status);
               return true;
             };
@@ -134,7 +134,7 @@ void main() {
                 now: () => now,
                 retryDelay: (_) async {},
               )
-              ..onWebsiteSessionFailure = (status, _) {
+              ..onWebsiteSessionFailure = (status, _, {Uri? recoveryUri}) {
                 failures.add(status);
                 return true;
               };
@@ -203,7 +203,7 @@ void main() {
               fail('must not retry login rejection');
             },
           )
-          ..onWebsiteSessionFailure = (status, _) {
+          ..onWebsiteSessionFailure = (status, _, {Uri? recoveryUri}) {
             failures.add(status);
             return true;
           };
@@ -371,13 +371,13 @@ void main() {
             sessionStore: _Store(),
             dio: Dio()..httpClientAdapter = adapter,
           )
-          ..onWebsiteSessionFailure = (status, _) {
+          ..onWebsiteSessionFailure = (status, _, {Uri? recoveryUri}) {
             failures.add(status);
             return true;
           };
     addTearDown(service.dispose);
     await expectLater(service.loadInbox(), throwsA(isA<PmAuthException>()));
-    expect(adapter.calls, 1);
+    expect(adapter.calls, 2);
     expect(failures, [WebsiteAccessStatus.challenge]);
   });
 }

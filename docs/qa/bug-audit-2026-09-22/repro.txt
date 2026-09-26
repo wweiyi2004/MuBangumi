@@ -1,0 +1,47 @@
+00:00 +0: loading <repo>/docs/qa/bug-audit-2026-09-22/repro_test.dart
+00:00 +0: audit F1: mark-next preserves cached special episodes
+00:00 +0 -1: audit F1: mark-next preserves cached special episodes [E]
+  Expected: contains all of [101, 102, 103]
+    Actual: MappedListIterable<UserEpisodeCollection, int>:[101]
+     Which: has too few elements (1 < 3)
+  An online main-episode progress edit must retain previously cached SP/OP data.
+
+  package:matcher                                     expect
+  package:flutter_test/src/widget_tester.dart 473:18  expect
+  docs\qa\bug-audit-2026-09-22\repro_test.dart 37:5   main.<fn>
+
+00:00 +0 -1: audit F2: unbinding during RSS fetch rejects late matched items
+00:00 +0 -2: audit F2: unbinding during RSS fetch rejects late matched items [E]
+  Expected: <0>
+    Actual: <1>
+  A completed unbind must prevent new reminders from the old in-flight binding.
+
+  package:matcher                                     expect
+  package:flutter_test/src/widget_tester.dart 473:18  expect
+  docs\qa\bug-audit-2026-09-22\repro_test.dart 82:7   main.<fn>
+
+00:00 +0 -2: audit F3: discarding one failed edit preserves other offline collections
+*** sqflite warning ***
+
+You are changing sqflite default factory.
+Be aware of the potential side effects. Any library using sqflite
+will have this factory as the default for all operations.
+
+*** sqflite warning ***
+
+00:00 +0 -3: audit F3: discarding one failed edit preserves other offline collections [E]
+  Expected: contains <2>
+    Actual: <null>
+     Which: is not a string, map or iterable
+  Stopping one upload must not remove the unrelated book from cold-start offline storage.
+
+  package:matcher                                     expect
+  package:flutter_test/src/widget_tester.dart 473:18  expect
+  docs\qa\bug-audit-2026-09-22\repro_test.dart 123:7  main.<fn>
+
+00:00 +0 -3: Some tests failed.
+
+Failing tests:
+  <repo>/docs/qa/bug-audit-2026-09-22/repro_test.dart: audit F1: mark-next preserves cached special episodes
+  <repo>/docs/qa/bug-audit-2026-09-22/repro_test.dart: audit F2: unbinding during RSS fetch rejects late matched items
+  <repo>/docs/qa/bug-audit-2026-09-22/repro_test.dart: audit F3: discarding one failed edit preserves other offline collections

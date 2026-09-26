@@ -11,6 +11,7 @@ import '../models/netaba_models.dart';
 import '../state/session_controller.dart';
 import '../widgets/score_history_chart.dart';
 import '../widgets/subject_widgets.dart';
+import '../core/theme/app_tokens.dart';
 
 enum _TrendKind {
   up('涨分', '近期涨分', '近期', Icons.trending_up_rounded),
@@ -424,12 +425,8 @@ class _TrendTile extends StatelessWidget {
     final color = delta == 0
         ? scheme.onSurfaceVariant
         : positive
-        ? (scheme.brightness == Brightness.dark
-              ? const Color(0xFFFF929B)
-              : const Color(0xFFBB3044))
-        : (scheme.brightness == Brightness.dark
-              ? const Color(0xFF80DDB5)
-              : const Color(0xFF187650));
+        ? AppPalette.rise(scheme.brightness)
+        : AppPalette.fall(scheme.brightness);
     final samples = item.sparkline();
     final numberStyle = theme.textTheme.titleLarge?.copyWith(
       fontWeight: FontWeight.w600,

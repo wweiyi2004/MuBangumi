@@ -7,6 +7,7 @@ import '../widgets/social_chat_style.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:scrollable_positioned_list/scrollable_positioned_list.dart';
 import '../core/storage/browsing_store.dart';
+import '../core/auth/website_identity.dart';
 import '../models/topic_reading_position.dart';
 import '../state/session_controller.dart';
 
@@ -35,6 +36,7 @@ class _CommunityTopicScreenState extends ConsumerState<CommunityTopicScreen> {
   bool _loading = true;
   int _requestId = 0;
   String? _error;
+  bool _needsWebsiteRecovery = false;
   Set<String> _friendUsernames = const {};
   final Set<String> _reactionBusyPostIds = {};
   final Set<String> _mutationBusyPostIds = {};
@@ -235,6 +237,7 @@ class _CommunityTopicScreenState extends ConsumerState<CommunityTopicScreen> {
       setState(() {
         _loading = true;
         _error = null;
+        _needsWebsiteRecovery = false;
       });
     }
     try {
@@ -256,7 +259,11 @@ class _CommunityTopicScreenState extends ConsumerState<CommunityTopicScreen> {
       }
       setState(() {
         _loading = false;
-        _error = error.toString().replaceFirst('Exception: ', '');
+        _error = error is FormatException
+            ? error.message
+            : error.toString().replaceFirst('Exception: ', '');
+        _needsWebsiteRecovery =
+            error is WebsiteAccessException && error.status.requiresLogin;
       });
     }
   }
@@ -436,6 +443,15 @@ class _CommunityTopicScreenState extends ConsumerState<CommunityTopicScreen> {
     );
   }
 
+  Future<void> _recoverWebsite() async {
+    final identity = _service.identityRevision;
+    if (await openWebsiteLoginScreen(context) == true &&
+        mounted &&
+        identity == _service.identityRevision) {
+      await _load(refresh: true);
+    }
+  }
+
   String? _usernameFromUserUrl(String raw) {
     final uri = Uri.tryParse(raw.trim());
     if (uri == null || uri.pathSegments.isEmpty) return null;
@@ -573,7 +589,11 @@ class _CommunityTopicScreenState extends ConsumerState<CommunityTopicScreen> {
       return const Center(child: CircularProgressIndicator());
     }
     if (_error != null && detail == null) {
-      return CommunityErrorView(message: _error!, onRetry: _load);
+      return CommunityErrorView(
+        message: _error!,
+        onRetry: _load,
+        onWebsiteRecovery: _needsWebsiteRecovery ? _recoverWebsite : null,
+      );
     }
     if (detail == null) return const SizedBox.shrink();
     final wide = MediaQuery.sizeOf(context).width >= 900;

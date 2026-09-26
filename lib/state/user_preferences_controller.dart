@@ -41,9 +41,21 @@ class UserPreferencesController extends StateNotifier<UserPreferencesState> {
   }
 
   final UserPreferenceRepository _repository;
+  Future<void>? _loading;
   int _mutationGeneration = 0;
+  bool _loaded = false;
 
-  Future<void> load() async {
+  Future<void> load() {
+    final active = _loading;
+    if (active != null) return active;
+    final future = _load();
+    _loading = future;
+    return future.whenComplete(() {
+      if (identical(_loading, future)) _loading = null;
+    });
+  }
+
+  Future<void> _load() async {
     if (!mounted) return;
     final generation = _mutationGeneration;
     state = state.copyWith(isLoading: true, clearError: true);
@@ -54,12 +66,14 @@ class UserPreferencesController extends StateNotifier<UserPreferencesState> {
         state = state.copyWith(isLoading: false);
         return;
       }
+      _loaded = true;
       state = UserPreferencesState(
         preferences: {for (final item in items) item.key: item},
       );
     } catch (error) {
       if (!mounted || generation != _mutationGeneration) return;
-      state = UserPreferencesState(error: error.toString());
+      _loaded = false;
+      state = state.copyWith(isLoading: false, error: error.toString());
     }
   }
 
@@ -75,6 +89,11 @@ class UserPreferencesController extends StateNotifier<UserPreferencesState> {
   ) async {
     final key = username.trim().toLowerCase();
     if (key.isEmpty || !mounted) return;
+    // A partial edit needs the complete saved record. Never replace fields
+    // with defaults while the initial read is pending or has failed.
+    if (!_loaded || state.isLoading) await load();
+    if (!mounted) return;
+    if (!_loaded) throw StateError('无法读取本地设置，请重试');
     final previous = state.preferenceFor(key);
     final next = change(previous);
     _mutationGeneration++;
@@ -87,8 +106,12 @@ class UserPreferencesController extends StateNotifier<UserPreferencesState> {
       await _repository.save(next);
     } catch (error) {
       if (!mounted) rethrow;
+      // A failed older write must not roll back a newer edit to this user.
+      final current = state.preferences[key];
       state = state.copyWith(
-        preferences: {...state.preferences, key: previous},
+        preferences: identical(current, next)
+            ? {...state.preferences, key: previous}
+            : state.preferences,
         error: error.toString(),
       );
       rethrow;

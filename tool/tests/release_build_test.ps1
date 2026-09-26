@@ -2,6 +2,26 @@ $ErrorActionPreference = 'Stop'
 $testRoot = [IO.Path]::GetFullPath((Join-Path ([IO.Path]::GetTempPath()) ('mubangumi-build-test-' + [guid]::NewGuid().ToString('N'))))
 New-Item -ItemType Directory -Path (Join-Path $testRoot 'tool'), (Join-Path $testRoot 'config') | Out-Null
 Copy-Item -LiteralPath (Join-Path $PSScriptRoot '..\build_release.ps1') -Destination (Join-Path $testRoot 'tool\build_release.ps1')
+Copy-Item -LiteralPath (Join-Path $PSScriptRoot '..\release_provenance.py') -Destination (Join-Path $testRoot 'tool\release_provenance.py')
+Copy-Item -LiteralPath (Join-Path $PSScriptRoot '..\toolchain.json') -Destination (Join-Path $testRoot 'tool\toolchain.json')
+@'
+$script:MuVersions = Get-Content (Join-Path $PSScriptRoot 'toolchain.json') -Raw | ConvertFrom-Json
+function Get-MuFlutterRoot { [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../sdk')) }
+function Invoke-MuFlutter { param([string[]]$Arguments); flutter @Arguments }
+'@ | Set-Content -LiteralPath (Join-Path $testRoot 'tool\toolchain.ps1') -Encoding utf8
+New-Item -ItemType Directory (Join-Path $testRoot 'sdk\bin\cache') -Force | Out-Null
+$pinned = Get-Content (Join-Path $testRoot 'tool\toolchain.json') -Raw | ConvertFrom-Json
+@{frameworkVersion=$pinned.flutter;engineRevision=$pinned.flutterEngineRevision;frameworkRevision=$pinned.flutterFrameworkRevision} | ConvertTo-Json | Set-Content (Join-Path $testRoot 'sdk\bin\cache\flutter.version.json')
+'version: 2.2.0+24' | Set-Content (Join-Path $testRoot 'pubspec.yaml')
+@'
+build/
+config/
+release-symbols/
+sdk/
+'@ | Set-Content (Join-Path $testRoot '.gitignore')
+& git -C $testRoot init --quiet
+& git -C $testRoot add .
+& git -C $testRoot -c user.name=Fixture -c user.email=fixture@example.test commit --quiet -m fixture
 # Only synthetic credentials are used; the real workspace configuration is never read.
 '{"BGM_CLIENT_ID":"fixture-id","BGM_CLIENT_SECRET":"fixture-secret"}' | Set-Content -LiteralPath (Join-Path $testRoot 'config\oauth.local.json') -Encoding utf8
 $fixture = @{ Calls = [Collections.Generic.List[object]]::new(); OmitAbi = ''; OmitSymbols = $false; FailBuild = $false }
@@ -29,6 +49,12 @@ function flutter {
     }
     switch ($args[1]) {
         'apk' {
+            if ($args -notcontains '--split-per-abi') {
+                if ($fixture.OmitAbi -ne 'universal') {
+                    Write-FixtureFile 'build\app\outputs\flutter-apk\app-release.apk'
+                }
+                break
+            }
             foreach ($abi in @('armeabi-v7a', 'arm64-v8a', 'x86_64')) {
                 if ($abi -ne $fixture.OmitAbi) {
                     Write-FixtureFile "build\app\outputs\flutter-apk\app-$abi-release.apk"
@@ -53,7 +79,22 @@ function shorebird {
 }
 
 function Invoke-FixtureBuild {
-    & (Join-Path $testRoot 'tool\build_release.ps1') @args
+    $source = (& python (Join-Path $testRoot 'tool\release_provenance.py') identity --root $testRoot | ConvertFrom-Json)
+    $versionName='2.2.0'; $number='24'; $platform='windows'; $baseline=''
+    for ($i=0;$i -lt $args.Count-1;$i++) {
+        switch ($args[$i]) {
+            '-Target' { if($args[$i+1] -ne 'windows'){$platform='android'} }
+            '-BuildName' {$versionName=$args[$i+1]}
+            '-BuildNumber' {$number=$args[$i+1]}
+            '-ReleaseVersion' {$baseline=$args[$i+1]}
+        }
+    }
+    $verification = Join-Path $testRoot 'config\verification.json'
+    @{passed=$true;mode='Full';createdUtc=[DateTime]::UtcNow.ToString('o');source=$source;checks=@(@('flutter-analyze','flutter-tests','architecture','repository-privacy','provenance-tests','android-build','windows-build') | ForEach-Object {@{name=$_;status='passed'}})} | ConvertTo-Json -Depth 8 | Set-Content $verification
+    $acceptance = Join-Path $testRoot 'config\acceptance.json'
+    $cases=@{}; foreach($case in @('oauth_login','saved_session','session_expiry','website_challenge','network_recovery','foreground_resume','account_switch','pm_delivery','group_write')){$cases[$case]='passed'}
+    @{platform=$platform;version=$(if($baseline){$baseline}else{"$versionName+$number"});source_fingerprint=$source.fingerprint;completedUtc=[DateTime]::UtcNow.ToString('o');evidence='synthetic test only';cases=$cases} | ConvertTo-Json -Depth 5 | Set-Content $acceptance
+    & (Join-Path $testRoot 'tool\build_release.ps1') @args -VerificationReport $verification -AcceptanceReport $acceptance
 }
 
 try {
@@ -119,6 +160,17 @@ try {
     $rejected = $false
     try { Invoke-FixtureBuild -Target apk -GiteeRepository 'https://gitee.com/fixture/MuBangumi' } catch { $rejected = $true }
     Assert-True $rejected 'Mirror configuration accepted a full URL instead of owner/repository'
+    $passed++
+    Invoke-FixtureBuild -Target apk -UniversalApk -BuildNumber 4030
+    Assert-True ($fixture.Calls[-1] -notcontains '--split-per-abi') 'Universal APK must retain the exact build number'
+    $fixture.OmitAbi = 'universal'
+    $rejected = $false
+    try { Invoke-FixtureBuild -Target apk -UniversalApk } catch { $rejected = $true }
+    Assert-True $rejected 'Universal build accepted a stale APK'
+    $fixture.OmitAbi = ''
+    $rejected = $false
+    try { Invoke-FixtureBuild -Target windows -UniversalApk } catch { $rejected = $true }
+    Assert-True $rejected 'Universal APK flag accepted for a non-APK build'
     $passed++
     Write-Output "Passed $passed release build checks."
 } finally {

@@ -162,7 +162,10 @@ class _FakeRssStore extends RssStore {
   }
 
   @override
-  Future<int> insertItemsIgnoreDup(List<RssItem> items) async {
+  Future<int> insertItemsIgnoreDup(
+    List<RssItem> items, {
+    bool validateBindings = false,
+  }) async {
     unread += items.length;
     return items.length;
   }

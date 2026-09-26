@@ -1,0 +1,13 @@
+{
+  "schema": 1,
+  "flutter": "3.44.7",
+  "flutterFrameworkRevision": "84fc5cbb223bc12f83d65b647ff8a56caf779ffd",
+  "flutterEngineRevision": "69c8c61792f04cc809dfef0c910414fb9afc06cd",
+  "dart": "3.12",
+  "node": "22.23.2",
+  "python": {
+    "recommend_dataset": "3.14",
+    "semantic_retrieval": "3.13",
+    "release_mirror": "3.12"
+  }
+}

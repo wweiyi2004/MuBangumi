@@ -9,6 +9,7 @@ import '../models/library_batch.dart';
 import '../state/session_controller.dart';
 import '../state/short_review_draft.dart';
 import 'subject_widgets.dart';
+import '../core/theme/app_tokens.dart';
 
 /// Full collection editor: status, score, comment, tags, privacy.
 Future<bool> showCollectionEditorSheet(
@@ -352,7 +353,7 @@ class _CollectionEditorSheetState
                     Text(
                       _rate == 0 ? '未评分' : '$_rate 分',
                       style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                        color: const Color(0xFFF3A646),
+                        color: Theme.of(context).colorScheme.tertiary,
                         fontWeight: FontWeight.w800,
                       ),
                     ),
@@ -506,7 +507,7 @@ class _ProgressStepper extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
       decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: AppRadius.medium,
         border: Border.all(color: scheme.outlineVariant),
       ),
       child: Column(

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../widgets/brand_mark.dart';
 import '../core/layout/app_layout.dart';
 import 'app_background.dart';
+import '../core/theme/app_tokens.dart';
 
 class AppNavigationLayout extends StatelessWidget {
   const AppNavigationLayout({
@@ -161,7 +162,7 @@ class _DesktopNavigation extends StatelessWidget {
                           alpha: .28,
                         ),
                         shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(10),
+                          borderRadius: AppRadius.small,
                         ),
                         leading: i == 3 && unreadCount > 0
                             ? Badge(
@@ -197,7 +198,7 @@ class _DesktopNavigation extends StatelessWidget {
                     padding: const EdgeInsets.symmetric(horizontal: 14),
                     child: ListTile(
                       shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(10),
+                        borderRadius: AppRadius.small,
                       ),
                       leading: const Icon(Icons.calendar_month_outlined),
                       title: const Text(

@@ -79,11 +79,10 @@ void main() {
     );
     store.db.execute('BEGIN');
     for (var member = 0; member < 500; member++)
-      store.db.execute('INSERT INTO room_members VALUES(?,?,?)', [
-        id,
-        'member-$member',
-        List.filled(40, '😀').join(),
-      ]);
+      store.db.execute(
+        'INSERT INTO room_members(event,actor,name) VALUES(?,?,?)',
+        [id, 'member-$member', List.filled(40, '😀').join()],
+      );
     for (var r = 0; r < 100; r++)
       for (var c = 0; c < 20; c++)
         store.db.execute(

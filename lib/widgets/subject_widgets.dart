@@ -6,6 +6,8 @@ import 'package:flutter/material.dart';
 import '../core/network/bangumi_endpoints.dart';
 import '../models/bangumi_models.dart';
 import 'readable_subject_title.dart';
+import 'projection_art.dart';
+export 'projection_art.dart' show ProjectionScene;
 
 class SubjectCover extends StatelessWidget {
   const SubjectCover({
@@ -757,24 +759,36 @@ class EmptyState extends StatelessWidget {
     required this.title,
     required this.message,
     this.action,
+    this.scene,
   });
 
   final IconData icon;
   final String title;
   final String message;
   final Widget? action;
+  final ProjectionScene? scene;
 
   @override
   Widget build(BuildContext context) => Center(
     child: Padding(
-      padding: const EdgeInsets.symmetric(vertical: 48, horizontal: 24),
+      padding: EdgeInsets.symmetric(
+        vertical: scene == null ? 28 : 14,
+        horizontal: 20,
+      ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, size: 46, color: Theme.of(context).colorScheme.outline),
-          const SizedBox(height: 14),
-          Text(title, style: Theme.of(context).textTheme.titleLarge),
-          const SizedBox(height: 8),
+          if (scene != null)
+            ProjectionIllustration(scene: scene!)
+          else
+            Icon(icon, size: 46, color: Theme.of(context).colorScheme.outline),
+          SizedBox(height: scene == null ? 14 : 4),
+          Text(
+            title,
+            textAlign: TextAlign.center,
+            style: Theme.of(context).textTheme.titleMedium,
+          ),
+          SizedBox(height: scene == null ? 8 : 4),
           Text(
             message,
             textAlign: TextAlign.center,
@@ -782,7 +796,7 @@ class EmptyState extends StatelessWidget {
               color: Theme.of(context).colorScheme.onSurfaceVariant,
             ),
           ),
-          if (action != null) ...[const SizedBox(height: 18), action!],
+          if (action != null) ...[const SizedBox(height: 10), action!],
         ],
       ),
     ),

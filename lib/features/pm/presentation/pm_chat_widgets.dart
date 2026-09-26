@@ -3,6 +3,7 @@ import '../../../models/pm_models.dart';
 import 'package:flutter/services.dart';
 import 'pm_avatar.dart';
 import '../../../widgets/social_chat_style.dart';
+import '../../../core/theme/app_tokens.dart';
 
 class PmChatBubble extends StatelessWidget {
   const PmChatBubble({super.key, required this.message, required this.avatar});
@@ -87,7 +88,7 @@ class PmChatBubble extends StatelessWidget {
                         child: Text(
                           message.name,
                           style: TextStyle(
-                            fontSize: 12,
+                            fontSize: AppText.caption,
                             color: scheme.onSurfaceVariant,
                           ),
                         ),
@@ -141,11 +142,11 @@ class PmComposerBar extends StatelessWidget {
               : SocialChatStyle.canvas(context),
           contentPadding: const EdgeInsets.all(12),
           border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(10),
+            borderRadius: AppRadius.small,
             borderSide: BorderSide.none,
           ),
           enabledBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(10),
+            borderRadius: AppRadius.small,
             borderSide: BorderSide.none,
           ),
         ),
@@ -158,9 +159,7 @@ class PmComposerBar extends StatelessWidget {
             foregroundColor: SocialChatStyle.dark(context)
                 ? Colors.black
                 : Colors.white,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(9),
-            ),
+            shape: RoundedRectangleBorder(borderRadius: AppRadius.small),
           ),
           onPressed: enabled && !sending && value.text.trim().isNotEmpty
               ? onSend
@@ -211,7 +210,7 @@ class PmComposerBar extends StatelessWidget {
                               child: Text(
                                 'Enter 换行 · Ctrl + Enter 发送',
                                 style: TextStyle(
-                                  fontSize: 11,
+                                  fontSize: AppText.timestamp,
                                   color: Theme.of(
                                     context,
                                   ).colorScheme.onSurfaceVariant,

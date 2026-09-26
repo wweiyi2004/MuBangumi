@@ -4,6 +4,7 @@ import '../models/bangumi_models.dart';
 import '../models/schedule_models.dart';
 import '../models/schedule_view.dart';
 import 'subject_widgets.dart';
+import '../core/theme/app_tokens.dart';
 
 class ScheduleListView extends StatelessWidget {
   const ScheduleListView({
@@ -198,9 +199,9 @@ class _ScheduleListCard extends StatelessWidget {
         : '尚未绑定 RSS';
     return Material(
       color: theme.colorScheme.surfaceContainerLow,
-      borderRadius: BorderRadius.circular(18),
+      borderRadius: AppRadius.large,
       child: InkWell(
-        borderRadius: BorderRadius.circular(18),
+        borderRadius: AppRadius.large,
         onTap: onOpen,
         child: Padding(
           padding: const EdgeInsets.fromLTRB(12, 6, 8, 14),

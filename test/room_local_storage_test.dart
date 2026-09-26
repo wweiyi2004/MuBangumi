@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'package:banjian_server/banjian_server.dart';
@@ -33,6 +34,72 @@ void main() {
     vault = Vault();
   });
   tearDown(() async => db.close());
+  test(
+    'a transient opening failure can recover without recreating storage',
+    () async {
+      var attempts = 0;
+      final storage = RoomLocalStorage(
+        vault: vault,
+        databasePath: () async {
+          if (++attempts == 1) throw StateError('temporary path failure');
+          return ':memory:';
+        },
+        databaseOpener: (_, _) async => db,
+      );
+      await expectLater(storage.read(), throwsStateError);
+      expect(await storage.read(), isNull);
+      expect(attempts, 2);
+    },
+  );
+
+  test(
+    'concurrent initial reads share one successful database opening',
+    () async {
+      final ready = Completer<void>();
+      var opens = 0;
+      final storage = RoomLocalStorage(
+        vault: vault,
+        databasePath: () async => ':memory:',
+        databaseOpener: (_, _) async {
+          opens++;
+          await ready.future;
+          return db;
+        },
+      );
+      final first = storage.read(), second = storage.read();
+      await Future<void>.delayed(Duration.zero);
+      expect(opens, 1);
+      ready.complete();
+      expect(await Future.wait([first, second]), [null, null]);
+      expect(opens, 1);
+    },
+  );
+
+  test('schema initialization is retried after a rolled-back open', () async {
+    var opens = 0;
+    final storage = RoomLocalStorage(
+      vault: vault,
+      databasePath: () async => ':memory:',
+      databaseOpener: (_, options) async {
+        await options.onCreate!(db, 1);
+        if (++opens == 1) {
+          for (final table in [
+            'room_client_meta',
+            'room_client_journal',
+            'room_client_cache',
+          ]) {
+            await db.execute('DROP TABLE $table');
+          }
+          throw StateError('open transaction rolled back');
+        }
+        return db;
+      },
+    );
+    await expectLater(storage.read(), throwsStateError);
+    expect(await storage.read(), isNull);
+    expect(await db.query('room_client_meta'), isEmpty);
+    expect(opens, 2);
+  });
   Json record([String id = 'event-1']) {
     id = id.padRight(22, 'x');
     final invite = RoomInvite(

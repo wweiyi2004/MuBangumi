@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../../models/bangumi_models.dart';
+import '../../../core/theme/app_tokens.dart';
 
 class SubjectRatingPanel extends StatelessWidget {
   const SubjectRatingPanel({super.key, required this.subject});
@@ -63,7 +64,7 @@ class SubjectRatingPanel extends StatelessWidget {
                                 ? Theme.of(context).textTheme.headlineSmall
                                 : Theme.of(context).textTheme.headlineMedium)
                             ?.copyWith(
-                              color: const Color(0xFFF3A646),
+                              color: Theme.of(context).colorScheme.tertiary,
                               fontWeight: FontWeight.w700,
                             ),
                   ),
@@ -89,12 +90,12 @@ class SubjectRatingPanel extends StatelessWidget {
                       ),
                       Expanded(
                         child: ClipRRect(
-                          borderRadius: BorderRadius.circular(6),
+                          borderRadius: AppRadius.round,
                           child: LinearProgressIndicator(
                             value: (subject.ratingCount[score] ?? 0) / maxCount,
                             minHeight: narrow ? 7 : 8,
                             backgroundColor: scheme.surfaceContainerHighest,
-                            color: const Color(0xFFF3A646),
+                            color: Theme.of(context).colorScheme.tertiary,
                           ),
                         ),
                       ),

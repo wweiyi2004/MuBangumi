@@ -5,6 +5,35 @@ import 'package:mubangumi/core/storage/community_cache.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 void main() {
+  test('PM friend snapshots persist by numeric account ID', () async {
+    sqfliteFfiInit();
+    final db = await databaseFactoryFfi.openDatabase(inMemoryDatabasePath);
+    await db.execute(
+      'CREATE TABLE community_cache (cache_key TEXT PRIMARY KEY, payload TEXT, updated_at INTEGER, account_scoped INTEGER)',
+    );
+    final cache = CommunityCache.test(connection: db);
+    final snapshots = SnapshotCache(cache: cache);
+    addTearDown(() async {
+      await cache.prune();
+      await db.close();
+    });
+    const friend = BangumiUser(
+      id: 10,
+      username: 'synthetic',
+      nickname: '缓存好友',
+      avatarUrl: '',
+    );
+    await snapshots.writePmFriends(1, [friend]);
+    final reopened = SnapshotCache(cache: cache);
+    expect((await reopened.readPmFriends(1))!.single.id, 10);
+    expect(await reopened.readPmFriends(2), isNull);
+    await reopened.writePmFriends(2, []);
+    expect(await reopened.readPmFriends(2), isEmpty);
+    expect((await reopened.readPmFriends(1))!.single.id, 10);
+    final rows = await db.query('community_cache');
+    expect(rows.every((row) => row['account_scoped'] == 1), isTrue);
+  });
+
   test(
     'chapter snapshots isolate accounts and never restore the old unscoped cache',
     () async {

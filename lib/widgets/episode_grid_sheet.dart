@@ -8,6 +8,7 @@ import '../models/episode_edit.dart';
 import 'episode_undo_message.dart';
 import '../state/session_controller.dart';
 import 'subject_widgets.dart';
+import '../core/theme/app_tokens.dart';
 
 Future<void> showEpisodeGridSheet(
   BuildContext context,
@@ -435,7 +436,7 @@ class _EpisodeCell extends StatelessWidget {
       child: Material(
         color: background,
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(14),
+          borderRadius: AppRadius.medium,
           side: BorderSide(color: border),
         ),
         clipBehavior: Clip.antiAlias,

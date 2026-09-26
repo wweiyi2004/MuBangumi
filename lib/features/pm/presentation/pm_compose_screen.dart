@@ -9,6 +9,7 @@ import '../../../core/storage/pm_draft_store.dart';
 import 'pm_session_listener.dart';
 import '../../../core/layout/app_layout.dart';
 import '../../../state/pm_send_queue_controller.dart';
+import '../../../core/theme/app_tokens.dart';
 
 class PmComposeScreen extends ConsumerStatefulWidget {
   const PmComposeScreen({super.key, this.toUser, this.service, this.draftId});
@@ -273,7 +274,7 @@ class _PmComposeScreenState extends ConsumerState<PmComposeScreen> {
                       scheme.secondary.withValues(alpha: .08),
                     ],
                   ),
-                  borderRadius: BorderRadius.circular(20),
+                  borderRadius: AppRadius.large,
                   border: Border.all(
                     color: scheme.outlineVariant.withValues(alpha: .5),
                   ),
@@ -285,7 +286,7 @@ class _PmComposeScreenState extends ConsumerState<PmComposeScreen> {
                       height: 44,
                       decoration: BoxDecoration(
                         color: scheme.primary.withValues(alpha: .16),
-                        borderRadius: BorderRadius.circular(14),
+                        borderRadius: AppRadius.medium,
                       ),
                       child: Icon(Icons.mail_rounded, color: scheme.primary),
                     ),
@@ -381,7 +382,7 @@ class _PmComposeScreenState extends ConsumerState<PmComposeScreen> {
                   ),
                   decoration: BoxDecoration(
                     color: scheme.primaryContainer.withValues(alpha: .45),
-                    borderRadius: BorderRadius.circular(14),
+                    borderRadius: AppRadius.medium,
                   ),
                   child: Row(
                     children: [
@@ -415,9 +416,7 @@ class _PmComposeScreenState extends ConsumerState<PmComposeScreen> {
                     : _send,
                 style: FilledButton.styleFrom(
                   minimumSize: const Size.fromHeight(50),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(16),
-                  ),
+                  shape: RoundedRectangleBorder(borderRadius: AppRadius.round),
                 ),
                 child: _sending
                     ? const SizedBox.square(

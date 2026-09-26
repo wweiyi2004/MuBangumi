@@ -1,20 +1,43 @@
 import 'package:flutter/foundation.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../core/storage/snapshot_cache.dart';
+
 import '../models/bangumi_models.dart';
 import '../models/pm_contact.dart';
 import '../models/pm_models.dart';
 import 'pm_mailbox_controller.dart';
+
+final pmFriendsCacheProvider = Provider<SnapshotCache>(
+  (ref) => SnapshotCache.shared,
+);
 
 class PmContactsController extends ChangeNotifier {
   PmContactsController({
     required this.inbox,
     required this.outbox,
     required this.loadFriends,
+    this.cache,
   }) {
     inbox.addListener(_changed);
     outbox.addListener(_changed);
   }
   final PmMailboxController inbox, outbox;
-  final Future<List<BangumiUser>> Function() loadFriends;
+  final Future<List<BangumiUser>> Function({bool refresh}) loadFriends;
+  final SnapshotCache? cache;
+  int? _accountId;
+  bool _cacheRead = false;
+  Future<void>? _friendsRequest;
+
+  Future<void> attachAccount(int? userId, {bool requireAuth = false}) {
+    if (_accountId == userId) return _friendsRequest ?? Future.value();
+    reset(
+      clearFriends: true,
+      requireAuth: requireAuth || _accountId != null || userId == null,
+    );
+    _accountId = userId;
+    return userId == null ? Future.value() : refreshFriends();
+  }
+
   List<BangumiUser> friends = const [];
   bool friendsLoading = false, syncingHistory = false;
   String? friendsError;
@@ -50,22 +73,54 @@ class PmContactsController extends ChangeNotifier {
 
   Future<void> refresh({
     bool includeFriends = true,
+    bool forceFriends = false,
     bool supersede = false,
   }) async {
     await Future.wait([
-      if (includeFriends) refreshFriends(),
+      if (includeFriends) refreshFriends(refresh: forceFriends),
       syncHistory(supersede: supersede),
     ]);
   }
 
-  Future<void> refreshFriends() async {
+  Future<void> refreshFriends({bool refresh = false}) {
+    if (_disposed) return Future.value();
+    if (_friendsRequest != null) return _friendsRequest!;
+    late final Future<void> future;
+    future = _refreshFriends(refresh: refresh).whenComplete(() {
+      if (identical(_friendsRequest, future)) _friendsRequest = null;
+    });
+    _friendsRequest = future;
+    return future;
+  }
+
+  Future<void> _refreshFriends({required bool refresh}) async {
     final generation = ++_friendsGeneration;
     friendsLoading = true;
     friendsError = null;
     _changed();
     try {
-      final loaded = await loadFriends();
-      if (!_disposed && generation == _friendsGeneration) friends = loaded;
+      final owner = _accountId;
+      if (!_cacheRead && cache != null && owner != null) {
+        _cacheRead = true;
+        List<BangumiUser>? cached;
+        try {
+          cached = await cache!.readPmFriends(owner);
+        } catch (_) {}
+        if (_disposed || generation != _friendsGeneration) return;
+        if (cached != null) {
+          friends = cached;
+          _changed();
+        }
+      }
+      final loaded = await loadFriends(refresh: refresh);
+      if (_disposed || generation != _friendsGeneration) return;
+      friends = loaded;
+      _changed();
+      if (cache != null && owner != null) {
+        try {
+          await cache!.writePmFriends(owner, loaded);
+        } catch (_) {}
+      }
     } catch (_) {
       if (!_disposed && generation == _friendsGeneration) {
         friendsError = '好友列表加载失败，请重试';
@@ -85,10 +140,12 @@ class PmContactsController extends ChangeNotifier {
     syncingHistory = true;
     late final Future<void> future;
     future =
-        Future.wait([
-          for (final box in [inbox, outbox])
-            _drain(box, generation, more: more),
-        ]).then<void>((_) {}).whenComplete(() {
+        (() async {
+          for (final box in [inbox, outbox]) {
+            if (_disposed || generation != _historyGeneration) return;
+            await _drain(box, generation, more: more);
+          }
+        })().whenComplete(() {
           if (!_disposed && generation == _historyGeneration) {
             syncingHistory = false;
             if (identical(_history, future)) _history = null;
@@ -105,25 +162,9 @@ class PmContactsController extends ChangeNotifier {
     int generation, {
     required bool more,
   }) async {
-    var fetched = 0;
     if (!more || !box.loaded || box.error != null) {
       await box.refresh(supersede: true, preserveHistory: true);
-      fetched++;
-    } else if (box.moreError != null) {
-      await box.loadMore();
-      fetched++;
-    }
-    // Fetch recent history first. Older pages are an explicit continuation,
-    // not hundreds of background requests on each login or sent message.
-    for (; fetched < 3; fetched++) {
-      if (_disposed ||
-          generation != _historyGeneration ||
-          !box.hasMore ||
-          box.needAuth ||
-          box.error != null ||
-          box.moreError != null) {
-        return;
-      }
+    } else {
       await box.loadMore();
     }
   }
@@ -134,6 +175,8 @@ class PmContactsController extends ChangeNotifier {
     syncingHistory = false;
     if (clearFriends) {
       _friendsGeneration++;
+      _friendsRequest = null;
+      _cacheRead = false;
       friends = const [];
       friendsLoading = false;
       friendsError = null;

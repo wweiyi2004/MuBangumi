@@ -1,0 +1,14 @@
+00:00 +0: loading <repo>/.dart_tool/full_audit/room_open_repro_test.dart
+00:00 +0: review: room storage can retry a transient database-path failure
+00:00 +0 -1: review: room storage can retry a transient database-path failure [E]
+  Bad state: temporary directory unavailable
+  .dart_tool\full_audit\room_open_repro_test.dart 18:26                   main.<fn>.<fn>
+  package:mubangumi/features/anime_appreciation/room_storage.dart 84:33   RoomLocalStorage._open.<fn>
+  package:mubangumi/features/anime_appreciation/room_storage.dart 108:6   RoomLocalStorage._open
+  package:mubangumi/features/anime_appreciation/room_storage.dart 203:22  RoomLocalStorage.read.<fn>
+  package:mubangumi/features/anime_appreciation/room_storage.dart 67:42   RoomLocalStorage._serial.<fn>
+
+00:00 +0 -1: Some tests failed.
+
+Failing tests:
+  <repo>/.dart_tool/full_audit/room_open_repro_test.dart: review: room storage can retry a transient database-path failure

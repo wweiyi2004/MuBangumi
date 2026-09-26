@@ -5,7 +5,9 @@ param(
 
     [string]$VisualCppRuntimePath,
 
-    [string]$OutputDirectory
+    [string]$OutputDirectory,
+
+    [switch]$KeepStaging
 )
 
 $ErrorActionPreference = 'Stop'
@@ -90,3 +92,22 @@ try {
     }
 }
 Write-Host "Packaged runtime files: $archivePath"
+if (-not $KeepStaging) {
+    try {
+        $stagingRoot = [IO.Path]::GetFullPath((Join-Path $repositoryRoot '.dart_tool')).TrimEnd('\', '/')
+        $resolvedStaging = [IO.Path]::GetFullPath($stagingPath)
+        if ((Split-Path -Parent $resolvedStaging) -ne $stagingRoot -or
+            (Split-Path -Leaf $resolvedStaging) -notmatch '^windows-package-[a-f0-9]{32}$') {
+            throw 'Unexpected staging directory'
+        }
+        foreach ($checkedPath in @($repositoryRoot, $stagingRoot, $resolvedStaging)) {
+            if ((Get-Item -LiteralPath $checkedPath -Force).Attributes -band [IO.FileAttributes]::ReparsePoint) {
+                throw 'Refusing staging cleanup through a link'
+            }
+        }
+        Assert-WindowsPackageDirectory $resolvedStaging
+        Remove-Item -LiteralPath $resolvedStaging -Recurse -Force
+    } catch {
+        Write-Warning "Archive is valid; staging directory retained: $stagingPath ($($_.Exception.Message))"
+    }
+}

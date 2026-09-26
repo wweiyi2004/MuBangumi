@@ -1,0 +1,56 @@
+{
+  "date": "2026-09-22",
+  "baseline": "Current worktree including uncommitted changes; HEAD alone is not the full source snapshot",
+  "head": "400040469ae1819034e4cf459bd5c8daf75b5b84",
+  "runtime": {
+    "os": "Windows",
+    "flutter_local": "3.44.0",
+    "flutter_ci_and_release_recipe": "3.44.7",
+    "dart_local": "3.12.0",
+    "node_default": "24.14.1",
+    "node_control": "22.23.2",
+    "dataset_python": "3.14.0",
+    "semantic_python": "3.13.12",
+    "mirror_python": "3.10.11"
+  },
+  "checks": [
+    {"command": "flutter --no-version-check analyze --no-pub", "status": "passed", "note": "Full analysis before F1; changed service, new regression and documentation fixture analyzed again afterwards"},
+    {"command": "flutter --no-version-check test --no-pub", "status": "passed", "tests": 1309, "note": "After F1 fix and eight new tests"},
+    {"command": "flutter --no-version-check build windows --debug --no-pub", "status": "passed", "note": "Rebuilt after F1"},
+    {"command": "flutter --no-version-check build apk --debug --no-pub --target-platform android-arm64", "status": "passed", "note": "Rebuilt after F1"},
+    {"cwd": "packages/banjian_server", "command": "dart analyze", "status": "passed"},
+    {"cwd": "packages/banjian_server", "command": "dart test", "status": "passed", "tests": 33},
+    {"cwd": "packages/banjian_server", "command": "dart build cli --target bin/server.dart -o ../../.dart_tool/full_audit/server-build", "status": "passed"},
+    {"command": "node packages/banjian_server/test/room_protocol_test.cjs", "status": "passed"},
+    {"cwd": "website", "command": "npm run lint", "status": "passed"},
+    {"cwd": "website", "command": "npx --no-install tsc --noEmit", "status": "failed", "exit_code": 2, "errors": 4},
+    {"cwd": "website", "command": "npm test", "status": "passed", "tests": 2, "node": "24.14.1"},
+    {"cwd": "website", "command": "npm run test:pages", "status": "failed", "exit_code": -1073740791, "runs": 2, "node": "24.14.1", "error": "UV_HANDLE_CLOSING assertion after prerendering"},
+    {"cwd": "website", "command": "npm run test:pages", "status": "passed", "tests": 1, "runs": 2, "node": "22.23.2"},
+    {"command": "tool/recommend_dataset/.venv/Scripts/python.exe -m pytest tool/recommend_dataset/tests -q", "status": "passed", "tests": 190},
+    {"command": ".dart_tool/semantic-venv/Scripts/python.exe -m pytest tool/semantic_retrieval/tests -q", "status": "passed", "tests": 43},
+    {"command": ".dart_tool/mirror-venv/Scripts/python.exe -m unittest discover -s tool/tests -p mirror_release_test.py", "status": "passed", "tests": 11, "note": "All publication/network operations mocked"},
+    {"command": "tool/tests/windows_package_safety_test.ps1", "status": "passed", "checks": 13},
+    {"command": "tool/tests/release_build_test.ps1", "status": "passed", "checks": 9, "note": "Synthetic credentials and mocked builds/publication"},
+    {"command": "tool/tests/workspace_cleanup_test.ps1", "status": "passed", "checks": 8},
+    {"command": "tool/verify_repository_privacy.ps1", "status": "passed", "tracked_files": 837, "note": "Path/layout and SQLite-header guard, not a general secret scanner"},
+    {"command": "python tool/verify_architecture.py --self-test", "status": "passed", "main_dart_files": 251},
+    {"command": "npm audit --json --registry=https://registry.npmjs.org", "status": "advisories_found", "affected_package_records": 23, "critical": 0, "high": 16, "moderate": 6, "low": 1},
+    {"command": "npm audit --omit=dev --json --registry=https://registry.npmjs.org", "status": "passed", "affected_package_records": 0, "note": "SSR/build tools are declared as devDependencies; this is not an assertion that every deployment mode is unaffected"},
+    {"command": "flutter --no-version-check pub outdated --json", "status": "completed", "direct_packages_with_updates": 17},
+    {"command": "flutter test docs/architecture/full-review-2026-09-22/room_open_repro_test.dart", "status": "known_failure", "finding": "F2", "note": "Identical isolated fixture executed under .dart_tool/full_audit before copying to evidence directory"}
+  ],
+  "not_verified": [
+    "Real Android account / WebView login / private messages / group writes",
+    "iOS build and runtime: no macOS/Xcode environment",
+    "Linux Docker build and public deployment: Docker Linux engine unavailable",
+    "Standalone compiled server startup: automatic approval policy returned blocked by policy",
+    "Frozen native-android prototype build",
+    "Dataset collection, model training, mobile inference benchmarking",
+    "Remote repository branch-protection and security settings"
+  ],
+  "business_changes_this_review": [
+    "F1: add account-revision guards before and after P1 PUT/DELETE auth refresh",
+    "Eight permanent regressions in test/community_account_retry_test.dart"
+  ]
+}

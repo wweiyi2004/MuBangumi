@@ -21,6 +21,17 @@ class RoomStore {
       'CREATE TABLE IF NOT EXISTS covers (id TEXT PRIMARY KEY, mime TEXT, bytes BLOB)',
     );
     _migrate(path);
+    // Additive columns need no version bump: older rows simply have no avatar.
+    if (!db
+        .select('PRAGMA table_info(room_members)')
+        .any((r) => r['name'] == 'avatar')) {
+      db.execute(
+        "ALTER TABLE room_members ADD COLUMN avatar_source TEXT NOT NULL DEFAULT ''",
+      );
+      db.execute(
+        "ALTER TABLE room_members ADD COLUMN avatar TEXT NOT NULL DEFAULT ''",
+      );
+    }
   }
   final Database db;
   final String? _path;
@@ -336,25 +347,66 @@ class RoomStore {
     final actor = digest(token);
     // Always validate the invitation, even when replaying a registration.
     verifyInvite(_metadata(id), textField(c, 'invite'));
+    // An unusable avatar never blocks entry; the member just has no picture.
+    final rawAvatar = c['avatar'];
+    final avatar = rawAvatar is String
+        ? roomAvatarUri(rawAvatar)?.toString() ?? ''
+        : '';
     return once('join:$id:$actor', c, () {
       final e = _metadata(id);
 
-      final exists = db.select(
-        'SELECT 1 FROM room_members WHERE event=? AND actor=?',
+      final existing = db.select(
+        'SELECT avatar_source FROM room_members WHERE event=? AND actor=?',
         [id, actor],
-      ).isNotEmpty;
+      );
+      final exists = existing.isNotEmpty;
       if (!exists && e['ended'] == true) reject('活动已经结束', 409);
       if (!exists && _memberCount(id) >= 500) reject('活动参与人数已达上限', 409);
       if (!exists) {
-        db.execute('INSERT INTO room_members VALUES(?,?,?)', [
-          id,
-          actor,
-          textField(c, 'name', max: 40),
-        ]);
+        db.execute(
+          'INSERT INTO room_members(event,actor,name,avatar_source) VALUES(?,?,?,?)',
+          [id, actor, textField(c, 'name', max: 40), avatar],
+        );
+        _touch(id);
+      } else if (avatar.isNotEmpty &&
+          existing.single['avatar_source'] != avatar) {
+        db.execute(
+          "UPDATE room_members SET avatar_source=?,avatar='' WHERE event=? AND actor=?",
+          [avatar, id, actor],
+        );
         _touch(id);
       }
       return {'joined': true};
     });
+  }
+
+  /// Members whose Bangumi avatar has not been cached yet.
+  List<({String actor, String source})> pendingAvatars(String id) => [
+    for (final row in db.select(
+      "SELECT actor,avatar_source FROM room_members WHERE event=? AND avatar_source!='' AND avatar=''",
+      [id],
+    ))
+      (actor: row['actor'] as String, source: row['avatar_source'] as String),
+  ];
+
+  /// Records a cached avatar unless the member changed it meanwhile.
+  bool setMemberAvatar(String id, String actor, String source, String key) {
+    db.execute('BEGIN IMMEDIATE');
+    try {
+      if (db.select('SELECT 1 FROM covers WHERE id=?', [key]).isEmpty)
+        reject('头像尚未保存');
+      db.execute(
+        'UPDATE room_members SET avatar=? WHERE event=? AND actor=? AND avatar_source=?',
+        [key, id, actor, source],
+      );
+      final changed = db.updatedRows > 0;
+      if (changed) _touch(id);
+      db.execute('COMMIT');
+      return changed;
+    } catch (_) {
+      db.execute('ROLLBACK');
+      rethrow;
+    }
   }
 
   int _memberCount(String id) =>
@@ -603,6 +655,15 @@ class RoomStore {
     );
   }
 
+  /// A participant sees the wall once they have scored the round, so their
+  /// score is not swayed by others; the host may open it to everyone.
+  bool _wallOpen(Json e, Json r, String? actor) =>
+      r['publicComments'] == true ||
+      db.select(
+        'SELECT 1 FROM room_scores WHERE event=? AND round=? AND actor=?',
+        [e['id'], r['id'], actor],
+      ).isNotEmpty;
+
   Json _comments(
     Json e,
     Json r, {
@@ -614,7 +675,7 @@ class RoomStore {
     final id = e['id'], roundId = r['id'];
     final visible = admin
         ? ''
-        : r['publicComments'] == true
+        : _wallOpen(e, r, actor)
         ? ' AND (hidden=0 OR actor=?)'
         : ' AND actor=?';
     final args = <Object?>[id, roundId, if (!admin) actor];
@@ -708,9 +769,16 @@ class RoomStore {
         'status': r['status'],
         'published': r['published'],
         'publicComments': r['publicComments'],
+        if (!admin)
+          'commentsOpen':
+              r['publicComments'] == true || mine.containsKey(r['id']),
         'count': count,
         'myScore': mine[r['id']],
-        if (admin || r['published'] == true)
+        // Ending an activity publishes every round that was played, so the
+        // whole-activity summary is available to everyone who took part.
+        if (admin ||
+            r['published'] == true ||
+            (e['ended'] == true && r['status'] != 'waiting'))
           'stats': {
             'count': count,
             'mean': count == 0
@@ -756,10 +824,14 @@ class RoomStore {
       if (admin)
         'members': [
           for (final m in db.select(
-            'SELECT actor,name FROM room_members WHERE event=?',
+            'SELECT actor,name,avatar FROM room_members WHERE event=?',
             [id],
           ))
-            {'name': m['name'], 'submitted': submitted.contains(m['actor'])},
+            {
+              'name': m['name'],
+              'submitted': submitted.contains(m['actor']),
+              if ((m['avatar'] as String).isNotEmpty) 'avatar': m['avatar'],
+            },
         ],
     };
   }
@@ -776,9 +848,7 @@ class RoomStore {
   /// writer connection or materializing the whole comment history in memory.
   Stream<String> exportStream(String id, {required String format}) async* {
     if (_path == null || _path == ':memory:') {
-      yield format == 'json'
-          ? jsonEncode(export(id))
-          : csv(id, comments: format == 'comments');
+      yield format == 'json' ? jsonEncode(export(id)) : csv(id, format: format);
       return;
     }
     final reader = RoomStore._reader(
@@ -789,7 +859,7 @@ class RoomStore {
       for (final chunk
           in format == 'json'
               ? reader._jsonChunks(id)
-              : reader._csvChunks(id, comments: format == 'comments')) {
+              : reader._csvChunks(id, format: format)) {
         yield chunk;
       }
     } finally {
@@ -843,17 +913,40 @@ class RoomStore {
     return '"${text.replaceAll('"', '""')}"';
   }
 
-  Iterable<String> _csvChunks(String id, {bool comments = false}) sync* {
-    final columns = comments
-        ? ['番剧', '匿名短评', '已隐藏']
-        : ['番剧', '人数', '均分', for (var i = 1; i <= 10; i++) '$i 分'];
-    yield '\uFEFF${columns.map(_csvCell).join(',')}';
+  /// `scores` and `comments` are the original separate tables; `combined`
+  /// puts each anonymous comment on a row beside its round's aggregate, with
+  /// one row for a round without comments. Rows never pair a person's score
+  /// with their comment.
+  Iterable<String> _csvChunks(String id, {String format = 'scores'}) sync* {
+    final stats = ['番剧', '人数', '均分', for (var i = 1; i <= 10; i++) '$i 分'];
+    final columns = switch (format) {
+      'comments' => ['番剧', '匿名短评', '已隐藏'],
+      'combined' => [...stats, '匿名短评', '已隐藏'],
+      _ => stats,
+    };
+    String row(List<Object?> cells) => cells.map(_csvCell).join(',');
+    yield '﻿${row(columns)}';
     for (final r in view(id, admin: true)['rounds'] as List) {
-      if (comments) {
-        for (final c in _exportComments(id, r['id']))
-          yield '\r\n${[r['subject']['title'], c['text'], c['hidden']].map(_csvCell).join(',')}';
-      } else {
-        yield '\r\n${[r['subject']['title'], r['stats']['count'], r['stats']['mean'], ...r['stats']['distribution']].map(_csvCell).join(',')}';
+      final title = r['subject']['title'];
+      final aggregate = [
+        title,
+        r['stats']['count'],
+        r['stats']['mean'],
+        ...r['stats']['distribution'],
+      ];
+      switch (format) {
+        case 'comments':
+          for (final c in _exportComments(id, r['id']))
+            yield '\r\n${row([title, c['text'], c['hidden']])}';
+        case 'combined':
+          var any = false;
+          for (final c in _exportComments(id, r['id'])) {
+            any = true;
+            yield '\r\n${row([...aggregate, c['text'], c['hidden']])}';
+          }
+          if (!any) yield '\r\n${row([...aggregate, null, null])}';
+        default:
+          yield '\r\n${row(aggregate)}';
       }
     }
   }
@@ -881,32 +974,8 @@ class RoomStore {
     return {...result, 'type': 'delta', 'baseRevision': since};
   }
 
-  String csv(String id, {bool comments = false}) {
-    String cell(Object? v) {
-      var s = v?.toString() ?? '';
-      if (RegExp(r'^[\s]*[=+@\-\t\r\n]').hasMatch(s)) s = "'$s";
-      return '"${s.replaceAll('"', '""')}"';
-    }
-
-    final rows = <List<Object?>>[
-      comments
-          ? ['番剧', '匿名短评', '已隐藏']
-          : ['番剧', '人数', '均分', for (var i = 1; i <= 10; i++) '$i 分'],
-    ];
-    for (final r in export(id)['rounds'] as List) {
-      if (comments) {
-        for (final c in r['comments']) {
-          rows.add([r['subject']['title'], c['text'], c['hidden']]);
-        }
-      } else {
-        rows.add([
-          r['subject']['title'],
-          r['stats']['count'],
-          r['stats']['mean'],
-          ...r['stats']['distribution'],
-        ]);
-      }
-    }
-    return '\uFEFF${rows.map((r) => r.map(cell).join(',')).join('\r\n')}';
-  }
+  String csv(String id, {bool comments = false, String? format}) => _csvChunks(
+    id,
+    format: format ?? (comments ? 'comments' : 'scores'),
+  ).join();
 }

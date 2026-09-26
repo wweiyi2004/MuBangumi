@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mubangumi/core/auth/website_session.dart';
+import 'package:mubangumi/core/auth/website_identity.dart';
 import 'package:mubangumi/core/network/community_service.dart';
 import 'package:mubangumi/models/community_models.dart';
 
@@ -846,7 +847,7 @@ void main() {
           turnstileToken: 'turnstile-token',
         ),
         throwsA(
-          isA<FormatException>().having(
+          isA<WebsiteAccessException>().having(
             (error) => error.message,
             'message',
             contains('登录已过期'),
@@ -1026,7 +1027,7 @@ void main() {
           turnstileToken: 'turnstile-token',
         ),
         throwsA(
-          isA<FormatException>().having(
+          isA<WebsiteAccessException>().having(
             (error) => error.message,
             'message',
             contains('Bangumi 账号'),
@@ -1080,7 +1081,7 @@ void main() {
         turnstileToken: 'turnstile-token',
       ),
       throwsA(
-        isA<FormatException>().having(
+        isA<WebsiteAccessException>().having(
           (error) => error.message,
           'message',
           contains('Bangumi 账号'),

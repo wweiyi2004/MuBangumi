@@ -1,0 +1,46 @@
+name: Native build checks
+on:
+  push:
+    branches: [main]
+    paths: ['lib/**', 'packages/banjian_server/**', 'android/**', 'ios/**', 'windows/**', 'pubspec.*', '.fvmrc', 'tool/toolchain.json', '.github/workflows/native-builds.yml']
+  pull_request:
+    paths: ['lib/**', 'packages/banjian_server/**', 'android/**', 'ios/**', 'windows/**', 'pubspec.*', '.fvmrc', 'tool/toolchain.json', '.github/workflows/native-builds.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: native-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  compile:
+    name: Compile ${{ matrix.platform }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {platform: android, os: ubuntu-latest, command: 'flutter build apk --debug --no-pub --target-platform android-arm64'}
+          - {platform: windows, os: windows-latest, command: 'flutter build windows --debug --no-pub'}
+          - {platform: ios, os: macos-latest, command: 'flutter build ios --simulator --debug --no-codesign --no-pub'}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - name: Read pinned Flutter version
+        id: toolchain
+        shell: pwsh
+        run: |
+          $v = Get-Content tool/toolchain.json -Raw | ConvertFrom-Json
+          "flutter=$($v.flutter)" >> $env:GITHUB_OUTPUT
+      - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
+        if: matrix.platform == 'android'
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
+        with:
+          flutter-version: ${{ steps.toolchain.outputs.flutter }}
+          channel: stable
+          cache: true
+      - run: flutter pub get --enforce-lockfile
+      - name: Compile without signing credentials
+        run: ${{ matrix.command }}

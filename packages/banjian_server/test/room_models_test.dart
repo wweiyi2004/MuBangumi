@@ -16,6 +16,18 @@ void main() {
       expect(() => s.toJson()['rounds'].clear(), throwsUnsupportedError);
     },
   );
+  test('comment wall flag falls back to the host switch for old servers', () {
+    RoundSnapshot round(Json json) =>
+        RoomSnapshot.fromJson(json).rounds.single;
+    final old = fixture()..['rounds'] = [fixture()['rounds'][0]];
+    old['rounds'][0]['publicComments'] = false;
+    expect(round(old).commentsOpen, false);
+    final scored = fixture()..['rounds'] = [fixture()['rounds'][0]];
+    scored['rounds'][0]['commentsOpen'] = true;
+    expect(round(scored).commentsOpen, true);
+    scored['rounds'][0]['commentsOpen'] = 'yes';
+    expect(() => RoomSnapshot.fromJson(scored), throwsFormatException);
+  });
   test('invalid states, distributions and foreign deltas fail explicitly', () {
     final bad = fixture();
     bad['rounds'][0]['status'] = 'bogus';

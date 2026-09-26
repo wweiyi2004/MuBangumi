@@ -3,6 +3,7 @@ import '../../../models/bangumi_models.dart';
 import '../../../models/schedule_models.dart';
 import '../../../widgets/subject_widgets.dart';
 import '../../../widgets/readable_subject_title.dart';
+import '../../../core/theme/app_tokens.dart';
 
 class ScheduleDragPayload {
   const ScheduleDragPayload(this.item, this.season);
@@ -288,7 +289,7 @@ class ScheduleCourseCell extends StatelessWidget {
                   ),
                   decoration: BoxDecoration(
                     color: scheme.error,
-                    borderRadius: BorderRadius.circular(8),
+                    borderRadius: AppRadius.small,
                   ),
                   child: Text(
                     unreadCount > 9 ? '9+' : '$unreadCount',
@@ -334,7 +335,7 @@ class ScheduleCourseCell extends StatelessWidget {
       onDraggableCanceled: (_, _) => onDragEnded?.call(),
       feedback: Material(
         elevation: 8,
-        borderRadius: BorderRadius.circular(10),
+        borderRadius: AppRadius.small,
         clipBehavior: Clip.antiAlias,
         child: SizedBox(
           width: 72,

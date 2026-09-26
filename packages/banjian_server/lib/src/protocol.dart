@@ -3,7 +3,12 @@ import 'dart:math';
 import 'package:crypto/crypto.dart';
 
 typedef Json = Map<String, dynamic>;
-Uri? roomCoverUri(String raw) {
+Uri? roomCoverUri(String raw) => _bangumiImageUri(raw, '/pic/cover/');
+
+/// Participant avatars are accepted only as Bangumi-hosted user pictures.
+Uri? roomAvatarUri(String raw) => _bangumiImageUri(raw, '/pic/user/');
+
+Uri? _bangumiImageUri(String raw, String kind) {
   final uri = Uri.tryParse(raw);
   if (uri == null ||
       raw.length > 2048 ||
@@ -12,7 +17,7 @@ Uri? roomCoverUri(String raw) {
       !['http', 'https'].contains(uri.scheme) ||
       !['lain.bgm.tv', 'lain.bangumi.tv'].contains(uri.host) ||
       (uri.hasPort && uri.port != (uri.scheme == 'https' ? 443 : 80)) ||
-      !uri.path.contains('/pic/cover/'))
+      !uri.path.contains(kind))
     return null;
   return uri.replace(scheme: 'https', port: 443);
 }

@@ -39,6 +39,30 @@ class SnapshotCache {
     return 'discover_browse:${type.value}:$year:$seasonPart:$sort';
   }
 
+  static String pmFriendsKey(int userId) => 'pm_friends_snapshot:$userId';
+
+  Future<List<BangumiUser>?> readPmFriends(int userId) async {
+    if (userId <= 0) return null;
+    final json = await _cache.readJson(pmFriendsKey(userId));
+    if (json?['user_id'] != userId || json?['items'] is! List) return null;
+    try {
+      return [
+        for (final item in json!['items'] as List)
+          BangumiUser.fromJson(Map<String, dynamic>.from(item as Map)),
+      ];
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<void> writePmFriends(int userId, List<BangumiUser> friends) async {
+    if (userId <= 0) return;
+    await _cache.writeJson(pmFriendsKey(userId), {
+      'user_id': userId,
+      'items': [for (final friend in friends) friend.toJson()],
+    }, accountScoped: true);
+  }
+
   Future<BangumiUser?> readLastUser() async {
     final json = await _cache.readJson(lastUserKey);
     final user = json?['user'];
@@ -122,6 +146,40 @@ class SnapshotCache {
   Future<void> clearCollections(String username) async {
     if (username.trim().isEmpty) return;
     await _cache.remove(collectionsKey(username));
+  }
+
+  /// Invalidate only the subject whose optimistic edit was discarded. Other
+  /// collections must remain available if the following refresh is offline.
+  Future<void> invalidateCollection(String username, int subjectId) async {
+    final snapshot = await readCollections(username);
+    if (snapshot == null ||
+        !snapshot.any((item) => item.subjectId == subjectId)) {
+      return;
+    }
+    final retained = snapshot
+        .where((item) => item.subjectId != subjectId)
+        .toList();
+    if (retained.isEmpty) {
+      await clearCollections(username);
+      return;
+    }
+    final coverage = snapshot is CollectionSnapshot ? snapshot.coverage : null;
+    final removedType = snapshot
+        .firstWhere((item) => item.subjectId == subjectId)
+        .subject
+        .type;
+    await writeCollections(
+      username,
+      CollectionSnapshot(
+        retained,
+        coverage: CollectionCoverage(
+          loadedCount: retained.length,
+          sourceTotal: coverage?.sourceTotal,
+          completeness: CollectionCompleteness.partial,
+          loadedTypes: {...?coverage?.loadedTypes}..remove(removedType),
+        ),
+      ),
+    );
   }
 
   Future<void> clearUserScope(String username) async {

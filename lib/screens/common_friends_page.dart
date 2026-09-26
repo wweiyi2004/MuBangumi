@@ -30,11 +30,34 @@ class _CommonFriendsPageState extends ConsumerState<CommonFriendsPage> {
   bool _loading = true;
   String? _error;
   String _query = '';
+  int _requestId = 0;
 
   @override
   void initState() {
     super.initState();
+    ref.listenManual(
+      sessionProvider.select((state) => (state.user?.id, state.user?.username)),
+      (_, _) => _resetAccount(),
+    );
     Future.microtask(_load);
+  }
+
+  @override
+  void didUpdateWidget(covariant CommonFriendsPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.targetUsername != widget.targetUsername) _resetAccount();
+  }
+
+  void _resetAccount() {
+    _requestId++;
+    _queryController.clear();
+    setState(() {
+      _friends = const [];
+      _loading = true;
+      _error = null;
+      _query = '';
+    });
+    Future.microtask(() => _load(refresh: true));
   }
 
   @override
@@ -44,11 +67,14 @@ class _CommonFriendsPageState extends ConsumerState<CommonFriendsPage> {
   }
 
   Future<void> _load({bool refresh = false}) async {
+    if (!mounted) return;
+    final requestId = ++_requestId;
     final me = ref.read(sessionProvider).user?.username.trim() ?? '';
     final target = widget.targetUsername.trim();
     if (me.isEmpty || target.isEmpty) {
       setState(() {
         _loading = false;
+        _friends = const [];
         _error = '请先登录后查看共同好友';
       });
       return;
@@ -62,13 +88,13 @@ class _CommonFriendsPageState extends ConsumerState<CommonFriendsPage> {
         _community.loadAllFriends(me, refresh: refresh),
         _community.loadAllFriends(target, refresh: refresh),
       ]);
-      if (!mounted) return;
+      if (!mounted || requestId != _requestId) return;
       setState(() {
         _friends = findCommonFriends(pages[0], pages[1]);
         _loading = false;
       });
     } catch (error) {
-      if (!mounted) return;
+      if (!mounted || requestId != _requestId) return;
       setState(() {
         _loading = false;
         _error = error.toString().replaceFirst('Exception: ', '');

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../core/theme/app_tokens.dart';
 
 /// Dimmed camera mask with an animated scan frame and traveling line.
 class FriendQrScanOverlay extends StatefulWidget {
@@ -33,7 +34,7 @@ class _FriendQrScanOverlayState extends State<FriendQrScanOverlay>
   Widget build(BuildContext context) {
     final shortest = MediaQuery.sizeOf(context).shortestSide;
     final frame = widget.frameSize ?? (shortest * 0.62).clamp(220.0, 300.0);
-    const accent = Color(0xFFFF77A2);
+    const accent = AppPalette.scanAccent;
     return IgnorePointer(
       child: AnimatedBuilder(
         animation: _controller,
@@ -61,7 +62,7 @@ class _FriendQrScanOverlayState extends State<FriendQrScanOverlay>
                       height: 2.5,
                       margin: const EdgeInsets.symmetric(horizontal: 16),
                       decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(99),
+                        borderRadius: AppRadius.round,
                         gradient: LinearGradient(
                           colors: [
                             accent.withValues(alpha: 0),

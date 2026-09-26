@@ -1,28 +1,25 @@
 import assert from "node:assert/strict";
 import { access, readFile } from "node:fs/promises";
 import test from "node:test";
+import { unstable_dev } from "wrangler";
 
 const templateRoot = new URL("../", import.meta.url);
 
 async function render() {
-  const workerUrl = new URL("../dist/server/index.js", import.meta.url);
-  workerUrl.searchParams.set("test", `${process.pid}-${Date.now()}`);
-  const { default: worker } = await import(workerUrl.href);
-
-  return worker.fetch(
-    new Request("http://localhost/", {
-      headers: { accept: "text/html" },
-    }),
-    {
-      ASSETS: {
-        fetch: async () => new Response("Not found", { status: 404 }),
-      },
-    },
-    {
-      waitUntil() {},
-      passThroughOnException() {},
-    },
-  );
+  // The production bundle imports cloudflare:workers; exercise the same
+  // runtime instead of relying on accidental compatibility with Node's loader.
+  const worker = await unstable_dev("dist/server/index.js", {
+    config: "dist/server/wrangler.json", ip: "127.0.0.1", port: 0,
+    local: true, persist: false, envFiles: [], logLevel: "error",
+    experimental: { disableExperimentalWarning: true, disableDevRegistry: true,
+      watch: false, showInteractiveDevSession: false, enableContainers: false },
+  });
+  try {
+    const response = await worker.fetch("/", { headers: { accept: "text/html" } });
+    return new Response(await response.text(), { status: response.status, headers: response.headers });
+  } finally {
+    await worker.stop();
+  }
 }
 
 test("server-renders the MuBangumi homepage", async () => {

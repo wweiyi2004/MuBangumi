@@ -1,3 +1,4 @@
+import 'package:mubangumi/core/storage/snapshot_cache.dart';
 import 'dart:async';
 
 import 'package:mubangumi/core/auth/bangumi_oauth.dart';
@@ -49,4 +50,11 @@ class PmTestWebsiteStore extends WebsiteSessionStore {
   Future<void> write(WebsiteSessionSnapshot value) async {
     verifiedUserId = value.verifiedUserId;
   }
+}
+
+class PmTestFriendsCache extends SnapshotCache {
+  @override
+  Future<List<BangumiUser>?> readPmFriends(int userId) async => null;
+  @override
+  Future<void> writePmFriends(int userId, List<BangumiUser> friends) async {}
 }

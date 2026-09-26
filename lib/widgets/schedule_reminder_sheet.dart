@@ -7,6 +7,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../models/schedule_models.dart';
 import '../state/schedule_controller.dart';
+import '../core/theme/app_tokens.dart';
 
 Future<void> showScheduleReminderSheet(
   BuildContext context, {
@@ -118,7 +119,7 @@ class _ScheduleReminderSheetState
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
                   color: scheme.surfaceContainerHighest.withValues(alpha: .55),
-                  borderRadius: BorderRadius.circular(12),
+                  borderRadius: AppRadius.medium,
                 ),
                 child: Text(
                   _helpText,

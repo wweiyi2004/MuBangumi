@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../core/storage/bangumi_sync_store.dart';
 import '../models/bangumi_models.dart';
 import '../state/session_controller.dart';
+import '../core/theme/app_tokens.dart';
 
 Future<void> showSyncIssuesSheet(BuildContext context) =>
     showModalBottomSheet<void>(
@@ -218,7 +219,7 @@ class _SyncIssuesSheetState extends ConsumerState<SyncIssuesSheet> {
               child: DecoratedBox(
                 decoration: BoxDecoration(
                   color: colorScheme.errorContainer.withValues(alpha: 0.55),
-                  borderRadius: BorderRadius.circular(14),
+                  borderRadius: AppRadius.medium,
                 ),
                 child: Padding(
                   padding: const EdgeInsets.all(12),

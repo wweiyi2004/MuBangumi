@@ -101,6 +101,9 @@ class PendingSyncController {
           }
           _retryStep = 0;
         } catch (error) {
+          // An account guard cancellation leaves the original work pending;
+          // it is not a permanent rejection by the server.
+          if (!_isCurrent(account)) return;
           retryLater = _isRetryable(error);
           final marked = await _store.markFailure(
             mutation,

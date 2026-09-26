@@ -5,6 +5,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/auth/website_session.dart';
 import '../core/auth/website_cookie_bridge.dart';
+import '../core/auth/website_identity.dart' show websiteRecoveryUri;
+import '../core/diagnostics/account_diagnostics.dart';
+import '../state/account_diagnostics_provider.dart';
 import '../state/account_access_controller.dart';
 import '../state/session_controller.dart';
 import '../state/website_session_controller.dart';
@@ -17,12 +20,16 @@ class WebsiteLoginScreen extends ConsumerStatefulWidget {
     super.key,
     this.cookieLoader,
     this.freshLogin = false,
+    this.clearBeforeLoad = false,
+    this.initialUrl = loginUrl,
   });
 
   static const loginUrl = 'https://bgm.tv/login';
 
   final Future<List<WebsiteCookie>> Function()? cookieLoader;
   final bool freshLogin;
+  final bool clearBeforeLoad;
+  final String initialUrl;
 
   @override
   ConsumerState<WebsiteLoginScreen> createState() => _WebsiteLoginScreenState();
@@ -31,6 +38,14 @@ class WebsiteLoginScreen extends ConsumerStatefulWidget {
 class _WebsiteLoginScreenState extends ConsumerState<WebsiteLoginScreen> {
   List<WebsiteCookie>? _seedCookies;
   String? _seedError;
+  int _loadGeneration = 0;
+  final _closed = Completer<void>();
+
+  @override
+  void dispose() {
+    _closed.complete();
+    super.dispose();
+  }
 
   @override
   void initState() {
@@ -39,6 +54,7 @@ class _WebsiteLoginScreenState extends ConsumerState<WebsiteLoginScreen> {
   }
 
   Future<void> _loadSeedCookies() async {
+    final generation = ++_loadGeneration;
     // Always prefer disk snapshot over possibly-stale Riverpod memory. Load
     // once up-front so the WebView is initialized with the real cookies;
     // CommunityWebScreen injects seedCookies only during its initState, so a
@@ -48,16 +64,23 @@ class _WebsiteLoginScreenState extends ConsumerState<WebsiteLoginScreen> {
       _seedError = null;
     });
     try {
+      if (widget.clearBeforeLoad) {
+        await WebsiteCookieBridge.clearBgmCookies(strict: true);
+      }
       await WebsiteCookieBridge.waitForPendingCleanup();
+      if (!mounted || generation != _loadGeneration) return;
       final cookies = widget.freshLogin
           ? const <WebsiteCookie>[]
-          : await (widget.cookieLoader ?? loadWebsiteSeedCookies)();
-      if (!mounted) return;
+          : await Future.any([
+              (widget.cookieLoader ?? loadWebsiteSeedCookies)(),
+              _closed.future.then((_) => const <WebsiteCookie>[]),
+            ]).timeout(const Duration(seconds: 10));
+      if (!mounted || generation != _loadGeneration) return;
       setState(() => _seedCookies = cookies);
     } catch (error) {
-      if (!mounted) return;
+      if (!mounted || generation != _loadGeneration) return;
       setState(() {
-        _seedError = error.toString().replaceFirst('Exception: ', '');
+        _seedError = widget.clearBeforeLoad ? '登录会话清理未完成，请重试' : '无法读取网站登录，请重试';
       });
     }
   }
@@ -77,7 +100,7 @@ class _WebsiteLoginScreenState extends ConsumerState<WebsiteLoginScreen> {
               children: [
                 const Icon(Icons.error_outline_rounded, size: 48),
                 const SizedBox(height: 16),
-                const Text('无法读取网站登录，请重试', textAlign: TextAlign.center),
+                Text(error, textAlign: TextAlign.center),
                 const SizedBox(height: 16),
                 FilledButton.icon(
                   onPressed: _loadSeedCookies,
@@ -91,14 +114,27 @@ class _WebsiteLoginScreenState extends ConsumerState<WebsiteLoginScreen> {
       );
     }
     if (cookies == null) {
-      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+      return Scaffold(
+        appBar: AppBar(title: const Text('补充账号验证')),
+        body: const Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              CircularProgressIndicator(),
+              SizedBox(height: 16),
+              Text('正在准备登录页面…'),
+            ],
+          ),
+        ),
+      );
     }
     return CommunityWebScreen(
-      initialUrl: WebsiteLoginScreen.loginUrl,
+      initialUrl: widget.initialUrl,
       title: '验证账号',
       showSectionSwitcher: false,
       seedCookies: cookies,
       enableCookieCapture: true,
+      requireBrowserIdentity: true,
       captureActionLabel: '核验登录',
       loginHint: '使用与应用相同的 Bangumi 账号，登录成功后自动返回。',
       onSessionSaved: () {
@@ -128,7 +164,21 @@ Future<bool> ensureWebsiteAccess(
     ).showSnackBar(const SnackBar(content: Text('请先登录 Bangumi 账号')));
     return false;
   }
-  if (await access.verify(force: retryVerification)) return true;
+  // Explicit repair is navigation, not another hidden network check. In
+  // particular, an expired/challenged session must reach its recovery page
+  // even when the independent HTTP probe is slow or returns a healthy home.
+  final before = container.read(websiteSessionProvider);
+  final rejected = const {
+    WebsiteAccessStatus.expired,
+    WebsiteAccessStatus.mismatch,
+    WebsiteAccessStatus.challenge,
+    WebsiteAccessStatus.cleanupRequired,
+  }.contains(before.status);
+  if (!interactiveRecovery &&
+      !rejected &&
+      await access.verify(force: retryVerification)) {
+    return true;
+  }
   if (!context.mounted) return false;
   final state = container.read(websiteSessionProvider);
   if (!state.requiresLogin && !interactiveRecovery) {
@@ -138,26 +188,34 @@ Future<bool> ensureWebsiteAccess(
     return false;
   }
   return access.runLogin(() async {
+    container
+        .read(accountDiagnosticsProvider)
+        .record(
+          AccountArea.website,
+          AccountEvent.loginOpened,
+          state: state.status.index,
+        );
     final freshLogin =
         state.status == WebsiteAccessStatus.mismatch ||
         state.status == WebsiteAccessStatus.expired ||
         state.status == WebsiteAccessStatus.cleanupRequired;
-    if (freshLogin) {
-      try {
-        await WebsiteCookieBridge.clearBgmCookies(strict: true);
-      } catch (_) {
-        if (context.mounted) {
-          ScaffoldMessenger.of(
-            context,
-          ).showSnackBar(const SnackBar(content: Text('登录会话清理失败，请稍后重试')));
-        }
-        return false;
-      }
-    }
+    // A rejected HTTP snapshot does not establish that the browser's current
+    // cookies are bad. Preserve them and capture the visible account again,
+    // without reinjecting the rejected snapshot. Account mismatch still needs
+    // cleanup, performed inside the visible route with retry/error feedback.
     if (!context.mounted) return false;
     return await Navigator.of(context).push<bool>(
           MaterialPageRoute<bool>(
-            builder: (_) => WebsiteLoginScreen(freshLogin: freshLogin),
+            builder: (_) => WebsiteLoginScreen(
+              freshLogin: freshLogin,
+              clearBeforeLoad:
+                  state.status == WebsiteAccessStatus.mismatch ||
+                  state.status == WebsiteAccessStatus.cleanupRequired,
+              initialUrl: state.status == WebsiteAccessStatus.challenge
+                  ? (websiteRecoveryUri(state.recoveryUri)?.toString() ??
+                        'https://bgm.tv/pm')
+                  : WebsiteLoginScreen.loginUrl,
+            ),
           ),
         ) ??
         false;
@@ -178,9 +236,26 @@ Future<void> openSeededCommunityWeb(
   bool showSectionSwitcher = true,
   String? loginHint,
 }) async {
+  final container = ProviderScope.containerOf(context, listen: false);
+  final access = container.read(accountAccessProvider);
+  final revision = access.revision;
   if (!await ensureWebsiteAccess(context) || !context.mounted) return;
-  final cookies = await loadWebsiteSeedCookies();
-  if (!context.mounted) return;
+  if (revision != access.revision) return;
+  final WebsiteSessionSnapshot session;
+  try {
+    // Use the verified owner-bound snapshot, not a second disk read that can
+    // race logout, account switching, or a pending cookie-store write.
+    session = await access.requireWebsiteSession();
+  } on WebsiteAccessException catch (error) {
+    if (context.mounted && revision == access.revision) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(error.message)));
+    }
+    return;
+  }
+  if (!context.mounted || revision != access.revision) return;
+  final cookies = session.cookies;
   await Navigator.of(context).push(
     MaterialPageRoute<void>(
       builder: (_) => CommunityWebScreen(

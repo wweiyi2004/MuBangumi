@@ -10,6 +10,13 @@ on:
       - "pubspec.yaml"
       - "pubspec.lock"
       - "analysis_options.yaml"
+      - ".fvmrc"
+      - "integration_test/**"
+      - "tool/toolchain*"
+      - "tool/check_toolchain.py"
+      - "tool/verify_all.ps1"
+      - "tool/release_provenance.py"
+      - "tool/tests/release_provenance_test.py"
       - "shorebird.yaml"
       - "android/**"
       - "ios/**"
@@ -35,6 +42,13 @@ on:
       - "pubspec.yaml"
       - "pubspec.lock"
       - "analysis_options.yaml"
+      - ".fvmrc"
+      - "integration_test/**"
+      - "tool/toolchain*"
+      - "tool/check_toolchain.py"
+      - "tool/verify_all.ps1"
+      - "tool/release_provenance.py"
+      - "tool/tests/release_provenance_test.py"
       - "shorebird.yaml"
       - "android/**"
       - "ios/**"
@@ -54,28 +68,52 @@ on:
       - ".github/workflows/flutter.yml"
   workflow_dispatch:
 
+permissions:
+  contents: read
+
+concurrency:
+  group: flutter-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   analyze-and-test:
     runs-on: windows-latest
+    timeout-minutes: 30
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+
+      - name: Read toolchain
+        id: toolchain
+        shell: pwsh
+        run: |
+          $v = Get-Content tool/toolchain.json -Raw | ConvertFrom-Json
+          "flutter=$($v.flutter)" >> $env:GITHUB_OUTPUT
+          "python=$($v.python.release_mirror)" >> $env:GITHUB_OUTPUT
+
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version-file: website/.node-version
+
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: ${{ steps.toolchain.outputs.python }}
 
       - name: Set up Flutter
-        uses: subosito/flutter-action@v2
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
         with:
-          flutter-version: 3.44.7
+          flutter-version: ${{ steps.toolchain.outputs.flutter }}
           channel: stable
           cache: true
 
       - name: Install dependencies
-        run: flutter pub get
+        run: flutter pub get --enforce-lockfile
 
       # Root analysis also visits the standalone package's tests. Resolve its
       # dev dependencies before analysis on clean runners.
       - name: Install Banjian server dependencies
         working-directory: packages/banjian_server
-        run: dart pub get
+        run: dart pub get --enforce-lockfile
 
       - name: Analyze
         run: flutter analyze
@@ -105,5 +143,12 @@ jobs:
 
       - name: Verify mirror publication safeguards
         run: |
-          python -m pip install -r tool/requirements-mirror.txt
+          python -m pip install --require-hashes -r tool/requirements-mirror.txt
           python -m unittest discover -s tool/tests -p mirror_release_test.py
+
+      - name: Verify maintenance tooling
+        run: |
+          python tool/check_toolchain.py
+          python -m unittest discover -s tool/tests -p release_provenance_test.py
+          python -m unittest discover -s tool/tests -p repository_privacy_test.py
+          ./tool/tests/workspace_cleanup_test.ps1

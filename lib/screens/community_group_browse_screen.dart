@@ -38,6 +38,7 @@ class _CommunityGroupBrowseScreenState
   void initState() {
     super.initState();
     widget.service.accountChanges.addListener(_resetContent);
+    widget.service.contentPreferencesChanges.addListener(_resetContent);
     _scroll.addListener(() {
       if (_scroll.position.extentAfter < 400 && _error == null) _load();
     });
@@ -66,7 +67,9 @@ class _CommunityGroupBrowseScreenState
     super.didUpdateWidget(oldWidget);
     if (oldWidget.service != widget.service) {
       oldWidget.service.accountChanges.removeListener(_resetContent);
+      oldWidget.service.contentPreferencesChanges.removeListener(_resetContent);
       widget.service.accountChanges.addListener(_resetContent);
+      widget.service.contentPreferencesChanges.addListener(_resetContent);
     }
     if (oldWidget.service != widget.service ||
         oldWidget.group != widget.group ||
@@ -136,6 +139,7 @@ class _CommunityGroupBrowseScreenState
   @override
   void dispose() {
     widget.service.accountChanges.removeListener(_resetContent);
+    widget.service.contentPreferencesChanges.removeListener(_resetContent);
     _scroll.dispose();
     super.dispose();
   }

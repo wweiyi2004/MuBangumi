@@ -8,6 +8,7 @@ import '../models/schedule_models.dart';
 import '../state/schedule_controller.dart';
 import '../state/session_controller.dart';
 import 'subject_widgets.dart';
+import '../core/theme/app_tokens.dart';
 
 Future<void> showSeasonAnimePicker(
   BuildContext context, {
@@ -270,9 +271,9 @@ class _SeasonAnimePickerState extends ConsumerState<SeasonAnimePicker> {
                               color: Theme.of(
                                 context,
                               ).colorScheme.surfaceContainerLow,
-                              borderRadius: BorderRadius.circular(12),
+                              borderRadius: AppRadius.medium,
                               child: InkWell(
-                                borderRadius: BorderRadius.circular(12),
+                                borderRadius: AppRadius.medium,
                                 onTap: locked || existing.contains(subject.id)
                                     ? null
                                     : () => setState(() {

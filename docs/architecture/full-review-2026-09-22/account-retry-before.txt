@@ -1,0 +1,28 @@
+00:00 +0: loading <repo>/.dart_tool/full_audit/account_retry_repro_test.dart
+00:00 +0: review: add friend must not retry as replacement account
+00:00 +0 -1: review: add friend must not retry as replacement account [E]
+  Expected: ['Bearer account-a-test-token']
+    Actual: ['Bearer account-a-test-token', 'Bearer account-b-test-token']
+     Which: at location [1] is ['Bearer account-a-test-token', 'Bearer account-b-test-token'] which longer than expected
+  Account A intent must not issue a second write authenticated as account B.
+
+  package:matcher                                           expect
+  package:flutter_test/src/widget_tester.dart 473:18        expect
+  .dart_tool\full_audit\account_retry_repro_test.dart 39:7  main.<fn>
+
+00:00 +0 -1: review: remove friend must not retry as replacement account
+00:00 +0 -2: review: remove friend must not retry as replacement account [E]
+  Expected: ['Bearer account-a-test-token']
+    Actual: ['Bearer account-a-test-token', 'Bearer account-b-test-token']
+     Which: at location [1] is ['Bearer account-a-test-token', 'Bearer account-b-test-token'] which longer than expected
+  Account A intent must not issue a second write authenticated as account B.
+
+  package:matcher                                           expect
+  package:flutter_test/src/widget_tester.dart 473:18        expect
+  .dart_tool\full_audit\account_retry_repro_test.dart 39:7  main.<fn>
+
+00:00 +0 -2: Some tests failed.
+
+Failing tests:
+  <repo>/.dart_tool/full_audit/account_retry_repro_test.dart: review: add friend must not retry as replacement account
+  <repo>/.dart_tool/full_audit/account_retry_repro_test.dart: review: remove friend must not retry as replacement account

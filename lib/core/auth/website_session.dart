@@ -1,7 +1,38 @@
 import 'dart:convert';
+import 'dart:io';
+import 'dart:math';
 
 import 'package:crypto/crypto.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+
+typedef WebsiteResponseCookieReceiver =
+    Future<WebsiteSessionSnapshot?> Function(
+      String requestKey,
+      List<Cookie> cookies,
+    );
+
+List<Cookie> parseWebsiteResponseCookies(
+  List<String>? headers,
+  Uri requestUri,
+) {
+  final cookies = <Cookie>[];
+  for (final value in headers ?? const <String>[]) {
+    try {
+      final cookie = Cookie.fromSetCookieValue(value);
+      cookie.domain ??= requestUri.host;
+      final lastSlash = requestUri.path.lastIndexOf('/');
+      cookie.path ??= lastSlash <= 0
+          ? '/'
+          : requestUri.path.substring(0, lastSlash);
+      cookies.add(cookie);
+    } on HttpException {
+      // Ignore malformed cookies without discarding the HTTP response.
+    } on FormatException {
+      // Invalid attributes do not invalidate the page itself.
+    }
+  }
+  return cookies;
+}
 
 /// One cookie captured from the Bangumi website WebView session.
 class WebsiteCookie {
@@ -66,6 +97,7 @@ class WebsiteCookie {
 
 /// Persisted website login snapshot (supplemental to OAuth).
 class WebsiteSessionSnapshot {
+  static final _verificationRandom = Random.secure();
   const WebsiteSessionSnapshot({
     required this.cookies,
     required this.syncedAt,
@@ -73,6 +105,7 @@ class WebsiteSessionSnapshot {
     this.verifiedAt,
     this.verificationVersion = 0,
     this.userAgent,
+    this.verificationId,
   });
 
   final List<WebsiteCookie> cookies;
@@ -83,6 +116,9 @@ class WebsiteSessionSnapshot {
   final int? verifiedUserId;
   final DateTime? verifiedAt;
   final int verificationVersion;
+
+  /// Distinguishes renewals even when the platform clock has not advanced.
+  final String? verificationId;
 
   /// Browser identity used when these website cookies were captured.
   final String? userAgent;
@@ -114,8 +150,23 @@ class WebsiteSessionSnapshot {
         verifiedUserId: userId,
         verifiedAt: at ?? DateTime.now(),
         verificationVersion: 2,
+        verificationId: base64UrlEncode(
+          List<int>.generate(16, (_) => _verificationRandom.nextInt(256)),
+        ),
         userAgent: userAgent,
       );
+
+  WebsiteSessionSnapshot withRenewedRequestKey() => WebsiteSessionSnapshot(
+    cookies: cookies,
+    syncedAt: syncedAt,
+    verifiedUserId: verifiedUserId,
+    verifiedAt: verifiedAt,
+    verificationVersion: verificationVersion,
+    verificationId: base64UrlEncode(
+      List<int>.generate(16, (_) => _verificationRandom.nextInt(256)),
+    ),
+    userAgent: userAgent,
+  );
 
   WebsiteSessionSnapshot withoutVerification() => WebsiteSessionSnapshot(
     cookies: cookies,
@@ -175,6 +226,7 @@ class WebsiteSessionSnapshot {
     if (verifiedUserId != null) 'verified_user_id': verifiedUserId,
     if (verifiedAt != null) 'verified_at': verifiedAt!.toIso8601String(),
     'verification_version': verificationVersion,
+    if (verificationId != null) 'verification_id': verificationId,
     if (userAgent != null) 'user_agent': userAgent,
   };
 
@@ -205,6 +257,9 @@ class WebsiteSessionSnapshot {
       verificationVersion: json['verification_version'] is int
           ? json['verification_version'] as int
           : 0,
+      verificationId: json['verification_id'] is String
+          ? json['verification_id'] as String
+          : null,
       userAgent: json['user_agent'] is String
           ? json['user_agent'] as String
           : null,

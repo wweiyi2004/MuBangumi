@@ -148,6 +148,7 @@ class NotifyBadgeController extends StateNotifier<NotifyBadgeState> {
   }
 
   void setUnreadCount(int count) {
+    _invalidateRefresh();
     state = state.copyWith(
       unreadCount: count < 0 ? 0 : count,
       isLoading: false,
@@ -156,12 +157,19 @@ class NotifyBadgeController extends StateNotifier<NotifyBadgeState> {
   }
 
   void markOneReadLocally() {
+    _invalidateRefresh();
     final next = state.unreadCount - 1;
-    state = state.copyWith(unreadCount: next < 0 ? 0 : next);
+    state = state.copyWith(unreadCount: next < 0 ? 0 : next, isLoading: false);
   }
 
   void clearLocally() {
+    _invalidateRefresh();
     state = state.copyWith(unreadCount: 0, isLoading: false, clearError: true);
+  }
+
+  void _invalidateRefresh() {
+    _refreshGeneration++;
+    _inFlight = null;
   }
 
   @override

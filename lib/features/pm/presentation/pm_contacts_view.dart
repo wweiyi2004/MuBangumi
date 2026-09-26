@@ -4,6 +4,7 @@ import '../../../models/pm_contact.dart';
 import '../../../state/pm_contacts_controller.dart';
 import '../../../widgets/social_chat_style.dart';
 import 'pm_avatar.dart';
+import '../../../widgets/projection_art.dart';
 
 class PmContactsView extends StatelessWidget {
   const PmContactsView({
@@ -37,7 +38,7 @@ class PmContactsView extends StatelessWidget {
             children: [
               Expanded(
                 child: Text(
-                  contacts.friendsLoading
+                  contacts.friendsLoading && contacts.friends.isEmpty
                       ? '正在加载完整好友列表…'
                       : contacts.friendsError != null &&
                             contacts.friends.isEmpty
@@ -51,7 +52,9 @@ class PmContactsView extends StatelessWidget {
               ),
               IconButton(
                 tooltip: '刷新好友和会话',
-                onPressed: contacts.busy ? null : () => contacts.refresh(),
+                onPressed: contacts.busy
+                    ? null
+                    : () => contacts.refresh(forceFriends: true),
                 icon: const Icon(CupertinoIcons.arrow_clockwise, size: 18),
               ),
             ],
@@ -62,7 +65,7 @@ class PmContactsView extends StatelessWidget {
           _Notice(
             message: contacts.friendsError!,
             action: '重试好友加载',
-            onTap: () => contacts.refreshFriends(),
+            onTap: () => contacts.refreshFriends(refresh: true),
           ),
         if (contacts.needAuth)
           _Notice(
@@ -80,7 +83,7 @@ class PmContactsView extends StatelessWidget {
           ),
         Expanded(
           child: RefreshIndicator(
-            onRefresh: () => contacts.refresh(),
+            onRefresh: () => contacts.refresh(forceFriends: true),
             child: ListView.builder(
               physics: const AlwaysScrollableScrollPhysics(),
               padding: const EdgeInsets.fromLTRB(8, 0, 8, 80),
@@ -91,9 +94,24 @@ class PmContactsView extends StatelessWidget {
                     children: [
                       if (items.isEmpty && !contacts.busy)
                         Padding(
-                          padding: const EdgeInsets.all(24),
-                          child: Text(
-                            query.isNotEmpty ? '没有匹配的好友或联系人' : '还没有好友或私信会话',
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 16,
+                            vertical: 12,
+                          ),
+                          child: Column(
+                            children: [
+                              ProjectionIllustration(
+                                scene: query.isNotEmpty
+                                    ? ProjectionScene.discover
+                                    : ProjectionScene.conversation,
+                                width: 92,
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                query.isNotEmpty ? '没有匹配的好友或联系人' : '还没有好友或私信会话',
+                                textAlign: TextAlign.center,
+                              ),
+                            ],
                           ),
                         ),
                       if (contacts.historyIncomplete &&
