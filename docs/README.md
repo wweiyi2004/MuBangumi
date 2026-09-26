@@ -4,14 +4,15 @@
 
 ## 当前入口
 
-- [2026-09-24 维护交付](maintenance/FOLLOWUP_2026-09-24.md)：当前改动分组、社区/发现页职责拆分、平台验证入口和未完成验收边界。
+- [2.4.0 交付与验收边界](maintenance/RELEASE_2.4.0.md)：本次整合、发布包隐私保护与仍未验收的项目。
+- [2026-09-24 维护交付](maintenance/FOLLOWUP_2026-09-24.md)：历史改动分组、社区/发现页职责拆分及当时的验证状态。
 - [工作区交付清单](maintenance/WORKTREE_DELIVERY_2026-09-24.md)：本轮开始时的 236 个变更路径及建议提交顺序；不是提交或发布记录。
 - [维护方案实施记录（2026-09-22）](maintenance/IMPLEMENTATION_2026-09-22.md)：已落实的工具链、CI、回归、诊断和发布记录，及尚需设备/云端执行的验证。
 - [全仓检查与可持续维护方案（2026-09-22）](architecture/PROJECT_MAINTENANCE_REVIEW_2026-09-22.md)：验证矩阵、确认问题、账号重试修复及后续维护优先级。
-- [最新发布说明：2.3.1](releases/2.3.1.md)
+- [最新发布说明](../CHANGELOG.md)与[2.3.1 历史说明](releases/2.3.1.md)
 - [整体架构审查](architecture/ARCHITECTURE_REVIEW_2026-09-19.md)与[修复记录](architecture/ARCHITECTURE_FIXES_2026-09-19.md)
-- [减少重复网页登录验证](qa/WEBSITE_SESSION_REUSE_2026-09-19.md)：后续修复，尚未发布。
-- [原创视觉与紧凑布局](qa/original-art-2026-09-19/README.md)：当前设计迭代，尚未发布。
+- [减少重复网页登录验证](qa/WEBSITE_SESSION_REUSE_2026-09-19.md)：历史修复记录，后续发布状态见最新交付说明。
+- [原创视觉与紧凑布局](qa/original-art-2026-09-19/README.md)：设计迭代记录，已纳入 2.4.0 交付。
 - [体验路线图](UX_ROADMAP.md)
 
 ## 目录职责

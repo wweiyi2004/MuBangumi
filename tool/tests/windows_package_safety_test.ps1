@@ -37,6 +37,8 @@ try {
         'data/flutter_assets/Local Storage/leveldb/000001.log',
         'data/flutter_assets/oauth.local.json',
         'data/flutter_assets/bangumi_credentials_v2',
+        'data/flutter_assets/app.windows.symbols',
+        'data/flutter_assets/model.onnx',
         '../data/flutter_assets/file.txt',
         'unexpected.txt',
         'DATA/APP.SO'
@@ -54,6 +56,21 @@ try {
     try { Assert-WindowsPackageArchive $renamed } catch { $rejected = $true }
     if (-not $rejected) { throw 'Renamed SQLite database passed' }
     $passed++
+    foreach ($encoding in @([Text.Encoding]::ASCII, [Text.Encoding]::Unicode)) {
+        foreach ($prefixLength in @(0, 65543)) {
+            $archive = Join-Path $testRoot ('path-' + $passed + '.zip')
+            $privatePath = 'C:' + '/Users/' + 'synthetic-person/source.cpp'
+            $payload = [byte[]]::new($prefixLength) + $encoding.GetBytes($privatePath)
+            New-FixtureArchive $archive 'native_plugin.dll' $payload
+            $rejected = $false
+            try { Assert-WindowsPackageArchive $archive } catch {
+                $rejected = $true
+                if ($_.Exception.Message.Contains($privatePath)) { throw 'Private path echoed in diagnostic' }
+            }
+            if (-not $rejected) { throw 'Binary with an embedded personal path passed' }
+            $passed++
+        }
+    }
     $unpacked = Join-Path $testRoot 'staging'
     [IO.Compression.ZipFile]::ExtractToDirectory($clean, $unpacked)
     Assert-WindowsPackageDirectory $unpacked
