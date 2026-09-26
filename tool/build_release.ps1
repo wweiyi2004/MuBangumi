@@ -147,6 +147,25 @@ try {
         if ($DryRun) {
             throw '-DryRun 仅适用于 Shorebird 构建。'
         }
+        # Flutter 3.44 skips plugin regeneration with --no-pub. A preceding
+        # Debug/integration build can otherwise leave integration_test in the
+        # Java registrant even though Gradle excludes it from Release.
+        $lockedDependencies = @{}
+        foreach ($lock in @('pubspec.lock', 'packages/banjian_server/pubspec.lock')) {
+            if (Test-Path -LiteralPath $lock) {
+                $lockedDependencies[$lock] = (Get-FileHash -LiteralPath $lock -Algorithm SHA256).Hash
+            }
+        }
+        Invoke-MuFlutter -Arguments @('pub', 'get', '--enforce-lockfile')
+        if ($LASTEXITCODE) { throw 'Locked dependency preparation failed.' }
+        $configurationTarget = if ($Target -eq 'appbundle') { 'apk' } else { $Target }
+        Invoke-MuFlutter -Arguments (@('build', $configurationTarget, '--release', '--config-only') + $versionArguments)
+        if ($LASTEXITCODE) { throw 'Release plugin configuration failed.' }
+        foreach ($lock in $lockedDependencies.Keys) {
+            if ((Get-FileHash -LiteralPath $lock -Algorithm SHA256).Hash -ne $lockedDependencies[$lock]) {
+                throw "Dependency lock changed while preparing Release plugins: $lock"
+            }
+        }
         foreach ($artifactPath in $artifactPaths) {
             if (Test-Path -LiteralPath $artifactPath -PathType Leaf) {
                 Remove-Item -LiteralPath $artifactPath -Force

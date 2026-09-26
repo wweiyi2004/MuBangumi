@@ -21,6 +21,10 @@ Windows 本地可运行 `./tool/verify_all.ps1 -Mode Full -WindowsSmoke`，追�
 
 普通 Flutter 通用 APK 使用 `./tool/build_release.ps1 -Target apk -UniversalApk -VerificationReport <results.json>`。该选项保留 pubspec 的原始 versionCode，避免 ABI 分包为构建号增加偏移；不改变 Shorebird 基线。省略该选项仍保留原来的分架构构建行为。
 
+普通 Release 构建先校验锁文件并按 Release 模式刷新插件注册代码，再用 `--no-pub` 编译，避免之前的 Debug/集成测试注册器引用仅在开发环境可用的插件。准备过程中锁文件变化会阻止编译。
+
+分发构建使用独立、干净的已提交检出及通用临时构建盘符；保持验证过的源码文件内容与锁文件不变。Flutter 自动生成的 Dart 注册器也可能在二进制中保留构建路径，仅分离调试符号并不足以消除它。最终 Windows ZIP 必须通过内容扫描，凭据配置只在被忽略的本机构建目录使用。
+
 ## 清理本地中间产物
 
 在仓库根目录使用 PowerShell：

@@ -13,6 +13,7 @@ New-Item -ItemType Directory (Join-Path $testRoot 'sdk\bin\cache') -Force | Out-
 $pinned = Get-Content (Join-Path $testRoot 'tool\toolchain.json') -Raw | ConvertFrom-Json
 @{frameworkVersion=$pinned.flutter;engineRevision=$pinned.flutterEngineRevision;frameworkRevision=$pinned.flutterFrameworkRevision} | ConvertTo-Json | Set-Content (Join-Path $testRoot 'sdk\bin\cache\flutter.version.json')
 'version: 2.2.0+24' | Set-Content (Join-Path $testRoot 'pubspec.yaml')
+'fixture-locked-dependencies' | Set-Content (Join-Path $testRoot 'pubspec.lock')
 @'
 build/
 config/
@@ -24,7 +25,7 @@ sdk/
 & git -C $testRoot -c user.name=Fixture -c user.email=fixture@example.test commit --quiet -m fixture
 # Only synthetic credentials are used; the real workspace configuration is never read.
 '{"BGM_CLIENT_ID":"fixture-id","BGM_CLIENT_SECRET":"fixture-secret"}' | Set-Content -LiteralPath (Join-Path $testRoot 'config\oauth.local.json') -Encoding utf8
-$fixture = @{ Calls = [Collections.Generic.List[object]]::new(); OmitAbi = ''; OmitSymbols = $false; FailBuild = $false }
+$fixture = @{ Calls = [Collections.Generic.List[object]]::new(); OmitAbi = ''; OmitSymbols = $false; FailBuild = $false; DriftLock = $false }
 $passed = 0
 
 function Assert-True([bool]$Condition, [string]$Message) {
@@ -39,6 +40,12 @@ function Write-FixtureFile([string]$Relative) {
 
 function flutter {
     $fixture.Calls.Add(@($args))
+    if ($args[0] -eq 'pub') { $global:LASTEXITCODE = 0; return }
+    if ($args -contains '--config-only') {
+        if ($fixture.DriftLock) { Write-FixtureFile 'pubspec.lock' }
+        $global:LASTEXITCODE = 0
+        return
+    }
     if ($fixture.FailBuild) { $global:LASTEXITCODE = 7; return }
     $symbolArgument = @($args | Where-Object { $_ -like '--split-debug-info=*' })
     if ($symbolArgument.Count -and -not $fixture.OmitSymbols) {
@@ -100,6 +107,8 @@ function Invoke-FixtureBuild {
 try {
     Invoke-FixtureBuild -Target apk -BuildName 2.2.0 -BuildNumber 25 -GiteeRepository 'fixture/MuBangumi'
     $call = $fixture.Calls[-1]
+    Assert-True ($fixture.Calls[0] -contains '--enforce-lockfile') 'Release must enforce the dependency lock before regenerating plugins'
+    Assert-True ($fixture.Calls[1] -contains '--config-only' -and $fixture.Calls[1] -contains '--release' -and $fixture.Calls[1] -notcontains '--no-pub') 'Release plugin regeneration was skipped'
     Assert-True ($call -contains '--split-per-abi') 'APK must split architectures'
     Assert-True ($call -contains '--dart-define=GITEE_REPOSITORY=fixture/MuBangumi') 'Mirror configuration was not compiled into the application'
     Assert-True ($call -contains '--tree-shake-icons') 'Icon trimming must be enabled'
@@ -171,6 +180,14 @@ try {
     $rejected = $false
     try { Invoke-FixtureBuild -Target windows -UniversalApk } catch { $rejected = $true }
     Assert-True $rejected 'Universal APK flag accepted for a non-APK build'
+    $passed++
+    $fixture.DriftLock = $true
+    $rejected = $false
+    try { Invoke-FixtureBuild -Target apk } catch { $rejected = $true }
+    Assert-True $rejected 'Release accepted dependency drift during plugin preparation'
+    Assert-True ($fixture.Calls[-1] -contains '--config-only') 'Compiler ran after the dependency lock changed'
+    $fixture.DriftLock = $false
+    & git -C $testRoot restore -- pubspec.lock
     $passed++
     Write-Output "Passed $passed release build checks."
 } finally {

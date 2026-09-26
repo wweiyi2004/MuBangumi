@@ -35,6 +35,9 @@ try {
     if ($LASTEXITCODE) { throw 'Cannot identify source content' }
     Check 'toolchain-files' { python tool/check_toolchain.py }
     if ($Areas -contains 'flutter') {
+        # Restore Debug/dev plugin registrants after any previous Release build.
+        # --no-pub commands below otherwise reuse mode-specific generated files.
+        Check 'flutter-dependencies' { Invoke-MuFlutter -Arguments @('pub','get','--enforce-lockfile') }
         Check 'flutter-analyze' { Invoke-MuFlutter -Arguments @('analyze','--no-pub') }
         Check 'flutter-tests' { Invoke-MuFlutter -Arguments @('test','--no-pub','--reporter','expanded') }
         if ($Mode -eq 'Full') {
