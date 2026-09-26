@@ -33,7 +33,8 @@ try {
             if ([IO.Path]::GetExtension($path) -match '^\.(md|txt|json|ya?ml|dart|py|ps1|[cm]?js|tsx?|kt|kts|xml|html|css|toml|ini|config)$' -or
                 [IO.Path]::GetFileName($path) -in @('.env.example', '.gitignore', '.fvmrc')) {
                 $content = [IO.File]::ReadAllText($path)
-                if ($content -match '(?i)[a-z]:[\\/]+(?:Users|wweiyi)[\\/]') {
+                if ($content -match '(?i)[a-z]:[\\/]+Users[\\/]' -or
+                    $content.Replace('\', '/').IndexOf($repositoryRoot.Replace('\', '/'), [StringComparison]::OrdinalIgnoreCase) -ge 0) {
                     $violations += "$name (personal machine path)"
                 }
                 if ($content -match '(?:gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{30,}|AKIA[A-Z0-9]{16}|-----BEGIN (?:RSA |OPENSSH |EC )?PRIVATE KEY-----)') {
