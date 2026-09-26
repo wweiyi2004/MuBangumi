@@ -111,7 +111,7 @@ Invoke-MuFlutter -Arguments @('run','-d','windows')
 Invoke-MuFlutter -Arguments @('run','-d','<flutter devices 显示的设备 ID>')
 ```
 
-iOS 工程已生成，但 iOS 编译和签名必须在安装了 Xcode 的 macOS 上完成。
+iOS 工程最低支持 iOS 14，以匹配当前原生插件要求；编译和签名必须在安装了 Xcode 的 macOS 上完成。本次发行不提供 iOS 安装包，模拟器编译由 macOS CI 单独验证。
 
 ## 登录
 
