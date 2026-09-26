@@ -25,7 +25,10 @@ class RepositoryPrivacyTest(unittest.TestCase):
     def check(self):
         return subprocess.run(
             ['pwsh', '-NoProfile', '-File', str(self.root / 'tool/verify_repository_privacy.ps1')],
-            cwd=self.root, capture_output=True, text=True, encoding='utf-8')
+            # PowerShell's diagnostic decoration follows the host console code
+            # page. Assertions use ASCII file names and synthetic secrets only.
+            cwd=self.root, capture_output=True, text=True, encoding='utf-8',
+            errors='replace')
 
     def test_ignores_private_local_configuration(self):
         self.write('config/oauth.local.json', 'synthetic-local-only')
