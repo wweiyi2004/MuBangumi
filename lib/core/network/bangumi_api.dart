@@ -83,12 +83,7 @@ class BangumiApi {
               (status == 401 && usingProxy) ||
               status == 429 ||
               (status != null && status >= 500) ||
-              const {
-                DioExceptionType.connectionTimeout,
-                DioExceptionType.sendTimeout,
-                DioExceptionType.receiveTimeout,
-                DioExceptionType.connectionError,
-              }.contains(error.type);
+              _isTransientTransportFailure(error);
           var message = usingProxy
               ? 'Bangumi 反代连接失败，请测速或切换线路'
               : '连接 Bangumi 失败，请稍后重试';
