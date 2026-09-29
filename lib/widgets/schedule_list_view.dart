@@ -43,6 +43,58 @@ class ScheduleListView extends StatelessWidget {
   Widget build(BuildContext context) {
     final currentSeason = schedule.season == SeasonKey.current(today);
     final sections = scheduleSections(schedule, view, today);
+    List<Widget> sectionRows(ScheduleDaySection section) => [
+      Padding(
+        padding: const EdgeInsets.fromLTRB(4, 12, 4, 8),
+        child: Text(
+          section.weekday == null
+              ? '待安排 · ${section.items.length} 部'
+              : '${section.weekday == today.weekday && currentSeason ? '今天 · ' : ''}${weekdayLabel(section.weekday!)}${section.date == null ? '' : '  ${section.date!.month}/${section.date!.day}'} · ${section.items.length} 部',
+          style: Theme.of(context).textTheme.titleMedium?.copyWith(
+            color: section.weekday == today.weekday
+                ? Theme.of(context).colorScheme.primary
+                : null,
+          ),
+        ),
+      ),
+      if (section.items.isEmpty && view == ScheduleView.today)
+        Padding(
+          padding: const EdgeInsets.fromLTRB(4, 4, 4, 16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                view == ScheduleView.today
+                    ? currentSeason
+                          ? '今天没有安排，轻松休息一下。'
+                          : '所选季度的${weekdayLabel(today.weekday)}没有安排。'
+                    : '暂无安排',
+              ),
+              if (view == ScheduleView.today)
+                TextButton(onPressed: onViewWeek, child: const Text('查看整周安排')),
+            ],
+          ),
+        ),
+      for (final item in section.items)
+        Padding(
+          padding: const EdgeInsets.only(bottom: 10),
+          child: _ScheduleListCard(
+            key: ValueKey('schedule-list-${item.subjectId}'),
+            item: item,
+            collection: progressMap[item.subjectId],
+            unread: unreadBySubject[item.subjectId] ?? 0,
+            bound: boundSubjects.contains(item.subjectId),
+            rssAvailable: rssAvailable,
+            onProgress: onProgress == null ? null : () => onProgress!(item),
+            onViewUpdates: onViewUpdates == null
+                ? null
+                : () => onViewUpdates!(item),
+            updating: updatingSubjects.contains(item.subjectId),
+            onOpen: () => onOpen(item),
+            onActions: () => onActions(item),
+          ),
+        ),
+    ];
     final rows = <Widget>[
       if (!currentSeason)
         Padding(
@@ -67,61 +119,10 @@ class ScheduleListView extends StatelessWidget {
           ),
         )
       else
-        for (final section in sections) ...[
-          Padding(
-            padding: const EdgeInsets.fromLTRB(4, 12, 4, 8),
-            child: Text(
-              section.weekday == null
-                  ? '待安排 · ${section.items.length} 部'
-                  : '${section.weekday == today.weekday && currentSeason ? '今天 · ' : ''}${weekdayLabel(section.weekday!)}${section.date == null ? '' : '  ${section.date!.month}/${section.date!.day}'} · ${section.items.length} 部',
-              style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                color: section.weekday == today.weekday
-                    ? Theme.of(context).colorScheme.primary
-                    : null,
-              ),
-            ),
-          ),
-          if (section.items.isEmpty && view == ScheduleView.today)
-            Padding(
-              padding: const EdgeInsets.fromLTRB(4, 4, 4, 16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    view == ScheduleView.today
-                        ? currentSeason
-                              ? '今天没有安排，轻松休息一下。'
-                              : '所选季度的${weekdayLabel(today.weekday)}没有安排。'
-                        : '暂无安排',
-                  ),
-                  if (view == ScheduleView.today)
-                    TextButton(
-                      onPressed: onViewWeek,
-                      child: const Text('查看整周安排'),
-                    ),
-                ],
-              ),
-            ),
-          for (final item in section.items)
-            Padding(
-              padding: const EdgeInsets.only(bottom: 10),
-              child: _ScheduleListCard(
-                key: ValueKey('schedule-list-${item.subjectId}'),
-                item: item,
-                collection: progressMap[item.subjectId],
-                unread: unreadBySubject[item.subjectId] ?? 0,
-                bound: boundSubjects.contains(item.subjectId),
-                rssAvailable: rssAvailable,
-                onProgress: onProgress == null ? null : () => onProgress!(item),
-                onViewUpdates: onViewUpdates == null
-                    ? null
-                    : () => onViewUpdates!(item),
-                updating: updatingSubjects.contains(item.subjectId),
-                onOpen: () => onOpen(item),
-                onActions: () => onActions(item),
-              ),
-            ),
-        ],
+        for (final entry in _groupSections(sections, view, today.weekday))
+          ...(entry.emptyDays.isEmpty
+              ? sectionRows(entry.section!)
+              : [_emptyDaysNote(context, entry.emptyDays)]),
     ];
     return ListView.builder(
       key: ValueKey(
@@ -137,6 +138,63 @@ class ScheduleListView extends StatelessWidget {
       ),
     );
   }
+}
+
+/// One row of the list: a real day/unscheduled section, or a run of
+/// consecutive empty weekdays folded into a single muted note.
+class _SectionGroup {
+  const _SectionGroup.section(ScheduleDaySection this.section)
+    : emptyDays = const [];
+  const _SectionGroup.empty(this.emptyDays) : section = null;
+  final ScheduleDaySection? section;
+  final List<int> emptyDays;
+}
+
+/// Week view only: today stays visible even when empty; other empty days that
+/// are adjacent collapse together. Pure presentation, sections are untouched.
+List<_SectionGroup> _groupSections(
+  List<ScheduleDaySection> sections,
+  ScheduleView view,
+  int todayWeekday,
+) {
+  final groups = <_SectionGroup>[];
+  var run = <int>[];
+  void flush() {
+    if (run.isNotEmpty) groups.add(_SectionGroup.empty(run));
+    run = <int>[];
+  }
+
+  for (final section in sections) {
+    final collapsible =
+        view == ScheduleView.week &&
+        section.weekday != null &&
+        section.weekday != todayWeekday &&
+        section.items.isEmpty;
+    if (collapsible) {
+      run.add(section.weekday!);
+    } else {
+      flush();
+      groups.add(_SectionGroup.section(section));
+    }
+  }
+  flush();
+  return groups;
+}
+
+Widget _emptyDaysNote(BuildContext context, List<int> days) {
+  final theme = Theme.of(context);
+  final label = days.length == 1
+      ? weekdayLabel(days.first)
+      : '${weekdayLabel(days.first)}–${weekdayLabel(days.last)}';
+  return Padding(
+    padding: const EdgeInsets.fromLTRB(4, 8, 4, 8),
+    child: Text(
+      '$label 无安排',
+      style: theme.textTheme.bodySmall?.copyWith(
+        color: theme.colorScheme.onSurfaceVariant,
+      ),
+    ),
+  );
 }
 
 class _ScheduleListCard extends StatelessWidget {
@@ -295,7 +353,7 @@ class _ScheduleListCard extends StatelessWidget {
                               ? '保存中…'
                               : collection == null
                               ? '加入在看'
-                              : '看完一集',
+                              : '看完下一集',
                         ),
                       ),
                     if (onViewUpdates != null && (bound || unread > 0))

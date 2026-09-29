@@ -139,16 +139,21 @@ class SchedulePage extends ConsumerWidget {
                                 .read(rssProvider.notifier)
                                 .refreshAll(force: true),
                             onSources: () => showRssSourcesSheet(context),
-                          ),
-                          const SizedBox(height: 4),
-                          Text(
-                            '前台每 30 分钟检查 RSS · 关闭应用后不抓取',
-                            style: TextStyle(
-                              color: Theme.of(
-                                context,
-                              ).colorScheme.onSurfaceVariant,
-                              fontSize: isWide ? null : 13,
+                            onCreateSeason: () => showScheduleSeasonDialog(
+                              context,
+                              current: state.season,
+                              onCreate: ref
+                                  .read(scheduleProvider.notifier)
+                                  .createSeason,
                             ),
+                            onDeleteSeason:
+                                !state.saving && state.schedule.items.isEmpty
+                                ? () => ref
+                                      .read(scheduleProvider.notifier)
+                                      .deleteCurrentSeason(
+                                        expectedSeason: state.season,
+                                      )
+                                : null,
                           ),
                           const SizedBox(height: 12),
                           ScheduleSeasonPicker(

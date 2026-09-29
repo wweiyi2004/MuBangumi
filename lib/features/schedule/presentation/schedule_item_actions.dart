@@ -65,7 +65,7 @@ Future<void> showScheduleItemActions(
                 leading: Icon(
                   collection == null ? Icons.add_rounded : Icons.check_rounded,
                 ),
-                title: Text(collection == null ? '加入在看' : '看完一集'),
+                title: Text(collection == null ? '加入在看' : '看完下一集'),
                 onTap: () => Navigator.pop(context, 'progress'),
               ),
             ListTile(

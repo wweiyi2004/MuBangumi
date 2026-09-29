@@ -131,7 +131,7 @@ void main() {
       final env = _Environment();
       await _show(tester, env);
       final card = find.byKey(const ValueKey('schedule-list-1'));
-      await tester.tap(find.descendant(of: card, matching: find.text('看完一集')));
+      await tester.tap(find.descendant(of: card, matching: find.text('看完下一集')));
       await tester.pumpAndSettle();
       expect(env.session.state.collections.first.episodeStatus, 1);
       expect(env.rss.state.unreadFor(1), 2);
@@ -471,6 +471,77 @@ void main() {
           .items,
       hasLength(3),
     );
+  });
+
+  testWidgets('the always-visible header no longer carries RSS internals', (
+    tester,
+  ) async {
+    final env = _Environment();
+    await _show(tester, env);
+    expect(find.textContaining('前台每 30 分钟'), findsNothing);
+    await tester.tap(find.byTooltip('新番表更多操作'));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('前台每 30 分钟'), findsOneWidget);
+    expect(find.textContaining('关闭应用后不抓取'), findsOneWidget);
+  });
+
+  testWidgets('phone keeps a single overflow menu with season actions', (
+    tester,
+  ) async {
+    final env = _Environment();
+    await _show(tester, env);
+    expect(find.byTooltip('季度操作'), findsNothing);
+    expect(find.byType(PopupMenuButton<String>), findsOneWidget);
+    await tester.tap(find.byTooltip('新番表更多操作'));
+    await tester.pumpAndSettle();
+    for (final label in ['导出图片', '检查更新', '更新源 RSS', '新建表']) {
+      expect(find.text(label), findsOneWidget);
+    }
+    // The fixture season still has works, so it cannot be deleted.
+    expect(find.text('删空表'), findsNothing);
+    await tester.tap(find.text('新建表'));
+    await tester.pumpAndSettle();
+    expect(find.byType(AlertDialog), findsOneWidget);
+  });
+
+  for (final scale in [1.0, 1.8]) {
+    testWidgets('merged overflow menu fits a 320 phone at scale $scale', (
+      tester,
+    ) async {
+      final env = _Environment();
+      await _show(tester, env, width: 320, scale: scale);
+      await tester.tap(find.byTooltip('新番表更多操作'));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('关闭应用后不抓取'), findsOneWidget);
+      expect(find.text('新建表'), findsOneWidget);
+      await captureUx(tester, _boundary, 'm3_menu_320.0_${scale}_false');
+    });
+  }
+
+  testWidgets('week view folds empty days but keeps today and pending', (
+    tester,
+  ) async {
+    final env = _Environment();
+    await _show(tester, env);
+    await tester.tap(find.text('本周'));
+    await tester.pumpAndSettle();
+    expect(find.text('周一 无安排'), findsOneWidget);
+    expect(find.text('周四–周日 无安排'), findsOneWidget);
+    expect(find.textContaining('· 0 部'), findsNothing);
+    expect(find.textContaining('今天 · 周二'), findsOneWidget);
+    expect(find.textContaining('周三'), findsOneWidget);
+    expect(find.text('待安排 · 1 部'), findsOneWidget);
+  });
+
+  testWidgets('week view still shows an empty today', (tester) async {
+    final env = _Environment()..now = DateTime(2026, 9, 10, 8);
+    await _show(tester, env);
+    await tester.tap(find.text('本周'));
+    await tester.pumpAndSettle();
+    expect(find.text('今天 · 周四  9/10 · 0 部'), findsOneWidget);
+    expect(find.text('周四 无安排'), findsNothing);
+    expect(find.text('周五–周日 无安排'), findsOneWidget);
+    expect(find.text('周一 无安排'), findsOneWidget);
   });
 
   for (final width in [320.0, 390.0, 1200.0]) {
