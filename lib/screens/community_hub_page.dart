@@ -10,6 +10,7 @@ import '../core/network/community_service.dart';
 import '../models/community_models.dart';
 import '../widgets/community_widgets.dart';
 import '../widgets/community_loading.dart';
+import '../widgets/community_paging.dart';
 import '../widgets/social_group_widgets.dart';
 import '../widgets/social_chat_style.dart';
 import 'community_timeline_page.dart';
@@ -141,14 +142,11 @@ class _RakuenPageState extends State<_RakuenPage> {
   List<CommunityTopic> _topics = const [];
   List<CommunityGroup> _hotGroups = const [];
   int _total = 0;
-  bool _loading = true;
-  bool _loadingMore = false;
+  final _paging = CommunityPaging(loading: true);
   String? _error;
   int _requestId = 0;
   int _lastSuccessfulRequest = -1;
   int _nextOffset = 0;
-  bool _hasMore = true;
-  String? _loadMoreError;
 
   @override
   void initState() {
@@ -159,8 +157,7 @@ class _RakuenPageState extends State<_RakuenPage> {
   }
 
   void _onScroll() {
-    if (_loadMoreError == null &&
-        _scrollController.position.extentAfter < 500) {
+    if (_paging.shouldLoadMore(_scrollController.position, threshold: 500)) {
       unawaited(_loadMore());
     }
   }
@@ -182,7 +179,7 @@ class _RakuenPageState extends State<_RakuenPage> {
           _topics = cached.data;
           _total = cached.total;
           _nextOffset = cached.data.length;
-          _hasMore = _total > 0
+          _paging.hasMore = _total > 0
               ? _nextOffset < _total
               : cached.data.length >= 20;
         });
@@ -200,9 +197,7 @@ class _RakuenPageState extends State<_RakuenPage> {
     final activeRequest = requestId ?? ++_requestId;
     if (!mounted || activeRequest != _requestId) return;
     setState(() {
-      _loadingMore = false;
-      _loadMoreError = null;
-      _loading = true;
+      _paging.begin();
       _error = null;
     });
     try {
@@ -212,33 +207,30 @@ class _RakuenPageState extends State<_RakuenPage> {
         _topics = page.data;
         _lastSuccessfulRequest = activeRequest;
         _nextOffset = page.data.length;
-        _hasMore =
+        _paging.hasMore =
             page.data.isNotEmpty &&
             (page.total > 0
                 ? _nextOffset < page.total
                 : page.data.length >= 20);
         _total = page.total;
-        _loading = false;
+        _paging.loading = false;
       });
     } catch (error) {
       if (!mounted || activeRequest != _requestId || mode != _mode) return;
       setState(() {
-        _loading = false;
+        _paging.loading = false;
         _error = error.toString().replaceFirst('Exception: ', '');
       });
     }
   }
 
   Future<void> _loadMore() async {
-    if (_loading || _loadingMore || _topics.isEmpty || !_hasMore) {
+    if (!_paging.canLoadMore || _topics.isEmpty) {
       return;
     }
     final mode = _mode;
     final requestId = _requestId;
-    setState(() {
-      _loadingMore = true;
-      _loadMoreError = null;
-    });
+    setState(_paging.beginLoadMore);
     try {
       final page = await _service.loadTopicPage(mode, offset: _nextOffset);
       if (!mounted || mode != _mode || requestId != _requestId) return;
@@ -253,7 +245,7 @@ class _RakuenPageState extends State<_RakuenPage> {
           ),
         ];
         _nextOffset += page.data.length;
-        _hasMore =
+        _paging.hasMore =
             page.data.isNotEmpty &&
             (page.total > 0
                 ? _nextOffset < page.total
@@ -263,11 +255,14 @@ class _RakuenPageState extends State<_RakuenPage> {
     } catch (error) {
       if (!mounted || mode != _mode || requestId != _requestId) return;
       setState(() {
-        _loadMoreError = error.toString().replaceFirst('Exception: ', '');
+        _paging.loadMoreError = error.toString().replaceFirst(
+          'Exception: ',
+          '',
+        );
       });
     } finally {
       if (mounted && requestId == _requestId) {
-        setState(() => _loadingMore = false);
+        setState(() => _paging.loadingMore = false);
       }
     }
   }
@@ -294,11 +289,9 @@ class _RakuenPageState extends State<_RakuenPage> {
       _mode = mode;
       _topics = const [];
       _total = 0;
-      _hasMore = true;
+      _paging.reset();
       _nextOffset = 0;
-      _loadMoreError = null;
       _error = null;
-      _loadingMore = false;
     });
     if (_scrollController.hasClients) _scrollController.jumpTo(0);
     unawaited(_loadCacheThenRefresh());
@@ -343,7 +336,7 @@ class _RakuenPageState extends State<_RakuenPage> {
           ),
           IconButton(
             tooltip: '刷新话题',
-            onPressed: _loading ? null : () => _load(refresh: true),
+            onPressed: _paging.loading ? null : () => _load(refresh: true),
             icon: const Icon(Icons.refresh_rounded),
           ),
         ],
@@ -351,7 +344,7 @@ class _RakuenPageState extends State<_RakuenPage> {
       const SizedBox(height: 10),
       if (_topics.isNotEmpty)
         CommunityRefreshStatus(
-          loading: _loading,
+          loading: _paging.loading,
           error: _error,
           onRetry: () => _load(refresh: true),
         ),
@@ -360,7 +353,7 @@ class _RakuenPageState extends State<_RakuenPage> {
   );
 
   Widget _buildBody() {
-    if (_loading && _topics.isEmpty) {
+    if (_paging.loading && _topics.isEmpty) {
       return const Center(child: CircularProgressIndicator());
     }
     if (_error != null && _topics.isEmpty) {
@@ -394,9 +387,9 @@ class _RakuenPageState extends State<_RakuenPage> {
               );
             }
             if (_mode.aggregateType != null &&
-                !_hasMore &&
-                !_loadingMore &&
-                _loadMoreError == null) {
+                !_paging.hasMore &&
+                !_paging.loadingMore &&
+                _paging.loadMoreError == null) {
               return Padding(
                 padding: const EdgeInsets.all(12),
                 child: Column(
@@ -415,10 +408,10 @@ class _RakuenPageState extends State<_RakuenPage> {
               );
             }
             return CommunityLoadMoreFooter(
-              loading: _loadingMore,
-              hasMore: _hasMore,
-              error: _loadMoreError,
-              onLoad: _loading ? null : () => _loadMore(),
+              loading: _paging.loadingMore,
+              hasMore: _paging.hasMore,
+              error: _paging.loadMoreError,
+              onLoad: _paging.loading ? null : () => _loadMore(),
             );
           }
           final topic = _topics[index - 1];
@@ -563,14 +556,11 @@ class CommunityGroupBrowserState extends State<CommunityGroupBrowser> {
       : CommunityGroupSort.members;
   List<CommunityGroup> _groups = const [];
   int _total = 0;
-  bool _loading = true;
-  bool _loadingMore = false;
+  final _paging = CommunityPaging(loading: true);
   String? _error;
   int _requestId = 0;
   int _lastSuccessfulRequest = -1;
   int _nextOffset = 0;
-  bool _hasMore = true;
-  String? _loadMoreError;
 
   @override
   void initState() {
@@ -589,18 +579,15 @@ class CommunityGroupBrowserState extends State<CommunityGroupBrowser> {
         _groups = const [];
         _total = 0;
         _nextOffset = 0;
-        _hasMore = true;
+        _paging.reset();
         _error = null;
-        _loadMoreError = null;
-        _loadingMore = false;
       });
       unawaited(_loadCacheThenRefresh());
     });
   }
 
   void _onScroll() {
-    if (_loadMoreError == null &&
-        _scrollController.position.extentAfter < 500) {
+    if (_paging.shouldLoadMore(_scrollController.position, threshold: 500)) {
       unawaited(_loadMore());
     }
   }
@@ -622,7 +609,9 @@ class CommunityGroupBrowserState extends State<CommunityGroupBrowser> {
           _groups = cached.data;
           _total = cached.total;
           _nextOffset = cached.rawCount ?? cached.data.length;
-          _hasMore = _total > 0 ? _nextOffset < _total : _nextOffset >= 20;
+          _paging.hasMore = _total > 0
+              ? _nextOffset < _total
+              : _nextOffset >= 20;
         });
       } catch (_) {
         // Optional disk reads never block the network request.
@@ -639,9 +628,7 @@ class CommunityGroupBrowserState extends State<CommunityGroupBrowser> {
     final activeRequest = requestId ?? ++_requestId;
     if (!mounted || activeRequest != _requestId) return;
     setState(() {
-      _loadingMore = false;
-      _loadMoreError = null;
-      _loading = true;
+      _paging.begin();
       _error = null;
     });
     try {
@@ -660,32 +647,29 @@ class CommunityGroupBrowserState extends State<CommunityGroupBrowser> {
         _groups = page.data;
         _lastSuccessfulRequest = activeRequest;
         _nextOffset = page.rawCount ?? page.data.length;
-        _hasMore =
+        _paging.hasMore =
             _nextOffset > 0 &&
             (page.total > 0 ? _nextOffset < page.total : _nextOffset >= 20);
         _total = page.total;
-        _loading = false;
+        _paging.loading = false;
       });
     } catch (error) {
       if (!mounted || activeRequest != _requestId) return;
       setState(() {
-        _loading = false;
+        _paging.loading = false;
         _error = error.toString().replaceFirst('Exception: ', '');
       });
     }
   }
 
   Future<void> _loadMore() async {
-    if (_loading || _loadingMore || !_hasMore) {
+    if (!_paging.canLoadMore) {
       return;
     }
     final mode = _mode;
     final sort = _sort;
     final requestId = _requestId;
-    setState(() {
-      _loadingMore = true;
-      _loadMoreError = null;
-    });
+    setState(_paging.beginLoadMore);
     try {
       final page = await _service.loadGroupPage(
         mode: mode,
@@ -706,7 +690,7 @@ class CommunityGroupBrowserState extends State<CommunityGroupBrowser> {
         ];
         final received = page.rawCount ?? page.data.length;
         _nextOffset += received;
-        _hasMore =
+        _paging.hasMore =
             received > 0 &&
             (page.total > 0 ? _nextOffset < page.total : received >= 20);
         _total = page.total;
@@ -719,11 +703,14 @@ class CommunityGroupBrowserState extends State<CommunityGroupBrowser> {
         return;
       }
       setState(() {
-        _loadMoreError = error.toString().replaceFirst('Exception: ', '');
+        _paging.loadMoreError = error.toString().replaceFirst(
+          'Exception: ',
+          '',
+        );
       });
     } finally {
       if (mounted && requestId == _requestId) {
-        setState(() => _loadingMore = false);
+        setState(() => _paging.loadingMore = false);
       }
     }
   }
@@ -734,11 +721,9 @@ class CommunityGroupBrowserState extends State<CommunityGroupBrowser> {
       _sort = sort ?? _sort;
       _groups = const [];
       _total = 0;
-      _hasMore = true;
+      _paging.reset();
       _nextOffset = 0;
-      _loadMoreError = null;
       _error = null;
-      _loadingMore = false;
     });
     if (_scrollController.hasClients) _scrollController.jumpTo(0);
     unawaited(_loadCacheThenRefresh());
@@ -823,7 +808,7 @@ class CommunityGroupBrowserState extends State<CommunityGroupBrowser> {
             ),
             IconButton(
               tooltip: '刷新小组',
-              onPressed: _loading ? null : () => _load(refresh: true),
+              onPressed: _paging.loading ? null : () => _load(refresh: true),
               icon: const Icon(Icons.refresh_rounded),
             ),
           ],
@@ -832,7 +817,7 @@ class CommunityGroupBrowserState extends State<CommunityGroupBrowser> {
       const SizedBox(height: 6),
       if (_groups.isNotEmpty)
         CommunityRefreshStatus(
-          loading: _loading,
+          loading: _paging.loading,
           error: _error,
           onRetry: () => _load(refresh: true),
         ),
@@ -841,7 +826,7 @@ class CommunityGroupBrowserState extends State<CommunityGroupBrowser> {
   );
 
   Widget _buildBody() {
-    if (_loading && _groups.isEmpty) {
+    if (_paging.loading && _groups.isEmpty) {
       return const Center(child: CircularProgressIndicator());
     }
     if (_error != null && _groups.isEmpty) {
@@ -868,17 +853,17 @@ class CommunityGroupBrowserState extends State<CommunityGroupBrowser> {
           ),
           itemBuilder: (context, index) {
             if (index == _groups.length) {
-              if (_groups.isEmpty && !_hasMore) {
+              if (_groups.isEmpty && !_paging.hasMore) {
                 return const Padding(
                   padding: EdgeInsets.all(32),
                   child: Center(child: Text('暂时没有小组')),
                 );
               }
               return CommunityLoadMoreFooter(
-                loading: _loadingMore,
-                hasMore: _hasMore,
-                error: _loadMoreError,
-                onLoad: _loading ? null : () => _loadMore(),
+                loading: _paging.loadingMore,
+                hasMore: _paging.hasMore,
+                error: _paging.loadMoreError,
+                onLoad: _paging.loading ? null : () => _loadMore(),
               );
             }
             return GroupConversationTile(
@@ -909,14 +894,14 @@ class CommunityGroupBrowserState extends State<CommunityGroupBrowser> {
           itemCount: _groups.length + 1,
           itemBuilder: (context, index) {
             if (index == _groups.length) {
-              if (_groups.isEmpty && !_hasMore) {
+              if (_groups.isEmpty && !_paging.hasMore) {
                 return const Center(child: Text('暂时没有小组'));
               }
               return CommunityLoadMoreFooter(
-                loading: _loadingMore,
-                hasMore: _hasMore,
-                error: _loadMoreError,
-                onLoad: _loading ? null : () => _loadMore(),
+                loading: _paging.loadingMore,
+                hasMore: _paging.hasMore,
+                error: _paging.loadMoreError,
+                onLoad: _paging.loading ? null : () => _loadMore(),
               );
             }
             final group = _groups[index];
