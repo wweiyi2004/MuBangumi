@@ -1,18 +1,17 @@
 import '../navigation/app_destination.dart';
 import 'dart:async';
 
-import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../core/insights/company_insights.dart';
-import '../core/network/bangumi_endpoints.dart';
 import '../core/network/bangumi_support.dart';
 import '../models/bangumi_models.dart';
 import '../state/session_controller.dart';
 import '../widgets/subject_widgets.dart';
 import '../widgets/mono_collection_button.dart';
+import '../widgets/mono_profile_widgets.dart';
 import '../models/community_models.dart';
 import '../core/theme/app_tokens.dart';
 
@@ -363,7 +362,7 @@ class _PersonDetailScreenState extends ConsumerState<PersonDetailScreen> {
       for (final subject in _subjects.take(50))
         ListTile(
           contentPadding: EdgeInsets.zero,
-          leading: _Thumb(url: subject.imageUrl),
+          leading: MonoThumb(url: subject.imageUrl),
           title: Text(subject.displayName),
           subtitle: Text(
             [
@@ -387,7 +386,11 @@ class _PersonDetailScreenState extends ConsumerState<PersonDetailScreen> {
       for (final character in _characters.take(50))
         ListTile(
           contentPadding: EdgeInsets.zero,
-          leading: _Thumb(url: character.imageUrl, round: true),
+          leading: MonoThumb(
+            url: character.imageUrl,
+            round: true,
+            roundFallbackIcon: Icons.face_rounded,
+          ),
           title: Text(character.name),
           subtitle: Text(
             [
@@ -494,7 +497,14 @@ class _PersonDetailScreenState extends ConsumerState<PersonDetailScreen> {
                   40,
                 ),
                 children: [
-                  _PersonHeader(
+                  MonoProfileHeader(
+                    fallbackIcon: detail?.type == 2
+                        ? Icons.business_rounded
+                        : Icons.person_rounded,
+                    imageHeight: 96,
+                    imageRadius: BorderRadius.circular(
+                      detail?.type == 2 ? 20 : 48,
+                    ),
                     name: detail?.displayName ?? title,
                     subtitle:
                         detail != null &&
@@ -513,7 +523,6 @@ class _PersonDetailScreenState extends ConsumerState<PersonDetailScreen> {
                       if ((_collectionCount ?? detail?.collectCount ?? 0) > 0)
                         '收藏 ${_collectionCount ?? detail!.collectCount}',
                     ],
-                    isCompany: detail?.type == 2,
                   ),
                   if (detail?.type == 2)
                     ..._buildCompanyContent(detail!)
@@ -521,94 +530,6 @@ class _PersonDetailScreenState extends ConsumerState<PersonDetailScreen> {
                     ..._buildPersonContent(detail),
                 ],
               ),
-      ),
-    );
-  }
-}
-
-class _PersonHeader extends StatelessWidget {
-  const _PersonHeader({
-    required this.name,
-    required this.subtitle,
-    required this.imageUrl,
-    required this.meta,
-    this.isCompany = false,
-  });
-
-  final String name;
-  final String subtitle;
-  final String imageUrl;
-  final List<String> meta;
-  final bool isCompany;
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            ClipRRect(
-              borderRadius: BorderRadius.circular(isCompany ? 20 : 48),
-              child: SizedBox(
-                width: 96,
-                height: 96,
-                child: imageUrl.isEmpty
-                    ? ColoredBox(
-                        color: scheme.surfaceContainerHighest,
-                        child: Icon(
-                          isCompany
-                              ? Icons.business_rounded
-                              : Icons.person_rounded,
-                          size: 40,
-                        ),
-                      )
-                    : CachedNetworkImage(
-                        imageUrl: BangumiEndpoints.imageUrl(imageUrl),
-                        fit: BoxFit.cover,
-                        memCacheWidth: 192,
-                        memCacheHeight: 192,
-                        errorWidget: (_, _, _) => ColoredBox(
-                          color: scheme.surfaceContainerHighest,
-                          child: const Icon(Icons.broken_image_outlined),
-                        ),
-                      ),
-              ),
-            ),
-            const SizedBox(width: 16),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(name, style: Theme.of(context).textTheme.headlineSmall),
-                  if (subtitle.isNotEmpty) ...[
-                    const SizedBox(height: 4),
-                    Text(
-                      subtitle,
-                      style: TextStyle(color: scheme.onSurfaceVariant),
-                    ),
-                  ],
-                  if (meta.isNotEmpty) ...[
-                    const SizedBox(height: 10),
-                    Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
-                      children: [
-                        for (final item in meta)
-                          Chip(
-                            label: Text(item),
-                            visualDensity: VisualDensity.compact,
-                          ),
-                      ],
-                    ),
-                  ],
-                ],
-              ),
-            ),
-          ],
-        ),
       ),
     );
   }
@@ -901,47 +822,6 @@ class _CompanySourceNote extends StatelessWidget {
           ],
         ),
       ),
-    );
-  }
-}
-
-class _Thumb extends StatelessWidget {
-  const _Thumb({required this.url, this.round = false});
-
-  final String url;
-  final bool round;
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    final child = url.isEmpty
-        ? ColoredBox(
-            color: scheme.surfaceContainerHighest,
-            child: Icon(
-              round ? Icons.face_rounded : Icons.movie_filter_outlined,
-              size: 20,
-            ),
-          )
-        : CachedNetworkImage(
-            imageUrl: BangumiEndpoints.imageUrl(url),
-            fit: BoxFit.cover,
-            memCacheWidth: 96,
-            memCacheHeight: 96,
-            errorWidget: (_, _, _) => ColoredBox(
-              color: scheme.surfaceContainerHighest,
-              child: const Icon(Icons.broken_image_outlined, size: 18),
-            ),
-          );
-    if (round) {
-      return CircleAvatar(
-        radius: 22,
-        backgroundColor: scheme.surfaceContainerHighest,
-        child: ClipOval(child: SizedBox(width: 44, height: 44, child: child)),
-      );
-    }
-    return ClipRRect(
-      borderRadius: AppRadius.small,
-      child: SizedBox(width: 44, height: 60, child: child),
     );
   }
 }

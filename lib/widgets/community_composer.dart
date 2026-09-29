@@ -11,6 +11,7 @@ export '../core/storage/community_draft_store.dart' show communityDraftKey;
 
 import 'turnstile_dialog.dart';
 import 'community_rich_content.dart';
+import 'draft_status.dart';
 
 typedef CommunitySubmit =
     Future<void> Function(String title, String content, String token);
@@ -738,11 +739,10 @@ class _CommunityComposerDialogState extends State<_CommunityComposerDialog> {
                   Text(
                     _restoring
                         ? '正在读取草稿…'
-                        : _savingDraft || _dirty
-                        ? '正在保存草稿…'
-                        : _draftSaved
-                        ? '草稿已保存在本机'
-                        : '草稿会自动保存在本机',
+                        : draftAutosaveLabel(
+                            saving: _savingDraft || _dirty,
+                            saved: _draftSaved,
+                          ),
                     style: Theme.of(context).textTheme.bodySmall,
                   ),
               ],
