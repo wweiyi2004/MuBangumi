@@ -307,15 +307,44 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             mainAxisSize: MainAxisSize.min,
             children: [
-              Text(
-                '已选 ${_selected.length} 部${outside > 0 ? ' · $outside 部在当前筛选外' : ''}',
-                key: const ValueKey('library-selected-count'),
-                style: Theme.of(context).textTheme.titleSmall,
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      '已选 ${_selected.length} 部${outside > 0 ? ' · $outside 部在当前筛选外' : ''}',
+                      key: const ValueKey('library-selected-count'),
+                      style: Theme.of(context).textTheme.titleSmall,
+                    ),
+                  ),
+                  TextButton(
+                    onPressed: () => setState(() {
+                      _selected.clear();
+                      _selectionMode = false;
+                    }),
+                    child: const Text('退出多选'),
+                  ),
+                ],
               ),
-              Text('长按作品可查看完整名称', style: Theme.of(context).textTheme.bodySmall),
               Wrap(
                 spacing: 8,
                 runSpacing: 4,
+                children: [
+                  FilledButton(
+                    onPressed: (_selected.isEmpty || !canBatch)
+                        ? null
+                        : () => _openBatch(LibraryBatchKind.collection),
+                    child: const Text('改状态'),
+                  ),
+                  FilledButton(
+                    onPressed: (_selected.isEmpty || !canBatch)
+                        ? null
+                        : () => _openBatch(LibraryBatchKind.schedule),
+                    child: const Text('加入新番表'),
+                  ),
+                ],
+              ),
+              Wrap(
+                spacing: 8,
                 children: [
                   TextButton(
                     onPressed: visibleIds.isEmpty
@@ -334,25 +363,6 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
                         ? null
                         : () => setState(_selected.clear),
                     child: const Text('清空选择'),
-                  ),
-                  TextButton(
-                    onPressed: () => setState(() {
-                      _selected.clear();
-                      _selectionMode = false;
-                    }),
-                    child: const Text('退出多选'),
-                  ),
-                  FilledButton.tonal(
-                    onPressed: (_selected.isEmpty || !canBatch)
-                        ? null
-                        : () => _openBatch(LibraryBatchKind.collection),
-                    child: const Text('改状态'),
-                  ),
-                  FilledButton.tonal(
-                    onPressed: (_selected.isEmpty || !canBatch)
-                        ? null
-                        : () => _openBatch(LibraryBatchKind.schedule),
-                    child: const Text('加入新番表'),
                   ),
                 ],
               ),

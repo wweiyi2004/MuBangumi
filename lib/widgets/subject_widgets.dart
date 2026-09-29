@@ -301,7 +301,7 @@ class SubjectPosterCard extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Expanded(
+                    Flexible(
                       child: ReadableSubjectTitle(
                         subject.displayName,
                         style: Theme.of(context).textTheme.titleSmall?.copyWith(
@@ -310,6 +310,7 @@ class SubjectPosterCard extends StatelessWidget {
                         ),
                       ),
                     ),
+                    const SizedBox(height: 2),
                     Row(
                       children: [
                         Expanded(
