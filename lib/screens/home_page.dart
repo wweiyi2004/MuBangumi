@@ -513,48 +513,153 @@ class _HomeQuickActions extends StatelessWidget {
     ];
     return LayoutBuilder(
       builder: (context, constraints) {
-        final minWidth = MediaQuery.textScalerOf(context).scale(14) * 4 + 52;
-        final columns = ((constraints.maxWidth + 8) / (minWidth + 8))
-            .floor()
-            .clamp(1, 4);
-        final availableWidth =
-            (constraints.maxWidth - 8 * (columns - 1)) / columns;
+        const gap = 8.0;
+        final textScaler = MediaQuery.textScalerOf(context);
+        final maxWidth = constraints.maxWidth;
+        if (maxWidth < 600) {
+          // Phones: four equal columns (icon above label) when every title
+          // fits on one line, otherwise an even 2 x 2 grid. Never 3 + 1.
+          final columnWidth = (maxWidth - gap * 3) / 4;
+          final titleWidth = textScaler.scale(_quickActionFontSize) * 4;
+          if (columnWidth - _stackedHorizontalPadding * 2 >= titleWidth + 4) {
+            return Row(
+              key: const Key('home-quick-actions'),
+              children: [
+                for (var i = 0; i < actions.length; i++) ...[
+                  if (i > 0) const SizedBox(width: gap),
+                  Expanded(
+                    child: _QuickActionButton(
+                      icon: actions[i].icon,
+                      title: actions[i].title,
+                      subtitle: actions[i].subtitle,
+                      color: actions[i].color,
+                      onTap: actions[i].onTap,
+                      stacked: true,
+                    ),
+                  ),
+                ],
+              ],
+            );
+          }
+          final width = (maxWidth - gap) / 2;
+          // Icon beside label needs 10 + 19 + 8 + 10 dp of chrome; when the
+          // title would wrap, stack the icon above it instead.
+          final sideBySide = width - 47 >= titleWidth + 4;
+          return Wrap(
+            key: const Key('home-quick-actions'),
+            spacing: gap,
+            runSpacing: 6,
+            children: [
+              for (final action in actions)
+                SizedBox(
+                  width: width,
+                  child: _QuickActionButton(
+                    icon: action.icon,
+                    title: action.title,
+                    subtitle: action.subtitle,
+                    color: action.color,
+                    onTap: action.onTap,
+                    stacked: !sideBySide,
+                  ),
+                ),
+            ],
+          );
+        }
+        // Wide layouts: compact icon + label buttons, left aligned.
+        final minWidth = textScaler.scale(_quickActionFontSize) * 4 + 52;
+        final columns = ((maxWidth + gap) / (minWidth + gap)).floor().clamp(
+          1,
+          4,
+        );
+        final availableWidth = (maxWidth - gap * (columns - 1)) / columns;
         final width = columns == 4
             ? availableWidth.clamp(minWidth, minWidth + 40)
             : availableWidth;
         return Wrap(
           key: const Key('home-quick-actions'),
-          spacing: 8,
+          spacing: gap,
           runSpacing: 6,
           children: [
             for (final action in actions)
               SizedBox(
                 width: width,
-                child: Tooltip(
-                  message: action.subtitle,
-                  child: TextButton.icon(
-                    style: TextButton.styleFrom(
-                      foregroundColor: Theme.of(context).colorScheme.onSurface,
-                      backgroundColor: Theme.of(context).colorScheme.surface,
-                      alignment: Alignment.centerLeft,
-                      minimumSize: const Size(0, 44),
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 10,
-                        vertical: 8,
-                      ),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: AppRadius.small,
-                      ),
-                    ),
-                    onPressed: action.onTap,
-                    icon: Icon(action.icon, color: action.color, size: 19),
-                    label: Text(action.title),
-                  ),
+                child: _QuickActionButton(
+                  icon: action.icon,
+                  title: action.title,
+                  subtitle: action.subtitle,
+                  color: action.color,
+                  onTap: action.onTap,
                 ),
               ),
           ],
         );
       },
+    );
+  }
+}
+
+const double _quickActionFontSize = 14;
+const double _stackedHorizontalPadding = 4;
+
+class _QuickActionButton extends StatelessWidget {
+  const _QuickActionButton({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.color,
+    required this.onTap,
+    this.stacked = false,
+  });
+
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final Color color;
+  final VoidCallback onTap;
+
+  /// Icon above the label (phone layouts) instead of icon beside it.
+  final bool stacked;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final style = TextButton.styleFrom(
+      foregroundColor: scheme.onSurface,
+      backgroundColor: scheme.surface,
+      minimumSize: Size(0, stacked ? 56 : 44),
+      shape: RoundedRectangleBorder(borderRadius: AppRadius.small),
+      alignment: stacked ? Alignment.center : Alignment.centerLeft,
+      padding: stacked
+          ? const EdgeInsets.symmetric(
+              horizontal: _stackedHorizontalPadding,
+              vertical: 8,
+            )
+          : const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+    );
+    return Tooltip(
+      message: subtitle,
+      child: stacked
+          ? TextButton(
+              style: style,
+              onPressed: onTap,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(icon, color: color, size: 22),
+                  const SizedBox(height: 4),
+                  FittedBox(
+                    fit: BoxFit.scaleDown,
+                    child: Text(title, maxLines: 1, softWrap: false),
+                  ),
+                ],
+              ),
+            )
+          : TextButton.icon(
+              style: style,
+              onPressed: onTap,
+              icon: Icon(icon, color: color, size: 19),
+              label: Text(title),
+            ),
     );
   }
 }
@@ -576,9 +681,9 @@ class _WatchingHeading extends StatelessWidget {
       children: [
         if (count > 0 && onManage != null)
           IconButton(
-            tooltip: '管理首页置顶',
+            tooltip: '调整置顶顺序',
             onPressed: onManage,
-            icon: const Icon(Icons.push_pin_outlined),
+            icon: const Icon(Icons.swap_vert_rounded),
           ),
         if (count > 0)
           TextButton(onPressed: onViewAll, child: Text('查看全部（$count）'))

@@ -72,7 +72,10 @@ class ContinueWatchingTile extends StatelessWidget {
                       const SizedBox(height: 6),
                       LinearProgressIndicator(
                         value: (done / total).clamp(0, 1),
-                        minHeight: 3,
+                        minHeight: 4,
+                        borderRadius: BorderRadius.circular(2),
+                        // Neutral track so an empty bar never reads as full.
+                        backgroundColor: scheme.surfaceContainerHighest,
                       ),
                     ],
                     Wrap(
