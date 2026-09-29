@@ -7,6 +7,7 @@ import '../widgets/readable_subject_title.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:share_plus/share_plus.dart';
 
+import '../core/format/date_format.dart';
 import '../core/insights/collection_insights.dart';
 import '../core/insights/collection_year_review.dart';
 import '../widgets/insight_widgets.dart';
@@ -158,12 +159,7 @@ class _CollectionStatsPageState extends State<CollectionStatsPage> {
         _exporting = true;
       });
       final now = DateTime.now();
-      final stamp =
-          '${now.year}${now.month.toString().padLeft(2, '0')}'
-          '${now.day.toString().padLeft(2, '0')}_'
-          '${now.hour.toString().padLeft(2, '0')}'
-          '${now.minute.toString().padLeft(2, '0')}'
-          '${now.second.toString().padLeft(2, '0')}';
+      final stamp = formatFileStamp(now);
       final safeUsername = widget.username.replaceAll(
         RegExp(r'[^a-zA-Z0-9_-]'),
         '_',
@@ -1389,7 +1385,7 @@ class _MemoryCard extends StatelessWidget {
                   Text(
                     item.updatedAt == null
                         ? '更新时间未知'
-                        : '${item.updatedAt!.toLocal().year}.${item.updatedAt!.toLocal().month.toString().padLeft(2, '0')}.${item.updatedAt!.toLocal().day.toString().padLeft(2, '0')} 更新',
+                        : '${formatDate(item.updatedAt!.toLocal(), separator: '.')} 更新',
                     style: Theme.of(context).textTheme.bodySmall,
                   ),
                   if (item.comment.trim().isNotEmpty) ...[

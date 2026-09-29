@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../core/format/date_format.dart';
 import '../core/network/bangumi_endpoints.dart';
 import '../models/community_models.dart';
 import '../state/notify_controller.dart';
@@ -562,6 +563,6 @@ class _NotifyPageState extends ConsumerState<NotifyPage> {
     if (diff.inHours < 1) return '${diff.inMinutes} 分钟前';
     if (diff.inDays < 1) return '${diff.inHours} 小时前';
     if (diff.inDays < 7) return '${diff.inDays} 天前';
-    return '${local.year}-${local.month.toString().padLeft(2, '0')}-${local.day.toString().padLeft(2, '0')}';
+    return formatDate(local);
   }
 }

@@ -1,6 +1,7 @@
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 
+import '../../../core/format/date_format.dart';
 import '../../../core/network/bangumi_endpoints.dart';
 import '../../../core/network/bangumi_smiles.dart';
 
@@ -286,6 +287,5 @@ String communityRelativeTime(DateTime time) {
   if (difference.inHours < 1) return '${difference.inMinutes} 分钟前';
   if (difference.inDays < 1) return '${difference.inHours} 小时前';
   if (difference.inDays < 30) return '${difference.inDays} 天前';
-  String two(int value) => value.toString().padLeft(2, '0');
-  return '${time.year}-${two(time.month)}-${two(time.day)}';
+  return formatDate(time);
 }

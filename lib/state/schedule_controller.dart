@@ -1,5 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../core/format/date_format.dart';
 import '../core/notifications/schedule_reminder_service.dart';
 import '../core/storage/schedule_store.dart';
 import '../models/bangumi_models.dart';
@@ -505,9 +506,7 @@ class ScheduleController extends StateNotifier<ScheduleState> {
         else
           candidate,
     ];
-    final formatted =
-        '${safeHour.toString().padLeft(2, '0')}:'
-        '${safeMinute.toString().padLeft(2, '0')}';
+    final formatted = formatHourMinute(safeHour, safeMinute);
     return _persist(
       state.schedule.copyWith(items: items),
       message: enabled

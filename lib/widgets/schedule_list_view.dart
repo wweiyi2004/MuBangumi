@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../core/format/date_format.dart';
 import '../models/bangumi_models.dart';
 import '../models/schedule_models.dart';
 import '../models/schedule_view.dart';
@@ -188,7 +189,7 @@ class _ScheduleListCard extends StatelessWidget {
     final reminder = !item.isScheduled
         ? '待安排到具体星期'
         : item.reminderEnabled
-        ? '每周 ${item.reminderHour.toString().padLeft(2, '0')}:${item.reminderMinute.toString().padLeft(2, '0')} 提醒'
+        ? '每周 ${formatHourMinute(item.reminderHour, item.reminderMinute)} 提醒'
         : '系统提醒已关闭';
     final rssText = unread > 0
         ? 'RSS 已发现 $unread 条未读更新'

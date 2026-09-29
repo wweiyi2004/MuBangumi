@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../models/netaba_models.dart';
+import '../core/format/date_format.dart';
 import '../core/theme/app_tokens.dart';
 
 /// Compact sparkline used in trending lists.
@@ -672,7 +673,5 @@ String _rankDeltaText(int rankDelta) {
 }
 
 String _formatDate(DateTime date) {
-  final m = date.month.toString().padLeft(2, '0');
-  final d = date.day.toString().padLeft(2, '0');
-  return '${date.year}-$m-$d';
+  return formatDate(date);
 }

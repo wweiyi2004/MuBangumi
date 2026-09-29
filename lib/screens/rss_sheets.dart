@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/external_link.dart';
+import '../core/format/date_format.dart';
 import '../models/rss_models.dart';
 import '../models/schedule_models.dart';
 import '../state/rss_controller.dart';
@@ -489,8 +490,5 @@ class _RssUpdatesSheetState extends ConsumerState<_RssUpdatesSheet> {
 }
 
 String _fmtTime(DateTime time) {
-  final local = time.toLocal();
-  String two(int n) => n.toString().padLeft(2, '0');
-  return '${local.year}-${two(local.month)}-${two(local.day)} '
-      '${two(local.hour)}:${two(local.minute)}';
+  return formatDateTime(time.toLocal());
 }

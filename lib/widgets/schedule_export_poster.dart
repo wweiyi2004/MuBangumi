@@ -9,6 +9,7 @@ import 'package:flutter/rendering.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
+import '../core/format/date_format.dart';
 import '../core/network/bangumi_endpoints.dart';
 import '../models/schedule_models.dart';
 import '../core/theme/app_tokens.dart';
@@ -312,9 +313,7 @@ class ScheduleExportPoster extends StatelessWidget {
   }
 
   static String _formatDate(DateTime date) {
-    final m = date.month.toString().padLeft(2, '0');
-    final d = date.day.toString().padLeft(2, '0');
-    return '${date.year}-$m-$d';
+    return formatDate(date);
   }
 }
 
@@ -475,13 +474,7 @@ class ScheduleImageExporter {
     final dir = await _exportDirectory();
     await dir.create(recursive: true);
     final now = DateTime.now();
-    final stamp =
-        '${now.year}'
-        '${now.month.toString().padLeft(2, '0')}'
-        '${now.day.toString().padLeft(2, '0')}_'
-        '${now.hour.toString().padLeft(2, '0')}'
-        '${now.minute.toString().padLeft(2, '0')}'
-        '${now.second.toString().padLeft(2, '0')}';
+    final stamp = formatFileStamp(now);
     final safeSeason = schedule.season.label
         .replaceAll(RegExp(r'[\\/:*?"<>|]'), '_')
         .replaceAll(' ', '');

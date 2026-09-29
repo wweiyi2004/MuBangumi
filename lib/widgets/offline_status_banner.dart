@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../core/format/date_format.dart';
 import '../state/network_status_controller.dart';
 import '../state/session_controller.dart';
 
@@ -22,8 +23,7 @@ final offlineNoticeVisibleProvider = Provider<bool>((ref) {
 
 String snapshotDateLabel(DateTime savedAt) {
   final local = savedAt.toLocal();
-  String two(int value) => value.toString().padLeft(2, '0');
-  return '${local.year}/${two(local.month)}/${two(local.day)} ${two(local.hour)}:${two(local.minute)}';
+  return formatDateTime(local, dateSeparator: '/');
 }
 
 /// Consistent context on every route, separate from the pending-write status.
