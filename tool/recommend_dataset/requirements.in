@@ -3,7 +3,7 @@
 # scikit-learn; install with `-i https://pypi.org/simple` if that happens.
 requests>=2.31
 pandas>=2.0
-pydantic>=2.5
+pydantic>=2.13.5
 scikit-learn>=1.4
 scipy>=1.11
 implicit>=0.7.3
