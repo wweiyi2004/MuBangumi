@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../core/format/date_format.dart';
 import '../core/storage/bangumi_sync_store.dart';
 import '../models/bangumi_models.dart';
 import '../state/session_controller.dart';
@@ -448,10 +449,7 @@ String _episodeStatusLabel(Object? value) => switch ((value as num?)?.toInt()) {
 };
 
 String _formatTime(DateTime value) {
-  final local = value.toLocal();
-  String two(int number) => number.toString().padLeft(2, '0');
-  return '${local.year}-${two(local.month)}-${two(local.day)} '
-      '${two(local.hour)}:${two(local.minute)}';
+  return formatDateTime(value.toLocal());
 }
 
 String _errorText(Object error) {

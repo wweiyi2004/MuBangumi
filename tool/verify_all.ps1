@@ -34,6 +34,13 @@ try {
     $sourceBefore = (& python tool/release_provenance.py identity --root $script:MuRoot | ConvertFrom-Json)
     if ($LASTEXITCODE) { throw 'Cannot identify source content' }
     Check 'toolchain-files' { python tool/check_toolchain.py }
+    if ($Areas -contains 'flutter' -or $Areas -contains 'server') {
+        # Root analysis visits this package too; install its dev dependencies
+        # before analysis, matching the clean-runner CI preparation.
+        Push-Location packages/banjian_server
+        try { Check 'server-dependencies' { Invoke-MuDart -Arguments @('pub','get','--enforce-lockfile') } }
+        finally { Pop-Location }
+    }
     if ($Areas -contains 'flutter') {
         # Restore Debug/dev plugin registrants after any previous Release build.
         # --no-pub commands below otherwise reuse mode-specific generated files.

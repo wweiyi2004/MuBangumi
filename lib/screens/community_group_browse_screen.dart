@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../core/network/community_service.dart';
 import '../models/community_models.dart';
 import '../widgets/community_loading.dart';
+import '../widgets/community_paging.dart';
 import '../widgets/community_widgets.dart';
 
 /// Complete paginated lists, separate from the group's recent-content preview.
@@ -29,10 +30,8 @@ class _CommunityGroupBrowseScreenState
     extends State<CommunityGroupBrowseScreen> {
   final _scroll = ScrollController();
   final _items = <Object>[];
-  bool _loading = false, _hasMore = true;
-  bool _failedRefresh = false;
+  final _paging = CommunityPaging();
   int _offset = 0, _generation = 0;
-  String? _error;
 
   @override
   void initState() {
@@ -40,7 +39,7 @@ class _CommunityGroupBrowseScreenState
     widget.service.accountChanges.addListener(_resetContent);
     widget.service.contentPreferencesChanges.addListener(_resetContent);
     _scroll.addListener(() {
-      if (_scroll.position.extentAfter < 400 && _error == null) _load();
+      if (_paging.shouldLoadMore(_scroll.position, threshold: 400)) _load();
     });
     _load(refresh: true);
   }
@@ -54,9 +53,7 @@ class _CommunityGroupBrowseScreenState
       setState(() {
         _items.clear();
         _offset = 0;
-        _hasMore = true;
-        _error = null;
-        _failedRefresh = false;
+        _paging.reset();
       });
       unawaited(_load(refresh: true));
     });
@@ -83,14 +80,12 @@ class _CommunityGroupBrowseScreenState
       : Uri.parse(widget.group.url).pathSegments.last;
 
   Future<void> _load({bool refresh = false}) async {
-    if (!refresh && (_loading || !_hasMore)) return;
+    if (!refresh && (_paging.loading || !_paging.hasMore)) return;
     final generation = refresh ? ++_generation : _generation;
     final account = widget.service.currentUsername;
     final offset = refresh ? 0 : _offset;
     setState(() {
-      _loading = true;
-      _error = null;
-      _failedRefresh = false;
+      _paging.begin();
     });
     try {
       final CommunityPageResult<Object> page = widget.members
@@ -120,18 +115,21 @@ class _CommunityGroupBrowseScreenState
         _items.addAll(page.data.where((item) => seen.add(key(item))));
         final received = page.rawCount ?? page.data.length;
         _offset = offset + received;
-        _hasMore = received > 0 && _offset < page.total;
+        _paging.hasMore = received > 0 && _offset < page.total;
       });
     } catch (error) {
       if (mounted && generation == _generation) {
         setState(() {
-          _error = error.toString().replaceFirst('Exception: ', '');
-          _failedRefresh = refresh;
+          _paging.loadMoreError = error.toString().replaceFirst(
+            'Exception: ',
+            '',
+          );
+          _paging.refreshFailed = refresh;
         });
       }
     } finally {
       if (mounted && generation == _generation) {
-        setState(() => _loading = false);
+        setState(() => _paging.loading = false);
       }
     }
   }
@@ -159,10 +157,11 @@ class _CommunityGroupBrowseScreenState
         itemBuilder: (context, index) {
           if (index == _items.length) {
             return CommunityLoadMoreFooter(
-              loading: _loading,
-              hasMore: _hasMore,
-              error: _error,
-              onLoad: () => _load(refresh: _failedRefresh || _items.isEmpty),
+              loading: _paging.loading,
+              hasMore: _paging.hasMore,
+              error: _paging.loadMoreError,
+              onLoad: () =>
+                  _load(refresh: _paging.refreshFailed || _items.isEmpty),
             );
           }
           final item = _items[index];

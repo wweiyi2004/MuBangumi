@@ -443,6 +443,7 @@ class _CommunityGroupScreenState extends State<CommunityGroupScreen> {
                       ),
                     ],
                   ),
+                  const SizedBox(height: 16),
                   _SectionTitle(title: '小组讨论', count: detail.group.topicCount),
                   const SizedBox(height: 9),
                   if (detail.unavailableSections.contains(

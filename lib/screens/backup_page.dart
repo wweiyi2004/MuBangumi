@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/backup/backup_archive.dart';
 import '../core/backup/backup_plan.dart';
+import '../core/format/date_format.dart';
 import '../models/library_batch.dart';
 import '../state/backup_providers.dart';
 import '../state/session_controller.dart';
@@ -572,8 +573,7 @@ class _BackupPageState extends ConsumerState<BackupPage> {
 }
 
 String _date(DateTime value) {
-  final local = value.toLocal();
-  return '${local.year}-${local.month.toString().padLeft(2, '0')}-${local.day.toString().padLeft(2, '0')} ${local.hour.toString().padLeft(2, '0')}:${local.minute.toString().padLeft(2, '0')}';
+  return formatDateTime(value.toLocal());
 }
 
 String _countLabel(

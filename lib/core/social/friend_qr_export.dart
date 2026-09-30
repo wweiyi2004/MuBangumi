@@ -7,6 +7,8 @@ import 'package:flutter/widgets.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
+import '../format/date_format.dart';
+
 class FriendQrExporter {
   FriendQrExporter._();
 
@@ -19,13 +21,7 @@ class FriendQrExporter {
     final dir = directory ?? await exportDirectory();
     await dir.create(recursive: true);
     final now = DateTime.now();
-    final stamp =
-        '${now.year}'
-        '${now.month.toString().padLeft(2, '0')}'
-        '${now.day.toString().padLeft(2, '0')}_'
-        '${now.hour.toString().padLeft(2, '0')}'
-        '${now.minute.toString().padLeft(2, '0')}'
-        '${now.second.toString().padLeft(2, '0')}';
+    final stamp = formatFileStamp(now);
     final safe = username
         .trim()
         .replaceAll(RegExp(r'[\\/:*?"<>|]'), '_')

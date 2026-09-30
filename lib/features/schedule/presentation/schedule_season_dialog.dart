@@ -19,38 +19,34 @@ Future<void> showScheduleSeasonDialog(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                Row(
-                  children: [
-                    Expanded(
-                      child: DropdownButtonFormField<int>(
-                        initialValue: year,
-                        decoration: const InputDecoration(labelText: '年份'),
-                        items: [
-                          for (var y = DateTime.now().year + 2; y >= 2000; y--)
-                            DropdownMenuItem(value: y, child: Text('$y')),
-                        ],
-                        onChanged: (value) {
-                          if (value != null) setLocal(() => year = value);
-                        },
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: DropdownButtonFormField<int>(
-                        initialValue: quarter,
-                        decoration: const InputDecoration(labelText: '季度'),
-                        items: const [
-                          DropdownMenuItem(value: 0, child: Text('冬季（1月）')),
-                          DropdownMenuItem(value: 1, child: Text('春季（4月）')),
-                          DropdownMenuItem(value: 2, child: Text('夏季（7月）')),
-                          DropdownMenuItem(value: 3, child: Text('秋季（10月）')),
-                        ],
-                        onChanged: (value) {
-                          if (value != null) setLocal(() => quarter = value);
-                        },
-                      ),
-                    ),
+                // Stacked (not side by side): "秋季（10月）" does not fit half a
+                // phone-width dialog, especially with large text.
+                DropdownButtonFormField<int>(
+                  isExpanded: true,
+                  initialValue: year,
+                  decoration: const InputDecoration(labelText: '年份'),
+                  items: [
+                    for (var y = DateTime.now().year + 2; y >= 2000; y--)
+                      DropdownMenuItem(value: y, child: Text('$y')),
                   ],
+                  onChanged: (value) {
+                    if (value != null) setLocal(() => year = value);
+                  },
+                ),
+                const SizedBox(height: 12),
+                DropdownButtonFormField<int>(
+                  isExpanded: true,
+                  initialValue: quarter,
+                  decoration: const InputDecoration(labelText: '季度'),
+                  items: const [
+                    DropdownMenuItem(value: 0, child: Text('冬季（1月）')),
+                    DropdownMenuItem(value: 1, child: Text('春季（4月）')),
+                    DropdownMenuItem(value: 2, child: Text('夏季（7月）')),
+                    DropdownMenuItem(value: 3, child: Text('秋季（10月）')),
+                  ],
+                  onChanged: (value) {
+                    if (value != null) setLocal(() => quarter = value);
+                  },
                 ),
               ],
             ),

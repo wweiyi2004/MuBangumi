@@ -472,22 +472,23 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
         ),
       ],
       const SizedBox(height: 18),
+      Text(switch (_queryMode) {
+        DiscoverQueryMode.characterPrompt ||
+        DiscoverQueryMode.characterSearch => '角色搜索',
+        DiscoverQueryMode.personPrompt ||
+        DiscoverQueryMode.personSearch => '人物搜索',
+        DiscoverQueryMode.subjectSearch => '${_subjectType.label}搜索结果',
+        DiscoverQueryMode.browse =>
+          _supportsSeason
+              ? '${_subjectType.label}季度榜'
+              : '${_subjectType.label}年度榜',
+      }, style: Theme.of(context).textTheme.titleLarge),
+      const SizedBox(height: 8),
       Wrap(
         spacing: 8,
-        runSpacing: 8,
+        runSpacing: 4,
         crossAxisAlignment: WrapCrossAlignment.center,
         children: [
-          Text(switch (_queryMode) {
-            DiscoverQueryMode.characterPrompt ||
-            DiscoverQueryMode.characterSearch => '角色搜索',
-            DiscoverQueryMode.personPrompt ||
-            DiscoverQueryMode.personSearch => '人物搜索',
-            DiscoverQueryMode.subjectSearch => '${_subjectType.label}搜索结果',
-            DiscoverQueryMode.browse =>
-              _supportsSeason
-                  ? '${_subjectType.label}季度榜'
-                  : '${_subjectType.label}年度榜',
-          }, style: Theme.of(context).textTheme.titleLarge),
           if (!_searching && _supportsSeason)
             Chip(
               label: Text('$_browseYear · ${_quarterLabel(_browseQuarter)}'),

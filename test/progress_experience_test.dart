@@ -44,7 +44,7 @@ void main() {
       final env = _Environment();
       await _show(tester, env);
       expect(_homeIds(tester), isNot(contains(20)));
-      await tester.tap(find.byTooltip('管理首页置顶'));
+      await tester.tap(find.byTooltip('调整置顶顺序'));
       await tester.pumpAndSettle();
       await tester.scrollUntilVisible(
         find.text('正在追的作品 20'),
@@ -79,7 +79,7 @@ void main() {
       ..pins.data[2] = [3];
     await _show(tester, env);
     expect(_homeIds(tester).take(2), [2, 1]);
-    await tester.tap(find.byTooltip('管理首页置顶'));
+    await tester.tap(find.byTooltip('调整置顶顺序'));
     await tester.pumpAndSettle();
     await tester.tap(find.byTooltip('下移').first);
     await tester.pumpAndSettle();
@@ -154,7 +154,7 @@ void main() {
           await _show(tester, env, width: width, scale: scale, dark: dark);
           await captureUx(tester, _boundary, 'm2_home_${width}_${scale}_$dark');
           expect(tester.takeException(), isNull);
-          await tester.tap(find.byTooltip('管理首页置顶'));
+          await tester.tap(find.byTooltip('调整置顶顺序'));
           await tester.pumpAndSettle();
           await captureUx(tester, _boundary, 'm2_pins_${width}_${scale}_$dark');
           expect(tester.takeException(), isNull);

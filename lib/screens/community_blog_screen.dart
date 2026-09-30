@@ -6,6 +6,7 @@ import '../core/network/community_service.dart';
 import '../models/community_models.dart';
 import '../widgets/community_composer.dart';
 import '../widgets/community_loading.dart';
+import '../widgets/community_paging.dart';
 import '../widgets/community_rich_content.dart';
 import '../widgets/community_widgets.dart';
 
@@ -74,14 +75,13 @@ class _CommunityBlogListScreenState extends State<CommunityBlogListScreen> {
   final _scroll = ScrollController();
   final _items = <CommunityBlog>[];
   int _offset = 0, _generation = 0;
-  bool _busy = false, _hasMore = true, _retryRefresh = false;
-  String? _error;
+  final _paging = CommunityPaging();
   @override
   void initState() {
     super.initState();
     _service.accountChanges.addListener(_reset);
     _scroll.addListener(() {
-      if (_scroll.position.extentAfter < 400 && _error == null) {
+      if (_paging.shouldLoadMore(_scroll.position, threshold: 400)) {
         unawaited(_load());
       }
     });
@@ -95,29 +95,26 @@ class _CommunityBlogListScreenState extends State<CommunityBlogListScreen> {
       setState(() {
         _items.clear();
         _offset = 0;
-        _hasMore = true;
-        _error = null;
+        _paging.reset();
       });
       unawaited(_load(refresh: true));
     });
   }
 
   Future<void> _load({bool refresh = false}) async {
-    if (!refresh && (_busy || !_hasMore)) return;
+    if (!refresh && (_paging.loading || !_paging.hasMore)) return;
     final generation = refresh ? ++_generation : _generation;
     final username = _username;
     if (username.isEmpty) {
       setState(() {
-        _busy = false;
-        _hasMore = false;
+        _paging.loading = false;
+        _paging.hasMore = false;
       });
       return;
     }
     final offset = refresh ? 0 : _offset;
     setState(() {
-      _busy = true;
-      _error = null;
-      _retryRefresh = false;
+      _paging.begin();
     });
     try {
       final page = await _service.loadUserBlogs(
@@ -132,17 +129,19 @@ class _CommunityBlogListScreenState extends State<CommunityBlogListScreen> {
         _items.addAll(page.data.where((item) => known.add(item.id)));
         final count = page.rawCount ?? page.data.length;
         _offset = offset + count;
-        _hasMore = count > 0 && _offset < page.total;
+        _paging.hasMore = count > 0 && _offset < page.total;
       });
     } catch (error) {
       if (mounted && generation == _generation) {
         setState(() {
-          _error = '$error';
-          _retryRefresh = refresh;
+          _paging.loadMoreError = '$error';
+          _paging.refreshFailed = refresh;
         });
       }
     } finally {
-      if (mounted && generation == _generation) setState(() => _busy = false);
+      if (mounted && generation == _generation) {
+        setState(() => _paging.loading = false);
+      }
     }
   }
 
@@ -187,11 +186,10 @@ class _CommunityBlogListScreenState extends State<CommunityBlogListScreen> {
     body: NotificationListener<ScrollNotification>(
       onNotification: (notification) {
         if (widget.usePrimaryScrollController &&
-            notification.depth == 0 &&
-            notification is ScrollUpdateNotification &&
-            notification.metrics.axis == Axis.vertical &&
-            notification.metrics.extentAfter < 400 &&
-            _error == null) {
+            _paging.shouldLoadMoreOnNotification(
+              notification,
+              threshold: 400,
+            )) {
           unawaited(_load());
         }
         return false;
@@ -209,17 +207,19 @@ class _CommunityBlogListScreenState extends State<CommunityBlogListScreen> {
             if (index == _items.length) {
               return Column(
                 children: [
-                  if (!_busy && _error == null && _items.isEmpty)
+                  if (!_paging.loading &&
+                      _paging.loadMoreError == null &&
+                      _items.isEmpty)
                     Padding(
                       padding: const EdgeInsets.all(32),
                       child: Text(_username.isEmpty ? '请登录查看自己的日志' : '还没有日志'),
                     ),
                   CommunityLoadMoreFooter(
-                    loading: _busy,
-                    hasMore: _hasMore,
-                    error: _error,
+                    loading: _paging.loading,
+                    hasMore: _paging.hasMore,
+                    error: _paging.loadMoreError,
                     onLoad: () =>
-                        _load(refresh: _retryRefresh || _items.isEmpty),
+                        _load(refresh: _paging.refreshFailed || _items.isEmpty),
                   ),
                 ],
               );

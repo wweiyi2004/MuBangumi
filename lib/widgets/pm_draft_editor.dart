@@ -9,6 +9,7 @@ import '../state/pm_draft_controller.dart';
 import '../state/session_controller.dart';
 import '../state/website_session_controller.dart';
 import '../screens/website_login_screen.dart';
+import 'draft_status.dart';
 
 Future<PmDraft?> pickPmComposeDraft(
   BuildContext context,
@@ -521,13 +522,11 @@ class _PmDraftEditorState extends ConsumerState<PmDraftEditor> {
       child: Text(
         draft.sent
             ? '短信已发送'
-            : draft.saving
-            ? '正在保存草稿…'
-            : draft.dirty
-            ? '草稿尚未保存'
-            : draft.saved
-            ? '草稿已保存在本机'
-            : '草稿会自动保存在本机',
+            : draftAutosaveLabel(
+                saving: draft.saving,
+                saved: draft.saved,
+                unsaved: draft.dirty,
+              ),
         style: Theme.of(context).textTheme.bodySmall,
       ),
     );

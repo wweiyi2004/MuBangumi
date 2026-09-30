@@ -10,6 +10,7 @@ import '../../../widgets/schedule_reminder_sheet.dart';
 import '../../../state/schedule_controller.dart';
 import '../../../state/session_controller.dart';
 import '../../../screens/rss_sheets.dart';
+import '../../../core/format/date_format.dart';
 
 Future<void> showScheduleItemActions(
   BuildContext context,
@@ -64,7 +65,7 @@ Future<void> showScheduleItemActions(
                 leading: Icon(
                   collection == null ? Icons.add_rounded : Icons.check_rounded,
                 ),
-                title: Text(collection == null ? '加入在看' : '看完一集'),
+                title: Text(collection == null ? '加入在看' : '看完下一集'),
                 onTap: () => Navigator.pop(context, 'progress'),
               ),
             ListTile(
@@ -77,8 +78,7 @@ Future<void> showScheduleItemActions(
               subtitle: Text(
                 item.reminderEnabled && item.isScheduled
                     ? '${weekdayLabel(item.weekday!)} '
-                          '${item.reminderHour.toString().padLeft(2, '0')}:'
-                          '${item.reminderMinute.toString().padLeft(2, '0')}'
+                          '${formatHourMinute(item.reminderHour, item.reminderMinute)}'
                     : item.isScheduled
                     ? '已关闭 · 可独立设置'
                     : '先安排到具体星期',

@@ -84,21 +84,6 @@ class ScheduleSeasonPicker extends StatelessWidget {
             message: '挑选本季新番',
             child: TextButton(onPressed: onPick, child: const Text('选番')),
           ),
-          PopupMenuButton<String>(
-            tooltip: '季度操作',
-            onSelected: (action) {
-              if (action == 'create') {
-                onCreate();
-              } else {
-                onDeleteCurrent?.call();
-              }
-            },
-            itemBuilder: (_) => [
-              const PopupMenuItem(value: 'create', child: Text('新建表')),
-              if (onDeleteCurrent != null)
-                const PopupMenuItem(value: 'delete', child: Text('删空表')),
-            ],
-          ),
         ],
       );
     }
@@ -151,10 +136,17 @@ class ScheduleToolbar extends StatelessWidget {
     required this.onUpdates,
     required this.onRefresh,
     required this.onSources,
+    required this.onCreateSeason,
+    this.onDeleteSeason,
   });
   final bool wide, refreshing;
   final int unread;
-  final VoidCallback onExport, onUpdates, onRefresh, onSources;
+  final VoidCallback onExport, onUpdates, onRefresh, onSources, onCreateSeason;
+  final VoidCallback? onDeleteSeason;
+
+  /// Where the background-refresh behaviour is explained (instead of a
+  /// permanent header line): the refresh action's tooltip / menu subtitle.
+  static const rssPolicy = '前台每 30 分钟自动检查 · 关闭应用后不抓取';
   @override
   Widget build(BuildContext context) => Row(
     children: [
@@ -189,7 +181,7 @@ class ScheduleToolbar extends StatelessWidget {
       ),
       if (wide) ...[
         IconButton(
-          tooltip: refreshing ? '检查中…' : '检查更新',
+          tooltip: refreshing ? '检查中…' : '检查更新（$rssPolicy）',
           onPressed: refreshing ? null : onRefresh,
           icon: refreshing
               ? const SizedBox.square(
@@ -214,17 +206,47 @@ class ScheduleToolbar extends StatelessWidget {
                 onRefresh();
               case 'sources':
                 onSources();
+              case 'create':
+                onCreateSeason();
+              case 'delete':
+                onDeleteSeason?.call();
             }
           },
-          itemBuilder: (_) => [
-            const PopupMenuItem(value: 'export', child: Text('导出图片')),
-            PopupMenuItem(
-              value: 'refresh',
-              enabled: !refreshing,
-              child: Text(refreshing ? '检查中…' : '检查更新'),
-            ),
-            const PopupMenuItem(value: 'sources', child: Text('更新源 RSS')),
-          ],
+          itemBuilder: (context) {
+            final theme = Theme.of(context);
+            return [
+              const PopupMenuItem(value: 'export', child: Text('导出图片')),
+              const PopupMenuDivider(),
+              PopupMenuItem(
+                value: 'refresh',
+                enabled: !refreshing,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(refreshing ? '检查中…' : '检查更新'),
+                    Text(
+                      rssPolicy,
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: theme.colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const PopupMenuItem(value: 'sources', child: Text('更新源 RSS')),
+              const PopupMenuDivider(),
+              const PopupMenuItem(value: 'create', child: Text('新建表')),
+              if (onDeleteSeason != null)
+                PopupMenuItem(
+                  value: 'delete',
+                  child: Text(
+                    '删空表',
+                    style: TextStyle(color: theme.colorScheme.error),
+                  ),
+                ),
+            ];
+          },
         ),
     ],
   );
