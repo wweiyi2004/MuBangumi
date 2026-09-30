@@ -2,7 +2,7 @@
 # Note: the default pip mirror (tsinghua) may lack Python 3.14 wheels for
 # scikit-learn; install with `-i https://pypi.org/simple` if that happens.
 requests>=2.31
-pandas>=2.0
+pandas>=3.0.6
 pydantic>=2.5
 scikit-learn>=1.4
 scipy>=1.11
