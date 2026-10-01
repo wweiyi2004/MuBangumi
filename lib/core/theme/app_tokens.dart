@@ -33,9 +33,14 @@ abstract final class AppText {
 /// Fixed colors that are not part of the color scheme. Scores use the
 /// scheme's tertiary amber, not these.
 abstract final class AppPalette {
+  /// Official Bangumi brand pink, used exactly for default primary actions.
+  static const bangumiPink = Color(0xFFF09199);
+  static const roseInk = Color(0xFFA64B58);
+  static const roseWash = Color(0xFFFBE8EB);
+
   /// Home shortcut tiles: schedule, calendar, recommendations, discovery.
   static const shortcutSchedule = Color(0xFF7C6CE7);
-  static const shortcutCalendar = Color(0xFFE95383);
+  static const shortcutCalendar = Color(0xFFF09199);
   static const shortcutRecommend = Color(0xFFE38A3F);
   static const shortcutDiscover = Color(0xFF2CA69A);
 
@@ -57,8 +62,8 @@ abstract final class AppPalette {
   static const profileHeaderDark = [Color(0xFF393245), Color(0xFF283D43)];
 
   /// QR surfaces stay light on any theme so codes scan reliably.
-  static const qrAvatar = Color(0xFFFFD6E4);
+  static const qrAvatar = Color(0xFFFBE1E4);
 
   /// Scan frame over the camera feed, which is always dark.
-  static const scanAccent = Color(0xFFFF77A2);
+  static const scanAccent = Color(0xFFFFB4BB);
 }

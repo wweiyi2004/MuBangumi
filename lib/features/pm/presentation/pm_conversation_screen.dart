@@ -1,3 +1,4 @@
+import '../../../core/theme/anime_icon.dart';
 import '../../../state/service_providers.dart';
 import 'dart:async';
 import 'package:flutter/material.dart';
@@ -314,7 +315,7 @@ class PmConversationScreenState extends ConsumerState<PmConversationScreen> {
                 : IconButton(
                     tooltip: '返回会话列表',
                     onPressed: widget.onClose,
-                    icon: const Icon(Icons.arrow_back_rounded),
+                    icon: const AnimeIcon(Icons.arrow_back_rounded),
                   ),
             title: Row(
               children: [
@@ -357,7 +358,7 @@ class PmConversationScreenState extends ConsumerState<PmConversationScreen> {
               IconButton(
                 tooltip: '刷新',
                 onPressed: _loading || _sessionChanged ? null : _load,
-                icon: const Icon(Icons.refresh_rounded),
+                icon: const AnimeIcon(Icons.refresh_rounded),
               ),
             ],
           ),
@@ -445,7 +446,7 @@ class PmConversationScreenState extends ConsumerState<PmConversationScreen> {
                                           ),
                                           curve: Curves.easeOut,
                                         ),
-                                        icon: const Icon(
+                                        icon: const AnimeIcon(
                                           Icons.arrow_downward_rounded,
                                           size: 18,
                                         ),

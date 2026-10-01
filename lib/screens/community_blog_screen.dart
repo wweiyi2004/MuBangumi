@@ -1,3 +1,4 @@
+import '../core/theme/anime_icon.dart';
 import '../state/service_providers.dart';
 import '../navigation/app_destination.dart';
 import 'dart:async';
@@ -179,7 +180,7 @@ class _CommunityBlogListScreenState extends State<CommunityBlogListScreen> {
             _username.toLowerCase() == _service.currentUsername?.toLowerCase()
         ? FloatingActionButton.extended(
             onPressed: _create,
-            icon: const Icon(Icons.edit_outlined),
+            icon: const AnimeIcon(Icons.edit_outlined),
             label: const Text('写日志'),
           )
         : null,
@@ -231,7 +232,7 @@ class _CommunityBlogListScreenState extends State<CommunityBlogListScreen> {
                 subtitle: Text(
                   '${blog.isPublic ? '公开' : '仅好友可见'} · ${blog.replyCount} 条评论',
                 ),
-                trailing: const Icon(Icons.chevron_right),
+                trailing: const AnimeIcon(Icons.chevron_right),
                 onTap: () async {
                   await Navigator.of(context).push(
                     MaterialPageRoute<void>(
@@ -332,7 +333,7 @@ class _CommunityBlogScreenState extends State<CommunityBlogScreen> {
             IconButton(
               onPressed: _loading ? null : _edit,
               tooltip: '编辑日志',
-              icon: const Icon(Icons.edit_outlined),
+              icon: const AnimeIcon(Icons.edit_outlined),
             ),
         ],
       ),
@@ -369,7 +370,7 @@ class _CommunityBlogScreenState extends State<CommunityBlogScreen> {
               CommunityRichContent(blog.content),
               const SizedBox(height: 24),
               OutlinedButton.icon(
-                icon: const Icon(Icons.forum_outlined),
+                icon: const AnimeIcon(Icons.forum_outlined),
                 label: Text('评论 · ${blog.replyCount}'),
                 onPressed: () async {
                   await Navigator.of(context).push(

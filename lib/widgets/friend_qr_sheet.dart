@@ -1,11 +1,12 @@
+import 'bounded_image.dart';
+import 'brand_qr.dart';
+import '../core/theme/anime_icon.dart';
 import 'dart:io';
 
-import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 import 'package:share_plus/share_plus.dart';
 
-import '../core/network/bangumi_endpoints.dart';
 import '../core/social/friend_qr.dart';
 import '../core/social/friend_qr_export.dart';
 import '../models/bangumi_models.dart';
@@ -126,7 +127,7 @@ class _FriendQrSheetState extends State<_FriendQrSheet> {
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      QrImageView(
+                      BrandQr(
                         data: FriendQr.encode(widget.user.username),
                         size: 220,
                         backgroundColor: Colors.white,
@@ -146,10 +147,10 @@ class _FriendQrSheetState extends State<_FriendQrSheet> {
                           backgroundColor: AppPalette.qrAvatar,
                           backgroundImage: widget.user.avatarUrl.isEmpty
                               ? null
-                              : CachedNetworkImageProvider(
-                                  BangumiEndpoints.imageUrl(
-                                    widget.user.avatarUrl,
-                                  ),
+                              : boundedAvatarProvider(
+                                  context,
+                                  widget.user.avatarUrl,
+                                  diameter: 40,
                                 ),
                           child: widget.user.avatarUrl.isEmpty
                               ? Text(
@@ -184,7 +185,7 @@ class _FriendQrSheetState extends State<_FriendQrSheet> {
                             dimension: 16,
                             child: CircularProgressIndicator(strokeWidth: 2),
                           )
-                        : const Icon(Icons.download_rounded),
+                        : const AnimeIcon(Icons.download_rounded),
                     label: const Text('保存图片'),
                   ),
                 ),
@@ -192,7 +193,7 @@ class _FriendQrSheetState extends State<_FriendQrSheet> {
                 Expanded(
                   child: FilledButton.icon(
                     onPressed: _busy ? null : _share,
-                    icon: const Icon(Icons.ios_share_rounded),
+                    icon: const AnimeIcon(Icons.ios_share_rounded),
                     label: const Text('分享'),
                   ),
                 ),

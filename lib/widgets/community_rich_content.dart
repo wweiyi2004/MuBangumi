@@ -1,3 +1,5 @@
+import 'bounded_image.dart';
+import '../core/theme/anime_icon.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
@@ -84,8 +86,13 @@ class _CommunityRichContentState extends State<CommunityRichContent> {
               WidgetSpan(
                 alignment: PlaceholderAlignment.middle,
                 child: Image(
-                  image: CachedNetworkImageProvider(
-                    BangumiEndpoints.imageUrl(part.imageUrl!),
+                  image: boundedImageProvider(
+                    CachedNetworkImageProvider(
+                      BangumiEndpoints.imageUrl(part.imageUrl!),
+                    ),
+                    width: 44,
+                    height: 22,
+                    pixelRatio: MediaQuery.devicePixelRatioOf(context),
                   ),
                   height: 22,
                   errorBuilder: (_, _, _) => Text(part.text),
@@ -107,7 +114,7 @@ class _CommunityRichContentState extends State<CommunityRichContent> {
             ? const Text('（无效图片链接）')
             : ConstrainedBox(
                 constraints: BoxConstraints(maxWidth: width, maxHeight: 360),
-                child: CachedNetworkImage(
+                child: BoundedNetworkImage(
                   imageUrl: BangumiEndpoints.imageUrl(uri.toString()),
                   fit: BoxFit.contain,
                   errorWidget: (_, _, _) => const Text('（图片加载失败）'),
@@ -274,7 +281,7 @@ class _SpoilerState extends State<_Spoiler> {
     children: [
       TextButton.icon(
         onPressed: () => setState(() => _visible = !_visible),
-        icon: Icon(
+        icon: AnimeIcon(
           _visible ? Icons.visibility_off_outlined : Icons.visibility_outlined,
         ),
         label: Text(_visible ? '隐藏剧透' : '显示剧透'),

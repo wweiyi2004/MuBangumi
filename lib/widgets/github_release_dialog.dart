@@ -1,3 +1,4 @@
+import '../core/theme/anime_icon.dart';
 import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
@@ -186,6 +187,8 @@ class _GithubReleaseDialogState extends ConsumerState<GithubReleaseDialog> {
                   if (_asset != null) ...[
                     const SizedBox(height: 8),
                     DropdownButtonFormField<UpdateSource>(
+                      borderRadius: BorderRadius.circular(16),
+                      dropdownColor: Theme.of(context).colorScheme.surface,
                       initialValue: _source,
                       decoration: const InputDecoration(labelText: '下载来源'),
                       items: [
@@ -270,7 +273,7 @@ class _GithubReleaseDialogState extends ConsumerState<GithubReleaseDialog> {
                                 download.start(_asset!, source: _source),
                               );
                             },
-                      icon: Icon(
+                      icon: AnimeIcon(
                         ready
                             ? Icons.install_desktop_rounded
                             : Icons.download_rounded,
@@ -292,7 +295,7 @@ class _GithubReleaseDialogState extends ConsumerState<GithubReleaseDialog> {
                     ),
                   TextButton.icon(
                     onPressed: () => _launch(release.htmlUrl),
-                    icon: const Icon(Icons.open_in_new_rounded, size: 18),
+                    icon: const AnimeIcon(Icons.open_in_new_rounded, size: 18),
                     label: const Text('前往发布页'),
                   ),
                 ],

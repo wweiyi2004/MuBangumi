@@ -1,3 +1,4 @@
+import '../core/theme/anime_icon.dart';
 import '../state/service_providers.dart';
 import '../navigation/app_destination.dart';
 import 'dart:async';
@@ -570,7 +571,7 @@ class _CommunityTimelinePageState extends ConsumerState<CommunityTimelinePage> {
             IconButton(
               tooltip: '刷新动态',
               onPressed: _paging.loading ? null : () => _load(refresh: true),
-              icon: const Icon(Icons.refresh_rounded),
+              icon: const AnimeIcon(Icons.refresh_rounded),
             ),
           ],
         ),
@@ -608,7 +609,7 @@ class _CommunityTimelinePageState extends ConsumerState<CommunityTimelinePage> {
                   heroTag: 'compose-timeline-${_mode.name}',
                   tooltip: '发动态',
                   onPressed: _post,
-                  child: const Icon(Icons.edit_outlined),
+                  child: const AnimeIcon(Icons.edit_outlined),
                 ),
               ),
           ],

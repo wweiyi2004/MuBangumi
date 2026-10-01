@@ -1,3 +1,4 @@
+import '../core/theme/anime_icon.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -285,12 +286,12 @@ class _BackupPageState extends ConsumerState<BackupPage> {
         children: [
           FilledButton.icon(
             onPressed: _busy ? null : _save,
-            icon: const Icon(Icons.save_alt),
+            icon: const AnimeIcon(Icons.save_alt),
             label: const Text('保存文件'),
           ),
           OutlinedButton.icon(
             onPressed: _busy ? null : _share,
-            icon: const Icon(Icons.share_outlined),
+            icon: const AnimeIcon(Icons.share_outlined),
             label: const Text('系统分享'),
           ),
           TextButton(
@@ -314,7 +315,7 @@ class _BackupPageState extends ConsumerState<BackupPage> {
       const SizedBox(height: 12),
       FilledButton.icon(
         onPressed: _busy || _exportCategories.isEmpty ? null : _prepareExport,
-        icon: const Icon(Icons.inventory_2_outlined),
+        icon: const AnimeIcon(Icons.inventory_2_outlined),
         label: const Text('准备备份'),
       ),
     ],
@@ -324,7 +325,7 @@ class _BackupPageState extends ConsumerState<BackupPage> {
     final archive = _archive, preview = _preview, applied = _applied;
     if (applied != null) {
       return [
-        Icon(
+        AnimeIcon(
           applied.changed ? Icons.check_circle_outline : Icons.task_alt,
           size: 44,
           color: Theme.of(context).colorScheme.primary,
@@ -393,7 +394,7 @@ class _BackupPageState extends ConsumerState<BackupPage> {
         const SizedBox(height: 12),
         FilledButton.icon(
           onPressed: _busy ? null : _apply,
-          icon: const Icon(Icons.download_done),
+          icon: const AnimeIcon(Icons.download_done),
           label: Text(
             preview.hasChanges
                 ? (_mode == BackupImportMode.replace ? '确认覆盖所选数据' : '确认合并所选数据')
@@ -425,7 +426,7 @@ class _BackupPageState extends ConsumerState<BackupPage> {
       const SizedBox(height: 12),
       OutlinedButton.icon(
         onPressed: _busy ? null : _pick,
-        icon: const Icon(Icons.folder_open),
+        icon: const AnimeIcon(Icons.folder_open),
         label: Text(archive == null ? '选择备份文件' : '更换文件'),
       ),
       if (archive != null) ...[

@@ -1,3 +1,4 @@
+import '../core/theme/anime_icon.dart';
 import '../navigation/app_destination.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -68,7 +69,7 @@ class _CalendarPageState extends ConsumerState<CalendarPage> {
           IconButton(
             tooltip: '刷新',
             onPressed: _loading ? null : _load,
-            icon: const Icon(Icons.refresh_rounded),
+            icon: const AnimeIcon(Icons.refresh_rounded),
           ),
         ],
       ),

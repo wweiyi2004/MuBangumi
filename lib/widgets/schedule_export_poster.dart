@@ -1,3 +1,4 @@
+import '../core/theme/anime_icon.dart';
 import 'dart:io';
 import 'dart:math' as math;
 import 'dart:typed_data';
@@ -13,6 +14,14 @@ import '../core/format/date_format.dart';
 import '../core/network/bangumi_endpoints.dart';
 import '../models/schedule_models.dart';
 import '../core/theme/app_tokens.dart';
+import 'bounded_image.dart';
+
+/// One decode key for precaching and painting, sized for the exported card.
+ImageProvider schedulePosterCoverProvider(String url) => boundedImageProvider(
+  CachedNetworkImageProvider(url),
+  width: 512,
+  height: 768,
+);
 
 /// Fixed-width share poster for a local season schedule.
 class ScheduleExportPoster extends StatelessWidget {
@@ -27,7 +36,7 @@ class ScheduleExportPoster extends StatelessWidget {
   final double width;
   final bool dark;
 
-  static const brandPink = Color(0xFFE95383);
+  static const brandPink = Color(0xFFF09199);
   static const brandGold = Color(0xFFF3A646);
 
   @override
@@ -288,7 +297,11 @@ class ScheduleExportPoster extends StatelessWidget {
             SizedBox(height: s(28)),
             Row(
               children: [
-                Icon(Icons.auto_awesome_rounded, size: s(18), color: brandGold),
+                AnimeIcon(
+                  Icons.auto_awesome_rounded,
+                  size: s(18),
+                  color: brandGold,
+                ),
                 SizedBox(width: s(8)),
                 Expanded(
                   child: Text(
@@ -351,21 +364,22 @@ class _PosterCell extends StatelessWidget {
             child: url.isEmpty
                 ? ColoredBox(
                     color: placeholder,
-                    child: Icon(
+                    child: AnimeIcon(
                       Icons.movie_filter_outlined,
                       color: muted,
                       size: 28 * scale,
                     ),
                   )
-                : CachedNetworkImage(
-                    imageUrl: url,
+                : Image(
+                    image: schedulePosterCoverProvider(url),
                     fit: BoxFit.cover,
-                    fadeInDuration: Duration.zero,
-                    fadeOutDuration: Duration.zero,
-                    placeholder: (_, _) => ColoredBox(color: placeholder),
-                    errorWidget: (_, _, _) => ColoredBox(
+                    frameBuilder: (_, child, frame, synchronous) =>
+                        synchronous || frame != null
+                        ? child
+                        : ColoredBox(color: placeholder),
+                    errorBuilder: (_, _, _) => ColoredBox(
                       color: placeholder,
-                      child: Icon(
+                      child: AnimeIcon(
                         Icons.broken_image_outlined,
                         color: muted,
                         size: 24 * scale,
@@ -417,15 +431,20 @@ class ScheduleImageExporter {
       for (final item in schedule.items)
         if (item.imageUrl.trim().isNotEmpty)
           BangumiEndpoints.imageUrl(item.imageUrl),
-    };
+    }.toList();
     if (urls.isEmpty) return;
-    await Future.wait([
-      for (final url in urls)
-        precacheImage(
-          CachedNetworkImageProvider(url),
+    var next = 0;
+    Future<void> worker() async {
+      while (next < urls.length && context.mounted) {
+        final url = urls[next++];
+        await precacheImage(
+          schedulePosterCoverProvider(url),
           context,
-        ).catchError((_) {}),
-    ]);
+        ).catchError((_) {});
+      }
+    }
+
+    await Future.wait([for (var i = 0; i < 4; i++) worker()]);
   }
 
   /// Capture an already-mounted [RepaintBoundary] (preferred path).
@@ -736,7 +755,7 @@ class _ScheduleExportDialogState extends State<_ScheduleExportDialog> {
                   dimension: 16,
                   child: CircularProgressIndicator(strokeWidth: 2),
                 )
-              : const Icon(Icons.download_rounded),
+              : const AnimeIcon(Icons.download_rounded),
           label: Text(_exporting ? '导出中' : '保存 PNG'),
         ),
       ],

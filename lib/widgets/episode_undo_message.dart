@@ -1,3 +1,4 @@
+import '../core/theme/anime_icon.dart';
 import 'package:flutter/material.dart';
 
 import '../models/episode_edit.dart';
@@ -49,7 +50,7 @@ void showEpisodeUndoMessage(
                       onPressed: () => messenger.hideCurrentSnackBar(
                         reason: SnackBarClosedReason.dismiss,
                       ),
-                      icon: Icon(
+                      icon: AnimeIcon(
                         Icons.close,
                         color: Theme.of(context).colorScheme.onInverseSurface,
                       ),

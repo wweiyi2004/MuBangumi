@@ -14,8 +14,12 @@ import 'state/session_controller.dart';
 import 'state/account_access_controller.dart';
 import 'state/pm_send_queue_controller.dart';
 import 'state/theme_controller.dart';
+import 'state/font_controller.dart';
+import 'state/custom_colors_controller.dart';
+import 'core/theme/custom_colors.dart';
 import 'state/system_appearance_controller.dart';
 import 'widgets/app_background.dart';
+import 'widgets/app_memory_host.dart';
 import 'widgets/app_shortcut_host.dart';
 import 'widgets/login_progress.dart';
 import 'widgets/update_check_host.dart';
@@ -39,53 +43,67 @@ class MuBangumiApp extends ConsumerWidget {
       sessionProvider.select((state) => state.isPreparingHome),
     );
     final themeMode = ref.watch(themeModeProvider);
+    final font = ref.watch(fontProvider.select((state) => state.selected));
+    final colors = ref.watch(customColorsProvider);
+    final lightTheme = applyAppFont(
+      applyCustomColors(AppTheme.light, colors),
+      font,
+    );
+    final darkTheme = applyAppFont(
+      applyCustomColors(AppTheme.dark, colors),
+      font,
+    );
     final background = ref.watch(backgroundThemeSettingsProvider);
     final system = ref.watch(systemAppearanceProvider);
-    final highLight = highContrastBackgroundTheme(AppTheme.light, system);
-    final highDark = highContrastBackgroundTheme(AppTheme.dark, system);
-    return AppShortcutHost(
-      child: MaterialApp(
-        key: ValueKey('account-navigation:$accountId'),
-        title: 'MuBangumi',
-        debugShowCheckedModeBanner: false,
-        theme: system.highContrast
-            ? highLight
-            : applyBackgroundTheme(AppTheme.light, background),
-        darkTheme: system.highContrast
-            ? highDark
-            : applyBackgroundTheme(AppTheme.dark, background),
-        highContrastTheme: highLight,
-        highContrastDarkTheme: highDark,
-        themeMode: themeMode,
-        builder: (context, child) {
-          return AppRouteScope(
-            resolve: AppRouter.resolve,
-            child: AppBackgroundHost(
-              child: NetworkRecoveryHost(
-                child: child ?? const SizedBox.shrink(),
+    final highLight = highContrastBackgroundTheme(lightTheme, system);
+    final highDark = highContrastBackgroundTheme(darkTheme, system);
+    return AppMemoryHost(
+      child: AppShortcutHost(
+        child: MaterialApp(
+          key: ValueKey('account-navigation:$accountId'),
+          title: 'MuBangumi',
+          debugShowCheckedModeBanner: false,
+          theme: system.highContrast
+              ? highLight
+              : applyBackgroundTheme(lightTheme, background),
+          darkTheme: system.highContrast
+              ? highDark
+              : applyBackgroundTheme(darkTheme, background),
+          highContrastTheme: highLight,
+          highContrastDarkTheme: highDark,
+          themeMode: themeMode,
+          builder: (context, child) {
+            return AppRouteScope(
+              resolve: AppRouter.resolve,
+              child: AppBackgroundHost(
+                child: NetworkRecoveryHost(
+                  child: child ?? const SizedBox.shrink(),
+                ),
               ),
-            ),
-          );
-        },
-        home: UpdateCheckHost(
-          allowNotices: phase == SessionPhase.signedIn,
-          child: switch (phase) {
-            SessionPhase.booting => const LoginPreparationScreen(
-              key: ValueKey('restore-login'),
-            ),
-            SessionPhase.signedOut => const AuthScreen(),
-            SessionPhase.signedIn =>
-              preparing
-                  ? LoginPreparationScreen(
-                      key: const ValueKey('prepare-home'),
-                      nickname: ref.read(sessionProvider).user?.nickname,
-                      onEnter: ref.read(sessionProvider.notifier).enterHomeNow,
-                    )
-                  : const LoginEntrance(
-                      key: ValueKey('home-entrance'),
-                      child: HomeShell(),
-                    ),
+            );
           },
+          home: UpdateCheckHost(
+            allowNotices: phase == SessionPhase.signedIn,
+            child: switch (phase) {
+              SessionPhase.booting => const LoginPreparationScreen(
+                key: ValueKey('restore-login'),
+              ),
+              SessionPhase.signedOut => const AuthScreen(),
+              SessionPhase.signedIn =>
+                preparing
+                    ? LoginPreparationScreen(
+                        key: const ValueKey('prepare-home'),
+                        nickname: ref.read(sessionProvider).user?.nickname,
+                        onEnter: ref
+                            .read(sessionProvider.notifier)
+                            .enterHomeNow,
+                      )
+                    : const LoginEntrance(
+                        key: ValueKey('home-entrance'),
+                        child: HomeShell(),
+                      ),
+            },
+          ),
         ),
       ),
     );

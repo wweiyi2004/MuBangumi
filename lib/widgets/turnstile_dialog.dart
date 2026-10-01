@@ -24,110 +24,58 @@ final turnstileVerificationUri = Uri.https('next.bgm.tv', '/p1/turnstile', {
 /// usually creates no hidden input; `turnstile.getResponse()` is the
 /// dependable source. Kept as the Dart-driven fallback for when the injected
 /// bridge itself failed to run.
-const _readHiddenTokenScript = r'''
-(function() {
-  var nodes = document.getElementsByName('cf-turnstile-response');
-  for (var i = 0; i < nodes.length; i++) {
-    if (nodes[i].value) return nodes[i].value;
-  }
+// Only the official application widget can issue a posting token. An upstream
+// Cloudflare clearance page may also contain cf-turnstile-response; its token
+// belongs to a different site key and must never be submitted to the P1 API.
+const turnstileReadTokenScript = r'''
+(function () {
+  if (window.top !== window || location.origin !== 'https://next.bgm.tv' ||
+      location.pathname !== '/p1/turnstile' ||
+      !document.getElementById('turnstile-container') ||
+      typeof window.turnstileCallback !== 'function') return '';
   try {
-    if (window.turnstile && typeof window.turnstile.getResponse === 'function') {
-      var t = window.turnstile.getResponse();
-      if (t) return t;
-    }
-  } catch (e) {}
-  return '';
+    return window.turnstile && window.turnstile.getResponse
+      ? window.turnstile.getResponse() || '' : '';
+  } catch (e) { return ''; }
 })();
 ''';
 
-/// The official `/p1/turnstile` page reports success with
-/// `window.location.href = redirect?token=…`. `location.href` assignment can
-/// not be hooked, and the custom-scheme navigation is then reported by the
-/// WebViews at best as a load error, so the token must be captured *in-page*
-/// before that navigation happens:
-///  1. wrap `turnstile.render` and re-post the success callback token;
-///  2. poll `turnstile.getResponse()` / the hidden input until one yields a
-///     token — this also covers implicit rendering and slow api.js loads
-///     (Cloudflare can take far longer than a fixed few-second retry window).
-const _turnstileBridgeScript = r'''
+// Wrap only the page's own completion callback. Leave Turnstile and browser
+// navigation APIs intact, including those used by Cloudflare clearance pages.
+const turnstileBridgeScript = r'''
 (function () {
-  if (window.__mubangumiTurnstileBridge) return;
-  window.__mubangumiTurnstileBridge = true;
+  if (window.top !== window || location.origin !== 'https://next.bgm.tv' ||
+      location.pathname !== '/p1/turnstile' || window.__muPostingBridge) return;
+  window.__muPostingBridge = true;
   var delivered = false;
-  function post(payload) {
-    var raw = JSON.stringify(payload);
-    try {
-      if (window.chrome && window.chrome.webview) {
-        window.chrome.webview.postMessage(raw);
-      }
-    } catch (e) {}
-    try {
-      if (window.MuBangumiTurnstile) {
-        window.MuBangumiTurnstile.postMessage(raw);
-      }
-    } catch (e) {}
-  }
-  function deliverToken(token) {
+  function post(token) {
     if (delivered || !token) return;
     delivered = true;
-    post({ token: String(token) });
+    var raw = JSON.stringify({token: String(token)});
+    if (window.chrome && window.chrome.webview) window.chrome.webview.postMessage(raw);
+    if (window.MuBangumiTurnstile) window.MuBangumiTurnstile.postMessage(raw);
   }
-  function consider(url) {
-    if (url) post({ url: String(url) });
-  }
-  try {
-    var assign = window.location.assign.bind(window.location);
-    window.location.assign = function (url) {
-      consider(url);
-      return assign(url);
-    };
-  } catch (e) {}
-  try {
-    var replace = window.location.replace.bind(window.location);
-    window.location.replace = function (url) {
-      consider(url);
-      return replace(url);
-    };
-  } catch (e) {}
-  function wrapRender() {
-    if (!window.turnstile || typeof window.turnstile.render !== 'function') {
-      return false;
+  function connectCallback() {
+    if (!document.getElementById('turnstile-container') ||
+        typeof window.turnstileCallback !== 'function') return false;
+    if (!window.turnstileCallback.__muWrapped) {
+      var original = window.turnstileCallback;
+      var callback = function (token) { post(token); return original.apply(this, arguments); };
+      callback.__muWrapped = true;
+      window.turnstileCallback = callback;
     }
-    if (window.turnstile.__mubangumiWrapped) return true;
-    var orig = window.turnstile.render.bind(window.turnstile);
-    window.turnstile.render = function (el, opts) {
-      opts = opts || {};
-      var userCb = opts.callback;
-      opts.callback = function (token) {
-        deliverToken(token);
-        if (typeof userCb === 'function') userCb(token);
-      };
-      return orig(el, opts);
-    };
-    window.turnstile.__mubangumiWrapped = true;
     return true;
   }
-  function pollToken() {
-    try {
-      var nodes = document.getElementsByName('cf-turnstile-response');
-      for (var i = 0; i < nodes.length; i++) {
-        if (nodes[i].value) return nodes[i].value;
-      }
-    } catch (e) {}
-    try {
-      if (window.turnstile && typeof window.turnstile.getResponse === 'function') {
-        return window.turnstile.getResponse() || '';
-      }
-    } catch (e) {}
-    return '';
-  }
+  // The page passes a function reference to render() during window.onload.
+  // Connect in the earlier capture listener before that reference is retained.
+  window.addEventListener('load', connectCallback, true);
+  connectCallback();
   var timer = setInterval(function () {
-    if (delivered) {
-      clearInterval(timer);
-      return;
-    }
-    wrapRender();
-    deliverToken(pollToken());
+    if (delivered) { clearInterval(timer); return; }
+    if (!connectCallback()) return;
+    try {
+      if (window.turnstile && window.turnstile.getResponse) post(window.turnstile.getResponse());
+    } catch (e) {}
   }, 250);
 })();
 ''';
@@ -297,7 +245,7 @@ class _TurnstileViewState extends State<TurnstileView> {
       await controller.initialize();
       if (!mounted) return;
       await controller.addScriptToExecuteOnDocumentCreated(
-        _turnstileBridgeScript,
+        turnstileBridgeScript,
       );
       _subscriptions.addAll([
         controller.url.listen(_handleWindowsUrl),
@@ -400,7 +348,7 @@ class _TurnstileViewState extends State<TurnstileView> {
       final windowsController = _windowsController;
       if (windowsController != null) {
         final result = await windowsController.executeScript(
-          _readHiddenTokenScript,
+          turnstileReadTokenScript,
         );
         _acceptHiddenToken(result);
         return;
@@ -408,7 +356,7 @@ class _TurnstileViewState extends State<TurnstileView> {
       final mobileController = _mobileController;
       if (mobileController == null) return;
       final result = await mobileController.runJavaScriptReturningResult(
-        _readHiddenTokenScript,
+        turnstileReadTokenScript,
       );
       _acceptHiddenToken(result);
     } catch (_) {}
@@ -418,9 +366,9 @@ class _TurnstileViewState extends State<TurnstileView> {
     if (result == null) return;
     final raw = result.toString().trim();
     if (raw.isEmpty || raw == 'null' || raw == '""') return;
-    final token = raw.startsWith('"') && raw.endsWith('"') && raw.length >= 2
-        ? raw.substring(1, raw.length - 1)
-        : raw;
+    final decoded = raw.startsWith('"') ? jsonDecode(raw) : raw;
+    if (decoded is! String) return;
+    final token = decoded;
     if (token.isEmpty) return;
     _consumeCallback(jsonEncode({'token': token}));
   }
@@ -429,7 +377,7 @@ class _TurnstileViewState extends State<TurnstileView> {
     final controller = _mobileController;
     if (controller == null || _accepted) return;
     try {
-      await controller.runJavaScript(_turnstileBridgeScript);
+      await controller.runJavaScript(turnstileBridgeScript);
     } catch (_) {}
   }
 

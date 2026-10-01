@@ -1,4 +1,6 @@
+import '../core/theme/anime_icon.dart';
 import 'package:flutter/material.dart';
+import '../widgets/retained_tab_stack.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../core/network/community_service.dart';
 import '../state/notify_controller.dart';
@@ -48,7 +50,7 @@ class _MessagesPageState extends ConsumerState<MessagesPage> {
         );
         if (changed == true && mounted) setState(() => _friendsRevision++);
       },
-      content: IndexedStack(
+      content: RetainedTabStack(
         index: _tab,
         children: [
           _opened.contains(0)
@@ -122,14 +124,17 @@ class MessageHubLayout extends StatelessWidget {
                           IconButton(
                             tooltip: '扫一扫',
                             onPressed: onScan,
-                            icon: const Icon(
+                            icon: const AnimeIcon(
                               CupertinoIcons.qrcode_viewfinder,
                               size: 23,
                             ),
                           ),
                         TextButton.icon(
                           onPressed: onFriends,
-                          icon: const Icon(CupertinoIcons.person_2, size: 22),
+                          icon: const AnimeIcon(
+                            CupertinoIcons.person_2,
+                            size: 22,
+                          ),
                           label: const Text('好友'),
                           style: TextButton.styleFrom(
                             foregroundColor: Theme.of(

@@ -1,3 +1,4 @@
+import '../core/theme/anime_icon.dart';
 import 'package:flutter/material.dart';
 
 import '../models/bangumi_models.dart';
@@ -93,7 +94,7 @@ class _FriendSubjectCollectionCardState
                       ),
                     ),
                     const SizedBox(width: 8),
-                    Icon(
+                    AnimeIcon(
                       Icons.chevron_right_rounded,
                       size: 18,
                       color: theme.colorScheme.onSurfaceVariant,

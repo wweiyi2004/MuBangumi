@@ -1,3 +1,4 @@
+import '../core/theme/anime_icon.dart';
 import 'dart:async';
 import 'dart:convert';
 
@@ -637,7 +638,7 @@ class _CommunityComposerDialogState extends State<_CommunityComposerDialog> {
                   child: Row(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Icon(Icons.history_rounded, size: 19),
+                      const AnimeIcon(Icons.history_rounded, size: 19),
                       const SizedBox(width: 8),
                       Expanded(child: Text(warning)),
                     ],
@@ -683,7 +684,7 @@ class _CommunityComposerDialogState extends State<_CommunityComposerDialog> {
                 alignment: Alignment.centerRight,
                 child: TextButton.icon(
                   onPressed: () => setState(() => _preview = !_preview),
-                  icon: Icon(
+                  icon: AnimeIcon(
                     _preview ? Icons.edit_outlined : Icons.preview_outlined,
                   ),
                   label: Text(_preview ? '继续编辑' : '预览正文'),
@@ -769,7 +770,7 @@ class _CommunityComposerDialogState extends State<_CommunityComposerDialog> {
               if (_needsWebsiteAccess)
                 TextButton.icon(
                   onPressed: _locked ? null : _recoverWebsiteAccess,
-                  icon: const Icon(Icons.verified_user_outlined),
+                  icon: const AnimeIcon(Icons.verified_user_outlined),
                   label: const Text('补充账号验证'),
                 ),
             ],
@@ -814,7 +815,7 @@ class _CommunityComposerDialogState extends State<_CommunityComposerDialog> {
                   dimension: 16,
                   child: CircularProgressIndicator(strokeWidth: 2),
                 )
-              : const Icon(Icons.send_rounded),
+              : const AnimeIcon(Icons.send_rounded),
           label: Text(
             _confirming
                 ? '正在核对…'

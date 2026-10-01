@@ -1,4 +1,5 @@
-import 'package:cached_network_image/cached_network_image.dart';
+import '../../../widgets/bounded_image.dart';
+import '../../../core/theme/anime_icon.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/cupertino.dart';
 
@@ -59,7 +60,7 @@ class CommunityPostActions extends StatelessWidget {
         if (onReply != null)
           TextButton.icon(
             onPressed: onReply,
-            icon: const Icon(Icons.reply_rounded, size: 18),
+            icon: const AnimeIcon(Icons.reply_rounded, size: 18),
             label: const Text('回复'),
           ),
         if (onReactionChanged != null && feedStyle)
@@ -75,7 +76,7 @@ class CommunityPostActions extends StatelessWidget {
                     dimension: 18,
                     child: CircularProgressIndicator(strokeWidth: 2),
                   )
-                : Icon(
+                : AnimeIcon(
                     reactions.any((r) => r.isSelectedBy(currentUsername))
                         ? CupertinoIcons.heart_fill
                         : CupertinoIcons.heart,
@@ -91,7 +92,7 @@ class CommunityPostActions extends StatelessWidget {
                     dimension: 16,
                     child: CircularProgressIndicator(strokeWidth: 2),
                   )
-                : const Icon(Icons.favorite_border_rounded, size: 18),
+                : const AnimeIcon(Icons.favorite_border_rounded, size: 18),
             label: const Text('贴贴'),
           ),
         ?trailing,
@@ -130,13 +131,13 @@ class CommunityPostActions extends StatelessWidget {
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                CachedNetworkImage(
+                BoundedNetworkImage(
                   imageUrl: BangumiEndpoints.imageUrl(option.imageUrl),
                   width: 23,
                   height: 23,
                   fit: BoxFit.contain,
                   errorWidget: (_, _, _) =>
-                      const Icon(Icons.favorite_rounded, size: 19),
+                      const AnimeIcon(Icons.favorite_rounded, size: 19),
                 ),
                 const SizedBox(width: 5),
                 Text(
@@ -211,14 +212,14 @@ class CommunityPostActions extends StatelessWidget {
                             child: Stack(
                               alignment: Alignment.center,
                               children: [
-                                CachedNetworkImage(
+                                BoundedNetworkImage(
                                   imageUrl: BangumiEndpoints.imageUrl(
                                     option.imageUrl,
                                   ),
                                   width: 34,
                                   height: 34,
                                   fit: BoxFit.contain,
-                                  errorWidget: (_, _, _) => const Icon(
+                                  errorWidget: (_, _, _) => const AnimeIcon(
                                     Icons.favorite_rounded,
                                     size: 26,
                                   ),
@@ -227,7 +228,7 @@ class CommunityPostActions extends StatelessWidget {
                                   Positioned(
                                     right: 4,
                                     top: 4,
-                                    child: Icon(
+                                    child: AnimeIcon(
                                       Icons.check_circle_rounded,
                                       size: 15,
                                       color: Theme.of(

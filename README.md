@@ -8,7 +8,7 @@ MuBangumi 是一个使用 Flutter 编写的第三方 Bangumi 追番客户端，�
 
 > 本项目是非官方客户端，与 Bangumi 番组计划官方无隶属关系。条目、收藏和章节数据来自 [Bangumi API](https://github.com/bangumi/api)。
 
-当前版本：**v2.4.1+4031**
+当前版本：**v2.4.2+4032**
 
 开发与维护入口：[CONTRIBUTING.md](CONTRIBUTING.md)。固定工具版本、全仓校验、设备验收与发布来源记录均从这里进入。
 

@@ -1,3 +1,4 @@
+import '../core/theme/anime_icon.dart';
 import '../core/update/update_download.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -8,6 +9,10 @@ import '../core/update/app_update_service.dart';
 import '../state/background_controller.dart';
 import '../state/session_controller.dart';
 import '../state/theme_controller.dart';
+import '../state/font_controller.dart';
+import '../widgets/font_settings_sheet.dart';
+import '../widgets/color_settings_sheet.dart';
+import '../state/custom_colors_controller.dart';
 import '../state/update_controller.dart';
 import '../state/website_session_controller.dart';
 import '../widgets/network_route_picker.dart';
@@ -17,6 +22,7 @@ import '../widgets/update_ready_dialog.dart';
 import 'background_settings_sheet.dart';
 import 'account_status_screen.dart';
 import 'backup_page.dart';
+import 'config_transfer_page.dart';
 import '../features/anime_appreciation/room_pages.dart';
 
 class SettingsPage extends ConsumerWidget {
@@ -62,7 +68,7 @@ class SettingsPage extends ConsumerWidget {
               title: '同步与数据',
               children: [
                 ListTile(
-                  leading: Icon(
+                  leading: AnimeIcon(
                     session.blockedSyncCount > 0
                         ? Icons.sync_problem_rounded
                         : session.pendingSyncCount > 0
@@ -85,7 +91,7 @@ class SettingsPage extends ConsumerWidget {
                           dimension: 18,
                           child: CircularProgressIndicator(strokeWidth: 2),
                         )
-                      : const Icon(Icons.chevron_right_rounded),
+                      : const AnimeIcon(Icons.chevron_right_rounded),
                   onTap: session.isSyncing || session.isRefreshing
                       ? null
                       : () async {
@@ -101,10 +107,17 @@ class SettingsPage extends ConsumerWidget {
                         },
                 ),
                 ListTile(
-                  leading: const Icon(Icons.backup_outlined),
+                  leading: const AnimeIcon(Icons.qr_code_scanner_rounded),
+                  title: const Text('加密配置迁移'),
+                  subtitle: const Text('扫码同步外观、好友分组、新番表与 RSS'),
+                  trailing: const AnimeIcon(Icons.chevron_right_rounded),
+                  onTap: () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const ConfigTransferPage())),
+                ),
+                ListTile(
+                  leading: const AnimeIcon(Icons.backup_outlined),
                   title: const Text('本地备份与导入'),
                   subtitle: const Text('保存与恢复新番表、偏好和可选草稿'),
-                  trailing: const Icon(Icons.chevron_right_rounded),
+                  trailing: const AnimeIcon(Icons.chevron_right_rounded),
                   onTap: () => Navigator.of(context).push(
                     MaterialPageRoute<void>(builder: (_) => const BackupPage()),
                   ),
@@ -115,14 +128,37 @@ class SettingsPage extends ConsumerWidget {
               title: '外观',
               children: [
                 ListTile(
-                  leading: const Icon(Icons.brightness_6_outlined),
+                  leading: const AnimeIcon(Icons.brightness_6_outlined),
                   title: const Text('外观主题'),
                   subtitle: Text(_themeLabel(ref.watch(themeModeProvider))),
-                  trailing: const Icon(Icons.chevron_right_rounded),
+                  trailing: const AnimeIcon(Icons.chevron_right_rounded),
                   onTap: () => _pickTheme(context, ref),
                 ),
                 ListTile(
-                  leading: const Icon(Icons.wallpaper_rounded),
+                  leading: const AnimeIcon(Icons.palette_outlined),
+                  title: const Text('主题颜色'),
+                  subtitle: Text(
+                    ref.watch(customColorsProvider) == null
+                        ? '默认 · 班娘粉'
+                        : '自定义配色',
+                  ),
+                  trailing: const AnimeIcon(Icons.chevron_right_rounded),
+                  onTap: () => showColorSettings(context),
+                ),
+                ListTile(
+                  leading: const AnimeIcon(Icons.text_fields_rounded),
+                  title: const Text('字体'),
+                  subtitle: Text(
+                    ref.watch(
+                          fontProvider.select((state) => state.selected?.name),
+                        ) ??
+                        '默认字体',
+                  ),
+                  trailing: const AnimeIcon(Icons.chevron_right_rounded),
+                  onTap: () => showFontSettings(context),
+                ),
+                ListTile(
+                  leading: const AnimeIcon(Icons.wallpaper_rounded),
                   title: const Text('背景与毛玻璃'),
                   subtitle: Text(
                     !background.hasImage
@@ -133,7 +169,7 @@ class SettingsPage extends ConsumerWidget {
                         ? '已启用 · 背景模糊/柔化/导航材质'
                         : '已选图 · 未启用',
                   ),
-                  trailing: const Icon(Icons.chevron_right_rounded),
+                  trailing: const AnimeIcon(Icons.chevron_right_rounded),
                   onTap: () => showBackgroundSettingsSheet(context, ref),
                 ),
               ],
@@ -142,7 +178,7 @@ class SettingsPage extends ConsumerWidget {
               title: '网络与更新',
               children: [
                 ListTile(
-                  leading: const Icon(Icons.alt_route_rounded),
+                  leading: const AnimeIcon(Icons.alt_route_rounded),
                   title: const Text('Bangumi 网络线路'),
                   subtitle: Text(
                     '${session.networkRoute.label} · '
@@ -153,7 +189,7 @@ class SettingsPage extends ConsumerWidget {
                           dimension: 18,
                           child: CircularProgressIndicator(strokeWidth: 2),
                         )
-                      : const Icon(Icons.chevron_right_rounded),
+                      : const AnimeIcon(Icons.chevron_right_rounded),
                   onTap: session.isRefreshing
                       ? null
                       : () => showNetworkRoutePicker(context, ref),
@@ -166,9 +202,9 @@ class SettingsPage extends ConsumerWidget {
               children: [
                 _WebsiteSessionTile(),
                 ListTile(
-                  leading: const Icon(Icons.open_in_new_rounded),
+                  leading: const AnimeIcon(Icons.open_in_new_rounded),
                   title: const Text('打开 Bangumi 个人主页'),
-                  trailing: const Icon(Icons.chevron_right_rounded),
+                  trailing: const AnimeIcon(Icons.chevron_right_rounded),
                   onTap: () => launchUrl(
                     Uri.parse(
                       'https://bgm.tv/user/${Uri.encodeComponent(user.username)}',
@@ -182,9 +218,9 @@ class SettingsPage extends ConsumerWidget {
               title: '更多',
               children: [
                 ListTile(
-                  leading: const Icon(Icons.science_outlined),
+                  leading: const AnimeIcon(Icons.science_outlined),
                   title: const Text('实验性功能'),
-                  trailing: const Icon(Icons.chevron_right_rounded),
+                  trailing: const AnimeIcon(Icons.chevron_right_rounded),
                   onTap: () => Navigator.of(context).push(
                     MaterialPageRoute<void>(
                       builder: (_) => const ExperimentalFeaturesPage(),
@@ -197,7 +233,7 @@ class SettingsPage extends ConsumerWidget {
               title: null,
               children: [
                 ListTile(
-                  leading: Icon(
+                  leading: AnimeIcon(
                     Icons.logout_rounded,
                     color: Theme.of(context).colorScheme.error,
                   ),
@@ -244,7 +280,7 @@ class SettingsPage extends ConsumerWidget {
           children: [
             for (final mode in ThemeMode.values)
               ListTile(
-                leading: Icon(
+                leading: AnimeIcon(
                   mode == ThemeMode.dark
                       ? Icons.dark_mode_outlined
                       : mode == ThemeMode.light
@@ -253,7 +289,7 @@ class SettingsPage extends ConsumerWidget {
                 ),
                 title: Text(_themeLabel(mode)),
                 trailing: current == mode
-                    ? const Icon(Icons.check_rounded)
+                    ? const AnimeIcon(Icons.check_rounded)
                     : null,
                 onTap: () => Navigator.pop(context, mode),
               ),
@@ -298,12 +334,12 @@ class _WebsiteSessionTile extends ConsumerWidget {
     final user = ref.watch(sessionProvider.select((state) => state.user));
     final website = ref.watch(websiteSessionProvider);
     return ListTile(
-      leading: const Icon(Icons.account_circle_outlined),
+      leading: const AnimeIcon(Icons.account_circle_outlined),
       title: const Text('Bangumi 账号'),
       subtitle: Text(
         user == null ? '尚未登录' : '@${user.username} · ${website.statusLabel}',
       ),
-      trailing: const Icon(Icons.chevron_right_rounded),
+      trailing: const AnimeIcon(Icons.chevron_right_rounded),
       onTap: () => Navigator.of(context).push(
         MaterialPageRoute<void>(builder: (_) => const AccountStatusScreen()),
       ),
@@ -333,7 +369,7 @@ class _UpdateSettingsTile extends ConsumerWidget {
           };
 
     return ListTile(
-      leading: const Icon(Icons.system_update_alt_rounded),
+      leading: const AnimeIcon(Icons.system_update_alt_rounded),
       title: const Text('检查更新'),
       subtitle: Text(subtitle),
       trailing: update.busy
@@ -341,7 +377,7 @@ class _UpdateSettingsTile extends ConsumerWidget {
               dimension: 18,
               child: CircularProgressIndicator(strokeWidth: 2),
             )
-          : const Icon(Icons.chevron_right_rounded),
+          : const AnimeIcon(Icons.chevron_right_rounded),
       onTap: update.busy ? null : () => _checkUpdate(context, ref),
     );
   }

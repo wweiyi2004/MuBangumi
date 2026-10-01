@@ -1,3 +1,4 @@
+import '../core/theme/anime_icon.dart';
 import 'package:flutter/material.dart';
 import '../core/theme/app_tokens.dart';
 
@@ -38,7 +39,7 @@ class InsightHero extends StatelessWidget {
         children: [
           Row(
             children: [
-              Icon(icon, color: scheme.onPrimaryContainer, size: 20),
+              AnimeIcon(icon, color: scheme.onPrimaryContainer, size: 20),
               const SizedBox(width: 8),
               Expanded(
                 child: Text(
@@ -100,7 +101,7 @@ class InsightMetric extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(icon, size: 22, color: scheme.primary),
+          AnimeIcon(icon, size: 22, color: scheme.primary),
           const SizedBox(height: 14),
           Text(
             value,

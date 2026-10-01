@@ -43,6 +43,8 @@ void main() {
     'desktop-chat',
     'phone-chat',
     'phone-groups',
+    'phone-large-groups',
+    'phone-large-discovery',
     'phone-discussion',
     'phone-thread',
     'desktop-discovery',
@@ -206,7 +208,7 @@ void main() {
               builder: (context, child) => MediaQuery(
                 data: MediaQuery.of(context).copyWith(
                   textScaler: TextScaler.linear(
-                    variant == 'phone-large' ? 1.6 : 1,
+                    variant.contains('large') ? 1.8 : 1,
                   ),
                 ),
                 child: RepaintBoundary(key: boundary, child: child!),

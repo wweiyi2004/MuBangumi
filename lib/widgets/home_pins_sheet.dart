@@ -1,3 +1,4 @@
+import '../core/theme/anime_icon.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -50,7 +51,7 @@ class _HomePinsPanel extends ConsumerWidget {
               IconButton(
                 tooltip: '关闭',
                 onPressed: () => Navigator.pop(context),
-                icon: const Icon(Icons.close_rounded),
+                icon: const AnimeIcon(Icons.close_rounded),
               ),
             ],
           ),
@@ -123,7 +124,7 @@ class _HomePinsPanel extends ConsumerWidget {
                                               item.subjectId,
                                               pinned[rank - 1],
                                             ),
-                                      icon: const Icon(
+                                      icon: const AnimeIcon(
                                         Icons.arrow_upward_rounded,
                                       ),
                                     ),
@@ -136,7 +137,7 @@ class _HomePinsPanel extends ConsumerWidget {
                                               item.subjectId,
                                               pinned[rank + 1],
                                             ),
-                                      icon: const Icon(
+                                      icon: const AnimeIcon(
                                         Icons.arrow_downward_rounded,
                                       ),
                                     ),
@@ -149,7 +150,7 @@ class _HomePinsPanel extends ConsumerWidget {
                                             item.subjectId,
                                             rank < 0,
                                           ),
-                                    icon: Icon(
+                                    icon: AnimeIcon(
                                       rank < 0
                                           ? Icons.push_pin_outlined
                                           : Icons.push_pin_rounded,

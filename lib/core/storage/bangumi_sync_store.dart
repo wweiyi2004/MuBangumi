@@ -13,7 +13,9 @@ export '../../features/sync/domain/pending_mutation.dart';
 typedef _SubjectVersions = ({int anyId, int collectionId, int completionId});
 
 class BangumiSyncStore {
-  BangumiSyncStore({this.databasePath});
+  BangumiSyncStore({this.databasePath, DateTime Function()? now})
+    : _now = now ?? DateTime.now;
+  final DateTime Function() _now;
 
   static final shared = BangumiSyncStore();
 
@@ -29,7 +31,8 @@ class BangumiSyncStore {
     required Map<String, dynamic> payload,
   }) async {
     final database = await _open();
-    final now = DateTime.now().millisecondsSinceEpoch;
+    final moment = _now();
+    final now = moment.millisecondsSinceEpoch;
     await database.transaction((transaction) async {
       final existing = await transaction.query(
         'bangumi_sync_queue',
@@ -78,6 +81,10 @@ class BangumiSyncStore {
             : (existing.first['revision'] as num).toInt() + 1,
         ...values,
       });
+      if (kind == BangumiMutationKind.episode &&
+          payload.containsKey('activity_before')) {
+        await _recordActivity(transaction, username, payload, moment);
+      }
       final subjectId = (payload['subject_id'] as num?)?.toInt();
       if (subjectId != null && subjectId > 0) {
         final old = await _versionFor(transaction, username, subjectId);
@@ -272,6 +279,31 @@ class BangumiSyncStore {
     return openDatabase(
       resolvedPath,
       version: 3,
+      // Additive history table keeps the existing queue readable by older builds.
+      onOpen: _createActivity,
+      onDowngrade: (database, oldVersion, newVersion) async {
+        // A development build briefly used v4 for this additive table.
+        // Retain every row and only accept its otherwise identical queue schema.
+        if (oldVersion != 4 || newVersion != 3) {
+          throw StateError('Unsupported sync database version');
+        }
+        final columns = (await database.rawQuery(
+          'PRAGMA table_info(bangumi_sync_queue)',
+        )).map((row) => row['name']).toSet();
+        if (!columns.containsAll([
+          'id',
+          'username',
+          'mutation_key',
+          'kind',
+          'payload',
+          'created_at',
+          'updated_at',
+          'revision',
+          'blocked',
+        ])) {
+          throw StateError('Incompatible sync queue schema');
+        }
+      },
       onUpgrade: (database, oldVersion, _) async {
         if (oldVersion < 2) {
           final rows = await database.query(
@@ -327,6 +359,7 @@ class BangumiSyncStore {
         }
       },
       onCreate: (database, _) async {
+        await _createActivity(database);
         await _createVersions(database);
         await database.execute('''
           CREATE TABLE bangumi_sync_queue (
@@ -354,6 +387,71 @@ class BangumiSyncStore {
   Future<void> _createVersions(Database db) => db.execute(
     'CREATE TABLE bangumi_sync_versions (username TEXT NOT NULL, subject_id INTEGER NOT NULL, any_id INTEGER NOT NULL, collection_id INTEGER NOT NULL, completion_id INTEGER NOT NULL, PRIMARY KEY(username, subject_id))',
   );
+
+  Future<void> _createActivity(Database db) async {
+    await db.execute(
+      'CREATE TABLE IF NOT EXISTS episode_activity (username TEXT NOT NULL, episode_id INTEGER NOT NULL, subject_id INTEGER NOT NULL, day TEXT NOT NULL, active INTEGER NOT NULL, PRIMARY KEY(username, episode_id))',
+    );
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS episode_activity_days ON episode_activity(username, active, day)',
+    );
+  }
+
+  Future<void> _recordActivity(
+    Transaction txn,
+    String username,
+    Map<String, dynamic> payload,
+    DateTime moment,
+  ) async {
+    final owner = username.trim().toLowerCase();
+    final episode = payload['episode_id'];
+    final type = payload['type'];
+    final before = payload['activity_before'];
+    if (episode is! int || episode <= 0 || before == null) return;
+    final existing = await txn.query(
+      'episode_activity',
+      where: 'username = ? AND episode_id = ?',
+      whereArgs: [owner, episode],
+      limit: 1,
+    );
+    if (type != 2) {
+      await txn.update(
+        'episode_activity',
+        {'active': 0},
+        where: 'username = ? AND episode_id = ?',
+        whereArgs: [owner, episode],
+      );
+      return;
+    }
+    if (before == 2) return;
+    final restoring = payload['activity_undo'] == true;
+    if (restoring && existing.isEmpty) {
+      return; // Never invent pre-feature history.
+    }
+    final local = moment.toLocal();
+    final day = restoring
+        ? existing.single['day'] as String
+        : '${local.year}-${local.month.toString().padLeft(2, '0')}-${local.day.toString().padLeft(2, '0')}';
+    await txn.insert('episode_activity', {
+      'username': owner,
+      'episode_id': episode,
+      'subject_id': payload['subject_id'],
+      'day': day,
+      'active': 1,
+    }, conflictAlgorithm: ConflictAlgorithm.replace);
+  }
+
+  Future<Map<String, int>> episodeActivityDays(String username) async {
+    final db = await _open();
+    final rows = await db.rawQuery(
+      'SELECT day, COUNT(*) AS count FROM episode_activity WHERE username = ? AND active = 1 GROUP BY day ORDER BY day',
+      [username.trim().toLowerCase()],
+    );
+    return {
+      for (final row in rows)
+        row['day'] as String: (row['count'] as num).toInt(),
+    };
+  }
 
   Future<_SubjectVersions?> _versionFor(
     DatabaseExecutor db,

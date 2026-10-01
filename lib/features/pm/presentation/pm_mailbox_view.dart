@@ -1,3 +1,4 @@
+import '../../../core/theme/anime_icon.dart';
 import 'package:flutter/material.dart';
 import '../../../models/pm_models.dart';
 import '../../../state/pm_mailbox_controller.dart';
@@ -424,7 +425,7 @@ class _PmStateCard extends StatelessWidget {
                   ),
                   borderRadius: AppRadius.large,
                 ),
-                child: Icon(icon, size: 36, color: scheme.primary),
+                child: AnimeIcon(icon, size: 36, color: scheme.primary),
               ),
               const SizedBox(height: 18),
               Text(
@@ -444,7 +445,7 @@ class _PmStateCard extends StatelessWidget {
               const SizedBox(height: 22),
               FilledButton.icon(
                 onPressed: onPrimary,
-                icon: Icon(primaryIcon),
+                icon: AnimeIcon(primaryIcon),
                 label: Text(primaryLabel),
               ),
               if (secondaryLabel != null && onSecondary != null) ...[

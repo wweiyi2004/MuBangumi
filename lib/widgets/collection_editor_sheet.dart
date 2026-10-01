@@ -1,3 +1,4 @@
+import '../core/theme/anime_icon.dart';
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -321,7 +322,7 @@ class _CollectionEditorSheetState
                     IconButton(
                       onPressed: _saving ? null : () => _close(),
                       tooltip: '保存草稿并关闭',
-                      icon: const Icon(Icons.close),
+                      icon: const AnimeIcon(Icons.close),
                     ),
                   ],
                 ),
@@ -453,7 +454,7 @@ class _CollectionEditorSheetState
                           dimension: 18,
                           child: CircularProgressIndicator(strokeWidth: 2),
                         )
-                      : const Icon(Icons.save_rounded),
+                      : const AnimeIcon(Icons.save_rounded),
                   label: Text(
                     _saving
                         ? '保存中…'
@@ -469,7 +470,7 @@ class _CollectionEditorSheetState
                       Uri.parse('https://bgm.tv/subject/${subject.id}'),
                       mode: LaunchMode.externalApplication,
                     ),
-                    icon: const Icon(Icons.open_in_new_rounded, size: 18),
+                    icon: const AnimeIcon(Icons.open_in_new_rounded, size: 18),
                     label: const Text('在官网移出收藏'),
                   ),
                   Text(
@@ -522,7 +523,7 @@ class _ProgressStepper extends StatelessWidget {
             children: [
               IconButton.filledTonal(
                 onPressed: value > 0 ? () => onChanged(value - 1) : null,
-                icon: const Icon(Icons.remove_rounded),
+                icon: const AnimeIcon(Icons.remove_rounded),
                 visualDensity: VisualDensity.compact,
               ),
               Expanded(
@@ -534,7 +535,7 @@ class _ProgressStepper extends StatelessWidget {
               ),
               IconButton.filledTonal(
                 onPressed: () => onChanged(value + 1),
-                icon: const Icon(Icons.add_rounded),
+                icon: const AnimeIcon(Icons.add_rounded),
                 visualDensity: VisualDensity.compact,
               ),
             ],

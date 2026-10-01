@@ -1,3 +1,4 @@
+import '../core/theme/anime_icon.dart';
 import '../navigation/app_destination.dart';
 import 'dart:convert';
 
@@ -139,13 +140,13 @@ class _CollectionStatsPageState extends State<CollectionStatsPage> {
                 ),
               ),
               ListTile(
-                leading: const Icon(Icons.save_alt_rounded),
+                leading: const AnimeIcon(Icons.save_alt_rounded),
                 title: const Text('另存为 JSON'),
                 subtitle: const Text('选择保存位置'),
                 onTap: () => Navigator.pop(context, _ExportAction.save),
               ),
               ListTile(
-                leading: const Icon(Icons.share_rounded),
+                leading: const AnimeIcon(Icons.share_rounded),
                 title: const Text('分享收藏文件'),
                 onTap: () => Navigator.pop(context, _ExportAction.share),
               ),
@@ -245,7 +246,7 @@ class _CollectionStatsPageState extends State<CollectionStatsPage> {
                     dimension: 18,
                     child: CircularProgressIndicator(strokeWidth: 2),
                   )
-                : const Icon(Icons.file_download_outlined),
+                : const AnimeIcon(Icons.file_download_outlined),
           ),
         ],
       ),
@@ -282,12 +283,12 @@ class _CollectionStatsPageState extends State<CollectionStatsPage> {
                     segments: const [
                       ButtonSegment(
                         value: false,
-                        icon: Icon(Icons.donut_small_rounded),
+                        icon: AnimeIcon(Icons.donut_small_rounded),
                         label: Text('收藏概览'),
                       ),
                       ButtonSegment(
                         value: true,
-                        icon: Icon(Icons.auto_awesome_rounded),
+                        icon: AnimeIcon(Icons.auto_awesome_rounded),
                         label: Text('年度回顾'),
                       ),
                     ],
@@ -332,6 +333,8 @@ class _CollectionStatsPageState extends State<CollectionStatsPage> {
                         ),
                       ),
                       DropdownButton<int>(
+                        borderRadius: BorderRadius.circular(16),
+                        dropdownColor: Theme.of(context).colorScheme.surface,
                         value: _year,
                         underline: const SizedBox.shrink(),
                         items: [
@@ -388,7 +391,7 @@ class _CollectionStatsPageState extends State<CollectionStatsPage> {
           onPressed: _filtered.isEmpty
               ? null
               : () => _browse('全部收藏', _filtered),
-          icon: const Icon(Icons.view_list_rounded),
+          icon: const AnimeIcon(Icons.view_list_rounded),
           label: const Text('浏览收藏记录'),
         ),
       ),
@@ -421,7 +424,7 @@ class _CollectionStatsPageState extends State<CollectionStatsPage> {
         runSpacing: 8,
         children: [
           ActionChip(
-            avatar: const Icon(Icons.task_alt_rounded, size: 18),
+            avatar: const AnimeIcon(Icons.task_alt_rounded, size: 18),
             label: Text('当前已完成 ${_statistics.completedTotal}'),
             onPressed: () => _browse(
               '当前已完成',
@@ -429,7 +432,7 @@ class _CollectionStatsPageState extends State<CollectionStatsPage> {
             ),
           ),
           ActionChip(
-            avatar: const Icon(Icons.favorite_border_rounded, size: 18),
+            avatar: const AnimeIcon(Icons.favorite_border_rounded, size: 18),
             label: Text('高分收藏 ${_statistics.highRatedTotal}'),
             onPressed: () => _browse(
               '高分收藏 · 8–10 分',
@@ -439,7 +442,7 @@ class _CollectionStatsPageState extends State<CollectionStatsPage> {
             ),
           ),
           ActionChip(
-            avatar: const Icon(Icons.edit_note_rounded, size: 18),
+            avatar: const AnimeIcon(Icons.edit_note_rounded, size: 18),
             label: Text('留下短评 ${_statistics.commentedTotal}'),
             onPressed: () => _browse(
               '留下短评的收藏',
@@ -572,7 +575,7 @@ class _CollectionStatsPageState extends State<CollectionStatsPage> {
             '${_statistics.undatedTotal == 0 ? '' : '另有 ${_statistics.undatedTotal} 条无日期记录，仅计入收藏概览。'}',
         child: Row(
           children: [
-            Icon(
+            AnimeIcon(
               Icons.info_outline_rounded,
               size: 14,
               color: Theme.of(context).colorScheme.onSurfaceVariant,
@@ -659,6 +662,8 @@ class _CollectionStatsPageState extends State<CollectionStatsPage> {
                 crossAxisAlignment: WrapCrossAlignment.center,
                 children: [
                   DropdownButton<CollectionMemoryOrder>(
+                    borderRadius: BorderRadius.circular(16),
+                    dropdownColor: Theme.of(context).colorScheme.surface,
                     value: _order,
                     items: [
                       for (final order in CollectionMemoryOrder.values)
@@ -678,7 +683,7 @@ class _CollectionStatsPageState extends State<CollectionStatsPage> {
                             '$_year 年${_month == null ? '' : ' $_month 月'}的收藏',
                             selected,
                           ),
-                    icon: const Icon(Icons.search_rounded),
+                    icon: const AnimeIcon(Icons.search_rounded),
                     label: Text('查看全部 ${selected.length} 条'),
                   ),
                 ],
@@ -689,7 +694,7 @@ class _CollectionStatsPageState extends State<CollectionStatsPage> {
                   alignment: Alignment.centerLeft,
                   child: ActionChip(
                     label: const Text('查看全年'),
-                    avatar: const Icon(Icons.close_rounded, size: 16),
+                    avatar: const AnimeIcon(Icons.close_rounded, size: 16),
                     onPressed: () => setState(() => _month = null),
                   ),
                 ),
@@ -899,7 +904,7 @@ class _MemoriesSheetState extends State<_MemoriesSheet> {
               IconButton(
                 tooltip: '关闭记录',
                 onPressed: () => Navigator.pop(context),
-                icon: const Icon(Icons.close_rounded),
+                icon: const AnimeIcon(Icons.close_rounded),
               ),
             ],
           ),
@@ -909,7 +914,7 @@ class _MemoriesSheetState extends State<_MemoriesSheet> {
             onChanged: (_) => _filter(),
             decoration: InputDecoration(
               hintText: '搜索作品、标签或短评',
-              prefixIcon: const Icon(Icons.search_rounded),
+              prefixIcon: const AnimeIcon(Icons.search_rounded),
               suffixIcon: _search.text.isEmpty
                   ? null
                   : IconButton(
@@ -918,7 +923,7 @@ class _MemoriesSheetState extends State<_MemoriesSheet> {
                         _search.clear();
                         _filter();
                       },
-                      icon: const Icon(Icons.close_rounded),
+                      icon: const AnimeIcon(Icons.close_rounded),
                     ),
             ),
           ),
@@ -929,6 +934,8 @@ class _MemoriesSheetState extends State<_MemoriesSheet> {
               children: [
                 Text('${_items.length} / ${widget.items.length} 条记录'),
                 DropdownButton<CollectionMemoryOrder>(
+                  borderRadius: BorderRadius.circular(16),
+                  dropdownColor: Theme.of(context).colorScheme.surface,
                   value: _order,
                   items: [
                     for (final order in CollectionMemoryOrder.values)
@@ -1183,7 +1190,7 @@ class _DistributionRow extends StatelessWidget {
           Row(
             children: [
               if (icon != null) ...[
-                Icon(icon, size: 16),
+                AnimeIcon(icon, size: 16),
                 const SizedBox(width: 6),
               ],
               Expanded(child: Text(label)),
@@ -1192,7 +1199,7 @@ class _DistributionRow extends StatelessWidget {
                 style: Theme.of(context).textTheme.labelLarge,
               ),
               if (onTap != null)
-                const Icon(Icons.chevron_right_rounded, size: 18),
+                const AnimeIcon(Icons.chevron_right_rounded, size: 18),
             ],
           ),
           const SizedBox(height: 6),

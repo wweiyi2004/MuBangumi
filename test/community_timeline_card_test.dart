@@ -9,6 +9,32 @@ import 'package:mubangumi/widgets/community_widgets.dart';
 void main() {
   const user = CommunityUser(id: 1, username: 'alice', nickname: '爱丽丝');
 
+  testWidgets(
+    'any timeline author has a share card action without write callbacks',
+    (tester) async {
+      final item = CommunityTimelineItem(
+        id: 64,
+        user: user,
+        description: '',
+        content: '今天的小事',
+        createdAt: DateTime(2026, 9, 30),
+        isStatus: true,
+      );
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(body: CommunityTimelineCard(item: item)),
+        ),
+      );
+      await tester.tap(find.byTooltip('更多动态操作'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('分享动态'));
+      await tester.pumpAndSettle();
+      expect(find.text('爱丽丝的动态'), findsOneWidget);
+      expect(find.text('保存图片'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
   testWidgets('renders played games and collected characters and persons', (
     tester,
   ) async {

@@ -7,6 +7,7 @@ import 'package:flutter/foundation.dart';
 import '../../core/storage/community_cache.dart';
 import '../../models/bangumi_models.dart';
 import '../../models/community_models.dart';
+import '../../models/bangumi_index.dart';
 import '../../models/community_topic_submission.dart';
 import '../../models/account_content_preferences.dart';
 import '../auth/website_session.dart';
@@ -165,11 +166,22 @@ class CommunityService {
   final _htmlCache = AsyncCache<String>(
     maxAge: const Duration(minutes: 2),
     maxEntries: 400,
+    maxWeight: 8 * 1024 * 1024,
+    weightOf: estimateJsonCacheWeight,
   );
   final _jsonCache = AsyncCache<Object>(
     maxAge: const Duration(minutes: 2),
     maxEntries: 400,
+    maxWeight: 8 * 1024 * 1024,
+    weightOf: estimateJsonCacheWeight,
   );
+
+  void releaseMemory() {
+    _htmlCache.clearCompleted();
+    _jsonCache.clearCompleted();
+    _friendsCache.clear();
+  }
+
   final Map<String, _CachedFriends> _friendsCache = {};
   String? _currentUsername;
   String _currentNickname = '';
@@ -195,6 +207,11 @@ class CommunityService {
   void _invalidateFriendRelations() {
     _friendRevision++;
     _friendsCache.clear();
+    unawaited(
+      _persistentCache.removePrefix(
+        '${_cachePrefix(_currentUsername ?? 'public')}friend-status:',
+      ),
+    );
     _jsonCache.removeWhere(
       (key) =>
           key.contains('/users/') ||
@@ -282,6 +299,178 @@ class CommunityService {
       _p1Dio.options.headers['Authorization']?.toString().isNotEmpty == true;
 
   String? get currentUsername => _currentUsername;
+  Future<String> loadUserBiography(
+    String username, {
+    bool refresh = false,
+  }) async {
+    final json = await _getJson(
+      '/users/${Uri.encodeComponent(username.trim())}',
+      refresh: refresh,
+    );
+    return json['bio'] is String ? json['bio'] as String : '';
+  }
+
+  Future<CommunityPageResult<BangumiIndex>> loadIndexes({
+    BangumiIndexMode mode = BangumiIndexMode.hot,
+    String? username,
+    int offset = 0,
+    int limit = 24,
+    bool refresh = false,
+  }) async {
+    final personal =
+        mode == BangumiIndexMode.created || mode == BangumiIndexMode.collected;
+    final owner = username?.trim() ?? _currentUsername;
+    if (personal && (owner == null || owner.isEmpty)) {
+      throw const FormatException('请先登录后查看自己的番剧单');
+    }
+    final path = personal
+        ? '/users/${Uri.encodeComponent(owner!)}/${mode == BangumiIndexMode.created ? 'indexes' : 'collections/indexes'}'
+        : '/indexes';
+    final page = await _getJson(
+      path,
+      query: {
+        'offset': offset,
+        'limit': limit.clamp(1, 100),
+        if (!personal) 'order': mode == BangumiIndexMode.hot ? 'hot' : 'latest',
+      },
+      refresh: refresh,
+    );
+    final rows = (page['data'] as List? ?? const []).whereType<Map>().toList();
+    return CommunityPageResult(
+      data: [
+        for (final row in rows)
+          BangumiIndex.fromJson(Map<String, dynamic>.from(row)),
+      ],
+      total: _pageTotal(page),
+      rawCount: rows.length,
+    );
+  }
+
+  Future<BangumiIndex> loadIndex(int id, {bool refresh = false}) async {
+    if (id <= 0) throw const FormatException('目录编号无效');
+    return BangumiIndex.fromJson(
+      await _getJson('/indexes/$id', refresh: refresh),
+    );
+  }
+
+  Future<CommunityPageResult<BangumiIndexEntry>> loadIndexEntries(
+    int id, {
+    int offset = 0,
+    int limit = 24,
+    bool animeOnly = true,
+    bool refresh = false,
+  }) async {
+    final page = await _getJson(
+      '/indexes/$id/related',
+      query: {
+        'cat': 0,
+        if (animeOnly) 'type': 2,
+        'offset': offset,
+        'limit': limit.clamp(1, 100),
+      },
+      refresh: refresh,
+    );
+    final rows = (page['data'] as List? ?? const []).whereType<Map>().toList();
+    return CommunityPageResult(
+      data: [
+        for (final row in rows)
+          BangumiIndexEntry.fromJson(Map<String, dynamic>.from(row)),
+      ],
+      total: _pageTotal(page),
+      rawCount: rows.length,
+    );
+  }
+
+  Future<int> saveIndex({
+    BangumiIndex? original,
+    required String title,
+    required String description,
+    required bool isPrivate,
+  }) async {
+    _requireAuthentication();
+    if (title.trim().isEmpty || title.trim().runes.length > 80) {
+      throw const FormatException('目录标题需为 1 至 80 个字');
+    }
+    final data = {
+      'title': title.trim(),
+      'desc': description,
+      'private': isPrivate,
+    };
+    if (original != null) {
+      await _nativeWrite('PATCH', '/indexes/${original.id}', data: data);
+      _jsonCache.clear();
+      return original.id;
+    }
+    final result = await _postJson('/indexes', data: data);
+    final id = result is Map ? (result['id'] as num?)?.toInt() : null;
+    if (id == null || id <= 0) throw const CommunitySubmissionUncertain();
+    _jsonCache.clear();
+    return id;
+  }
+
+  Future<void> collectIndex(int id, bool collected) async {
+    await _nativeWrite(
+      collected ? 'PUT' : 'DELETE',
+      '/collections/indexes/$id',
+    );
+    _jsonCache.clear();
+  }
+
+  Future<void> addIndexSubject(
+    int id,
+    int subjectId, {
+    String comment = '',
+  }) async {
+    final identity = _identityRevision;
+    final page = await _getJson(
+      '/indexes/$id/related',
+      query: const {'limit': 1, 'offset': 0},
+    );
+    var order = 0;
+    final total = _pageTotal(page);
+    if (total > 0) {
+      final last = await _getJson(
+        '/indexes/$id/related',
+        query: {'limit': 1, 'offset': total - 1},
+      );
+      final rows = last['data'] as List? ?? const [];
+      if (rows.isNotEmpty && rows.last is Map) {
+        order = ((rows.last as Map)['order'] as num?)?.toInt() ?? 0;
+      }
+      order++;
+    }
+    _checkIdentity(identity);
+    await _nativeWrite(
+      'PUT',
+      '/indexes/$id/related',
+      data: {'cat': 0, 'sid': subjectId, 'order': order, 'comment': comment},
+    );
+    _jsonCache.clear();
+  }
+
+  Future<void> updateIndexEntry(
+    int id,
+    BangumiIndexEntry entry, {
+    required int order,
+    required String comment,
+  }) async {
+    await _nativeWrite(
+      'PATCH',
+      '/indexes/$id/related/${entry.id}',
+      data: {'order': order, 'comment': comment},
+    );
+    _jsonCache.clear();
+  }
+
+  Future<void> removeIndexEntry(int id, int entryId) async {
+    await _nativeWrite('DELETE', '/indexes/$id/related/$entryId');
+    _jsonCache.clear();
+  }
+
+  Future<void> deleteIndex(int id) async {
+    await _nativeWrite('DELETE', '/indexes/$id');
+    _jsonCache.clear();
+  }
 
   void setAccessToken(String? token) {
     final wasAuthenticated = isAuthenticated;
@@ -1872,6 +2061,29 @@ class CommunityService {
     _checkFriendContext(context);
     return json['isFriend'] == true;
   }
+
+  Future<bool?> readCachedFriendStatus(String username) async {
+    final snapshot = await _readSnapshot(
+      'friend-status:${username.trim().toLowerCase()}',
+    );
+    final time = DateTime.tryParse(snapshot?['checked_at']?.toString() ?? '');
+    if (time == null ||
+        DateTime.now().difference(time) > const Duration(minutes: 10)) {
+      return null;
+    }
+    return snapshot?['accepted'] is bool ? snapshot!['accepted'] as bool : null;
+  }
+
+  Future<void> cacheFriendStatus(String username, bool accepted) =>
+      _writeSnapshot(
+        'friend-status:${username.trim().toLowerCase()}',
+        {
+          'accepted': accepted,
+          'checked_at': DateTime.now().toUtc().toIso8601String(),
+        },
+        identity: _identityRevision,
+        accountScoped: true,
+      );
 
   Future<Object?> _postJson(
     String path, {

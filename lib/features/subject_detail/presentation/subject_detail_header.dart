@@ -1,3 +1,4 @@
+import '../../../core/theme/anime_icon.dart';
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -167,7 +168,7 @@ class SubjectDetailHeader extends StatelessWidget {
                     );
                     unawaited(launchExternalLink(uri));
                   },
-                  icon: const Icon(Icons.public_rounded, size: 18),
+                  icon: const AnimeIcon(Icons.public_rounded, size: 18),
                   label: const Text('官方网站'),
                 ),
               );
@@ -187,7 +188,7 @@ class SubjectDetailHeader extends StatelessWidget {
                     children: [
                       if (collection!.rate > 0)
                         Chip(
-                          avatar: const Icon(Icons.star_rounded, size: 18),
+                          avatar: const AnimeIcon(Icons.star_rounded, size: 18),
                           label: Text('我的评分 ${collection!.rate}'),
                           visualDensity: VisualDensity.compact,
                           materialTapTargetSize:
@@ -195,7 +196,10 @@ class SubjectDetailHeader extends StatelessWidget {
                         ),
                       if (collection!.private)
                         const Chip(
-                          avatar: Icon(Icons.lock_outline_rounded, size: 16),
+                          avatar: AnimeIcon(
+                            Icons.lock_outline_rounded,
+                            size: 16,
+                          ),
                           label: Text('仅自己可见'),
                           visualDensity: VisualDensity.compact,
                           materialTapTargetSize:
@@ -239,7 +243,7 @@ class SubjectDetailHeader extends StatelessWidget {
                     dimension: 18,
                     child: CircularProgressIndicator(strokeWidth: 2),
                   )
-                : Icon(
+                : AnimeIcon(
                     collection == null
                         ? Icons.add_rounded
                         : Icons.bookmark_rounded,
@@ -254,7 +258,7 @@ class SubjectDetailHeader extends StatelessWidget {
             for (final type in CollectionType.values)
               MenuItemButton(
                 leadingIcon: collection?.type == type
-                    ? const Icon(Icons.check_rounded)
+                    ? const AnimeIcon(Icons.check_rounded)
                     : null,
                 onPressed: () => onCollectionChanged(type),
                 child: Text(type.labelFor(subject.type)),
@@ -264,7 +268,7 @@ class SubjectDetailHeader extends StatelessWidget {
 
         final manageButton = OutlinedButton.icon(
           onPressed: busy ? null : onManageCollection,
-          icon: const Icon(Icons.edit_note_rounded),
+          icon: const AnimeIcon(Icons.edit_note_rounded),
           label: Text(compact ? '评分' : '评分与吐槽'),
         );
 
@@ -365,7 +369,7 @@ class _Meta extends StatelessWidget {
   Widget build(BuildContext context) => Row(
     mainAxisSize: MainAxisSize.min,
     children: [
-      Icon(
+      AnimeIcon(
         icon,
         size: compact ? 16 : 18,
         color: color ?? Theme.of(context).colorScheme.onSurfaceVariant,

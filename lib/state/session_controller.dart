@@ -741,6 +741,19 @@ class SessionController extends StateNotifier<SessionState>
     UserCollection collection, {
     void Function(EpisodeUndo)? onUndoReady,
   }) => _collectionEditor.markNextEpisode(collection, onUndoReady: onUndoReady);
+  Future<Map<String, int>> episodeActivityDays() async {
+    final owner = state.user?.username;
+    final generation = _authGeneration;
+    if (owner == null) return const {};
+    final days = await _syncStore.episodeActivityDays(owner);
+    if (!mounted ||
+        generation != _authGeneration ||
+        state.user?.username != owner) {
+      return const {};
+    }
+    return days;
+  }
+
   Future<String?> setEpisode({
     required int subjectId,
     required int episodeId,

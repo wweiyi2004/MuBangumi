@@ -1,3 +1,4 @@
+import '../core/theme/anime_icon.dart';
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -94,7 +95,9 @@ Future<PmDraft?> pickPmComposeDraft(
                             maxLines: 3,
                             overflow: TextOverflow.ellipsis,
                           ),
-                          trailing: const Icon(Icons.chevron_right_rounded),
+                          trailing: const AnimeIcon(
+                            Icons.chevron_right_rounded,
+                          ),
                           onTap: () {
                             if (ref.read(sessionProvider).user?.id == user.id &&
                                 ref

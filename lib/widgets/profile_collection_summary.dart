@@ -1,3 +1,4 @@
+import '../core/theme/anime_icon.dart';
 import 'package:flutter/material.dart';
 import '../core/theme/app_tokens.dart';
 
@@ -45,7 +46,7 @@ class ProfileCollectionSummary extends StatelessWidget {
                       style: TextStyle(color: scheme.onSurfaceVariant),
                     ),
                     const Spacer(),
-                    Icon(
+                    AnimeIcon(
                       onTotalTap == null
                           ? Icons.auto_stories_rounded
                           : Icons.arrow_forward_rounded,
@@ -143,7 +144,7 @@ class _Metric extends StatelessWidget {
                 ),
               ),
               if (onTap != null)
-                Icon(Icons.chevron_right_rounded, size: 18, color: color),
+                AnimeIcon(Icons.chevron_right_rounded, size: 18, color: color),
             ],
           ),
         ],

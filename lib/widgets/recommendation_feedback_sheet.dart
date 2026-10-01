@@ -1,3 +1,4 @@
+import '../core/theme/anime_icon.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -27,7 +28,7 @@ class RecommendationFeedbackNotice extends ConsumerWidget {
                   : () => ref
                         .read(recommendationFeedbackProvider(ownerId).notifier)
                         .retry(),
-              icon: const Icon(Icons.refresh_rounded),
+              icon: const AnimeIcon(Icons.refresh_rounded),
               label: Text(state.ready ? '重试保存' : '重新读取'),
             ),
           ],
@@ -87,7 +88,7 @@ class _HiddenRecommendations extends ConsumerWidget {
               IconButton(
                 tooltip: '关闭',
                 onPressed: () => Navigator.pop(context),
-                icon: const Icon(Icons.close_rounded),
+                icon: const AnimeIcon(Icons.close_rounded),
               ),
             ],
           ),

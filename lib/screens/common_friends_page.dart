@@ -1,10 +1,10 @@
+import '../widgets/bounded_image.dart';
+import '../core/theme/anime_icon.dart';
 import '../state/service_providers.dart';
 import '../navigation/app_destination.dart';
-import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../core/network/bangumi_endpoints.dart';
 import '../core/social/common_friends.dart';
 import '../models/bangumi_models.dart';
 import '../state/session_controller.dart';
@@ -156,7 +156,9 @@ class _CommonFriendsPageState extends ConsumerState<CommonFriendsPage> {
                         children: [
                           Card(
                             child: ListTile(
-                              leading: const Icon(Icons.people_alt_rounded),
+                              leading: const AnimeIcon(
+                                Icons.people_alt_rounded,
+                              ),
                               title: Text(
                                 '你和 ${widget.targetDisplayName} 的共同好友',
                               ),
@@ -170,7 +172,7 @@ class _CommonFriendsPageState extends ConsumerState<CommonFriendsPage> {
                                 setState(() => _query = value),
                             decoration: const InputDecoration(
                               hintText: '搜索昵称、用户名或签名',
-                              prefixIcon: Icon(Icons.search_rounded),
+                              prefixIcon: AnimeIcon(Icons.search_rounded),
                             ),
                           ),
                         ],
@@ -218,9 +220,7 @@ class _CommonFriendTile extends StatelessWidget {
         radius: 24,
         backgroundImage: user.avatarUrl.isEmpty
             ? null
-            : CachedNetworkImageProvider(
-                BangumiEndpoints.imageUrl(user.avatarUrl),
-              ),
+            : boundedAvatarProvider(context, user.avatarUrl, diameter: 48),
         child: user.avatarUrl.isEmpty
             ? Text(user.displayName.characters.first.toUpperCase())
             : null,
@@ -235,7 +235,7 @@ class _CommonFriendTile extends StatelessWidget {
         maxLines: 2,
         overflow: TextOverflow.ellipsis,
       ),
-      trailing: const Icon(Icons.chevron_right_rounded),
+      trailing: const AnimeIcon(Icons.chevron_right_rounded),
       onTap: onTap,
     ),
   );
@@ -251,7 +251,7 @@ class _EmptyState extends StatelessWidget {
   Widget build(BuildContext context) => Column(
     mainAxisSize: MainAxisSize.min,
     children: [
-      Icon(
+      AnimeIcon(
         Icons.people_outline_rounded,
         size: 42,
         color: Theme.of(context).colorScheme.outline,
@@ -278,7 +278,7 @@ class _ErrorState extends StatelessWidget {
       const SizedBox(height: 12),
       FilledButton.icon(
         onPressed: onRetry,
-        icon: const Icon(Icons.refresh_rounded),
+        icon: const AnimeIcon(Icons.refresh_rounded),
         label: const Text('重试'),
       ),
     ],

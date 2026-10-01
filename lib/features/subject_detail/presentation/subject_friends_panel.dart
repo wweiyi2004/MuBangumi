@@ -1,3 +1,4 @@
+import '../../../core/theme/anime_icon.dart';
 import 'package:flutter/material.dart';
 import '../../../models/bangumi_models.dart';
 import '../../../widgets/friend_subject_collection_card.dart';
@@ -58,13 +59,16 @@ class SubjectFriendsPanel extends StatelessWidget {
                 else if (!expanded)
                   TextButton.icon(
                     onPressed: onExpand,
-                    icon: const Icon(Icons.people_outline_rounded, size: 18),
+                    icon: const AnimeIcon(
+                      Icons.people_outline_rounded,
+                      size: 18,
+                    ),
                     label: const Text('查看好友'),
                   )
                 else if (error != null)
                   TextButton.icon(
                     onPressed: onExpand,
-                    icon: const Icon(Icons.refresh_rounded, size: 18),
+                    icon: const AnimeIcon(Icons.refresh_rounded, size: 18),
                     label: const Text('重试'),
                   )
                 else
@@ -78,7 +82,7 @@ class SubjectFriendsPanel extends StatelessWidget {
                   IconButton(
                     tooltip: '收起好友收藏与评论',
                     onPressed: onCollapse,
-                    icon: const Icon(Icons.expand_less_rounded),
+                    icon: const AnimeIcon(Icons.expand_less_rounded),
                   ),
               ],
             ),

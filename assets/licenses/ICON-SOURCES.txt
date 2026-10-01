@@ -1,0 +1,10 @@
+MuBangumi SVG icon set
+
+Cat ears, sparkles, ribbons and the semantic custom line drawings are original
+MuBangumi artwork, authored in tool/generate_anime_icons.py.
+
+Uncustomized functional glyph outlines derive from the project's existing
+Material Icons (Google, Apache License 2.0) and Cupertino Icons (MIT license).
+Sources: https://github.com/flutter/flutter and
+https://github.com/flutter/packages/tree/main/third_party/packages/cupertino_icons
+The dependency license notices remain available through Flutter's license page.

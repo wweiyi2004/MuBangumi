@@ -1,3 +1,4 @@
+import '../core/theme/anime_icon.dart';
 import '../state/service_providers.dart';
 import '../navigation/app_destination.dart';
 import 'dart:async';
@@ -296,17 +297,17 @@ class _CommunityGroupScreenState extends State<CommunityGroupScreen> {
             tooltip: '小组二维码',
             onPressed: () =>
                 showGroupQr(context, detail?.group ?? widget.group),
-            icon: const Icon(Icons.qr_code_rounded),
+            icon: const AnimeIcon(Icons.qr_code_rounded),
           ),
           IconButton(
             tooltip: '刷新',
             onPressed: _loading ? null : () => _load(refresh: true),
-            icon: const Icon(Icons.refresh_rounded),
+            icon: const AnimeIcon(Icons.refresh_rounded),
           ),
           IconButton(
             tooltip: '在官网查看',
             onPressed: _openWeb,
-            icon: const Icon(Icons.language_rounded),
+            icon: const AnimeIcon(Icons.language_rounded),
           ),
         ],
       ),
@@ -318,7 +319,7 @@ class _CommunityGroupScreenState extends State<CommunityGroupScreen> {
               foregroundColor: SocialChatStyle.dark(context)
                   ? Colors.black
                   : Colors.white,
-              icon: const Icon(CupertinoIcons.chat_bubble_2),
+              icon: const AnimeIcon(CupertinoIcons.chat_bubble_2),
               label: const Text('发起讨论'),
             )
           : null,
@@ -327,7 +328,7 @@ class _CommunityGroupScreenState extends State<CommunityGroupScreen> {
           children: [
             if (_publishedTopic case final published?)
               ListTile(
-                leading: const Icon(Icons.check_circle_outline),
+                leading: const AnimeIcon(Icons.check_circle_outline),
                 title: Text(
                   '已确认发布：${published.title}',
                   maxLines: 2,
@@ -430,7 +431,7 @@ class _CommunityGroupScreenState extends State<CommunityGroupScreen> {
                           foregroundColor: SocialChatStyle.accent(context),
                         ),
                         onPressed: () => _openAll(),
-                        icon: const Icon(Icons.forum_outlined),
+                        icon: const AnimeIcon(Icons.forum_outlined),
                         label: const Text('全部话题'),
                       ),
                       TextButton.icon(
@@ -438,7 +439,7 @@ class _CommunityGroupScreenState extends State<CommunityGroupScreen> {
                           foregroundColor: SocialChatStyle.accent(context),
                         ),
                         onPressed: () => _openAll(members: true),
-                        icon: const Icon(Icons.people_outline),
+                        icon: const AnimeIcon(Icons.people_outline),
                         label: const Text('全部成员'),
                       ),
                     ],

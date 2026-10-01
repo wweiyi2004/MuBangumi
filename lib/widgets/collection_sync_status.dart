@@ -1,3 +1,4 @@
+import '../core/theme/anime_icon.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -88,7 +89,7 @@ class _CollectionSyncStatusState extends ConsumerState<CollectionSyncStatus> {
           dimension: 20,
           child: syncing && !issues
               ? const CircularProgressIndicator(strokeWidth: 2)
-              : Icon(
+              : AnimeIcon(
                   issues
                       ? Icons.sync_problem_rounded
                       : Icons.cloud_upload_outlined,

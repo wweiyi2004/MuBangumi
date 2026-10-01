@@ -29,6 +29,11 @@ void main() {
     'https://bgm.tv/subject/42/delete',
     'https://bgm.tv/subject/999999999999999999999',
     'https://bgm.tv/settings',
+    'https://bgm.tv/user/alice/timeline/status/0',
+    'https://bgm.tv/user/alice/timeline?until=1',
+    'https://bgm.tv/user/alice/timeline?until=wat',
+    'https://bgm.tv/user/a%2Fb/timeline/status/42',
+    'https://bgm.tv/user/alice/timeline/status/42/delete',
   ]) {
     test('rejects unsupported or unsafe destination $raw', () {
       expect(SharedBangumiLink.parse(raw), isNull);

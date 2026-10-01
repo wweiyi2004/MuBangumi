@@ -1,12 +1,15 @@
+import '../widgets/bounded_image.dart';
+import '../core/theme/anime_icon.dart';
 import '../state/service_providers.dart';
+import '../state/friend_groups_controller.dart';
+import '../widgets/friend_group_controls.dart';
+import '../core/social/friend_groups.dart';
 import '../navigation/app_destination.dart';
 import 'dart:async';
 
-import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../core/network/bangumi_endpoints.dart';
 import '../models/bangumi_models.dart';
 import '../state/session_controller.dart';
 import '../widgets/community_widgets.dart';
@@ -38,6 +41,7 @@ class _FriendsPageState extends ConsumerState<FriendsPage> {
   String? _error;
   int _requestId = 0;
   String _query = '';
+  String? _groupFilter;
 
   String get _username {
     final override = widget.username?.trim();
@@ -81,6 +85,7 @@ class _FriendsPageState extends ConsumerState<FriendsPage> {
       _loading = true;
       _error = null;
       _query = '';
+      _groupFilter = null;
     });
     unawaited(Future.microtask(() => _load(refresh: true)));
   }
@@ -174,8 +179,25 @@ class _FriendsPageState extends ConsumerState<FriendsPage> {
 
   List<BangumiUser> get _filtered {
     final keyword = _query.trim().toLowerCase();
-    if (keyword.isEmpty) return _friends;
-    return _friends
+    final owner = ref.read(sessionProvider).user?.id;
+    final groups = owner == null || !_isOwnList
+        ? FriendGroups()
+        : ref.read(friendGroupsProvider(owner)).groups;
+    final group = _groupFilter;
+    final candidates =
+        !_isOwnList ||
+            group == null ||
+            (group != '__none__' && !groups.names.containsKey(group))
+        ? _friends
+        : _friends
+              .where(
+                (u) => group == '__none__'
+                    ? !groups.members.containsKey(u.username.toLowerCase())
+                    : groups.members[u.username.toLowerCase()] == group,
+              )
+              .toList();
+    if (keyword.isEmpty) return candidates;
+    return candidates
         .where(
           (user) =>
               user.nickname.toLowerCase().contains(keyword) ||
@@ -199,17 +221,25 @@ class _FriendsPageState extends ConsumerState<FriendsPage> {
   );
 
   Widget _buildPage(BuildContext context) {
-    final items = _filtered;
     final me = ref.watch(sessionProvider).user;
+    final groups = me == null || !_isOwnList
+        ? null
+        : ref.watch(friendGroupsProvider(me.id));
+    final items = _filtered;
     return Scaffold(
       appBar: AppBar(
         title: const Text('好友'),
         actions: [
           if (_isOwnList && me != null) ...[
             IconButton(
+              tooltip: '管理本地好友分组',
+              onPressed: () => showFriendGroupManager(context, me.id),
+              icon: const AnimeIcon(Icons.folder_open_rounded),
+            ),
+            IconButton(
               tooltip: '我的二维码',
               onPressed: () => showMyFriendQr(context, me),
-              icon: const Icon(Icons.qr_code_2_rounded),
+              icon: const AnimeIcon(Icons.qr_code_2_rounded),
             ),
             IconButton(
               tooltip: '扫一扫',
@@ -225,7 +255,7 @@ class _FriendsPageState extends ConsumerState<FriendsPage> {
                   await _load(refresh: true);
                 }
               },
-              icon: const Icon(Icons.qr_code_scanner_rounded),
+              icon: const AnimeIcon(Icons.qr_code_scanner_rounded),
             ),
           ],
         ],
@@ -282,13 +312,48 @@ class _FriendsPageState extends ConsumerState<FriendsPage> {
                                 ),
                           ),
                           const SizedBox(height: 12),
+                          if (groups != null) ...[
+                            if (groups.error != null)
+                              TextButton(
+                                onPressed: () => ref
+                                    .read(friendGroupsProvider(me!.id).notifier)
+                                    .retry(),
+                                child: Text(groups.error!),
+                              ),
+                            Wrap(
+                              spacing: 6,
+                              runSpacing: 4,
+                              children: [
+                                ChoiceChip(
+                                  label: const Text('全部'),
+                                  selected: _groupFilter == null,
+                                  onSelected: (_) =>
+                                      setState(() => _groupFilter = null),
+                                ),
+                                ChoiceChip(
+                                  label: const Text('未分组'),
+                                  selected: _groupFilter == '__none__',
+                                  onSelected: (_) =>
+                                      setState(() => _groupFilter = '__none__'),
+                                ),
+                                for (final e in groups.groups.names.entries)
+                                  ChoiceChip(
+                                    label: Text(e.value),
+                                    selected: _groupFilter == e.key,
+                                    onSelected: (_) =>
+                                        setState(() => _groupFilter = e.key),
+                                  ),
+                              ],
+                            ),
+                            const SizedBox(height: 10),
+                          ],
                           TextField(
                             controller: _queryController,
                             onChanged: (value) =>
                                 setState(() => _query = value),
                             decoration: const InputDecoration(
                               hintText: '搜索昵称、用户名或签名',
-                              prefixIcon: Icon(Icons.search_rounded),
+                              prefixIcon: AnimeIcon(Icons.search_rounded),
                             ),
                           ),
                         ],
@@ -329,6 +394,31 @@ class _FriendsPageState extends ConsumerState<FriendsPage> {
                   final friend = items[index - 1];
                   return _FriendTile(
                     user: friend,
+                    groupName:
+                        groups?.groups.names[groups.groups.members[friend
+                            .username
+                            .toLowerCase()]],
+                    groups: groups?.groups,
+                    onAssign:
+                        groups == null || groups.loading || groups.error != null
+                        ? null
+                        : (id) async {
+                            final owner = me!.id;
+                            if (ref.read(sessionProvider).user?.id != owner) {
+                              return;
+                            }
+                            try {
+                              await ref
+                                  .read(friendGroupsProvider(owner).notifier)
+                                  .edit((g) => g.assign(friend.username, id));
+                            } catch (error) {
+                              if (context.mounted) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(content: Text('$error')),
+                                );
+                              }
+                            }
+                          },
                     onTap: () => _openFriend(friend),
                     onRemove: _isOwnList ? () => _removeFriend(friend) : null,
                   );
@@ -398,7 +488,17 @@ class _FriendsPageState extends ConsumerState<FriendsPage> {
 }
 
 class _FriendTile extends StatelessWidget {
-  const _FriendTile({required this.user, required this.onTap, this.onRemove});
+  const _FriendTile({
+    required this.user,
+    required this.onTap,
+    this.onRemove,
+    this.groups,
+    this.groupName,
+    this.onAssign,
+  });
+  final FriendGroups? groups;
+  final String? groupName;
+  final ValueChanged<String?>? onAssign;
 
   final BangumiUser user;
   final VoidCallback onTap;
@@ -417,9 +517,7 @@ class _FriendTile extends StatelessWidget {
           backgroundColor: scheme.primaryContainer,
           backgroundImage: user.avatarUrl.isEmpty
               ? null
-              : CachedNetworkImageProvider(
-                  BangumiEndpoints.imageUrl(user.avatarUrl),
-                ),
+              : boundedAvatarProvider(context, user.avatarUrl, diameter: 48),
           child: user.avatarUrl.isEmpty
               ? Text(
                   user.displayName.characters.first.toUpperCase(),
@@ -440,13 +538,26 @@ class _FriendTile extends StatelessWidget {
               '@${user.username}',
               style: TextStyle(color: scheme.onSurfaceVariant),
             ),
+            if (groupName != null)
+              Text(groupName!, style: TextStyle(color: scheme.primary)),
             if (user.sign.isNotEmpty) ...[
               const SizedBox(height: 3),
               Text(user.sign, maxLines: 2, overflow: TextOverflow.ellipsis),
             ],
           ],
         ),
-        trailing: const Icon(Icons.chevron_right_rounded),
+        trailing: onAssign == null
+            ? const AnimeIcon(Icons.chevron_right_rounded)
+            : PopupMenuButton<String>(
+                tooltip: '设置本地分组',
+                icon: const AnimeIcon(Icons.folder_open_rounded),
+                onSelected: (id) => onAssign!(id == '__none__' ? null : id),
+                itemBuilder: (_) => [
+                  const PopupMenuItem(value: '__none__', child: Text('未分组')),
+                  for (final e in groups!.names.entries)
+                    PopupMenuItem(value: e.key, child: Text(e.value)),
+                ],
+              ),
         onTap: onTap,
       ),
     );
