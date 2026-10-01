@@ -1,3 +1,4 @@
+import '../core/theme/anime_icon.dart';
 import '../navigation/app_destination.dart';
 import 'package:flutter/material.dart';
 import '../widgets/projection_art.dart';
@@ -349,7 +350,7 @@ class _FanRecommendPageState extends ConsumerState<FanRecommendPage> {
                     ? '99+'
                     : '${feedback.hidden.length}',
               ),
-              child: const Icon(Icons.visibility_off_outlined),
+              child: const AnimeIcon(Icons.visibility_off_outlined),
             ),
           ),
           IconButton(
@@ -358,7 +359,7 @@ class _FanRecommendPageState extends ConsumerState<FanRecommendPage> {
               _refreshTaste();
               showAppMessage(context, '已根据最新收藏更新口味画像');
             },
-            icon: const Icon(Icons.psychology_alt_outlined),
+            icon: const AnimeIcon(Icons.psychology_alt_outlined),
           ),
         ],
       ),
@@ -372,12 +373,12 @@ class _FanRecommendPageState extends ConsumerState<FanRecommendPage> {
               ButtonSegment(
                 value: true,
                 label: Text('猜你喜欢'),
-                icon: Icon(Icons.auto_awesome_rounded, size: 18),
+                icon: AnimeIcon(Icons.auto_awesome_rounded, size: 18),
               ),
               ButtonSegment(
                 value: false,
                 label: Text('说出需求'),
-                icon: Icon(Icons.edit_note_rounded, size: 18),
+                icon: AnimeIcon(Icons.edit_note_rounded, size: 18),
               ),
             ],
             selected: {_modeTaste},
@@ -399,7 +400,7 @@ class _FanRecommendPageState extends ConsumerState<FanRecommendPage> {
             else if (!taste.hasTaste)
               Card(
                 child: ListTile(
-                  leading: const Icon(Icons.info_outline_rounded),
+                  leading: const AnimeIcon(Icons.info_outline_rounded),
                   title: const Text('口味样本还不够'),
                   subtitle: const Text(
                     '给看过的动画打 7 分以上，或积累一些在看/看过，会更准。也可切换到「说出需求」。',
@@ -422,7 +423,10 @@ class _FanRecommendPageState extends ConsumerState<FanRecommendPage> {
                     Chip(
                       label: Text(tag),
                       visualDensity: VisualDensity.compact,
-                      avatar: const Icon(Icons.local_offer_outlined, size: 16),
+                      avatar: const AnimeIcon(
+                        Icons.local_offer_outlined,
+                        size: 16,
+                      ),
                     ),
                 ],
               ),
@@ -445,7 +449,7 @@ class _FanRecommendPageState extends ConsumerState<FanRecommendPage> {
               textInputAction: TextInputAction.done,
               decoration: const InputDecoration(
                 hintText: '例如：想看治愈向日常、少打架、画风干净，最好近两年的',
-                prefixIcon: Icon(Icons.chat_bubble_outline_rounded),
+                prefixIcon: AnimeIcon(Icons.chat_bubble_outline_rounded),
               ),
             ),
             const SizedBox(height: 12),
@@ -549,7 +553,7 @@ class _FanRecommendPageState extends ConsumerState<FanRecommendPage> {
                       dimension: 18,
                       child: CircularProgressIndicator(strokeWidth: 2),
                     )
-                  : const Icon(Icons.auto_awesome_rounded),
+                  : const AnimeIcon(Icons.auto_awesome_rounded),
               label: Text(_loading ? '推荐中…' : '开始推荐'),
             ),
           ),
@@ -577,7 +581,7 @@ class _FanRecommendPageState extends ConsumerState<FanRecommendPage> {
                     Row(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Icon(
+                        AnimeIcon(
                           _partial
                               ? Icons.info_outline_rounded
                               : Icons.error_outline_rounded,

@@ -1,3 +1,4 @@
+import '../core/theme/anime_icon.dart';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
@@ -211,7 +212,10 @@ class _ScoreHistoryPanelState extends State<ScoreHistoryPanel> {
                       onPressed: widget.subjectId == null
                           ? null
                           : () => _openNetaba(widget.subjectId!),
-                      icon: const Icon(Icons.open_in_new_rounded, size: 16),
+                      icon: const AnimeIcon(
+                        Icons.open_in_new_rounded,
+                        size: 16,
+                      ),
                       label: const Text('netaba.re'),
                       style: TextButton.styleFrom(
                         visualDensity: VisualDensity.compact,
@@ -219,7 +223,7 @@ class _ScoreHistoryPanelState extends State<ScoreHistoryPanel> {
                       ),
                     ),
                   if (compact && hasBody)
-                    Icon(
+                    AnimeIcon(
                       _expanded
                           ? Icons.expand_less_rounded
                           : Icons.expand_more_rounded,
@@ -254,7 +258,7 @@ class _ScoreHistoryPanelState extends State<ScoreHistoryPanel> {
                 const SizedBox(height: 8),
                 OutlinedButton.icon(
                   onPressed: widget.onRetry,
-                  icon: const Icon(Icons.refresh_rounded),
+                  icon: const AnimeIcon(Icons.refresh_rounded),
                   label: const Text('重试'),
                 ),
               ] else if (widget.loading && history == null) ...[
@@ -264,7 +268,7 @@ class _ScoreHistoryPanelState extends State<ScoreHistoryPanel> {
               ] else if (history == null || history.history.isEmpty) ...[
                 const SizedBox(height: 16),
                 Text(
-                  '暂无历史记录',
+                  '数据源暂无历史记录，收藏状态不影响历史收录',
                   style: TextStyle(color: scheme.onSurfaceVariant),
                 ),
               ] else ...[
@@ -351,7 +355,10 @@ class _ScoreHistoryPanelState extends State<ScoreHistoryPanel> {
                     alignment: Alignment.centerRight,
                     child: TextButton.icon(
                       onPressed: () => _openNetaba(widget.subjectId!),
-                      icon: const Icon(Icons.open_in_new_rounded, size: 16),
+                      icon: const AnimeIcon(
+                        Icons.open_in_new_rounded,
+                        size: 16,
+                      ),
                       label: const Text('在 netaba.re 查看'),
                       style: TextButton.styleFrom(
                         visualDensity: VisualDensity.compact,
@@ -482,7 +489,7 @@ class _DeltaChip extends StatelessWidget {
         displayOverride ??
         '$label ${value > 0 ? '+' : ''}${value.toStringAsFixed(precision)}$suffix';
     return Chip(
-      avatar: Icon(
+      avatar: AnimeIcon(
         neutral
             ? Icons.remove_rounded
             : positive
@@ -662,7 +669,7 @@ Color _metricColor(NetabaHistoryMetric metric) => switch (metric) {
   NetabaHistoryMetric.rank => const Color(0xFF5B8DEF),
   NetabaHistoryMetric.watching => const Color(0xFF2E9E6B),
   NetabaHistoryMetric.collect => const Color(0xFF8B6CEF),
-  NetabaHistoryMetric.rated => const Color(0xFFE95383),
+  NetabaHistoryMetric.rated => const Color(0xFFF09199),
 };
 
 String _rankDeltaText(int rankDelta) {

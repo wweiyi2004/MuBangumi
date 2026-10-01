@@ -1,3 +1,4 @@
+import '../core/theme/anime_icon.dart';
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -188,7 +189,7 @@ class _SeasonAnimePickerState extends ConsumerState<SeasonAnimePicker> {
                   IconButton(
                     onPressed: _saving ? null : () => Navigator.pop(context),
                     tooltip: '关闭新番挑选',
-                    icon: const Icon(Icons.close),
+                    icon: const AnimeIcon(Icons.close),
                   ),
                 ],
               ),
@@ -391,7 +392,7 @@ class _SeasonAnimePickerState extends ConsumerState<SeasonAnimePicker> {
                               (_automaticDays && _calendarLoading)
                           ? null
                           : _add,
-                      icon: const Icon(Icons.playlist_add),
+                      icon: const AnimeIcon(Icons.playlist_add),
                       label: Text(_saving ? '加入中…' : '加入新番表'),
                     ),
                   ),

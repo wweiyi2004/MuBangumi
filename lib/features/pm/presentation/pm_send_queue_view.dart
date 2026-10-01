@@ -1,3 +1,4 @@
+import '../../../core/theme/anime_icon.dart';
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -64,7 +65,7 @@ class PmQueuedBubble extends StatelessWidget {
               IconButton(
                 tooltip: '发送任务详情',
                 visualDensity: VisualDensity.compact,
-                icon: const Icon(Icons.more_horiz, size: 18),
+                icon: const AnimeIcon(Icons.more_horiz, size: 18),
                 onPressed: () => showModalBottomSheet<void>(
                   context: context,
                   showDragHandle: true,
@@ -104,7 +105,7 @@ class PmSendQueueScreen extends ConsumerWidget {
               await queue.reload();
               queue.wake();
             },
-            icon: const Icon(Icons.refresh),
+            icon: const AnimeIcon(Icons.refresh),
           ),
         ],
       ),

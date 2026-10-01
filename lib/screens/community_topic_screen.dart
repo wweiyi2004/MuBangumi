@@ -1,3 +1,4 @@
+import '../core/theme/anime_icon.dart';
 import '../state/service_providers.dart';
 import '../navigation/app_destination.dart';
 import 'dart:async';
@@ -486,12 +487,12 @@ class _CommunityTopicScreenState extends ConsumerState<CommunityTopicScreen> {
           IconButton(
             tooltip: '刷新',
             onPressed: _loading ? null : () => _load(refresh: true),
-            icon: const Icon(Icons.refresh_rounded),
+            icon: const AnimeIcon(Icons.refresh_rounded),
           ),
           IconButton(
             tooltip: '在官网查看',
             onPressed: _openWeb,
-            icon: const Icon(Icons.language_rounded),
+            icon: const AnimeIcon(Icons.language_rounded),
           ),
         ],
       ),
@@ -499,7 +500,7 @@ class _CommunityTopicScreenState extends ConsumerState<CommunityTopicScreen> {
           !groupDiscussion && _service.isAuthenticated && detail != null
           ? FloatingActionButton.extended(
               onPressed: _reply,
-              icon: const Icon(Icons.reply_rounded),
+              icon: const AnimeIcon(Icons.reply_rounded),
               label: Text(widget.topic.kind.apiArea == null ? '官网回复' : '回复'),
             )
           : null,
@@ -557,7 +558,7 @@ class _CommunityTopicScreenState extends ConsumerState<CommunityTopicScreen> {
                     if (_resumePosition != null)
                       TextButton.icon(
                         onPressed: _resumeReading,
-                        icon: const Icon(Icons.history_rounded, size: 18),
+                        icon: const AnimeIcon(Icons.history_rounded, size: 18),
                         label: const Text('继续上次阅读'),
                       ),
                     if (_friendsFailed)

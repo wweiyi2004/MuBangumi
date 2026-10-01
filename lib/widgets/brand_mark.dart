@@ -1,3 +1,4 @@
+import '../core/theme/anime_icon.dart';
 import 'package:flutter/material.dart';
 
 class BrandMark extends StatelessWidget {
@@ -24,7 +25,7 @@ class BrandMark extends StatelessWidget {
         ),
       ],
     ),
-    child: Icon(
+    child: AnimeIcon(
       Icons.play_arrow_rounded,
       color: Colors.white,
       size: size * .64,

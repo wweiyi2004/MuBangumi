@@ -8,6 +8,7 @@ import '../models/community_models.dart';
 import '../state/session_controller.dart';
 import '../state/background_controller.dart';
 import '../widgets/profile_home_layout.dart';
+import '../widgets/user_biography.dart';
 import 'community_timeline_page.dart';
 import 'friends_page.dart';
 import 'library_page.dart';
@@ -44,6 +45,7 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
       nickname: user.displayName,
       username: user.username,
       sign: user.sign,
+      biography: UserBiography(username: user.username),
       avatarUrl: user.avatarUrl,
       total: session.collections.length,
       doing: session.collections

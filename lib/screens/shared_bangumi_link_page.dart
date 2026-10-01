@@ -15,6 +15,11 @@ class SharedBangumiLinkPage extends ConsumerWidget {
   final SharedBangumiLink link;
   @override
   Widget build(BuildContext context, WidgetRef ref) => switch (link.kind) {
+    SharedBangumiKind.directory => IndexDetailRoute(indexId: link.id),
+    SharedBangumiKind.timeline => TimelineRoute(
+      username: link.username!,
+      timelineId: link.id,
+    ),
     SharedBangumiKind.person => PersonRoute(personId: link.id),
     SharedBangumiKind.character => CharacterRoute(characterId: link.id),
     SharedBangumiKind.subject =>

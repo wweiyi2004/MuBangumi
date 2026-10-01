@@ -482,8 +482,46 @@ class Episode {
   String get displayName {
     if (nameCn.isNotEmpty) return nameCn;
     if (name.isNotEmpty) return name;
-    return '第 ${number.toStringAsFixed(number % 1 == 0 ? 0 : 1)} 话';
+    return label;
   }
+
+  /// V0 often leaves `ep` at zero for specials; `sort` is their real ordinal.
+  double? get displayOrdinal => number.isFinite && number > 0
+      ? number
+      : sort.isFinite && sort > 0
+      ? sort
+      : null;
+  String get ordinalLabel {
+    final value = displayOrdinal;
+    if (value == null) return '—';
+    return value == value.roundToDouble()
+        ? value.toInt().toString()
+        : value.toString().replaceFirst(RegExp(r'\.0$'), '');
+  }
+
+  String get typeLabel => switch (type) {
+    0 => '正篇',
+    1 => '特别篇',
+    2 => 'OP',
+    3 => 'ED',
+    4 => '预告',
+    5 => 'MAD',
+    6 => '其他',
+    _ => '其他',
+  };
+  String get gridLabel => type == 0
+      ? ordinalLabel
+      : '${switch (type) {
+          1 => 'SP',
+          2 => 'OP',
+          3 => 'ED',
+          4 => 'PV',
+          5 => 'MAD',
+          _ => 'EX',
+        }}${displayOrdinal == null ? '' : ordinalLabel}';
+  String get label => type == 0
+      ? (displayOrdinal == null ? '正篇' : '第 $ordinalLabel 话')
+      : '$typeLabel${displayOrdinal == null ? '' : ' $ordinalLabel'}';
 
   factory Episode.fromJson(Map<String, dynamic> json) => Episode(
     id: _int(json['id']),

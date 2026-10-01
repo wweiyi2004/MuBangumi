@@ -1,3 +1,4 @@
+import '../core/theme/anime_icon.dart';
 import '../features/discover/application/discover_controller.dart';
 import '../features/discover/domain/discover_query.dart';
 import '../features/discover/presentation/discover_result_widgets.dart';
@@ -308,7 +309,7 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
         SliverPadding(
           padding: EdgeInsets.fromLTRB(
             pagePad,
-            AppLayout.pageTopPadding(context),
+            widget.showTitle ? AppLayout.pageTopPadding(context) : 6,
             pagePad,
             0,
           ),
@@ -332,7 +333,8 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
     children: [
       if (widget.showTitle)
         Text('发现', style: AppLayout.pageTitleStyle(context)),
-      SizedBox(height: AppLayout.sectionGap(context)),
+      if (widget.showTitle)
+        SizedBox(height: phone ? 8 : AppLayout.sectionGap(context)),
       Row(
         children: [
           Expanded(
@@ -347,12 +349,41 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
               },
               decoration: InputDecoration(
                 hintText: _searchHint,
-                prefixIcon: const Icon(Icons.search_rounded),
+                isDense: phone,
+                prefixIcon: phone
+                    ? PopupMenuButton<DiscoverSearchTarget>(
+                        tooltip: '搜索范围',
+                        initialValue: _searchTarget,
+                        icon: const AnimeIcon(Icons.search_rounded),
+                        onSelected: (target) {
+                          if (_searchTarget == target) return;
+                          setState(() {
+                            _searchTarget = target;
+                            _results.clearError();
+                          });
+                          _runCurrentQuery();
+                        },
+                        itemBuilder: (_) => [
+                          const PopupMenuItem(
+                            value: DiscoverSearchTarget.subject,
+                            child: Text('条目'),
+                          ),
+                          const PopupMenuItem(
+                            value: DiscoverSearchTarget.character,
+                            child: Text('角色'),
+                          ),
+                          const PopupMenuItem(
+                            value: DiscoverSearchTarget.person,
+                            child: Text('人物'),
+                          ),
+                        ],
+                      )
+                    : const AnimeIcon(Icons.search_rounded),
                 suffixIcon: _searching
                     ? IconButton(
                         tooltip: '清空搜索',
                         onPressed: _clearSearch,
-                        icon: const Icon(Icons.close_rounded),
+                        icon: const AnimeIcon(Icons.close_rounded),
                       )
                     : null,
               ),
@@ -368,13 +399,13 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
                     onPressed: _searchTarget == DiscoverSearchTarget.subject
                         ? _showFilters
                         : null,
-                    icon: const Icon(Icons.tune_rounded),
+                    icon: const AnimeIcon(Icons.tune_rounded),
                   )
                 : OutlinedButton.icon(
                     onPressed: _searchTarget == DiscoverSearchTarget.subject
                         ? _showFilters
                         : null,
-                    icon: const Icon(Icons.tune_rounded),
+                    icon: const AnimeIcon(Icons.tune_rounded),
                     label: const Text('筛选'),
                   ),
           ),
@@ -400,32 +431,33 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
                   );
           },
         ),
-      SingleChildScrollView(
-        scrollDirection: Axis.horizontal,
-        child: Row(
-          children: [
-            for (final target in DiscoverSearchTarget.values) ...[
-              ChoiceChip(
-                label: Text(switch (target) {
-                  DiscoverSearchTarget.subject => '条目',
-                  DiscoverSearchTarget.character => '角色',
-                  DiscoverSearchTarget.person => '人物',
-                }),
-                selected: _searchTarget == target,
-                onSelected: (_) {
-                  if (_searchTarget == target) return;
-                  setState(() {
-                    _searchTarget = target;
-                    _results.clearError();
-                  });
-                  _runCurrentQuery();
-                },
-              ),
-              const SizedBox(width: 8),
+      if (!phone)
+        SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: Row(
+            children: [
+              for (final target in DiscoverSearchTarget.values) ...[
+                ChoiceChip(
+                  label: Text(switch (target) {
+                    DiscoverSearchTarget.subject => '条目',
+                    DiscoverSearchTarget.character => '角色',
+                    DiscoverSearchTarget.person => '人物',
+                  }),
+                  selected: _searchTarget == target,
+                  onSelected: (_) {
+                    if (_searchTarget == target) return;
+                    setState(() {
+                      _searchTarget = target;
+                      _results.clearError();
+                    });
+                    _runCurrentQuery();
+                  },
+                ),
+                const SizedBox(width: 8),
+              ],
             ],
-          ],
+          ),
         ),
-      ),
       if (_searchTarget == DiscoverSearchTarget.subject) ...[
         const SizedBox(height: 12),
         SingleChildScrollView(
@@ -434,7 +466,7 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
             children: [
               for (final type in SubjectType.values) ...[
                 ChoiceChip(
-                  avatar: Icon(subjectTypeIcon(type), size: 16),
+                  avatar: AnimeIcon(subjectTypeIcon(type), size: 16),
                   label: Text(type.label),
                   selected: _subjectType == type,
                   onSelected: (_) => _selectSubjectType(type),
@@ -445,13 +477,13 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
           ),
         ),
       ],
-      if (_queryMode == DiscoverQueryMode.browse) ...[
+      if (!phone && _queryMode == DiscoverQueryMode.browse) ...[
         const SizedBox(height: 12),
         Material(
           color: Colors.transparent,
           child: ListTile(
             contentPadding: EdgeInsets.zero,
-            leading: const Icon(
+            leading: const AnimeIcon(
               Icons.ssid_chart_rounded,
               color: Color(0xFFF3A646),
             ),
@@ -464,35 +496,61 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
             ),
-            trailing: const Icon(Icons.chevron_right_rounded),
+            trailing: const AnimeIcon(Icons.chevron_right_rounded),
             onTap: () => Navigator.of(context).push(
               MaterialPageRoute<void>(builder: (_) => const ScoreTrendsRoute()),
             ),
           ),
         ),
       ],
-      const SizedBox(height: 18),
-      Text(switch (_queryMode) {
-        DiscoverQueryMode.characterPrompt ||
-        DiscoverQueryMode.characterSearch => '角色搜索',
-        DiscoverQueryMode.personPrompt ||
-        DiscoverQueryMode.personSearch => '人物搜索',
-        DiscoverQueryMode.subjectSearch => '${_subjectType.label}搜索结果',
-        DiscoverQueryMode.browse =>
-          _supportsSeason
-              ? '${_subjectType.label}季度榜'
-              : '${_subjectType.label}年度榜',
-      }, style: Theme.of(context).textTheme.titleLarge),
-      const SizedBox(height: 8),
+      SizedBox(height: phone ? 8 : 18),
+      Row(
+        children: [
+          Expanded(
+            child: Text(switch (_queryMode) {
+              DiscoverQueryMode.characterPrompt ||
+              DiscoverQueryMode.characterSearch => '角色搜索',
+              DiscoverQueryMode.personPrompt ||
+              DiscoverQueryMode.personSearch => '人物搜索',
+              DiscoverQueryMode.subjectSearch => '${_subjectType.label}搜索结果',
+              DiscoverQueryMode.browse =>
+                _supportsSeason
+                    ? '${_subjectType.label}季度榜'
+                    : '${_subjectType.label}年度榜',
+            }, style: Theme.of(context).textTheme.titleLarge),
+          ),
+          if (phone && _queryMode == DiscoverQueryMode.browse)
+            IconButton(
+              tooltip: '评分趋势',
+              icon: const AnimeIcon(
+                Icons.ssid_chart_rounded,
+                color: Color(0xFFF3A646),
+              ),
+              onPressed: () => Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (_) => const ScoreTrendsRoute(),
+                ),
+              ),
+            ),
+        ],
+      ),
+      const SizedBox(height: 4),
       Wrap(
         spacing: 8,
         runSpacing: 4,
         crossAxisAlignment: WrapCrossAlignment.center,
         children: [
           if (!_searching && _supportsSeason)
-            Chip(
-              label: Text('$_browseYear · ${_quarterLabel(_browseQuarter)}'),
-            ),
+            phone
+                ? Text(
+                    '$_browseYear · ${_quarterLabel(_browseQuarter)}',
+                    style: Theme.of(context).textTheme.bodySmall,
+                  )
+                : Chip(
+                    label: Text(
+                      '$_browseYear · ${_quarterLabel(_browseQuarter)}',
+                    ),
+                  ),
           if (!_searching && !_supportsSeason) ...[
             Chip(label: Text('$_browseYear 年')),
             Chip(label: Text(_browseSortLabel(_browseSort))),
@@ -535,7 +593,7 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
             ),
         ],
       ),
-      const SizedBox(height: 16),
+      SizedBox(height: phone ? 10 : 16),
     ],
   );
 
@@ -593,7 +651,7 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
             message: _error!,
             action: FilledButton.tonalIcon(
               onPressed: _runCurrentQuery,
-              icon: const Icon(Icons.refresh_rounded),
+              icon: const AnimeIcon(Icons.refresh_rounded),
               label: const Text('重试'),
             ),
           ),
@@ -664,7 +722,7 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
               message: '后续页面可能还有符合条件的作品，可以继续加载或调整筛选。',
               action: OutlinedButton.icon(
                 onPressed: _showFilters,
-                icon: const Icon(Icons.tune_rounded),
+                icon: const AnimeIcon(Icons.tune_rounded),
                 label: const Text('调整筛选'),
               ),
             ),
@@ -711,7 +769,7 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
                 subtitle: character.name != character.displayName
                     ? Text(character.name)
                     : null,
-                trailing: const Icon(Icons.chevron_right_rounded),
+                trailing: const AnimeIcon(Icons.chevron_right_rounded),
                 onTap: () => _openSearchResult(
                   CharacterRoute(
                     characterId: character.id,
@@ -740,7 +798,7 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
                         ? Text(person.name)
                         : null)
                   : Text(personMeta.join(' / ')),
-              trailing: const Icon(Icons.chevron_right_rounded),
+              trailing: const AnimeIcon(Icons.chevron_right_rounded),
               onTap: () => _openSearchResult(
                 PersonRoute(
                   personId: person.id,
@@ -845,7 +903,7 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
                 )
               : TextButton.icon(
                   onPressed: _refreshing || _loading ? null : _loadMore,
-                  icon: const Icon(Icons.expand_more_rounded),
+                  icon: const AnimeIcon(Icons.expand_more_rounded),
                   label: Text(_pageError == null ? '加载更多' : '重试加载'),
                 ),
         ),

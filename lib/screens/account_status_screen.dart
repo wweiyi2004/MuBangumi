@@ -1,3 +1,4 @@
+import '../core/theme/anime_icon.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../state/account_access_controller.dart';
@@ -29,7 +30,7 @@ class AccountStatusScreen extends ConsumerWidget {
           const SizedBox(height: 20),
           ListTile(
             contentPadding: EdgeInsets.zero,
-            leading: Icon(
+            leading: AnimeIcon(
               user == null ? Icons.person_outline : Icons.check_circle_outline,
             ),
             title: const Text('收藏与进度'),
@@ -37,7 +38,7 @@ class AccountStatusScreen extends ConsumerWidget {
           ),
           ListTile(
             contentPadding: EdgeInsets.zero,
-            leading: Icon(
+            leading: AnimeIcon(
               website.isSynced
                   ? Icons.verified_user_outlined
                   : Icons.chat_bubble_outline,
@@ -54,13 +55,13 @@ class AccountStatusScreen extends ConsumerWidget {
               children: [
                 OutlinedButton.icon(
                   onPressed: checking ? null : () => access.verify(force: true),
-                  icon: const Icon(Icons.refresh),
+                  icon: const AnimeIcon(Icons.refresh),
                   label: const Text('重新核验'),
                 ),
                 if (!website.isSynced)
                   FilledButton.icon(
                     onPressed: () => openWebsiteLoginScreen(context),
-                    icon: const Icon(Icons.login),
+                    icon: const AnimeIcon(Icons.login),
                     label: const Text('补充账号验证'),
                   ),
                 if (website.status == WebsiteAccessStatus.cleanupRequired)
@@ -86,7 +87,7 @@ class AccountStatusScreen extends ConsumerWidget {
           const SizedBox(height: 24),
           ListTile(
             contentPadding: EdgeInsets.zero,
-            leading: const Icon(Icons.troubleshoot),
+            leading: const AnimeIcon(Icons.troubleshoot),
             title: const Text('登录诊断'),
             subtitle: const Text('查看状态记录并导出排查信息'),
             onTap: () => showAccountDiagnostics(context),

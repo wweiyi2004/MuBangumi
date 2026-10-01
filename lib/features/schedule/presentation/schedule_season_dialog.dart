@@ -22,6 +22,8 @@ Future<void> showScheduleSeasonDialog(
                 // Stacked (not side by side): "秋季（10月）" does not fit half a
                 // phone-width dialog, especially with large text.
                 DropdownButtonFormField<int>(
+                  borderRadius: BorderRadius.circular(16),
+                  dropdownColor: Theme.of(context).colorScheme.surface,
                   isExpanded: true,
                   initialValue: year,
                   decoration: const InputDecoration(labelText: '年份'),
@@ -35,6 +37,8 @@ Future<void> showScheduleSeasonDialog(
                 ),
                 const SizedBox(height: 12),
                 DropdownButtonFormField<int>(
+                  borderRadius: BorderRadius.circular(16),
+                  dropdownColor: Theme.of(context).colorScheme.surface,
                   isExpanded: true,
                   initialValue: quarter,
                   decoration: const InputDecoration(labelText: '季度'),

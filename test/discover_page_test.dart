@@ -117,12 +117,12 @@ void main() {
       expect(tester.getTopLeft(search).dy, lessThan(120));
       expect(
         tester.getTopLeft(search).dy,
-        lessThan(tester.getTopLeft(find.text('评分趋势')).dy),
+        lessThan(tester.getTopLeft(find.byTooltip('评分趋势')).dy),
       );
       await tester.enterText(search, '测试');
       await tester.pump(const Duration(milliseconds: 800));
       await tester.pump();
-      expect(find.text('评分趋势'), findsNothing);
+      expect(find.byTooltip('评分趋势'), findsNothing);
       expect(tester.takeException(), isNull);
     },
   );

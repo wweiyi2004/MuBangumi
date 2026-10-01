@@ -1,3 +1,4 @@
+import '../core/theme/anime_icon.dart';
 import '../navigation/app_destination.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -104,7 +105,7 @@ class _CharacterDetailScreenState extends ConsumerState<CharacterDetailScreen> {
           ),
           IconButton(
             tooltip: '角色讨论',
-            icon: const Icon(Icons.forum_outlined),
+            icon: const AnimeIcon(Icons.forum_outlined),
             onPressed: () => Navigator.of(context).push(
               MaterialPageRoute<void>(
                 builder: (_) => TopicRoute(
@@ -126,7 +127,7 @@ class _CharacterDetailScreenState extends ConsumerState<CharacterDetailScreen> {
               Uri.parse('https://bgm.tv/character/${widget.characterId}'),
               mode: LaunchMode.externalApplication,
             ),
-            icon: const Icon(Icons.open_in_new_rounded),
+            icon: const AnimeIcon(Icons.open_in_new_rounded),
           ),
         ],
       ),
@@ -215,7 +216,7 @@ class _CharacterDetailScreenState extends ConsumerState<CharacterDetailScreen> {
                             if (subject.staff.isNotEmpty) subject.staff,
                           ].join(' · '),
                         ),
-                        trailing: const Icon(Icons.chevron_right_rounded),
+                        trailing: const AnimeIcon(Icons.chevron_right_rounded),
                         onTap: () => Navigator.of(context).push(
                           MaterialPageRoute<void>(
                             builder: (_) =>
@@ -248,7 +249,7 @@ class _CharacterDetailScreenState extends ConsumerState<CharacterDetailScreen> {
                               person.subjectName,
                           ].join(' · '),
                         ),
-                        trailing: const Icon(Icons.chevron_right_rounded),
+                        trailing: const AnimeIcon(Icons.chevron_right_rounded),
                         onTap: () => Navigator.of(context).push(
                           MaterialPageRoute<void>(
                             builder: (_) => PersonRoute(

@@ -234,6 +234,21 @@ class BackgroundController extends StateNotifier<AppBackgroundSettings> {
     await flush();
   }
 
+  Future<void> importAdjustments(Map<String, dynamic> values) async {
+    await ready;
+    final clean = AppBackgroundSettings.fromJson(values);
+    _change(
+      state.copyWith(
+        blur: clean.blur,
+        dim: clean.dim,
+        glass: clean.glass,
+        reduceTransparency: clean.reduceTransparency,
+      ),
+    );
+    await flush();
+    if (state.saveError != null) throw StateError('背景偏好保存失败');
+  }
+
   Future<void> setBlur(double value) async =>
       _change(state.copyWith(blur: value.clamp(0, 40)), debounce: true);
   Future<void> setDim(double value) async =>

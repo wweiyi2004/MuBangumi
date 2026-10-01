@@ -1,3 +1,4 @@
+import '../core/theme/anime_icon.dart';
 import '../navigation/app_destination.dart';
 import 'dart:async';
 import 'package:flutter/material.dart';
@@ -10,6 +11,7 @@ import '../models/bangumi_models.dart';
 import '../models/netaba_models.dart';
 import '../state/session_controller.dart';
 import '../widgets/score_history_chart.dart';
+import 'score_comparison_page.dart';
 import '../widgets/subject_widgets.dart';
 import '../core/theme/app_tokens.dart';
 
@@ -136,7 +138,7 @@ class _ScoreTrendsPageState extends ConsumerState<ScoreTrendsPage>
           IconButton(
             tooltip: '刷新榜单',
             onPressed: loading ? null : () => _load(refresh: true),
-            icon: const Icon(Icons.refresh_rounded),
+            icon: const AnimeIcon(Icons.refresh_rounded),
           ),
           IconButton(
             tooltip: '数据来源 · netaba.re',
@@ -144,7 +146,7 @@ class _ScoreTrendsPageState extends ConsumerState<ScoreTrendsPage>
               Uri.parse('https://netaba.re/trending'),
               mode: LaunchMode.externalApplication,
             ),
-            icon: const Icon(Icons.open_in_new_rounded),
+            icon: const AnimeIcon(Icons.open_in_new_rounded),
           ),
         ],
         bottom: TabBar(
@@ -174,7 +176,7 @@ class _ScoreTrendsPageState extends ConsumerState<ScoreTrendsPage>
                         onSelected: (_) => setState(() => _onlyMine = false),
                       ),
                       ChoiceChip(
-                        avatar: const Icon(
+                        avatar: const AnimeIcon(
                           Icons.bookmark_border_rounded,
                           size: 17,
                         ),
@@ -182,12 +184,38 @@ class _ScoreTrendsPageState extends ConsumerState<ScoreTrendsPage>
                         selected: _onlyMine,
                         onSelected: (_) => setState(() => _onlyMine = true),
                       ),
+                      ActionChip(
+                        avatar: const AnimeIcon(
+                          Icons.multiline_chart_rounded,
+                          size: 18,
+                        ),
+                        label: const Text('历史对比'),
+                        onPressed: () => Navigator.of(context).push(
+                          MaterialPageRoute<void>(
+                            builder: (_) => ScoreComparisonPage(
+                              initial: session.collections
+                                  .where(
+                                    (item) =>
+                                        item.subject.type == SubjectType.anime,
+                                  )
+                                  .take(2)
+                                  .map((item) => item.subject)
+                                  .toList(),
+                            ),
+                          ),
+                        ),
+                      ),
                       if (session.isLoadingCollections) const Text('收藏同步中…'),
                     ],
                   ),
                 ),
               ),
             ),
+            if (_onlyMine)
+              const Padding(
+                padding: EdgeInsets.symmetric(horizontal: 18),
+                child: Text('这里筛选的是入榜收藏。未上榜的作品可通过「历史对比」直接查看；历史数据是否存在取决于数据源收录。'),
+              ),
             Expanded(
               child: TabBarView(
                 controller: _tabs,
@@ -440,7 +468,7 @@ class _TrendTile extends StatelessWidget {
     final change = Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Icon(
+        AnimeIcon(
           delta == 0
               ? Icons.trending_flat_rounded
               : positive

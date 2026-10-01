@@ -1,3 +1,4 @@
+import '../../../core/theme/anime_icon.dart';
 import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../../../core/network/bangumi_endpoints.dart';
@@ -50,25 +51,25 @@ class EmptyDiscoverState extends StatelessWidget {
             if (searching && activeFilterCount > 0)
               FilledButton.tonalIcon(
                 onPressed: onClearFilters,
-                icon: const Icon(Icons.filter_alt_off_rounded),
+                icon: const AnimeIcon(Icons.filter_alt_off_rounded),
                 label: const Text('清除筛选'),
               ),
             if (searching)
               FilledButton.tonalIcon(
                 onPressed: onClearSearch,
-                icon: const Icon(Icons.clear_rounded),
+                icon: const AnimeIcon(Icons.clear_rounded),
                 label: const Text('清空搜索'),
               ),
             if (!searching && activeFilterCount > 0)
               FilledButton.tonalIcon(
                 onPressed: onClearFilters,
-                icon: const Icon(Icons.restart_alt_rounded),
+                icon: const AnimeIcon(Icons.restart_alt_rounded),
                 label: const Text('重置浏览条件'),
               ),
             if (!searching || activeFilterCount > 0)
               OutlinedButton.icon(
                 onPressed: onOpenFilters,
-                icon: const Icon(Icons.tune_rounded),
+                icon: const AnimeIcon(Icons.tune_rounded),
                 label: const Text('调整筛选'),
               ),
           ],
@@ -112,7 +113,7 @@ class DiscoverMonoThumb extends StatelessWidget {
     final child = url.isEmpty
         ? ColoredBox(
             color: scheme.surfaceContainerHighest,
-            child: Icon(
+            child: AnimeIcon(
               round ? Icons.person_rounded : Icons.face_rounded,
               size: 20,
             ),
@@ -129,7 +130,7 @@ class DiscoverMonoThumb extends StatelessWidget {
             memCacheHeight: 120,
             errorWidget: (_, _, _) => ColoredBox(
               color: scheme.surfaceContainerHighest,
-              child: const Icon(Icons.broken_image_outlined, size: 18),
+              child: const AnimeIcon(Icons.broken_image_outlined, size: 18),
             ),
           );
     if (round) {

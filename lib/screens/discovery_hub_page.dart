@@ -1,5 +1,6 @@
 import '../navigation/app_destination.dart';
 import 'package:flutter/material.dart';
+import '../widgets/retained_tab_stack.dart';
 import '../core/network/community_service.dart';
 import 'community_hub_page.dart';
 
@@ -25,7 +26,7 @@ class _DiscoveryHubPageState extends State<DiscoveryHubPage> {
       Padding(
         padding: EdgeInsets.fromLTRB(
           MediaQuery.sizeOf(context).width < 600 ? 16 : 30,
-          24,
+          8,
           MediaQuery.sizeOf(context).width < 600 ? 16 : 30,
           0,
         ),
@@ -38,13 +39,12 @@ class _DiscoveryHubPageState extends State<DiscoveryHubPage> {
                 context,
               ).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w800),
             ),
-            const SizedBox(height: 10),
+            const SizedBox(height: 2),
             DefaultTabController(
               length: 2,
               initialIndex: widget.initialTab,
               child: TabBar(
-                isScrollable: true,
-                tabAlignment: TabAlignment.start,
+                isScrollable: false,
                 dividerHeight: 0,
                 indicatorSize: TabBarIndicatorSize.label,
                 labelColor: Theme.of(context).colorScheme.primary,
@@ -59,10 +59,10 @@ class _DiscoveryHubPageState extends State<DiscoveryHubPage> {
                   fontSize: 14,
                   fontWeight: FontWeight.w400,
                 ),
-                labelPadding: const EdgeInsets.symmetric(horizontal: 14),
+                labelPadding: const EdgeInsets.symmetric(horizontal: 8),
                 tabs: const [
-                  Tab(height: 44, text: '找作品'),
-                  Tab(height: 44, text: '超展开'),
+                  Tab(height: 40, text: '找作品'),
+                  Tab(height: 40, text: '超展开'),
                 ],
                 onTap: (index) => setState(() {
                   _tab = index;
@@ -74,7 +74,7 @@ class _DiscoveryHubPageState extends State<DiscoveryHubPage> {
         ),
       ),
       Expanded(
-        child: IndexedStack(
+        child: RetainedTabStack(
           index: _tab,
           children: [
             _opened.contains(0)

@@ -20,6 +20,25 @@ final _boundary = GlobalKey();
 
 void main() {
   testWidgets(
+    'phone collection covers appear early and status menu filters directly',
+    (tester) async {
+      final env = _Environment();
+      await _show(tester, env);
+      expect(
+        tester.getTopLeft(find.byKey(const ValueKey('library-subject-1'))).dy,
+        lessThan(320),
+      );
+      await tester.tap(find.byTooltip('收藏状态'));
+      await tester.pumpAndSettle();
+      expect(find.text('全部状态'), findsOneWidget);
+      await tester.tap(find.text('计划中'));
+      await tester.pumpAndSettle();
+      expect(find.text('状态：计划中'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+      await captureUx(tester, _boundary, 'compact-library-phone');
+    },
+  );
+  testWidgets(
     'selection can be cleared and long titles remain readable without changing selection',
     (tester) async {
       final env = _Environment();

@@ -538,6 +538,8 @@ class CollectionEditor implements EpisodeCollectionReader {
         'subject_id': subjectId,
         'episode_id': episodeId,
         'type': type,
+        'activity_before': previousType,
+        'activity_undo': !createUndo,
         'local_episode_status': ?nextCount,
       },
     );
@@ -561,7 +563,9 @@ class CollectionEditor implements EpisodeCollectionReader {
             subjectTitle: current?.subject.displayName ?? '作品 $subjectId',
             episodeLabel: episode == null
                 ? '章节 $episodeId'
-                : '${BangumiSupport.episodeTypeLabel(episode.type)} 第 ${episode.number % 1 == 0 ? episode.number.toInt() : episode.number} 话',
+                : episode.type == 0
+                ? '本篇 ${episode.label}'
+                : episode.label,
           )
         : null;
     if (current != null && nextCount != null) {

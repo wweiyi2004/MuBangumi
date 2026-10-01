@@ -1,3 +1,4 @@
+import '../../../core/theme/anime_icon.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import '../../../models/pm_contact.dart';
@@ -55,7 +56,7 @@ class PmContactsView extends StatelessWidget {
                 onPressed: contacts.busy
                     ? null
                     : () => contacts.refresh(forceFriends: true),
-                icon: const Icon(CupertinoIcons.arrow_clockwise, size: 18),
+                icon: const AnimeIcon(CupertinoIcons.arrow_clockwise, size: 18),
               ),
             ],
           ),

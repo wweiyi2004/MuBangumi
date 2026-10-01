@@ -19,6 +19,7 @@ import '../widgets/friend_qr_actions.dart';
 import 'messages_page.dart';
 import 'discovery_hub_page.dart';
 import '../widgets/app_navigation_layout.dart';
+import '../widgets/retained_tab_stack.dart';
 import 'home_page.dart';
 import 'library_page.dart';
 import 'profile_page.dart';
@@ -224,7 +225,7 @@ class _HomeShellState extends ConsumerState<HomeShell> {
           children: [
             const ParticipationReturnTile(),
             Expanded(
-              child: IndexedStack(index: _index, children: pages),
+              child: RetainedTabStack(index: _index, children: pages),
             ),
           ],
         ),

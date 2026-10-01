@@ -1,3 +1,4 @@
+import '../core/theme/anime_icon.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
@@ -29,6 +30,7 @@ class _FriendQrScanPageState extends State<FriendQrScanPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.black,
+      extendBodyBehindAppBar: true,
       appBar: AppBar(
         systemOverlayStyle: SystemUiOverlayStyle.light,
         backgroundColor: Colors.black,
@@ -38,7 +40,7 @@ class _FriendQrScanPageState extends State<FriendQrScanPage> {
           IconButton(
             tooltip: '从图片识别',
             onPressed: () => Navigator.of(context).pop('__pick_image__'),
-            icon: const Icon(Icons.photo_outlined),
+            icon: const AnimeIcon(Icons.photo_outlined),
           ),
         ],
       ),
@@ -51,12 +53,15 @@ class _FriendQrScanPageState extends State<FriendQrScanPage> {
             alignment: Alignment.bottomCenter,
             child: Padding(
               padding: const EdgeInsets.fromLTRB(24, 0, 24, 40),
-              child: Text(
-                '扫描好友、小组或番键会二维码',
-                textAlign: TextAlign.center,
-                style: Theme.of(
-                  context,
-                ).textTheme.bodyMedium?.copyWith(color: Colors.white70),
+              child: SafeArea(
+                top: false,
+                child: Text(
+                  '扫描条目、动态、好友、小组或番键会二维码',
+                  textAlign: TextAlign.center,
+                  style: Theme.of(
+                    context,
+                  ).textTheme.bodyMedium?.copyWith(color: Colors.white70),
+                ),
               ),
             ),
           ),

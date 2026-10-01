@@ -1,3 +1,4 @@
+import '../core/theme/anime_icon.dart';
 import 'package:flutter/material.dart';
 
 import '../core/format/date_format.dart';
@@ -113,7 +114,7 @@ class ScheduleListView extends StatelessWidget {
             message: '搜索喜欢的作品，加入这个季度的新番表。',
             action: FilledButton.icon(
               onPressed: onAdd,
-              icon: const Icon(Icons.add_rounded),
+              icon: const AnimeIcon(Icons.add_rounded),
               label: const Text('搜索加入'),
             ),
           ),
@@ -284,7 +285,7 @@ class _ScheduleListCard extends StatelessWidget {
                   IconButton(
                     tooltip: '安排操作',
                     onPressed: onActions,
-                    icon: const Icon(Icons.more_vert_rounded),
+                    icon: const AnimeIcon(Icons.more_vert_rounded),
                   ),
                 ],
               ),
@@ -342,7 +343,7 @@ class _ScheduleListCard extends StatelessWidget {
                                     collection!.episodeStatus < count))))
                       FilledButton.tonalIcon(
                         onPressed: updating ? null : onProgress,
-                        icon: Icon(
+                        icon: AnimeIcon(
                           collection == null
                               ? Icons.add_rounded
                               : Icons.check_rounded,
@@ -359,7 +360,7 @@ class _ScheduleListCard extends StatelessWidget {
                     if (onViewUpdates != null && (bound || unread > 0))
                       TextButton.icon(
                         onPressed: onViewUpdates,
-                        icon: const Icon(Icons.rss_feed_rounded, size: 18),
+                        icon: const AnimeIcon(Icons.rss_feed_rounded, size: 18),
                         label: Text(unread > 0 ? '查看更新 ($unread)' : '查看更新'),
                       ),
                   ],

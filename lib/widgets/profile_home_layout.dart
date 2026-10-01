@@ -1,7 +1,11 @@
+import '../core/theme/anime_icon.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/cupertino.dart';
 import 'community_widgets.dart';
+import 'bounded_image.dart';
+import 'retained_tab_stack.dart';
 import '../core/theme/app_tokens.dart';
+import '../core/theme/custom_colors.dart';
 
 class ProfileHomeLayout extends StatelessWidget {
   const ProfileHomeLayout({
@@ -21,6 +25,8 @@ class ProfileHomeLayout extends StatelessWidget {
     required this.onFriends,
     required this.content,
     this.coverImage,
+    this.feedLabels = const ['我的动态', '好友动态', '日志'],
+    this.biography,
   });
   final String nickname, username, sign, avatarUrl;
   final int total, doing, selectedTab;
@@ -29,6 +35,8 @@ class ProfileHomeLayout extends StatelessWidget {
   final VoidCallback onSettings, onCollections, onDoing, onFriends;
   final Widget content;
   final ImageProvider? coverImage;
+  final List<String> feedLabels;
+  final Widget? biography;
 
   @override
   Widget build(BuildContext context) {
@@ -38,216 +46,341 @@ class ProfileHomeLayout extends StatelessWidget {
         ? colors.surfaceContainer
         : colors.surface;
     final inset = compact ? 20.0 : 32.0;
-    return Center(
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 820),
-        child: Padding(
-          padding: EdgeInsets.fromLTRB(
-            compact ? 0 : 24,
-            compact ? 0 : 20,
-            compact ? 0 : 24,
-            0,
-          ),
-          child: ClipRRect(
-            borderRadius: BorderRadius.vertical(
-              top: Radius.circular(compact ? 0 : 20),
+    return _ProfileScrollFrame(
+      selectedTab: selectedTab,
+      username: username,
+      buildContent: (nestedKey) => Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 820),
+          child: Padding(
+            padding: EdgeInsets.fromLTRB(
+              compact ? 0 : 24,
+              compact ? 0 : 20,
+              compact ? 0 : 24,
+              0,
             ),
-            child: ColoredBox(
-              color: paper,
-              child: NestedScrollView(
-                headerSliverBuilder: (context, innerScrolled) => [
-                  SliverLayoutBuilder(
-                    builder: (context, constraints) {
-                      final visibility = (1 - constraints.scrollOffset / 250)
-                          .clamp(0.0, 1.0);
-                      return SliverToBoxAdapter(
-                        child: IgnorePointer(
-                          ignoring: visibility == 0,
-                          child: Opacity(
-                            key: const Key('profile-header-fade'),
-                            opacity: visibility,
-                            child: Stack(
-                              children: [
-                                Positioned(
-                                  top: 0,
-                                  left: 0,
-                                  right: 0,
-                                  height: 230,
-                                  child: _SpaceCover(
-                                    image: coverImage,
-                                    paper: paper,
+            child: ClipRRect(
+              borderRadius: BorderRadius.vertical(
+                top: Radius.circular(compact ? 0 : 20),
+              ),
+              child: ColoredBox(
+                color: paper,
+                child: NestedScrollView(
+                  key: nestedKey,
+                  headerSliverBuilder: (context, innerScrolled) => [
+                    SliverLayoutBuilder(
+                      builder: (context, constraints) {
+                        final visibility = (1 - constraints.scrollOffset / 250)
+                            .clamp(0.0, 1.0);
+                        return SliverToBoxAdapter(
+                          child: IgnorePointer(
+                            ignoring: visibility == 0,
+                            child: Opacity(
+                              key: const Key('profile-header-fade'),
+                              opacity: visibility,
+                              child: Stack(
+                                children: [
+                                  Positioned(
+                                    top: 0,
+                                    left: 0,
+                                    right: 0,
+                                    height: 230,
+                                    child: _SpaceCover(
+                                      image: coverImage,
+                                      paper: paper,
+                                    ),
                                   ),
-                                ),
-                                Padding(
-                                  padding: EdgeInsets.fromLTRB(
-                                    inset,
-                                    12,
-                                    inset,
-                                    12,
-                                  ),
-                                  child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.stretch,
-                                    children: [
-                                      Row(
-                                        children: [
-                                          const SizedBox(width: 44),
-                                          Expanded(
-                                            child: Text(
-                                              '我的空间',
-                                              textAlign: TextAlign.center,
-                                              style: TextStyle(
-                                                fontSize: 17,
-                                                fontWeight: FontWeight.w600,
-                                                color: colors.onSurface,
-                                              ),
-                                            ),
-                                          ),
-                                          IconButton(
-                                            onPressed: onSettings,
-                                            tooltip: '设置',
-                                            style: IconButton.styleFrom(
-                                              backgroundColor: paper.withValues(
-                                                alpha: .66,
-                                              ),
-                                            ),
-                                            icon: const Icon(
-                                              CupertinoIcons.gear_alt,
-                                              size: 22,
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                      const SizedBox(height: 46),
-                                      Row(
-                                        crossAxisAlignment:
-                                            CrossAxisAlignment.end,
-                                        children: [
-                                          DecoratedBox(
-                                            decoration: BoxDecoration(
-                                              shape: BoxShape.circle,
-                                              color: paper,
-                                              boxShadow: [
-                                                BoxShadow(
-                                                  color: Colors.black
-                                                      .withValues(alpha: .06),
-                                                  blurRadius: 14,
-                                                  offset: const Offset(0, 4),
+                                  Padding(
+                                    padding: EdgeInsets.fromLTRB(
+                                      inset,
+                                      12,
+                                      inset,
+                                      12,
+                                    ),
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.stretch,
+                                      children: [
+                                        Row(
+                                          children: [
+                                            const SizedBox(width: 44),
+                                            Expanded(
+                                              child: Text(
+                                                '我的空间',
+                                                textAlign: TextAlign.center,
+                                                style: TextStyle(
+                                                  fontSize: 17,
+                                                  fontWeight: FontWeight.w600,
+                                                  color: colors.onSurface,
                                                 ),
-                                              ],
-                                            ),
-                                            child: Padding(
-                                              padding: const EdgeInsets.all(4),
-                                              child: CommunityAvatar(
-                                                imageUrl: avatarUrl,
-                                                radius: compact ? 38 : 44,
                                               ),
                                             ),
-                                          ),
-                                          const SizedBox(width: 16),
-                                          Expanded(
-                                            child: Padding(
-                                              padding: const EdgeInsets.only(
-                                                bottom: 8,
+                                            IconButton(
+                                              onPressed: onSettings,
+                                              tooltip: '设置',
+                                              style: IconButton.styleFrom(
+                                                backgroundColor: paper
+                                                    .withValues(alpha: .66),
                                               ),
-                                              child: Column(
-                                                crossAxisAlignment:
-                                                    CrossAxisAlignment.start,
-                                                children: [
-                                                  Text(
-                                                    nickname,
-                                                    maxLines: 1,
-                                                    overflow:
-                                                        TextOverflow.ellipsis,
-                                                    style: const TextStyle(
-                                                      fontSize: 25,
-                                                      height: 1.3,
-                                                      fontWeight:
-                                                          FontWeight.w700,
-                                                    ),
-                                                  ),
-                                                  const SizedBox(height: 5),
-                                                  Text(
-                                                    '@$username',
-                                                    maxLines: 1,
-                                                    overflow:
-                                                        TextOverflow.ellipsis,
-                                                    style: TextStyle(
-                                                      fontSize: AppText.caption,
-                                                      color: colors
-                                                          .onSurfaceVariant,
-                                                    ),
+                                              icon: const AnimeIcon(
+                                                CupertinoIcons.gear_alt,
+                                                size: 22,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                        const SizedBox(height: 46),
+                                        Row(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.end,
+                                          children: [
+                                            DecoratedBox(
+                                              decoration: BoxDecoration(
+                                                shape: BoxShape.circle,
+                                                color: paper,
+                                                boxShadow: [
+                                                  BoxShadow(
+                                                    color: Colors.black
+                                                        .withValues(alpha: .06),
+                                                    blurRadius: 14,
+                                                    offset: const Offset(0, 4),
                                                   ),
                                                 ],
                                               ),
+                                              child: Padding(
+                                                padding: const EdgeInsets.all(
+                                                  4,
+                                                ),
+                                                child: CommunityAvatar(
+                                                  imageUrl: avatarUrl,
+                                                  radius: compact ? 38 : 44,
+                                                ),
+                                              ),
+                                            ),
+                                            const SizedBox(width: 16),
+                                            Expanded(
+                                              child: Padding(
+                                                padding: const EdgeInsets.only(
+                                                  bottom: 8,
+                                                ),
+                                                child: Column(
+                                                  crossAxisAlignment:
+                                                      CrossAxisAlignment.start,
+                                                  children: [
+                                                    Text(
+                                                      nickname,
+                                                      maxLines: 1,
+                                                      overflow:
+                                                          TextOverflow.ellipsis,
+                                                      style: const TextStyle(
+                                                        fontSize: 25,
+                                                        height: 1.3,
+                                                        fontWeight:
+                                                            FontWeight.w700,
+                                                      ),
+                                                    ),
+                                                    const SizedBox(height: 5),
+                                                    Text(
+                                                      '@$username',
+                                                      maxLines: 1,
+                                                      overflow:
+                                                          TextOverflow.ellipsis,
+                                                      style: TextStyle(
+                                                        fontSize:
+                                                            AppText.caption,
+                                                        color: colors
+                                                            .onSurfaceVariant,
+                                                      ),
+                                                    ),
+                                                  ],
+                                                ),
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                        if (sign.isNotEmpty) ...[
+                                          const SizedBox(height: 14),
+                                          Text(
+                                            sign,
+                                            maxLines: 2,
+                                            overflow: TextOverflow.ellipsis,
+                                            style: TextStyle(
+                                              fontSize: 14,
+                                              height: 1.6,
+                                              color: colors.onSurfaceVariant,
                                             ),
                                           ),
                                         ],
-                                      ),
-                                      if (sign.isNotEmpty) ...[
-                                        const SizedBox(height: 14),
-                                        Text(
-                                          sign,
-                                          maxLines: 2,
-                                          overflow: TextOverflow.ellipsis,
-                                          style: TextStyle(
-                                            fontSize: 14,
-                                            height: 1.6,
-                                            color: colors.onSurfaceVariant,
-                                          ),
+                                        const SizedBox(height: 10),
+                                        Row(
+                                          children: [
+                                            _Stat(
+                                              value: '$total',
+                                              label: '收藏',
+                                              onTap: onCollections,
+                                            ),
+                                            _Stat(
+                                              value: '$doing',
+                                              label: '进行中',
+                                              onTap: onDoing,
+                                            ),
+                                            _Stat(
+                                              value: friends?.toString() ?? '—',
+                                              label: '好友',
+                                              onTap: onFriends,
+                                            ),
+                                          ],
                                         ),
                                       ],
-                                      const SizedBox(height: 10),
-                                      Row(
-                                        children: [
-                                          _Stat(
-                                            value: '$total',
-                                            label: '收藏',
-                                            onTap: onCollections,
-                                          ),
-                                          _Stat(
-                                            value: '$doing',
-                                            label: '进行中',
-                                            onTap: onDoing,
-                                          ),
-                                          _Stat(
-                                            value: friends?.toString() ?? '—',
-                                            label: '好友',
-                                            onTap: onFriends,
-                                          ),
-                                        ],
-                                      ),
-                                    ],
+                                    ),
                                   ),
-                                ),
-                              ],
+                                ],
+                              ),
                             ),
                           ),
+                        );
+                      },
+                    ),
+                    if (biography != null)
+                      SliverToBoxAdapter(
+                        child: Padding(
+                          padding: EdgeInsets.fromLTRB(inset, 0, inset, 12),
+                          child: biography,
                         ),
-                      );
-                    },
-                  ),
-                ],
-                body: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    PersonalFeedTabs(
-                      selected: selectedTab,
-                      onSelect: onSelectTab,
-                    ),
-                    Expanded(
-                      child: Padding(
-                        padding: EdgeInsets.symmetric(horizontal: inset),
-                        child: content,
                       ),
-                    ),
                   ],
+                  body: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      PersonalFeedTabs(
+                        labels: feedLabels,
+                        selected: selectedTab,
+                        onSelect: onSelectTab,
+                      ),
+                      Expanded(
+                        child: Padding(
+                          padding: EdgeInsets.symmetric(horizontal: inset),
+                          child: content,
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ),
             ),
           ),
         ),
       ),
+    );
+  }
+}
+
+class _ProfileScrollFrame extends StatefulWidget {
+  const _ProfileScrollFrame({
+    required this.selectedTab,
+    required this.username,
+    required this.buildContent,
+  });
+  final int selectedTab;
+  final String username;
+  final Widget Function(GlobalKey<NestedScrollViewState>) buildContent;
+  @override
+  State<_ProfileScrollFrame> createState() => _ProfileScrollFrameState();
+}
+
+class _ProfileScrollFrameState extends State<_ProfileScrollFrame> {
+  final _nested = GlobalKey<NestedScrollViewState>();
+  bool _showTop = false, _returning = false;
+  void _updateVisibility() {
+    if (!mounted) return;
+    final nested = _nested.currentState;
+    final outer = nested?.outerController.positions;
+    final inner = nested?.innerController.positions;
+    final offset =
+        (outer?.fold<double>(0, (m, p) => p.pixels > m ? p.pixels : m) ?? 0) +
+        (inner?.fold<double>(0, (m, p) => p.pixels > m ? p.pixels : m) ?? 0);
+    final show = offset > 240;
+    if (_showTop != show) setState(() => _showTop = show);
+  }
+
+  @override
+  void didUpdateWidget(covariant _ProfileScrollFrame oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.selectedTab != widget.selectedTab ||
+        oldWidget.username != widget.username) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _updateVisibility());
+    }
+  }
+
+  Future<void> _toTop() async {
+    final nested = _nested.currentState;
+    if (_returning || nested == null || !nested.outerController.hasClients) {
+      return;
+    }
+    setState(() => _returning = true);
+    try {
+      // NestedScrollPosition delegates this animation to both the outer header
+      // and the currently attached inner feed, retaining the other feed offsets.
+      await nested.outerController.animateTo(
+        0,
+        duration: const Duration(milliseconds: 350),
+        curve: Curves.easeOutCubic,
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _returning = false);
+        _updateVisibility();
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        NotificationListener<ScrollNotification>(
+          onNotification: (n) {
+            if (n.metrics.axis == Axis.vertical &&
+                n.depth <= 1 &&
+                (n is ScrollUpdateNotification || n is ScrollEndNotification)) {
+              _updateVisibility();
+            }
+            return false;
+          },
+          child: widget.buildContent(_nested),
+        ),
+        Positioned(
+          right: MediaQuery.sizeOf(context).width < 600 ? 16 : 24,
+          bottom: 96,
+          child: AnimatedSwitcher(
+            duration: const Duration(milliseconds: 180),
+            child: _showTop
+                ? SizedBox.square(
+                    dimension: 48,
+                    child: FloatingActionButton.small(
+                      key: const ValueKey('profile-back-to-top'),
+                      heroTag: null,
+                      tooltip: '回到顶部',
+                      elevation: 0,
+                      hoverElevation: 0,
+                      focusElevation: 0,
+                      highlightElevation: 0,
+                      shape: const CircleBorder(),
+                      backgroundColor: scheme.primary,
+                      foregroundColor: scheme.onPrimary,
+                      onPressed: _returning ? null : _toTop,
+                      child: const AnimeIcon(
+                        Icons.arrow_upward_rounded,
+                        size: 22,
+                      ),
+                    ),
+                  )
+                : const SizedBox.shrink(),
+          ),
+        ),
+      ],
     );
   }
 }
@@ -270,6 +403,12 @@ class _SpaceCover extends StatelessWidget {
               end: Alignment.bottomRight,
               colors: accessible
                   ? [paper, paper]
+                  : Theme.of(context).extension<BrandColors>() != null
+                  ? [
+                      Theme.of(context).colorScheme.primaryContainer,
+                      Theme.of(context).colorScheme.secondaryContainer,
+                      paper,
+                    ]
                   : dark
                   ? [...AppPalette.profileHeaderDark, paper]
                   : AppPalette.profileHeaderLight,
@@ -278,7 +417,12 @@ class _SpaceCover extends StatelessWidget {
         ),
         if (!accessible && image != null)
           Image(
-            image: ResizeImage(image!, width: 1600, allowUpscaling: false),
+            image: boundedImageProvider(
+              image!,
+              width: MediaQuery.sizeOf(context).width.clamp(1, 820),
+              height: 230,
+              pixelRatio: MediaQuery.devicePixelRatioOf(context),
+            ),
             fit: BoxFit.cover,
             excludeFromSemantics: true,
             errorBuilder: (_, _, _) => const SizedBox.shrink(),
@@ -361,7 +505,7 @@ class ProfileFeedStack extends StatelessWidget {
   final List<Widget> children;
 
   @override
-  Widget build(BuildContext context) => IndexedStack(
+  Widget build(BuildContext context) => RetainedTabStack(
     index: index,
     children: [
       for (var i = 0; i < children.length; i++)
@@ -431,6 +575,7 @@ class PersonalFeedTabs extends StatelessWidget {
       CupertinoIcons.chat_bubble,
       CupertinoIcons.person_2,
       CupertinoIcons.book,
+      CupertinoIcons.list_bullet,
     ];
     return DecoratedBox(
       decoration: BoxDecoration(
@@ -455,7 +600,7 @@ class PersonalFeedTabs extends StatelessWidget {
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        Icon(
+                        AnimeIcon(
                           icons[index % icons.length],
                           size: 25,
                           color: selected == index

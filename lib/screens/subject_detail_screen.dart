@@ -1,3 +1,4 @@
+import '../core/theme/anime_icon.dart';
 import '../state/service_providers.dart';
 import '../navigation/app_destination.dart';
 import 'dart:async';
@@ -33,6 +34,8 @@ import '../widgets/episode_grid_sheet.dart';
 import '../widgets/mobile_subject_actions.dart';
 import '../widgets/score_history_chart.dart';
 import '../widgets/subject_widgets.dart';
+import '../widgets/content_share_sheet.dart';
+import '../core/sharing/share_content.dart';
 import 'moegirl_detail_screen.dart';
 
 class SubjectDetailScreen extends ConsumerStatefulWidget {
@@ -214,418 +217,477 @@ class _SubjectDetailScreenState extends ConsumerState<SubjectDetailScreen> {
     final blockGap = AppLayout.blockGap(context);
     final topicPreview = narrow ? 5 : 12;
 
-    return Scaffold(
-      appBar: AppBar(
-        actions: [
-          IconButton(
-            tooltip: '在 Bangumi 打开',
-            onPressed: () => launchUrl(
-              Uri.parse('https://bgm.tv/subject/${subject.id}'),
-              mode: LaunchMode.externalApplication,
-            ),
-            icon: const Icon(Icons.open_in_new_rounded),
+    return DefaultTabController(
+      length: 3,
+      child: Scaffold(
+        appBar: AppBar(
+          title: const Text('条目'),
+          bottom: const TabBar(
+            tabs: [
+              Tab(text: '详情'),
+              Tab(text: '讨论'),
+              Tab(text: '吐槽'),
+            ],
           ),
-          const SizedBox(width: 6),
-        ],
-      ),
-      bottomNavigationBar: narrow
-          ? MobileSubjectActions(
-              key: const ValueKey('subject-mobile-actions'),
-              busy: busy,
-              collectionLabel: collection?.type.labelFor(subject.type) ?? '收藏',
-              onCollection: () => _chooseCollection(subject),
-              onComment: () => showCollectionEditorSheet(
-                context,
-                subject: subject,
-                collection: collection,
-                focusComment: true,
+          actions: [
+            IconButton(
+              tooltip: '分享条目',
+              icon: const AnimeIcon(Icons.ios_share_rounded),
+              onPressed: () =>
+                  showContentShareSheet(context, ShareContent.subject(subject)),
+            ),
+            IconButton(
+              tooltip: '在 Bangumi 打开',
+              onPressed: () => launchUrl(
+                Uri.parse('https://bgm.tv/subject/${subject.id}'),
+                mode: LaunchMode.externalApplication,
               ),
-              onProgress: subject.type.hasEpisodes || subject.type.hasVolumes
-                  ? () => _openProgress(subject)
-                  : null,
-            )
-          : null,
-      body: SingleChildScrollView(
-        padding: pagePadding,
-        child: Center(
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 1020),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                SubjectDetailHeader(
-                  showActions: !narrow,
+              icon: const AnimeIcon(Icons.open_in_new_rounded),
+            ),
+            const SizedBox(width: 6),
+          ],
+        ),
+        bottomNavigationBar: narrow
+            ? MobileSubjectActions(
+                key: const ValueKey('subject-mobile-actions'),
+                busy: busy,
+                collectionLabel:
+                    collection?.type.labelFor(subject.type) ?? '收藏',
+                onCollection: () => _chooseCollection(subject),
+                onComment: () => showCollectionEditorSheet(
+                  context,
                   subject: subject,
                   collection: collection,
-                  busy: busy,
-                  onCollectionChanged: (type) =>
-                      _changeCollection(subject, type),
-                  onManageCollection: () => unawaited(
-                    showCollectionEditorSheet(
-                      context,
-                      subject: subject,
-                      collection: collection,
-                    ),
-                  ),
-                  onTagTap: (tag) => openDiscoverTagSearch(
-                    context,
-                    tag: tag,
-                    subjectType: subject.type,
-                  ),
+                  focusComment: true,
                 ),
-                if (subject.score > 0 || subject.ratingTotal > 0) ...[
-                  SizedBox(height: sectionGap),
-                  SubjectRatingPanel(subject: subject),
-                ],
-                SizedBox(height: sectionGap),
-                ScoreHistoryPanel(
-                  loading: _content.history.loading,
-                  error: _content.history.error,
-                  history: _content.history.value,
-                  subjectId: subject.id,
-                  compact: narrow,
-                  initiallyExpanded: !narrow,
-                  onRetry: () => unawaited(_content.history.load()),
-                ),
-                SizedBox(height: sectionGap),
-                SubjectFriendsPanel(
-                  onOpenUser: (user) =>
-                      openUserProfileFromBangumi(context, user),
-                  loading: _friends.loading,
-                  expanded: _friendsExpanded,
-                  loaded: _friends.loaded,
-                  statuses: _friends.items,
-                  subjectType: subject.type,
-                  error: _friends.error,
-                  onExpand: () {
-                    if (_friends.loaded && _friends.error == null) {
-                      setState(() => _friendsExpanded = true);
-                    } else {
-                      unawaited(_loadFriendStatuses());
-                    }
-                  },
-                  onCollapse: () => setState(() => _friendsExpanded = false),
-                ),
-                if (subject.summary.isNotEmpty) ...[
-                  SizedBox(height: blockGap),
-                  Text('简介', style: Theme.of(context).textTheme.titleLarge),
-                  const SizedBox(height: 10),
-                  SubjectExpandableText(
-                    text: subject.summary,
-                    style: Theme.of(context).textTheme.bodyLarge,
-                    collapsedLines: narrow ? 5 : 10,
-                  ),
-                ],
-                SizedBox(height: blockGap),
-                SubjectMoegirlPanel(
-                  entry: _content.moegirl.value,
-                  loading: _content.moegirl.loading,
-                  attempted: _content.moegirl.attempted,
-                  error: _content.moegirl.error,
-                  onLoad: () => _content.loadMoegirl(),
-                  onSearch: () => _openMoegirlSearch(subject),
-                  onOpen: _content.moegirl.value == null
-                      ? null
-                      : () => Navigator.of(context).push(
-                          MaterialPageRoute<void>(
-                            builder: (_) => MoegirlDetailScreen(
-                              entry: _content.moegirl.value!,
-                            ),
+                onProgress: subject.type.hasEpisodes || subject.type.hasVolumes
+                    ? () => _openProgress(subject)
+                    : null,
+              )
+            : null,
+        body: TabBarView(
+          children: [
+            SingleChildScrollView(
+              key: const PageStorageKey('subject-details'),
+              padding: pagePadding,
+              child: Center(
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 1020),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      SubjectDetailHeader(
+                        showActions: !narrow,
+                        subject: subject,
+                        collection: collection,
+                        busy: busy,
+                        onCollectionChanged: (type) =>
+                            _changeCollection(subject, type),
+                        onManageCollection: () => unawaited(
+                          showCollectionEditorSheet(
+                            context,
+                            subject: subject,
+                            collection: collection,
                           ),
                         ),
-                ),
-                if (subject.type.hasEpisodes) ...[
-                  SizedBox(height: blockGap),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: Text(
-                          '章节',
+                        onTagTap: (tag) => openDiscoverTagSearch(
+                          context,
+                          tag: tag,
+                          subjectType: subject.type,
+                        ),
+                      ),
+                      if (subject.score > 0 || subject.ratingTotal > 0) ...[
+                        SizedBox(height: sectionGap),
+                        SubjectRatingPanel(subject: subject),
+                      ],
+                      SizedBox(height: sectionGap),
+                      ScoreHistoryPanel(
+                        loading: _content.history.loading,
+                        error: _content.history.error,
+                        history: _content.history.value,
+                        subjectId: subject.id,
+                        compact: narrow,
+                        initiallyExpanded: !narrow,
+                        onRetry: () => unawaited(_content.history.load()),
+                      ),
+                      SizedBox(height: sectionGap),
+                      SubjectFriendsPanel(
+                        onOpenUser: (user) =>
+                            openUserProfileFromBangumi(context, user),
+                        loading: _friends.loading,
+                        expanded: _friendsExpanded,
+                        loaded: _friends.loaded,
+                        statuses: _friends.items,
+                        subjectType: subject.type,
+                        error: _friends.error,
+                        onExpand: () {
+                          if (_friends.loaded && _friends.error == null) {
+                            setState(() => _friendsExpanded = true);
+                          } else {
+                            unawaited(_loadFriendStatuses());
+                          }
+                        },
+                        onCollapse: () =>
+                            setState(() => _friendsExpanded = false),
+                      ),
+                      if (subject.summary.isNotEmpty) ...[
+                        SizedBox(height: blockGap),
+                        Text(
+                          '简介',
                           style: Theme.of(context).textTheme.titleLarge,
                         ),
-                      ),
-                      Text(
-                        collection == null
-                            ? '${_visibleEpisodes.length} 话'
-                            : '已看 $watchedCount / ${_visibleEpisodes.length}',
-                        style: TextStyle(
-                          color: Theme.of(context).colorScheme.onSurfaceVariant,
+                        const SizedBox(height: 10),
+                        SubjectExpandableText(
+                          text: subject.summary,
+                          style: Theme.of(context).textTheme.bodyLarge,
+                          collapsedLines: narrow ? 5 : 10,
                         ),
-                      ),
-                    ],
-                  ),
-                  if (_episodesFromCache)
-                    Padding(
-                      padding: const EdgeInsets.only(top: 6),
-                      child: Text(
-                        '已显示本地章节${_episodesCachedAt == null ? '' : ' · ${snapshotDateLabel(_episodesCachedAt!)}'}'
-                        '${_episodesError == null ? '' : ' · 暂未获取最新内容'}',
-                        style: Theme.of(context).textTheme.bodySmall,
-                      ),
-                    ),
-                  const SizedBox(height: 10),
-                  SingleChildScrollView(
-                    scrollDirection: Axis.horizontal,
-                    child: Row(
-                      children: [
-                        ChoiceChip(
-                          label: const Text('全部'),
-                          selected: _episodeTypeFilter == null,
-                          onSelected: (_) =>
-                              setState(() => _episodeTypeFilter = null),
-                        ),
-                        const SizedBox(width: 8),
-                        for (final type in _availableEpisodeTypes) ...[
-                          ChoiceChip(
-                            label: Text(BangumiSupport.episodeTypeLabel(type)),
-                            selected: _episodeTypeFilter == type,
-                            onSelected: (_) =>
-                                setState(() => _episodeTypeFilter = type),
-                          ),
-                          const SizedBox(width: 8),
-                        ],
                       ],
-                    ),
-                  ),
-                  const SizedBox(height: 14),
-                  if (_episodes.isEmpty && _loadingEpisodes)
-                    const Center(
-                      child: Padding(
-                        padding: EdgeInsets.all(24),
-                        child: CircularProgressIndicator(),
-                      ),
-                    )
-                  else if (_episodes.isEmpty && _episodesError != null)
-                    Center(
-                      child: TextButton.icon(
-                        onPressed: () => unawaited(_episodeLoader.load()),
-                        icon: const Icon(Icons.refresh_rounded),
-                        label: Text(_episodesError!),
-                      ),
-                    )
-                  else if (_visibleEpisodes.isEmpty)
-                    const EmptyState(
-                      icon: Icons.format_list_numbered_rounded,
-                      title: '暂无章节数据',
-                      message: '这个条目还没有可用的章节信息。',
-                    )
-                  else
-                    SubjectEpisodeGrid(
-                      episodes: _visibleEpisodes,
-                      episodeTypes: _episodeTypes,
-                      updatingEpisodes: _updatingEpisodes,
-                      enabled: collection != null && !busy,
-                      onTap: (episode, watched) => _setEpisode(
-                        subject.id,
-                        episode,
-                        watched ? 0 : 2,
-                        hasCollection: collection != null,
-                      ),
-                    ),
-                ],
-                SizedBox(height: blockGap),
-                SubjectMetaSection(
-                  title: '角色',
-                  loading: _content.metadata.loading,
-                  empty: _content.metadata.value.characters.isEmpty,
-                  error:
-                      (_content.metadata.error ??
-                      _content.metadata.value.warning),
-                  onRetry: () => _content.metadata.load(),
-                  trailing: SubjectMetaCount(
-                    '${_content.metadata.value.characters.length} 个角色',
-                  ),
-                  child: SubjectCharacterRail(
-                    characters: _content.metadata.value.characters,
-                    onOpen: (character) => Navigator.of(context).push(
-                      MaterialPageRoute<void>(
-                        builder: (_) => CharacterRoute(
-                          characterId: character.id,
-                          seedName: character.displayName,
-                          seedImageUrl: character.imageUrl,
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-                SizedBox(height: sectionGap),
-                SubjectMetaSection(
-                  title: '制作人员',
-                  loading: _content.metadata.loading,
-                  empty: _content.metadata.value.persons.isEmpty,
-                  error:
-                      (_content.metadata.error ??
-                      _content.metadata.value.warning),
-                  onRetry: () => _content.metadata.load(),
-                  trailing: SubjectMetaCount(
-                    '${_content.metadata.value.persons.length} 条职员记录',
-                  ),
-                  child: SubjectStaffRoleGroups(
-                    people: _content.metadata.value.persons,
-                    onOpen: (person) => Navigator.of(context).push(
-                      MaterialPageRoute<void>(
-                        builder: (_) => PersonRoute(
-                          personId: person.id,
-                          seedName: person.displayName,
-                          seedImageUrl: person.imageUrl,
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-                SizedBox(height: sectionGap),
-                SubjectMetaSection(
-                  title: '关联条目',
-                  loading: _content.metadata.loading,
-                  empty: _content.metadata.value.related.isEmpty,
-                  error:
-                      (_content.metadata.error ??
-                      _content.metadata.value.warning),
-                  onRetry: () => _content.metadata.load(),
-                  trailing: SubjectMetaCount(
-                    '${_content.metadata.value.related.length} 个条目',
-                  ),
-                  child: SubjectRelatedRail(
-                    subjects: _content.metadata.value.related,
-                    onOpen: (item) => Navigator.of(context).push(
-                      MaterialPageRoute<void>(
-                        builder: (_) =>
-                            SubjectDetailScreen(subject: item.toSubject()),
-                      ),
-                    ),
-                  ),
-                ),
-                SizedBox(height: sectionGap),
-                SubjectMetaSection(
-                  title: '讨论',
-                  loading: _content.topics.loading,
-                  empty: _content.topics.value.isEmpty,
-                  error: _content.topics.error,
-                  onRetry: () => _content.topics.load(),
-                  trailing: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      if (_community.isAuthenticated)
-                        TextButton(
-                          onPressed: _createDiscussion,
-                          child: const Text('发讨论'),
-                        ),
-                      TextButton(
-                        style: TextButton.styleFrom(
-                          visualDensity: VisualDensity.compact,
-                        ),
-                        onPressed: () => launchUrl(
-                          Uri.parse(
-                            'https://bgm.tv/subject/${subject.id}/board',
-                          ),
-                          mode: LaunchMode.externalApplication,
-                        ),
-                        child: const Text('官网'),
-                      ),
-                    ],
-                  ),
-                  child: SubjectExpandableItemList(
-                    itemCount: _content.topics.value.length,
-                    previewCount: topicPreview,
-                    itemBuilder: (index) {
-                      final topic = _content.topics.value[index];
-                      return ListTile(
-                        dense: narrow,
-                        contentPadding: EdgeInsets.zero,
-                        title: Text(
-                          topic.title,
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                        subtitle: Text(
-                          [
-                            if (topic.author.isNotEmpty) topic.author,
-                            if (topic.replyCount > 0) '${topic.replyCount} 回复',
-                          ].join(' · '),
-                        ),
-                        trailing: const Icon(Icons.chevron_right_rounded),
-                        onTap: () => Navigator.of(context).push(
-                          MaterialPageRoute<void>(
-                            builder: (_) => TopicRoute(topic: topic),
-                          ),
-                        ),
-                      );
-                    },
-                  ),
-                ),
-                SizedBox(height: sectionGap),
-                SubjectMetaSection(
-                  title: '吐槽',
-                  loading: _comments.loading,
-                  empty: _comments.items.isEmpty,
-                  error: _comments.error,
-                  onRetry: () => _comments.load(),
-                  trailing: TextButton(
-                    style: TextButton.styleFrom(
-                      visualDensity: VisualDensity.compact,
-                    ),
-                    onPressed: () => launchUrl(
-                      Uri.parse(
-                        'https://bgm.tv/subject/${subject.id}/comments',
-                      ),
-                      mode: LaunchMode.externalApplication,
-                    ),
-                    child: const Text('官网'),
-                  ),
-                  child: Column(
-                    children: [
-                      for (final c in _comments.items)
-                        ListTile(
-                          dense: narrow,
-                          contentPadding: EdgeInsets.zero,
-                          title: Text(
-                            c.userName.isEmpty ? '用户' : c.userName,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                          subtitle: Text(
-                            c.comment,
-                            maxLines: narrow ? 4 : 8,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                          trailing: c.rate > 0
-                              ? Text(
-                                  '${c.rate}',
-                                  style: TextStyle(
-                                    color: Theme.of(
-                                      context,
-                                    ).colorScheme.tertiary,
-                                    fontWeight: FontWeight.w800,
+                      SizedBox(height: blockGap),
+                      SubjectMoegirlPanel(
+                        entry: _content.moegirl.value,
+                        loading: _content.moegirl.loading,
+                        attempted: _content.moegirl.attempted,
+                        error: _content.moegirl.error,
+                        onLoad: () => _content.loadMoegirl(),
+                        onSearch: () => _openMoegirlSearch(subject),
+                        onOpen: _content.moegirl.value == null
+                            ? null
+                            : () => Navigator.of(context).push(
+                                MaterialPageRoute<void>(
+                                  builder: (_) => MoegirlDetailScreen(
+                                    entry: _content.moegirl.value!,
                                   ),
-                                )
-                              : null,
-                          onTap: c.profileUsername.isEmpty
-                              ? null
-                              : () => openUserProfile(
-                                  context,
-                                  username: c.profileUsername,
-                                  nickname: c.userName,
-                                  avatarUrl: c.avatarUrl,
                                 ),
+                              ),
+                      ),
+                      if (subject.type.hasEpisodes) ...[
+                        SizedBox(height: blockGap),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                '章节',
+                                style: Theme.of(context).textTheme.titleLarge,
+                              ),
+                            ),
+                            Text(
+                              collection == null
+                                  ? '${_visibleEpisodes.length} 话'
+                                  : '已看 $watchedCount / ${_visibleEpisodes.length}',
+                              style: TextStyle(
+                                color: Theme.of(
+                                  context,
+                                ).colorScheme.onSurfaceVariant,
+                              ),
+                            ),
+                          ],
                         ),
-                      if (_comments.hasMore && _comments.items.isNotEmpty)
-                        Padding(
-                          padding: const EdgeInsets.only(top: 4),
-                          child: TextButton(
-                            onPressed: _comments.loadingMore
-                                ? null
-                                : () => _comments.load(append: true),
+                        if (_episodesFromCache)
+                          Padding(
+                            padding: const EdgeInsets.only(top: 6),
                             child: Text(
-                              _comments.loadingMore ? '加载中…' : '加载更多吐槽',
+                              '已显示本地章节${_episodesCachedAt == null ? '' : ' · ${snapshotDateLabel(_episodesCachedAt!)}'}'
+                              '${_episodesError == null ? '' : ' · 暂未获取最新内容'}',
+                              style: Theme.of(context).textTheme.bodySmall,
+                            ),
+                          ),
+                        const SizedBox(height: 10),
+                        SingleChildScrollView(
+                          scrollDirection: Axis.horizontal,
+                          child: Row(
+                            children: [
+                              ChoiceChip(
+                                label: const Text('全部'),
+                                selected: _episodeTypeFilter == null,
+                                onSelected: (_) =>
+                                    setState(() => _episodeTypeFilter = null),
+                              ),
+                              const SizedBox(width: 8),
+                              for (final type in _availableEpisodeTypes) ...[
+                                ChoiceChip(
+                                  label: Text(
+                                    BangumiSupport.episodeTypeLabel(type),
+                                  ),
+                                  selected: _episodeTypeFilter == type,
+                                  onSelected: (_) =>
+                                      setState(() => _episodeTypeFilter = type),
+                                ),
+                                const SizedBox(width: 8),
+                              ],
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 14),
+                        if (_episodes.isEmpty && _loadingEpisodes)
+                          const Center(
+                            child: Padding(
+                              padding: EdgeInsets.all(24),
+                              child: CircularProgressIndicator(),
+                            ),
+                          )
+                        else if (_episodes.isEmpty && _episodesError != null)
+                          Center(
+                            child: TextButton.icon(
+                              onPressed: () => unawaited(_episodeLoader.load()),
+                              icon: const AnimeIcon(Icons.refresh_rounded),
+                              label: Text(_episodesError!),
+                            ),
+                          )
+                        else if (_visibleEpisodes.isEmpty)
+                          const EmptyState(
+                            icon: Icons.format_list_numbered_rounded,
+                            title: '暂无章节数据',
+                            message: '这个条目还没有可用的章节信息。',
+                          )
+                        else
+                          SubjectEpisodeGrid(
+                            episodes: _visibleEpisodes,
+                            episodeTypes: _episodeTypes,
+                            updatingEpisodes: _updatingEpisodes,
+                            enabled: collection != null && !busy,
+                            onTap: (episode, watched) => _setEpisode(
+                              subject.id,
+                              episode,
+                              watched ? 0 : 2,
+                              hasCollection: collection != null,
+                            ),
+                          ),
+                      ],
+                      SizedBox(height: blockGap),
+                      SubjectMetaSection(
+                        title: '角色',
+                        loading: _content.metadata.loading,
+                        empty: _content.metadata.value.characters.isEmpty,
+                        error:
+                            (_content.metadata.error ??
+                            _content.metadata.value.warning),
+                        onRetry: () => _content.metadata.load(),
+                        trailing: SubjectMetaCount(
+                          '${_content.metadata.value.characters.length} 个角色',
+                        ),
+                        child: SubjectCharacterRail(
+                          characters: _content.metadata.value.characters,
+                          onOpen: (character) => Navigator.of(context).push(
+                            MaterialPageRoute<void>(
+                              builder: (_) => CharacterRoute(
+                                characterId: character.id,
+                                seedName: character.displayName,
+                                seedImageUrl: character.imageUrl,
+                              ),
                             ),
                           ),
                         ),
+                      ),
+                      SizedBox(height: sectionGap),
+                      Card(
+                        child: ListTile(
+                          leading: const AnimeIcon(Icons.badge_outlined),
+                          title: const Text('制作人员'),
+                          subtitle: Text(
+                            _content.metadata.loading
+                                ? '正在读取制作人员…'
+                                : '查看全部 ${_content.metadata.value.persons.length} 条职员记录',
+                          ),
+                          trailing: const AnimeIcon(
+                            Icons.chevron_right_rounded,
+                          ),
+                          onTap: () => Navigator.of(context).push(
+                            MaterialPageRoute<void>(
+                              builder: (_) => SubjectStaffRoute(
+                                subject: subject,
+                                seed: _content.metadata.value.persons,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                      SizedBox(height: sectionGap),
+                      SubjectMetaSection(
+                        title: '关联条目',
+                        loading: _content.metadata.loading,
+                        empty: _content.metadata.value.related.isEmpty,
+                        error:
+                            (_content.metadata.error ??
+                            _content.metadata.value.warning),
+                        onRetry: () => _content.metadata.load(),
+                        trailing: SubjectMetaCount(
+                          '${_content.metadata.value.related.length} 个条目',
+                        ),
+                        child: SubjectRelatedRail(
+                          subjects: _content.metadata.value.related,
+                          onOpen: (item) => Navigator.of(context).push(
+                            MaterialPageRoute<void>(
+                              builder: (_) => SubjectDetailScreen(
+                                subject: item.toSubject(),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
                     ],
                   ),
                 ),
-              ],
+              ),
             ),
-          ),
+            SingleChildScrollView(
+              key: const PageStorageKey('subject-discussion'),
+              padding: pagePadding,
+              child: Center(
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 1020),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      SubjectMetaSection(
+                        title: '讨论',
+                        loading: _content.topics.loading,
+                        empty: _content.topics.value.isEmpty,
+                        error: _content.topics.error,
+                        onRetry: () => _content.topics.load(),
+                        trailing: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            if (_community.isAuthenticated)
+                              TextButton(
+                                onPressed: _createDiscussion,
+                                child: const Text('发讨论'),
+                              ),
+                            TextButton(
+                              style: TextButton.styleFrom(
+                                visualDensity: VisualDensity.compact,
+                              ),
+                              onPressed: () => launchUrl(
+                                Uri.parse(
+                                  'https://bgm.tv/subject/${subject.id}/board',
+                                ),
+                                mode: LaunchMode.externalApplication,
+                              ),
+                              child: const Text('官网'),
+                            ),
+                          ],
+                        ),
+                        child: SubjectExpandableItemList(
+                          itemCount: _content.topics.value.length,
+                          previewCount: topicPreview,
+                          itemBuilder: (index) {
+                            final topic = _content.topics.value[index];
+                            return ListTile(
+                              dense: narrow,
+                              contentPadding: EdgeInsets.zero,
+                              title: Text(
+                                topic.title,
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                              subtitle: Text(
+                                [
+                                  if (topic.author.isNotEmpty) topic.author,
+                                  if (topic.replyCount > 0)
+                                    '${topic.replyCount} 回复',
+                                ].join(' · '),
+                              ),
+                              trailing: const AnimeIcon(
+                                Icons.chevron_right_rounded,
+                              ),
+                              onTap: () => Navigator.of(context).push(
+                                MaterialPageRoute<void>(
+                                  builder: (_) => TopicRoute(topic: topic),
+                                ),
+                              ),
+                            );
+                          },
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+            SingleChildScrollView(
+              key: const PageStorageKey('subject-comments'),
+              padding: pagePadding,
+              child: Center(
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 1020),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      SubjectMetaSection(
+                        title: '吐槽',
+                        loading: _comments.loading,
+                        empty: _comments.items.isEmpty,
+                        error: _comments.error,
+                        onRetry: () => _comments.load(),
+                        trailing: TextButton(
+                          style: TextButton.styleFrom(
+                            visualDensity: VisualDensity.compact,
+                          ),
+                          onPressed: () => launchUrl(
+                            Uri.parse(
+                              'https://bgm.tv/subject/${subject.id}/comments',
+                            ),
+                            mode: LaunchMode.externalApplication,
+                          ),
+                          child: const Text('官网'),
+                        ),
+                        child: Column(
+                          children: [
+                            for (final c in _comments.items)
+                              ListTile(
+                                dense: narrow,
+                                contentPadding: EdgeInsets.zero,
+                                title: Text(
+                                  c.userName.isEmpty ? '用户' : c.userName,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                                subtitle: Text(
+                                  c.comment,
+                                  maxLines: narrow ? 4 : 8,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                                trailing: c.rate > 0
+                                    ? Text(
+                                        '${c.rate}',
+                                        style: TextStyle(
+                                          color: Theme.of(
+                                            context,
+                                          ).colorScheme.tertiary,
+                                          fontWeight: FontWeight.w800,
+                                        ),
+                                      )
+                                    : null,
+                                onTap: c.profileUsername.isEmpty
+                                    ? null
+                                    : () => openUserProfile(
+                                        context,
+                                        username: c.profileUsername,
+                                        nickname: c.userName,
+                                        avatarUrl: c.avatarUrl,
+                                      ),
+                              ),
+                            if (_comments.hasMore && _comments.items.isNotEmpty)
+                              Padding(
+                                padding: const EdgeInsets.only(top: 4),
+                                child: TextButton(
+                                  onPressed: _comments.loadingMore
+                                      ? null
+                                      : () => _comments.load(append: true),
+                                  child: Text(
+                                    _comments.loadingMore ? '加载中…' : '加载更多吐槽',
+                                  ),
+                                ),
+                              ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ],
         ),
       ),
     );
@@ -659,7 +721,7 @@ class _SubjectDetailScreenState extends ConsumerState<SubjectDetailScreen> {
               ListTile(
                 title: Text(type.labelFor(subject.type)),
                 trailing: selected == type
-                    ? const Icon(Icons.check_rounded)
+                    ? const AnimeIcon(Icons.check_rounded)
                     : null,
                 onTap: () => Navigator.pop(context, type),
               ),

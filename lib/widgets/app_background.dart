@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../state/background_controller.dart';
 import '../state/system_appearance_controller.dart';
+import 'bounded_image.dart';
 
 /// One shared renderer for the app and its live settings preview.
 class BackgroundWallpaper extends StatelessWidget {
@@ -30,16 +31,13 @@ class BackgroundWallpaper extends StatelessWidget {
     }
     return LayoutBuilder(
       builder: (context, size) {
-        final decodedWidth =
-            (size.maxWidth * MediaQuery.devicePixelRatioOf(context))
-                .round()
-                .clamp(1, 2560);
         final image = Image(
           excludeFromSemantics: true,
-          image: ResizeImage(
+          image: boundedImageProvider(
             FileImage(File(settings.imagePath!)),
-            width: decodedWidth,
-            allowUpscaling: false,
+            width: size.maxWidth,
+            height: size.maxHeight,
+            pixelRatio: MediaQuery.devicePixelRatioOf(context),
           ),
           fit: BoxFit.cover,
           width: double.infinity,

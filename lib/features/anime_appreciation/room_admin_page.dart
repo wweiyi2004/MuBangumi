@@ -1,3 +1,5 @@
+import '../../widgets/bounded_image.dart';
+import '../../core/theme/anime_icon.dart';
 import 'dart:async';
 import 'package:banjian_server/banjian_server.dart';
 import 'package:file_picker/file_picker.dart';
@@ -209,11 +211,16 @@ class _RoomAdminPageState extends ConsumerState<RoomAdminPage> {
     final avatar = member['avatar'] as String?;
     final image = avatar == null || host.base == null
         ? null
-        : NetworkImage(host.base!.resolve('/cover/$avatar').toString());
+        : boundedImageProvider(
+            NetworkImage(host.base!.resolve('/cover/$avatar').toString()),
+            width: 48,
+            height: 48,
+            pixelRatio: MediaQuery.devicePixelRatioOf(context),
+          );
     return CircleAvatar(
       foregroundImage: image,
       onForegroundImageError: image == null ? null : (_, _) {},
-      child: const Icon(Icons.person_outline),
+      child: const AnimeIcon(Icons.person_outline),
     );
   }
 
@@ -278,7 +285,7 @@ class _RoomAdminPageState extends ConsumerState<RoomAdminPage> {
                         ),
                         IconButton(
                           onPressed: () => Navigator.pop(context),
-                          icon: const Icon(Icons.close),
+                          icon: const AnimeIcon(Icons.close),
                           tooltip: '关闭',
                         ),
                       ],
@@ -316,7 +323,9 @@ class _RoomAdminPageState extends ConsumerState<RoomAdminPage> {
                                       subtitle: Text(
                                         '${item['ended'] == true ? '已结束' : '进行中'} · ${item['rounds']} 部番剧',
                                       ),
-                                      trailing: const Icon(Icons.chevron_right),
+                                      trailing: const AnimeIcon(
+                                        Icons.chevron_right,
+                                      ),
                                       onTap: () async {
                                         Navigator.pop(context);
                                         await _refresh.currentState?.refresh(
@@ -402,7 +411,7 @@ class _RoomAdminPageState extends ConsumerState<RoomAdminPage> {
       value
       ? FilledButton.tonalIcon(
           onPressed: onPressed,
-          icon: const Icon(Icons.check_rounded, size: 18),
+          icon: const AnimeIcon(Icons.check_rounded, size: 18),
           label: Text(on, maxLines: 1, overflow: TextOverflow.ellipsis),
         )
       : OutlinedButton(
@@ -570,7 +579,7 @@ class _RoomAdminPageState extends ConsumerState<RoomAdminPage> {
                         : IconButton(
                             onPressed: () =>
                                 _details('stats', roundId: r['id']),
-                            icon: const Icon(Icons.bar_chart, size: 19),
+                            icon: const AnimeIcon(Icons.bar_chart, size: 19),
                             tooltip: '查看结果',
                           ),
                   ),
@@ -591,7 +600,7 @@ class _RoomAdminPageState extends ConsumerState<RoomAdminPage> {
                                   'round': r['id'],
                                   'index': index - 1,
                                 }, expected: e!),
-                          icon: const Icon(Icons.arrow_upward, size: 18),
+                          icon: const AnimeIcon(Icons.arrow_upward, size: 18),
                         ),
                         IconButton(
                           tooltip: '下移',
@@ -604,7 +613,7 @@ class _RoomAdminPageState extends ConsumerState<RoomAdminPage> {
                                   'round': r['id'],
                                   'index': index + 1,
                                 }, expected: e!),
-                          icon: const Icon(Icons.arrow_downward, size: 18),
+                          icon: const AnimeIcon(Icons.arrow_downward, size: 18),
                         ),
                         TextButton(
                           onPressed: _working
@@ -642,7 +651,7 @@ class _RoomAdminPageState extends ConsumerState<RoomAdminPage> {
               children: [
                 Row(
                   children: [
-                    const Icon(Icons.person_outline, size: 18),
+                    const AnimeIcon(Icons.person_outline, size: 18),
                     const SizedBox(width: 6),
                     Expanded(
                       child: Text(
@@ -694,7 +703,7 @@ class _RoomAdminPageState extends ConsumerState<RoomAdminPage> {
           Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Icon(Icons.movie_filter_outlined, size: 42),
+              const AnimeIcon(Icons.movie_filter_outlined, size: 42),
               const SizedBox(height: 12),
               const Text('从番单选择一部番剧开始'),
               TextButton(
@@ -738,7 +747,9 @@ class _RoomAdminPageState extends ConsumerState<RoomAdminPage> {
                                     color: Theme.of(
                                       context,
                                     ).colorScheme.primaryContainer,
-                                    child: const Icon(Icons.movie_outlined),
+                                    child: const AnimeIcon(
+                                      Icons.movie_outlined,
+                                    ),
                                   )
                                 : Image.network(
                                     host.base!
@@ -748,11 +759,15 @@ class _RoomAdminPageState extends ConsumerState<RoomAdminPage> {
                                         .toString(),
                                     width: 64,
                                     height: 90,
+                                    cacheWidth: imageDecodeExtent(
+                                      64,
+                                      MediaQuery.devicePixelRatioOf(context),
+                                    ),
                                     fit: BoxFit.cover,
                                     errorBuilder: (_, _, _) => const SizedBox(
                                       width: 64,
                                       height: 90,
-                                      child: Icon(Icons.movie_outlined),
+                                      child: AnimeIcon(Icons.movie_outlined),
                                     ),
                                   ),
                           ),
@@ -844,7 +859,7 @@ class _RoomAdminPageState extends ConsumerState<RoomAdminPage> {
                         const SizedBox(height: 8),
                         FilledButton.tonalIcon(
                           onPressed: () => _details('summary'),
-                          icon: const Icon(Icons.leaderboard_outlined),
+                          icon: const AnimeIcon(Icons.leaderboard_outlined),
                           label: const Text('查看整场汇总'),
                         ),
                       ],
@@ -907,7 +922,7 @@ class _RoomAdminPageState extends ConsumerState<RoomAdminPage> {
                           IconButton(
                             tooltip: '详细统计',
                             onPressed: () => _details('stats'),
-                            icon: const Icon(Icons.open_in_full, size: 16),
+                            icon: const AnimeIcon(Icons.open_in_full, size: 16),
                           ),
                         ],
                       ),
@@ -939,11 +954,11 @@ class _RoomAdminPageState extends ConsumerState<RoomAdminPage> {
           IconButton(
             tooltip: '刷新',
             onPressed: () => _refresh.currentState?.refresh(),
-            icon: const Icon(Icons.refresh),
+            icon: const AnimeIcon(Icons.refresh),
           ),
           PopupMenuButton<ThemeMode>(
             tooltip: '明暗主题',
-            icon: const Icon(Icons.brightness_6_outlined),
+            icon: const AnimeIcon(Icons.brightness_6_outlined),
             onSelected: (mode) =>
                 ref.read(themeModeProvider.notifier).setMode(mode),
             itemBuilder: (_) => const [
@@ -1004,7 +1019,7 @@ class _RoomAdminPageState extends ConsumerState<RoomAdminPage> {
                             children: [
                               Row(
                                 children: [
-                                  Icon(
+                                  AnimeIcon(
                                     Icons.circle,
                                     size: 8,
                                     color: host.liveConnected
@@ -1030,7 +1045,7 @@ class _RoomAdminPageState extends ConsumerState<RoomAdminPage> {
                                                 builder: widget.subjectPicker,
                                               ),
                                             ),
-                                      icon: const Icon(
+                                      icon: const AnimeIcon(
                                         Icons.playlist_add,
                                         size: 18,
                                       ),
@@ -1040,7 +1055,10 @@ class _RoomAdminPageState extends ConsumerState<RoomAdminPage> {
                                       onPressed: _working
                                           ? null
                                           : () => _run(widget.onInvite),
-                                      icon: const Icon(Icons.qr_code, size: 18),
+                                      icon: const AnimeIcon(
+                                        Icons.qr_code,
+                                        size: 18,
+                                      ),
                                       label: const Text('邀请'),
                                     ),
                                   ],
@@ -1071,7 +1089,7 @@ class _RoomAdminPageState extends ConsumerState<RoomAdminPage> {
                                     ? _pullableCenter(
                                         FilledButton.icon(
                                           onPressed: () => _name(true),
-                                          icon: const Icon(Icons.add),
+                                          icon: const AnimeIcon(Icons.add),
                                           label: const Text('创建番键会'),
                                         ),
                                       )
@@ -1089,7 +1107,7 @@ class _RoomAdminPageState extends ConsumerState<RoomAdminPage> {
                                                 tooltip: '调整番单',
                                                 onPressed: () =>
                                                     _details('playlist'),
-                                                icon: const Icon(
+                                                icon: const AnimeIcon(
                                                   Icons.tune,
                                                   size: 18,
                                                 ),
@@ -1158,7 +1176,7 @@ class _RoomAdminPageState extends ConsumerState<RoomAdminPage> {
                                     children: [
                                       TextButton.icon(
                                         onPressed: () => _details('playlist'),
-                                        icon: const Icon(
+                                        icon: const AnimeIcon(
                                           Icons.view_list_outlined,
                                           size: 17,
                                         ),
@@ -1166,7 +1184,7 @@ class _RoomAdminPageState extends ConsumerState<RoomAdminPage> {
                                       ),
                                       TextButton.icon(
                                         onPressed: () => _details('stats'),
-                                        icon: const Icon(
+                                        icon: const AnimeIcon(
                                           Icons.bar_chart,
                                           size: 17,
                                         ),
@@ -1174,7 +1192,7 @@ class _RoomAdminPageState extends ConsumerState<RoomAdminPage> {
                                       ),
                                       TextButton.icon(
                                         onPressed: () => _details('wall'),
-                                        icon: const Icon(
+                                        icon: const AnimeIcon(
                                           Icons.forum_outlined,
                                           size: 17,
                                         ),

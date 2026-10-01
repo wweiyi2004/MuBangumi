@@ -1,14 +1,14 @@
+import '../widgets/bounded_image.dart';
+import '../core/theme/anime_icon.dart';
 import '../state/service_providers.dart';
 import '../navigation/app_destination.dart';
 import 'dart:async';
 
-import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../core/format/date_format.dart';
-import '../core/network/bangumi_endpoints.dart';
 import '../models/community_models.dart';
 import '../state/notify_controller.dart';
 import '../widgets/subject_widgets.dart';
@@ -42,11 +42,13 @@ class _NotifyPageState extends ConsumerState<NotifyPage> {
   @override
   void initState() {
     super.initState();
-    Future.microtask(() => _load(refresh: true));
+    _service.accountChanges.addListener(_accountChanged);
+    Future.microtask(_load);
   }
 
   Future<void> _load({bool refresh = false}) async {
     final generation = ++_loadGeneration;
+    final identity = _service.identityRevision;
     setState(() {
       _loading = true;
       _error = null;
@@ -56,7 +58,11 @@ class _NotifyPageState extends ConsumerState<NotifyPage> {
         unreadOnly: _unreadOnly,
         refresh: refresh,
       );
-      if (!mounted || generation != _loadGeneration) return;
+      if (!mounted ||
+          generation != _loadGeneration ||
+          identity != _service.identityRevision) {
+        return;
+      }
       setState(() {
         _items = page.data;
         _total = page.total;
@@ -72,7 +78,9 @@ class _NotifyPageState extends ConsumerState<NotifyPage> {
         };
       });
       unawaited(_loadContents(page.data, generation, refresh: refresh));
-      unawaited(_loadFriendRequestStatuses(page.data, generation));
+      unawaited(
+        _loadFriendRequestStatuses(page.data, generation, refresh: refresh),
+      );
       // Keep shell badge in sync with unread totals.
       if (_unreadOnly) {
         ref
@@ -88,7 +96,11 @@ class _NotifyPageState extends ConsumerState<NotifyPage> {
         }
       }
     } catch (error) {
-      if (!mounted || generation != _loadGeneration) return;
+      if (!mounted ||
+          generation != _loadGeneration ||
+          identity != _service.identityRevision) {
+        return;
+      }
       setState(() {
         _loading = false;
         _error = error.toString().replaceFirst('Exception: ', '');
@@ -96,45 +108,97 @@ class _NotifyPageState extends ConsumerState<NotifyPage> {
     }
   }
 
+  void _accountChanged() {
+    _loadGeneration++;
+    scheduleMicrotask(() {
+      if (!mounted) return;
+      setState(() {
+        _items = const [];
+        _busy = false;
+        _noticeContents = const {};
+        _loadingContentIds = const {};
+        _friendRequestAccepted = const {};
+        _loadingFriendRequestUsers = const {};
+        _acceptingNoticeIds.clear();
+      });
+      unawaited(_load(refresh: true));
+    });
+  }
+
+  @override
+  void dispose() {
+    _service.accountChanges.removeListener(_accountChanged);
+    _loadGeneration++;
+    super.dispose();
+  }
+
   Future<void> _loadFriendRequestStatuses(
     List<BangumiNotice> notices,
-    int generation,
-  ) async {
+    int generation, {
+    bool refresh = false,
+  }) async {
+    final identity = _service.identityRevision;
     final usernames = {
       for (final notice in notices)
-        if (notice.isFriendRequest) notice.sender!.username,
+        if (notice.isFriendRequest) notice.sender!.username.toLowerCase(),
     }.toList();
-    if (usernames.isEmpty) return;
-    final accepted = <String, bool>{};
     const concurrency = 4;
     for (var index = 0; index < usernames.length; index += concurrency) {
-      final end = (index + concurrency).clamp(0, usernames.length);
+      if (!mounted ||
+          generation != _loadGeneration ||
+          identity != _service.identityRevision) {
+        return;
+      }
       await Future.wait(
-        usernames.sublist(index, end).map((username) async {
+        usernames.skip(index).take(concurrency).map((username) async {
+          bool? accepted;
           try {
-            accepted[username.toLowerCase()] = await _service.isFriend(
-              username,
-            );
+            if (!refresh) {
+              accepted = await _service
+                  .readCachedFriendStatus(username)
+                  .timeout(const Duration(seconds: 1));
+            }
+            accepted ??= await _service
+                .isFriend(username)
+                .timeout(const Duration(seconds: 6));
+            if (!mounted ||
+                generation != _loadGeneration ||
+                identity != _service.identityRevision) {
+              return;
+            }
+            unawaited(_service.cacheFriendStatus(username, accepted));
           } catch (_) {
-            // The actionable request remains visible when status lookup fails.
+            // A status lookup is optional; leave the normal accept action available.
+          } finally {
+            if (mounted &&
+                generation == _loadGeneration &&
+                identity == _service.identityRevision) {
+              setState(() {
+                if (accepted != null) {
+                  _friendRequestAccepted = {
+                    ..._friendRequestAccepted,
+                    username: accepted,
+                  };
+                }
+                _loadingFriendRequestUsers = {..._loadingFriendRequestUsers}
+                  ..remove(username);
+              });
+            }
           }
         }),
       );
     }
-    if (!mounted || generation != _loadGeneration) return;
-    setState(() {
-      _friendRequestAccepted = {..._friendRequestAccepted, ...accepted};
-      _loadingFriendRequestUsers = const {};
-    });
   }
 
   Future<void> _acceptFriendRequest(BangumiNotice notice) async {
     final sender = notice.sender;
     if (sender == null || _acceptingNoticeIds.contains(notice.id)) return;
+    final identity = _service.identityRevision;
     setState(() => _acceptingNoticeIds.add(notice.id));
     try {
       await _service.acceptFriendRequest(notice);
-      if (!mounted) return;
+      if (!mounted || identity != _service.identityRevision) return;
+      unawaited(_service.cacheFriendStatus(sender.username, true));
       final wasUnread = notice.unread;
       setState(() {
         _friendRequestAccepted = {
@@ -166,14 +230,14 @@ class _NotifyPageState extends ConsumerState<NotifyPage> {
       );
       unawaited(ref.read(notifyBadgeProvider.notifier).refresh());
     } catch (error) {
-      if (!mounted) return;
+      if (!mounted || identity != _service.identityRevision) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(error.toString().replaceFirst('Exception: ', '')),
         ),
       );
     } finally {
-      if (mounted) {
+      if (mounted && identity == _service.identityRevision) {
         setState(() => _acceptingNoticeIds.remove(notice.id));
       }
     }
@@ -197,17 +261,18 @@ class _NotifyPageState extends ConsumerState<NotifyPage> {
   }
 
   Future<void> _markAllRead() async {
+    final identity = _service.identityRevision;
     setState(() => _busy = true);
     try {
       await _service.clearNotices();
-      if (!mounted) return;
+      if (!mounted || identity != _service.identityRevision) return;
       ref.read(notifyBadgeProvider.notifier).clearLocally();
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(const SnackBar(content: Text('已全部标为已读')));
       await _load(refresh: true);
     } catch (error) {
-      if (!mounted) return;
+      if (!mounted || identity != _service.identityRevision) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(error.toString().replaceFirst('Exception: ', '')),
@@ -219,10 +284,11 @@ class _NotifyPageState extends ConsumerState<NotifyPage> {
   }
 
   Future<void> _markOne(BangumiNotice notice) async {
+    final identity = _service.identityRevision;
     if (!notice.unread) return;
     try {
       await _service.clearNotices(ids: [notice.id]);
-      if (!mounted) return;
+      if (!mounted || identity != _service.identityRevision) return;
       ref.read(notifyBadgeProvider.notifier).markOneReadLocally();
       setState(() {
         _items = [
@@ -248,8 +314,9 @@ class _NotifyPageState extends ConsumerState<NotifyPage> {
   }
 
   Future<void> _openNotice(BangumiNotice notice) async {
+    final identity = _service.identityRevision;
     await _markOne(notice);
-    if (!mounted) return;
+    if (!mounted || identity != _service.identityRevision) return;
     final topic = notice.nativeTopic;
     if (topic != null) {
       await Navigator.of(
@@ -305,7 +372,7 @@ class _NotifyPageState extends ConsumerState<NotifyPage> {
                     setState(() => _unreadOnly = !_unreadOnly);
                     _load(refresh: true);
                   },
-            icon: Icon(
+            icon: AnimeIcon(
               _unreadOnly
                   ? Icons.mark_email_unread_rounded
                   : Icons.mark_email_read_outlined,
@@ -314,7 +381,7 @@ class _NotifyPageState extends ConsumerState<NotifyPage> {
           IconButton(
             tooltip: '全部已读',
             onPressed: _busy || _loading ? null : _markAllRead,
-            icon: const Icon(Icons.done_all_rounded),
+            icon: const AnimeIcon(Icons.done_all_rounded),
           ),
           IconButton(
             tooltip: '在官网打开',
@@ -322,7 +389,7 @@ class _NotifyPageState extends ConsumerState<NotifyPage> {
               Uri.parse('https://bgm.tv/notify/all'),
               mode: LaunchMode.externalApplication,
             ),
-            icon: const Icon(Icons.open_in_new_rounded),
+            icon: const AnimeIcon(Icons.open_in_new_rounded),
           ),
         ],
       ),
@@ -421,12 +488,14 @@ class _NotifyPageState extends ConsumerState<NotifyPage> {
                         backgroundColor: scheme.surfaceContainerHighest,
                         backgroundImage:
                             sender != null && sender.avatarUrl.isNotEmpty
-                            ? CachedNetworkImageProvider(
-                                BangumiEndpoints.imageUrl(sender.avatarUrl),
+                            ? boundedAvatarProvider(
+                                context,
+                                sender.avatarUrl,
+                                diameter: 40,
                               )
                             : null,
                         child: sender == null || sender.avatarUrl.isEmpty
-                            ? const Icon(Icons.notifications_outlined)
+                            ? const AnimeIcon(Icons.notifications_outlined)
                             : null,
                       ),
                       title: Text(
@@ -496,7 +565,7 @@ class _NotifyPageState extends ConsumerState<NotifyPage> {
                                               strokeWidth: 2,
                                             ),
                                           )
-                                        : Icon(
+                                        : AnimeIcon(
                                             friendAccepted
                                                 ? Icons.check_rounded
                                                 : Icons
@@ -535,8 +604,12 @@ class _NotifyPageState extends ConsumerState<NotifyPage> {
                         ),
                       ),
                       trailing: notice.unread
-                          ? Icon(Icons.circle, size: 10, color: scheme.primary)
-                          : const Icon(Icons.chevron_right_rounded),
+                          ? AnimeIcon(
+                              Icons.circle,
+                              size: 10,
+                              color: scheme.primary,
+                            )
+                          : const AnimeIcon(Icons.chevron_right_rounded),
                       onTap: () => _openNotice(notice),
                       onLongPress: sender == null
                           ? null

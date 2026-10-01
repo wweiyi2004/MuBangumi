@@ -1,3 +1,4 @@
+import '../../../core/theme/anime_icon.dart';
 import 'community_post_actions.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/cupertino.dart';
@@ -83,7 +84,10 @@ class CommunityTopicCard extends StatelessWidget {
                 ),
               ),
               const SizedBox(width: 6),
-              Icon(Icons.chevron_right_rounded, color: colors.outlineVariant),
+              AnimeIcon(
+                Icons.chevron_right_rounded,
+                color: colors.outlineVariant,
+              ),
             ],
           ),
         ),
@@ -165,7 +169,7 @@ class CommunityGroupCard extends StatelessWidget {
                 ],
               ),
             ),
-            const Icon(Icons.chevron_right_rounded),
+            const AnimeIcon(Icons.chevron_right_rounded),
           ],
         ),
       ),
@@ -392,7 +396,7 @@ class CommunityPostCard extends StatelessWidget {
                       if (isFriend)
                         const Text('好友', style: TextStyle(fontSize: 11)),
                       if (post.isNested)
-                        const Icon(
+                        const AnimeIcon(
                           CupertinoIcons.arrow_turn_down_right,
                           size: 12,
                         ),
@@ -410,7 +414,7 @@ class CommunityPostCard extends StatelessWidget {
                         PopupMenuButton<String>(
                           tooltip: '管理我的内容',
                           padding: EdgeInsets.zero,
-                          icon: const Icon(Icons.more_horiz, size: 18),
+                          icon: const AnimeIcon(Icons.more_horiz, size: 18),
                           onSelected: (value) {
                             if (value == 'edit') onEdit?.call();
                             if (value == 'delete') onDelete?.call();
@@ -481,7 +485,10 @@ class CommunityPostCard extends StatelessWidget {
                           : IconButton(
                               tooltip: '回复',
                               onPressed: onReply,
-                              icon: const Icon(CupertinoIcons.reply, size: 20),
+                              icon: const AnimeIcon(
+                                CupertinoIcons.reply,
+                                size: 20,
+                              ),
                             ),
                     ),
                 ],

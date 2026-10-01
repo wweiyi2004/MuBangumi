@@ -1,3 +1,6 @@
+import '../widgets/bounded_image.dart';
+import '../widgets/user_biography.dart';
+import '../core/theme/anime_icon.dart';
 import '../state/service_providers.dart';
 import '../navigation/app_destination.dart';
 export '../navigation/app_destination.dart'
@@ -5,12 +8,10 @@ export '../navigation/app_destination.dart'
         openUserProfile,
         openUserProfileFromCommunity,
         openUserProfileFromBangumi;
-import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:url_launcher/url_launcher.dart';
 
-import '../core/network/bangumi_endpoints.dart';
 import '../models/bangumi_models.dart';
 import '../models/community_models.dart';
 import '../state/session_controller.dart';
@@ -344,7 +345,7 @@ class _UserProfilePageState extends ConsumerState<UserProfilePage> {
                       dimension: 18,
                       child: CircularProgressIndicator(strokeWidth: 2),
                     )
-                  : Icon(
+                  : AnimeIcon(
                       _isFriend == true
                           ? Icons.person_remove_alt_1_outlined
                           : Icons.person_add_alt_1_outlined,
@@ -357,12 +358,12 @@ class _UserProfilePageState extends ConsumerState<UserProfilePage> {
                 : () => _isSelf
                       ? showMyFriendQr(context, user)
                       : showFriendQr(context, user),
-            icon: const Icon(Icons.qr_code_2_rounded),
+            icon: const AnimeIcon(Icons.qr_code_2_rounded),
           ),
           IconButton(
             tooltip: '发短信',
             onPressed: () => openPmPage(context, composeTo: widget.username),
-            icon: const Icon(Icons.mail_outline_rounded),
+            icon: const AnimeIcon(Icons.mail_outline_rounded),
           ),
           IconButton(
             tooltip: '在 Bangumi 打开',
@@ -372,7 +373,7 @@ class _UserProfilePageState extends ConsumerState<UserProfilePage> {
               ),
               mode: LaunchMode.externalApplication,
             ),
-            icon: const Icon(Icons.open_in_new_rounded),
+            icon: const AnimeIcon(Icons.open_in_new_rounded),
           ),
         ],
       ),
@@ -399,8 +400,10 @@ class _UserProfilePageState extends ConsumerState<UserProfilePage> {
                               backgroundImage:
                                   user == null || user.avatarUrl.isEmpty
                                   ? null
-                                  : CachedNetworkImageProvider(
-                                      BangumiEndpoints.imageUrl(user.avatarUrl),
+                                  : boundedAvatarProvider(
+                                      context,
+                                      user.avatarUrl,
+                                      diameter: 68,
                                     ),
                               child: user == null || user.avatarUrl.isEmpty
                                   ? Text(
@@ -435,6 +438,23 @@ class _UserProfilePageState extends ConsumerState<UserProfilePage> {
                                     const SizedBox(height: 8),
                                     Text(user!.sign),
                                   ],
+                                  UserBiography(
+                                    username: user?.username ?? widget.username,
+                                  ),
+                                  TextButton.icon(
+                                    onPressed: () => Navigator.of(context).push(
+                                      MaterialPageRoute<void>(
+                                        builder: (_) => IndexListRoute(
+                                          username:
+                                              user?.username ?? widget.username,
+                                        ),
+                                      ),
+                                    ),
+                                    icon: const AnimeIcon(
+                                      Icons.list_alt_rounded,
+                                    ),
+                                    label: const Text('TA 的番剧单'),
+                                  ),
                                   if (_loadingProfile) ...[
                                     const SizedBox(height: 10),
                                     const LinearProgressIndicator(minHeight: 2),
@@ -458,7 +478,7 @@ class _UserProfilePageState extends ConsumerState<UserProfilePage> {
                                 ListTile(
                                   dense: true,
                                   contentPadding: EdgeInsets.zero,
-                                  leading: const Icon(
+                                  leading: const AnimeIcon(
                                     Icons.sticky_note_2_outlined,
                                   ),
                                   title: const Text('本地备注'),
@@ -472,14 +492,16 @@ class _UserProfilePageState extends ConsumerState<UserProfilePage> {
                                 children: [
                                   FilledButton.tonalIcon(
                                     onPressed: _openComparison,
-                                    icon: const Icon(
+                                    icon: const AnimeIcon(
                                       Icons.compare_arrows_rounded,
                                     ),
                                     label: const Text('口味对比'),
                                   ),
                                   OutlinedButton.icon(
                                     onPressed: _openCommonFriends,
-                                    icon: const Icon(Icons.people_alt_outlined),
+                                    icon: const AnimeIcon(
+                                      Icons.people_alt_outlined,
+                                    ),
                                     label: const Text('共同好友'),
                                   ),
                                   OutlinedButton.icon(
@@ -490,13 +512,17 @@ class _UserProfilePageState extends ConsumerState<UserProfilePage> {
                                         ),
                                       ),
                                     ),
-                                    icon: const Icon(Icons.article_outlined),
+                                    icon: const AnimeIcon(
+                                      Icons.article_outlined,
+                                    ),
                                     label: const Text('日志'),
                                   ),
                                   OutlinedButton.icon(
                                     onPressed: () =>
                                         _editLocalNote(preference.note),
-                                    icon: const Icon(Icons.edit_note_rounded),
+                                    icon: const AnimeIcon(
+                                      Icons.edit_note_rounded,
+                                    ),
                                     label: Text(
                                       preference.note.isEmpty ? '添加备注' : '修改备注',
                                     ),
@@ -504,7 +530,7 @@ class _UserProfilePageState extends ConsumerState<UserProfilePage> {
                                   OutlinedButton.icon(
                                     onPressed: () =>
                                         _toggleLocalBlock(preference.blocked),
-                                    icon: Icon(
+                                    icon: AnimeIcon(
                                       preference.blocked
                                           ? Icons.visibility_outlined
                                           : Icons.block_rounded,
@@ -587,7 +613,10 @@ class _UserProfilePageState extends ConsumerState<UserProfilePage> {
                         children: [
                           for (final type in SubjectType.values) ...[
                             ChoiceChip(
-                              avatar: Icon(subjectTypeIcon(type), size: 16),
+                              avatar: AnimeIcon(
+                                subjectTypeIcon(type),
+                                size: 16,
+                              ),
                               label: Text(type.label),
                               selected: _subjectType == type,
                               onSelected: (_) {
@@ -707,7 +736,7 @@ class _UserProfilePageState extends ConsumerState<UserProfilePage> {
                     message: _error!,
                     action: FilledButton.tonalIcon(
                       onPressed: _loadCollections,
-                      icon: const Icon(Icons.refresh_rounded),
+                      icon: const AnimeIcon(Icons.refresh_rounded),
                       label: const Text('重试'),
                     ),
                   ),

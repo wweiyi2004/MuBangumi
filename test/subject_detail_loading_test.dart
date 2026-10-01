@@ -23,6 +23,30 @@ import 'package:mubangumi/screens/subject_detail_screen.dart';
 import 'package:mubangumi/state/session_controller.dart';
 
 void main() {
+  testWidgets(
+    'discussion and comments open from pinned tabs without scrolling details',
+    (tester) async {
+      final api = _Api()..episodes.complete([_episode]);
+      await _show(tester, api, _Cache());
+      await tester.pumpAndSettle();
+      final tabs = find.byType(TabBar);
+      expect(tabs, findsOneWidget);
+      await tester.tap(find.descendant(of: tabs, matching: find.text('讨论')));
+      await tester.pumpAndSettle();
+      expect(
+        find.byKey(const PageStorageKey('subject-discussion')),
+        findsOneWidget,
+      );
+      await tester.tap(find.descendant(of: tabs, matching: find.text('吐槽')));
+      await tester.pumpAndSettle();
+      expect(
+        find.byKey(const PageStorageKey('subject-comments')),
+        findsOneWidget,
+      );
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox.shrink());
+    },
+  );
   for (final scale in [1.0, 1.8]) {
     testWidgets(
       'phone actions stay reachable and comment input focuses at scale $scale',

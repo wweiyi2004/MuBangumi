@@ -1,5 +1,5 @@
+import '../../../widgets/bounded_image.dart';
 import 'package:flutter/material.dart';
-import 'package:cached_network_image/cached_network_image.dart';
 import '../../../core/network/bangumi_endpoints.dart';
 import '../../../widgets/social_chat_style.dart';
 
@@ -43,7 +43,7 @@ class PmAvatar extends StatelessWidget {
             dimension: radius * 2,
             child: resolved.isEmpty
                 ? fallback
-                : CachedNetworkImage(
+                : BoundedNetworkImage(
                     imageUrl: resolved,
                     fit: BoxFit.cover,
                     placeholder: (_, _) => fallback,

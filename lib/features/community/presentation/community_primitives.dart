@@ -1,3 +1,5 @@
+import '../../../widgets/bounded_image.dart';
+import '../../../core/theme/anime_icon.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 
@@ -26,8 +28,8 @@ class CommunityAvatar extends StatelessWidget {
       backgroundColor: Theme.of(context).colorScheme.surfaceContainerHighest,
       foregroundImage: imageUrl.isEmpty
           ? null
-          : CachedNetworkImageProvider(BangumiEndpoints.imageUrl(imageUrl)),
-      child: imageUrl.isEmpty ? Icon(fallbackIcon, size: radius) : null,
+          : boundedAvatarProvider(context, imageUrl, diameter: radius * 2),
+      child: imageUrl.isEmpty ? AnimeIcon(fallbackIcon, size: radius) : null,
     );
     if (onTap == null) return avatar;
     return Material(
@@ -60,7 +62,7 @@ class CommunityErrorView extends StatelessWidget {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(
+          AnimeIcon(
             Icons.cloud_off_rounded,
             size: 44,
             color: Theme.of(context).colorScheme.outline,
@@ -70,13 +72,13 @@ class CommunityErrorView extends StatelessWidget {
           const SizedBox(height: 14),
           FilledButton.tonalIcon(
             onPressed: onRetry,
-            icon: const Icon(Icons.refresh_rounded),
+            icon: const AnimeIcon(Icons.refresh_rounded),
             label: const Text('重试'),
           ),
           if (onWebsiteRecovery != null)
             TextButton.icon(
               onPressed: onWebsiteRecovery,
-              icon: const Icon(Icons.login),
+              icon: const AnimeIcon(Icons.login),
               label: const Text('补充账号验证'),
             ),
         ],
@@ -121,8 +123,13 @@ class _CollapsibleCommunityTextState extends State<CollapsibleCommunityText> {
             child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 1),
               child: Image(
-                image: CachedNetworkImageProvider(
-                  BangumiEndpoints.imageUrl(part.imageUrl!),
+                image: boundedImageProvider(
+                  CachedNetworkImageProvider(
+                    BangumiEndpoints.imageUrl(part.imageUrl!),
+                  ),
+                  width: 44,
+                  height: 22,
+                  pixelRatio: MediaQuery.devicePixelRatioOf(context),
                 ),
                 height: 22,
                 fit: BoxFit.contain,
@@ -152,7 +159,7 @@ class _CollapsibleCommunityTextState extends State<CollapsibleCommunityText> {
         if (_isLong)
           TextButton.icon(
             onPressed: () => setState(() => _expanded = !_expanded),
-            icon: Icon(
+            icon: AnimeIcon(
               _expanded ? Icons.unfold_less_rounded : Icons.unfold_more_rounded,
               size: 17,
             ),
@@ -195,7 +202,7 @@ class _BlockedCommunityContentState extends State<BlockedCommunityContent> {
     return Card(
       margin: const EdgeInsets.only(bottom: 10),
       child: ListTile(
-        leading: const Icon(Icons.visibility_off_outlined),
+        leading: const AnimeIcon(Icons.visibility_off_outlined),
         title: Text('已折叠 @${widget.username} 的内容'),
         subtitle: const Text('这是本机屏蔽规则，不影响 Bangumi 账号设置'),
         trailing: TextButton(
@@ -221,14 +228,14 @@ class CommunityImageStrip extends StatelessWidget {
       separatorBuilder: (_, _) => const SizedBox(width: 8),
       itemBuilder: (context, index) => ClipRRect(
         borderRadius: BorderRadius.circular(10),
-        child: CachedNetworkImage(
+        child: BoundedNetworkImage(
           imageUrl: BangumiEndpoints.imageUrl(urls[index]),
           width: 112,
           height: 112,
           fit: BoxFit.cover,
           errorWidget: (_, _, _) => const SizedBox.square(
             dimension: 112,
-            child: Icon(Icons.broken_image_outlined),
+            child: AnimeIcon(Icons.broken_image_outlined),
           ),
         ),
       ),
@@ -248,7 +255,7 @@ class CommunityMeta extends StatelessWidget {
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Icon(icon, size: 14, color: Theme.of(context).colorScheme.outline),
+        AnimeIcon(icon, size: 14, color: Theme.of(context).colorScheme.outline),
         const SizedBox(width: 4),
         Text(text, style: Theme.of(context).textTheme.labelSmall),
       ],

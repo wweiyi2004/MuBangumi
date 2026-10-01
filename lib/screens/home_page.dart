@@ -1,3 +1,4 @@
+import '../core/theme/anime_icon.dart';
 import '../navigation/app_destination.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -10,11 +11,13 @@ import '../state/notify_controller.dart';
 import '../state/session_controller.dart';
 import '../state/home_pins_controller.dart';
 import '../widgets/home_pins_sheet.dart';
+import '../widgets/home_greeting_clock.dart';
 import '../widgets/episode_grid_sheet.dart';
 import '../widgets/friend_qr_actions.dart';
 import '../widgets/subject_widgets.dart';
 import '../widgets/collection_sync_status.dart';
 import '../widgets/continue_watching_tile.dart';
+import '../widgets/episode_activity_heatmap.dart';
 import 'calendar_page.dart';
 import 'fan_recommend_page.dart';
 import 'notify_page.dart';
@@ -66,13 +69,6 @@ class HomePage extends ConsumerWidget {
     final completed = collections
         .where((item) => item.type == CollectionType.done)
         .length;
-    final hour = DateTime.now().hour;
-    final greeting = hour < 11
-        ? '早上好'
-        : hour < 18
-        ? '下午好'
-        : '晚上好';
-
     final phone = AppLayout.isPhone(context);
     final desktop = AppLayout.isDesktop(context);
     // On desktop the greeting/notify/sync header stays pinned at the top of
@@ -81,7 +77,6 @@ class HomePage extends ConsumerWidget {
     final header = _buildHeader(
       context,
       ref,
-      greeting: greeting,
       nickname: nickname,
       user: user,
       isRefreshing: isRefreshing,
@@ -160,6 +155,10 @@ class HomePage extends ConsumerWidget {
                         ),
                       ],
                       SizedBox(height: AppLayout.blockGap(context)),
+                      if (user != null) ...[
+                        const EpisodeActivityHeatmap(),
+                        SizedBox(height: AppLayout.blockGap(context)),
+                      ],
                       _WatchingHeading(
                         count: watchingAll.length,
                         onManage: user == null
@@ -195,7 +194,7 @@ class HomePage extends ConsumerWidget {
                                 message: '去发现页搜索喜欢的作品，把它加入“在看 / 在读 / 在玩”。',
                                 action: FilledButton.icon(
                                   onPressed: onDiscover,
-                                  icon: const Icon(Icons.explore_rounded),
+                                  icon: const AnimeIcon(Icons.explore_rounded),
                                   label: const Text('去发现'),
                                 ),
                               )
@@ -308,7 +307,6 @@ class HomePage extends ConsumerWidget {
   Widget _buildHeader(
     BuildContext context,
     WidgetRef ref, {
-    required String greeting,
     required String nickname,
     required BangumiUser? user,
     required bool isRefreshing,
@@ -319,27 +317,7 @@ class HomePage extends ConsumerWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                phone ? greeting : '$greeting，$nickname',
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: AppLayout.pageTitleStyle(context),
-              ),
-              const SizedBox(height: 5),
-              Text(
-                _todayLabel(),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  color: Theme.of(context).colorScheme.onSurfaceVariant,
-                  fontSize: phone ? 13 : null,
-                ),
-              ),
-            ],
-          ),
+          child: HomeGreetingClock(nickname: nickname, phone: phone),
         ),
         const SizedBox(width: 4),
         Row(
@@ -365,7 +343,7 @@ class HomePage extends ConsumerWidget {
                   icon: Badge(
                     isLabelVisible: unread > 0,
                     label: Text(unread > 99 ? '99+' : '$unread'),
-                    child: const Icon(Icons.notifications_outlined),
+                    child: const AnimeIcon(Icons.notifications_outlined),
                   ),
                 );
               },
@@ -383,7 +361,7 @@ class HomePage extends ConsumerWidget {
                       dimension: 18,
                       child: CircularProgressIndicator(strokeWidth: 2),
                     )
-                  : const Icon(Icons.sync_rounded),
+                  : const AnimeIcon(Icons.sync_rounded),
             ),
             if (user != null && phone)
               PopupMenuButton<String>(
@@ -407,7 +385,7 @@ class HomePage extends ConsumerWidget {
                     : VisualDensity.standard,
                 tooltip: '我的二维码',
                 onPressed: () => showMyFriendQr(context, user),
-                icon: const Icon(Icons.qr_code_2_rounded),
+                icon: const AnimeIcon(Icons.qr_code_2_rounded),
               ),
               IconButton(
                 visualDensity: phone
@@ -416,19 +394,13 @@ class HomePage extends ConsumerWidget {
                 tooltip: '扫一扫',
                 onPressed: () =>
                     scanAndAddFriend(context, myUsername: user.username),
-                icon: const Icon(Icons.qr_code_scanner_rounded),
+                icon: const AnimeIcon(Icons.qr_code_scanner_rounded),
               ),
             ],
           ],
         ),
       ],
     );
-  }
-
-  String _todayLabel() {
-    const weekdays = ['星期一', '星期二', '星期三', '星期四', '星期五', '星期六', '星期日'];
-    final now = DateTime.now();
-    return '${now.month} 月 ${now.day} 日 · ${weekdays[now.weekday - 1]}';
   }
 }
 
@@ -645,7 +617,7 @@ class _QuickActionButton extends StatelessWidget {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Icon(icon, color: color, size: 22),
+                  AnimeIcon(icon, color: color, size: 22),
                   const SizedBox(height: 4),
                   FittedBox(
                     fit: BoxFit.scaleDown,
@@ -657,7 +629,7 @@ class _QuickActionButton extends StatelessWidget {
           : TextButton.icon(
               style: style,
               onPressed: onTap,
-              icon: Icon(icon, color: color, size: 19),
+              icon: AnimeIcon(icon, color: color, size: 19),
               label: Text(title),
             ),
     );
@@ -683,7 +655,7 @@ class _WatchingHeading extends StatelessWidget {
           IconButton(
             tooltip: '调整置顶顺序',
             onPressed: onManage,
-            icon: const Icon(Icons.swap_vert_rounded),
+            icon: const AnimeIcon(Icons.swap_vert_rounded),
           ),
         if (count > 0)
           TextButton(onPressed: onViewAll, child: Text('查看全部（$count）'))

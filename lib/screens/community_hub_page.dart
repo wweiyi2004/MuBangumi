@@ -1,8 +1,10 @@
+import '../core/theme/anime_icon.dart';
 import '../state/service_providers.dart';
 import '../navigation/app_destination.dart';
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import '../widgets/retained_tab_stack.dart';
 
 import '../core/layout/app_layout.dart';
 
@@ -81,20 +83,27 @@ class _CommunityPageState extends State<CommunityPage> {
                       : VisualDensity.standard,
                   tooltip: '在 Bangumi 网页查看',
                   onPressed: _openWeb,
-                  icon: const Icon(Icons.language_rounded),
+                  icon: const AnimeIcon(Icons.language_rounded),
                 ),
               ],
             ),
           SizedBox(height: phone ? 10 : 13),
-          SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
+          SizedBox(
+            width: double.infinity,
             child: SegmentedButton<_CommunityArea>(
+              expandedInsets: EdgeInsets.zero,
+              style: SegmentedButton.styleFrom(
+                padding: const EdgeInsets.symmetric(horizontal: 8),
+                textStyle: const TextStyle(fontSize: 14),
+              ),
               segments: [
                 for (final area in _CommunityArea.values)
                   ButtonSegment(
                     value: area,
-                    icon: Icon(area.icon, size: 19),
-                    label: Text(area.label),
+                    icon: MediaQuery.sizeOf(context).width >= 420
+                        ? AnimeIcon(area.icon, size: 19)
+                        : null,
+                    label: Text(area.label, textAlign: TextAlign.center),
                   ),
               ],
               selected: {_area},
@@ -104,7 +113,7 @@ class _CommunityPageState extends State<CommunityPage> {
           ),
           const SizedBox(height: 13),
           Expanded(
-            child: IndexedStack(
+            child: RetainedTabStack(
               index: _area.index,
               children: [
                 _RakuenPage(service: widget.service),
@@ -337,7 +346,7 @@ class _RakuenPageState extends State<_RakuenPage> {
           IconButton(
             tooltip: '刷新话题',
             onPressed: _paging.loading ? null : () => _load(refresh: true),
-            icon: const Icon(Icons.refresh_rounded),
+            icon: const AnimeIcon(Icons.refresh_rounded),
           ),
         ],
       ),
@@ -457,7 +466,7 @@ class _RakuenModePicker extends StatelessWidget {
                 child: Row(
                   children: [
                     Expanded(child: Text(value.label)),
-                    if (value == mode) const Icon(Icons.check, size: 18),
+                    if (value == mode) const AnimeIcon(Icons.check, size: 18),
                   ],
                 ),
               ),
@@ -479,7 +488,7 @@ class _RakuenModePicker extends StatelessWidget {
                       : short,
                 ),
                 const SizedBox(width: 4),
-                const Icon(Icons.expand_more, size: 18),
+                const AnimeIcon(Icons.expand_more, size: 18),
               ],
             ),
           ),
@@ -765,51 +774,46 @@ class CommunityGroupBrowserState extends State<CommunityGroupBrowser> {
         child: Row(
           children: [
             Expanded(
-              child: SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
-                child: Row(
-                  children: [
-                    for (final mode in CommunityGroupMode.values.where(
-                      (mode) =>
-                          !widget.joinedOnly || mode != CommunityGroupMode.all,
-                    )) ...[
-                      ChoiceChip(
-                        showCheckmark: false,
-                        selectedColor: SocialChatStyle.accent(
-                          context,
-                        ).withValues(alpha: .12),
-                        side: BorderSide.none,
-                        label: Text(mode.label),
-                        selected: _mode == mode,
-                        onSelected:
-                            !mode.requiresLogin || _service.isAuthenticated
-                            ? (_) => _changeFilter(mode: mode)
-                            : null,
-                      ),
-                      const SizedBox(width: 7),
-                    ],
+              child: Wrap(
+                spacing: 7,
+                runSpacing: 4,
+                children: [
+                  for (final mode in CommunityGroupMode.values.where(
+                    (mode) =>
+                        !widget.joinedOnly || mode != CommunityGroupMode.all,
+                  )) ...[
+                    ChoiceChip(
+                      showCheckmark: false,
+                      selectedColor: SocialChatStyle.accent(
+                        context,
+                      ).withValues(alpha: .12),
+                      side: BorderSide.none,
+                      label: Text(mode.label),
+                      selected: _mode == mode,
+                      onSelected:
+                          !mode.requiresLogin || _service.isAuthenticated
+                          ? (_) => _changeFilter(mode: mode)
+                          : null,
+                    ),
                   ],
-                ),
+                ],
               ),
             ),
             const SizedBox(width: 8),
             PopupMenuButton<CommunityGroupSort>(
-              tooltip: '排序',
+              tooltip: '排序：${_sort.label}',
               initialValue: _sort,
               onSelected: (sort) => _changeFilter(sort: sort),
               itemBuilder: (context) => [
                 for (final sort in CommunityGroupSort.values)
                   PopupMenuItem(value: sort, child: Text(sort.label)),
               ],
-              child: Chip(
-                avatar: const Icon(Icons.sort_rounded, size: 18),
-                label: Text(_sort.label),
-              ),
+              icon: const AnimeIcon(Icons.sort_rounded),
             ),
             IconButton(
               tooltip: '刷新小组',
               onPressed: _paging.loading ? null : () => _load(refresh: true),
-              icon: const Icon(Icons.refresh_rounded),
+              icon: const AnimeIcon(Icons.refresh_rounded),
             ),
           ],
         ),

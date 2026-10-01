@@ -1,3 +1,4 @@
+import '../core/theme/anime_icon.dart';
 import '../navigation/app_destination.dart';
 import 'dart:async';
 
@@ -419,7 +420,7 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
                     SliverPadding(
                       padding: EdgeInsets.fromLTRB(
                         pagePad,
-                        AppLayout.pageTopPadding(context),
+                        phone ? 8 : AppLayout.pageTopPadding(context),
                         pagePad,
                         0,
                       ),
@@ -430,108 +431,149 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                SizedBox(
-                                  width: double.infinity,
-                                  child: Wrap(
-                                    alignment: WrapAlignment.spaceBetween,
-                                    crossAxisAlignment:
-                                        WrapCrossAlignment.center,
-                                    children: [
-                                      if (widget.showTitle)
-                                        Text(
+                                _LibraryHeader(
+                                  phone: phone,
+                                  title: widget.showTitle
+                                      ? Text(
                                           '我的收藏',
-                                          style: AppLayout.pageTitleStyle(
-                                            context,
-                                          ),
-                                        ),
-                                      if (widget.showTitle)
-                                        TextButton.icon(
-                                          onPressed: () {
-                                            final user = ref
-                                                .read(sessionProvider)
-                                                .user;
-                                            if (user == null) return;
+                                          style: phone
+                                              ? Theme.of(
+                                                  context,
+                                                ).textTheme.titleLarge
+                                              : AppLayout.pageTitleStyle(
+                                                  context,
+                                                ),
+                                        )
+                                      : null,
+                                  actions: [
+                                    if (widget.showTitle)
+                                      TextButton.icon(
+                                        onPressed: () =>
                                             Navigator.of(context).push(
                                               MaterialPageRoute<void>(
-                                                builder: (_) => Consumer(
-                                                  builder: (context, ref, _) {
-                                                    final snapshot = ref.watch(
-                                                      sessionProvider.select(
-                                                        (state) => (
-                                                          user: state.user,
-                                                          collections:
-                                                              state.collections,
-                                                          loading: state
-                                                              .isLoadingCollections,
-                                                          cached: state
-                                                              .isUsingCachedCollections,
-                                                          coverage: state
-                                                              .collectionCoverage,
+                                                builder: (_) =>
+                                                    const IndexListRoute(),
+                                              ),
+                                            ),
+                                        icon:
+                                            phone &&
+                                                MediaQuery.sizeOf(
+                                                      context,
+                                                    ).width <
+                                                    400
+                                            ? null
+                                            : const AnimeIcon(
+                                                Icons.view_list_rounded,
+                                                size: 18,
+                                              ),
+                                        label: const FittedBox(
+                                          fit: BoxFit.scaleDown,
+                                          child: Text('番剧单', maxLines: 1),
+                                        ),
+                                      ),
+                                    if (widget.showTitle)
+                                      TextButton.icon(
+                                        onPressed: () {
+                                          final user = ref
+                                              .read(sessionProvider)
+                                              .user;
+                                          if (user == null) return;
+                                          Navigator.of(context).push(
+                                            MaterialPageRoute<void>(
+                                              builder: (_) => Consumer(
+                                                builder: (context, ref, _) {
+                                                  final snapshot = ref.watch(
+                                                    sessionProvider.select(
+                                                      (state) => (
+                                                        user: state.user,
+                                                        collections:
+                                                            state.collections,
+                                                        loading: state
+                                                            .isLoadingCollections,
+                                                        cached: state
+                                                            .isUsingCachedCollections,
+                                                        coverage: state
+                                                            .collectionCoverage,
+                                                      ),
+                                                    ),
+                                                  );
+                                                  if (snapshot.user?.username !=
+                                                      user.username) {
+                                                    return Scaffold(
+                                                      appBar: AppBar(
+                                                        title: const Text(
+                                                          '统计与回顾',
+                                                        ),
+                                                      ),
+                                                      body: const Center(
+                                                        child: Text(
+                                                          '账号已变更，请返回收藏重新进入',
                                                         ),
                                                       ),
                                                     );
-                                                    if (snapshot
-                                                            .user
-                                                            ?.username !=
-                                                        user.username) {
-                                                      return Scaffold(
-                                                        appBar: AppBar(
-                                                          title: const Text(
-                                                            '统计与回顾',
-                                                          ),
-                                                        ),
-                                                        body: const Center(
-                                                          child: Text(
-                                                            '账号已变更，请返回收藏重新进入',
-                                                          ),
-                                                        ),
-                                                      );
-                                                    }
-                                                    return CollectionStatsPage(
-                                                      displayName: snapshot
-                                                          .user
-                                                          ?.displayName,
-                                                      username: user.username,
-                                                      collections:
-                                                          snapshot.collections,
-                                                      isLoading:
-                                                          snapshot.loading,
-                                                      isCached: snapshot.cached,
-                                                      coverage:
-                                                          snapshot.coverage,
-                                                    );
-                                                  },
-                                                ),
+                                                  }
+                                                  return CollectionStatsPage(
+                                                    displayName: snapshot
+                                                        .user
+                                                        ?.displayName,
+                                                    username: user.username,
+                                                    collections:
+                                                        snapshot.collections,
+                                                    isLoading: snapshot.loading,
+                                                    isCached: snapshot.cached,
+                                                    coverage: snapshot.coverage,
+                                                  );
+                                                },
                                               ),
-                                            );
-                                          },
-                                          icon: const Icon(
-                                            Icons.insights_outlined,
-                                          ),
-                                          label: const Text('统计与回顾'),
-                                        ),
-                                      TextButton.icon(
-                                        key: const ValueKey(
-                                          'library-selection-toggle',
-                                        ),
-                                        onPressed: !canBatch
+                                            ),
+                                          );
+                                        },
+                                        icon:
+                                            phone &&
+                                                MediaQuery.sizeOf(
+                                                      context,
+                                                    ).width <
+                                                    400
                                             ? null
-                                            : () => setState(() {
-                                                _selectionMode =
-                                                    !_selectionMode;
-                                                if (!_selectionMode) {
-                                                  _selected.clear();
-                                                }
-                                              }),
-                                        icon: const Icon(
-                                          Icons.checklist_rounded,
-                                        ),
-                                        label: Text(
-                                          _selectionMode ? '结束多选' : '批量整理',
+                                            : const AnimeIcon(
+                                                Icons.insights_outlined,
+                                                size: 18,
+                                              ),
+                                        label: const FittedBox(
+                                          fit: BoxFit.scaleDown,
+                                          child: Text('统计与回顾', maxLines: 1),
                                         ),
                                       ),
-                                    ],
-                                  ),
+                                    TextButton.icon(
+                                      key: const ValueKey(
+                                        'library-selection-toggle',
+                                      ),
+                                      onPressed: !canBatch
+                                          ? null
+                                          : () => setState(() {
+                                              _selectionMode = !_selectionMode;
+                                              if (!_selectionMode) {
+                                                _selected.clear();
+                                              }
+                                            }),
+                                      icon:
+                                          phone &&
+                                              MediaQuery.sizeOf(context).width <
+                                                  400
+                                          ? null
+                                          : const AnimeIcon(
+                                              Icons.checklist_rounded,
+                                              size: 18,
+                                            ),
+                                      label: FittedBox(
+                                        fit: BoxFit.scaleDown,
+                                        child: Text(
+                                          _selectionMode ? '结束多选' : '批量整理',
+                                          maxLines: 1,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
                                 ),
                                 const SizedBox(height: 6),
                                 Text(
@@ -555,7 +597,7 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
                                   const SizedBox(height: 10),
                                   const LinearProgressIndicator(minHeight: 3),
                                 ],
-                                SizedBox(height: phone ? 16 : 24),
+                                SizedBox(height: phone ? 8 : 24),
                                 Row(
                                   children: [
                                     Expanded(
@@ -565,12 +607,44 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
                                         decoration: InputDecoration(
                                           hintText: '在收藏中搜索',
                                           isDense: phone,
-                                          prefixIcon: const Icon(
+                                          prefixIcon: const AnimeIcon(
                                             Icons.search_rounded,
                                           ),
                                         ),
                                       ),
                                     ),
+                                    if (phone)
+                                      PopupMenuButton<int>(
+                                        key: const ValueKey(
+                                          'library-status-menu',
+                                        ),
+                                        tooltip: '收藏状态',
+                                        initialValue: _type?.value ?? 0,
+                                        icon: const AnimeIcon(
+                                          Icons.filter_list_rounded,
+                                        ),
+                                        onSelected: (value) => _changeFilters(
+                                          () => _type = value == 0
+                                              ? null
+                                              : CollectionType.values
+                                                    .firstWhere(
+                                                      (type) =>
+                                                          type.value == value,
+                                                    ),
+                                        ),
+                                        itemBuilder: (_) => [
+                                          const PopupMenuItem(
+                                            value: 0,
+                                            child: Text('全部状态'),
+                                          ),
+                                          for (final type
+                                              in CollectionType.values)
+                                            PopupMenuItem(
+                                              value: type.value,
+                                              child: Text(_statusLabel(type)),
+                                            ),
+                                        ],
+                                      ),
                                     const SizedBox(width: 8),
                                     Badge.count(
                                       count: _activeFilters,
@@ -579,13 +653,13 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
                                           ? IconButton.filledTonal(
                                               tooltip: '筛选',
                                               onPressed: _showFilters,
-                                              icon: const Icon(
+                                              icon: const AnimeIcon(
                                                 Icons.tune_rounded,
                                               ),
                                             )
                                           : FilledButton.tonalIcon(
                                               onPressed: _showFilters,
-                                              icon: const Icon(
+                                              icon: const AnimeIcon(
                                                 Icons.tune_rounded,
                                               ),
                                               label: const Text('筛选'),
@@ -593,7 +667,7 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
                                     ),
                                   ],
                                 ),
-                                const SizedBox(height: 16),
+                                SizedBox(height: phone ? 8 : 16),
                                 SingleChildScrollView(
                                   scrollDirection: Axis.horizontal,
                                   child: Row(
@@ -610,7 +684,7 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
                                       for (final type
                                           in SubjectType.values) ...[
                                         ChoiceChip(
-                                          avatar: Icon(
+                                          avatar: AnimeIcon(
                                             subjectTypeIcon(type),
                                             size: 16,
                                           ),
@@ -629,32 +703,45 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
                                     ],
                                   ),
                                 ),
-                                const SizedBox(height: 12),
-                                SingleChildScrollView(
-                                  scrollDirection: Axis.horizontal,
-                                  child: Row(
-                                    children: [
-                                      ChoiceChip(
-                                        label: const Text('全部状态'),
-                                        selected: _type == null,
-                                        onSelected: (_) =>
-                                            _changeFilters(() => _type = null),
-                                      ),
-                                      const SizedBox(width: 8),
-                                      for (final type
-                                          in CollectionType.values) ...[
+                                if (!phone) ...[
+                                  const SizedBox(height: 12),
+                                  SingleChildScrollView(
+                                    scrollDirection: Axis.horizontal,
+                                    child: Row(
+                                      children: [
                                         ChoiceChip(
-                                          label: Text(_statusLabel(type)),
-                                          selected: _type == type,
+                                          label: const Text('全部状态'),
+                                          selected: _type == null,
                                           onSelected: (_) => _changeFilters(
-                                            () => _type = type,
+                                            () => _type = null,
                                           ),
                                         ),
                                         const SizedBox(width: 8),
+                                        for (final type
+                                            in CollectionType.values) ...[
+                                          ChoiceChip(
+                                            label: Text(_statusLabel(type)),
+                                            selected: _type == type,
+                                            onSelected: (_) => _changeFilters(
+                                              () => _type = type,
+                                            ),
+                                          ),
+                                          const SizedBox(width: 8),
+                                        ],
                                       ],
-                                    ],
+                                    ),
                                   ),
-                                ),
+                                ],
+                                if (phone && _type != null)
+                                  Padding(
+                                    padding: const EdgeInsets.only(top: 6),
+                                    child: Text(
+                                      '状态：${_statusLabel(_type!)}',
+                                      style: Theme.of(
+                                        context,
+                                      ).textTheme.bodySmall,
+                                    ),
+                                  ),
                                 if (_activeFilters > 0) ...[
                                   const SizedBox(height: 12),
                                   Wrap(
@@ -688,7 +775,7 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
                                     ],
                                   ),
                                 ],
-                                const SizedBox(height: 18),
+                                SizedBox(height: phone ? 10 : 18),
                               ],
                             ),
                           ),
@@ -981,7 +1068,7 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
                       });
                       Navigator.pop(sheetContext);
                     },
-                    icon: const Icon(Icons.check_rounded),
+                    icon: const AnimeIcon(Icons.check_rounded),
                     label: const Text('应用筛选'),
                   ),
                 ],
@@ -1012,4 +1099,67 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
     _LibrarySort.rating => '按我的评分',
     _LibrarySort.progress => '按完成度',
   };
+}
+
+class _LibraryHeader extends StatelessWidget {
+  const _LibraryHeader({
+    required this.phone,
+    required this.title,
+    required this.actions,
+  });
+  final bool phone;
+  final Widget? title;
+  final List<Widget> actions;
+  @override
+  Widget build(BuildContext context) {
+    if (!phone) {
+      return Wrap(
+        alignment: WrapAlignment.spaceBetween,
+        crossAxisAlignment: WrapCrossAlignment.center,
+        children: [?title, ...actions],
+      );
+    }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        if (title != null) ...[title!, const SizedBox(height: 6)],
+        LayoutBuilder(
+          builder: (context, box) {
+            final iconSpace = MediaQuery.sizeOf(context).width < 400 ? 0 : 26;
+            final cell =
+                (box.maxWidth - (actions.length - 1) * 6) / actions.length;
+            final scale = ((cell - 12 - iconSpace) / 70).clamp(1.0, 1.8);
+            return MediaQuery.withClampedTextScaling(
+              maxScaleFactor: scale,
+              child: TextButtonTheme(
+                data: TextButtonThemeData(
+                  style: TextButton.styleFrom(
+                    textStyle: Theme.of(
+                      context,
+                    ).textTheme.labelLarge?.copyWith(fontSize: 14),
+                    minimumSize: const Size(0, 48),
+                    padding: const EdgeInsets.symmetric(horizontal: 6),
+                    backgroundColor: Theme.of(
+                      context,
+                    ).colorScheme.surfaceContainerLow,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                ),
+                child: Row(
+                  children: [
+                    for (var i = 0; i < actions.length; i++) ...[
+                      if (i > 0) const SizedBox(width: 6),
+                      Expanded(child: actions[i]),
+                    ],
+                  ],
+                ),
+              ),
+            );
+          },
+        ),
+      ],
+    );
+  }
 }
