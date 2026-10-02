@@ -7,7 +7,7 @@ import { ThemeToggle } from "./ThemeToggle";
 export const dynamic = "force-static";
 
 const githubUrl = "https://github.com/wweiyi2004/MuBangumi";
-const releasesUrl = `${githubUrl}/releases`;
+const releasesUrl = `${githubUrl}/releases/latest`;
 const giteeRepository = process.env.NEXT_PUBLIC_GITEE_REPOSITORY ?? "";
 const giteeReleasesUrl = /^[a-zA-Z0-9_-]+\/[a-zA-Z0-9_.-]+$/.test(giteeRepository) &&
   !giteeRepository.split("/").some((part) => part === "." || part === "..")
@@ -63,11 +63,11 @@ const questions = [
   },
   {
     title: "已有旧版，怎样升级？",
-    answer: "应用内的更新提醒会下载并校验新版本。手动升级时，Android 可直接覆盖安装；Windows 请解压到新的空目录，不要覆盖旧目录。升级前可以在设置里用配置导出备份本地设置。",
+    answer: "应用内更新会下载并校验新版本。Android 2.4.2 沿用上一版签名，构建号升至 4032，可尝试覆盖安装；请先备份重要的本地设置。Windows 请解压到新的空目录，不要覆盖混有旧程序数据的目录。实际设备的覆盖安装和通知送达仍需验收。",
   },
   {
     title: "哪些内容能同步，哪些留在设备上？",
-    answer: "收藏和章节进度通过 Bangumi 账号同步。本地备注、好友分组、外观设置和草稿只保存在本机；配置导出不包含登录凭据、网页登录会话和待同步的写入。",
+    answer: "收藏和章节进度通过 Bangumi 账号同步。本地备注、好友分组、外观设置和草稿有各自的存储范围；配置迁移不包含登录凭据、网页登录会话或待同步写队列。个人介绍和部分社区操作可能需要补充网页登录。",
   },
   {
     title: "网页上的演示会修改我的 Bangumi 账号吗？",
@@ -78,8 +78,8 @@ const questions = [
     answer: "可以试试下载区的 Gitee 镜像，但镜像同步可能晚于 GitHub。请核对版本号和文件名；每个版本的 SHA-256 校验和都附在 GitHub 发行页里。",
   },
   {
-    title: "遇到问题在哪里反馈？",
-    answer: "请在 GitHub Issues 里写明系统、软件版本和复现步骤。不要公开 Token、Cookie、私信内容或完整的个人数据库。",
+    title: "本版有热补丁吗？在哪里反馈问题？",
+    answer: "2.4.2 提供 Android 和 Windows 整包更新，不提供本版 Shorebird 热补丁。请在 GitHub Issues 写明系统、软件版本和复现步骤；不要公开 Token、Cookie、私信内容或完整个人数据库。",
   },
 ] as const;
 
@@ -224,7 +224,7 @@ export default function Home() {
         </a>
       </header>
 
-      <main id="main-content">
+      <main id="main-content" tabIndex={-1}>
         <section className="hero" id="top">
           <div className="hero-grid" aria-hidden="true">
             {gridCells.map((cell, index) => <i className={cell} key={index} />)}
@@ -372,7 +372,7 @@ export default function Home() {
             </article>
           </div>
           <p className="download-note">
-            {giteeReleasesUrl && <><a href={giteeReleasesUrl} target="_blank" rel="noreferrer">国内镜像（Gitee）</a><span aria-hidden="true">·</span></>}
+            {giteeReleasesUrl && <><a href={giteeReleasesUrl} target="_blank" rel="noreferrer">国内镜像（可能延迟）</a><span aria-hidden="true">·</span></>}
             <a href={currentRelease.url} target="_blank" rel="noreferrer">SHA-256 校验和与来源记录</a>
             <span aria-hidden="true">·</span>
             <span>2.4.2 为整包更新</span>
