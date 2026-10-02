@@ -12,6 +12,9 @@ test("exports a GitHub Pages-ready homepage", async () => {
   assert.match(html, /看完下一集/);
   assert.match(html, /每日追番/);
   assert.match(html, /参考与致谢/);
+  assert.match(html, /MuBangumi-2\.4\.2-build4032-android\.apk/);
+  assert.match(html, /MuBangumi-2\.4\.2-build4032-windows-x64\.zip/);
+  assert.match(html, /id="faq"/);
   assert.match(html, /https:\/\/wweiyi2004\.github\.io\/MuBangumi\//);
   assert.match(html, /\/MuBangumi\/_next\/static\//);
   assert.doesNotMatch(html, /(?:src|href)="\/_next\//);

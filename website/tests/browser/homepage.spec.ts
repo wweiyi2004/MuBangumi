@@ -110,6 +110,20 @@ test("320px with enlarged text keeps navigation, downloads and disclaimer", asyn
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(320);
 });
 
+test("demo remains under user control with reduced motion and keyboard skip", async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  const demo = page.getByLabel("可点击的 MuBangumi 产品演示");
+  await demo.getByRole("button", { name: "打开收藏", exact: true }).click();
+  await page.clock.install();
+  await page.clock.fastForward(16000);
+  await expect(demo.getByRole("button", { name: "打开收藏", exact: true })).toHaveAttribute("aria-pressed", "true");
+  await page.goto("./");
+  await page.keyboard.press("Tab");
+  await expect(page.getByRole("link", { name: "跳到主要内容" })).toBeFocused();
+  await page.keyboard.press("Enter");
+  await expect(page.locator("#main-content")).toBeFocused();
+});
+
 test("theme toggle overrides a dark system setting and is remembered", async ({ page }) => {
   await page.emulateMedia({ colorScheme: "dark" });
   await page.reload();
