@@ -39,11 +39,12 @@ npm run test:pages
 
 - `app/page.tsx`：主页内容和区块结构
 - `app/ProductDemo.tsx`：首屏产品演示的状态和点击交互
+- `app/release.ts`：下载区的当前版本号与安装包直链，发布新版本时同步更新
 - `app/globals.css`：配色、布局、响应式样式和页面动效
 - `app/layout.tsx`：页面标题、描述和社交分享信息
 - `public/favicon.svg`：项目图标
 - `public/og.png`：社交平台分享封面
 
-主页中的下载和源码按钮分别指向项目的 GitHub Releases 与仓库首页。
+下载区直接链接当前版本的 Android APK 与 Windows ZIP，“全部版本”和源码按钮分别指向 GitHub Releases 与仓库首页。
 
 页面底部的“参考与致谢”区块记录了项目实际使用的数据来源、技术项目、功能灵感和网页呈现参考；新增来源时应同步维护该区块，并继续保留非官方声明。

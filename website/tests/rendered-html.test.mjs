@@ -32,6 +32,7 @@ test("server-renders the MuBangumi homepage", async () => {
   assert.match(html, /追番这件事/);
   assert.match(html, /可交互演示/);
   assert.match(html, /标记下一集/);
+  assert.match(html, /MuBangumi-2.4.2-build4032-android.apk/);
   assert.match(html, /从“想看”到“看完”/);
   assert.match(html, /参考与致谢/);
   assert.match(html, /https:\/\/zcode\.z\.ai\/en/);

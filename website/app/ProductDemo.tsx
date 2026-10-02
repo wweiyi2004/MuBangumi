@@ -1,15 +1,12 @@
 "use client";
 
-import Image from "next/image";
 import { useEffect, useRef, useState } from "react";
 
-const faviconUrl = `${process.env.NEXT_PUBLIC_BASE_PATH ?? ""}/favicon.svg`;
-
 const tabs = [
-  { id: "home", label: "首页", icon: "⌂" },
-  { id: "collection", label: "收藏", icon: "◇" },
-  { id: "discover", label: "发现", icon: "⌕" },
-  { id: "community", label: "社区", icon: "◌" },
+  { id: "home", label: "首页", icon: "M4 10.5 12 4l8 6.5V19a1 1 0 0 1-1 1h-4.5v-5h-5v5H5a1 1 0 0 1-1-1v-8.5Z" },
+  { id: "collection", label: "收藏", icon: "M6 4h12v16l-6-4-6 4V4Z" },
+  { id: "discover", label: "发现", icon: "M11 4a7 7 0 1 0 0 14 7 7 0 0 0 0-14Zm9 16-4-4" },
+  { id: "community", label: "社区", icon: "M4 6a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H9l-5 3V6Z" },
 ] as const;
 
 type TabId = (typeof tabs)[number]["id"];
@@ -24,7 +21,10 @@ const shows = [
 const collectionItems = [
   { title: "葬送的芙莉莲", status: "在看", progress: "24 / 28", poster: "poster-a" },
   { title: "迷宫饭", status: "在看", progress: "18 / 24", poster: "poster-b" },
+  { title: "跃动青春", status: "在看", progress: "9 / 12", poster: "poster-c" },
+  { title: "宝石之国", status: "在看", progress: "6 / 12", poster: "poster-d" },
   { title: "摇曳露营△", status: "想看", progress: "尚未开始", poster: "poster-c" },
+  { title: "少女终末旅行", status: "想看", progress: "尚未开始", poster: "poster-a" },
   { title: "四叠半神话大系", status: "看过", progress: "11 / 11", poster: "poster-d" },
 ] as const;
 
@@ -74,55 +74,34 @@ const topics = [
 
 export function ProductDemo() {
   const [activeTab, setActiveTab] = useState<TabId>("home");
-  const [hasInteracted, setHasInteracted] = useState(false);
   const [selectedShow, setSelectedShow] = useState(0);
   const [episodes, setEpisodes] = useState<number[]>(() => shows.map((show) => show.episode));
-  const [syncVisible, setSyncVisible] = useState(false);
+  const [toast, setToast] = useState<{ title: string; episode: number } | null>(null);
   const [collectionFilter, setCollectionFilter] = useState<CollectionFilter>("在看");
   const [discovery, setDiscovery] = useState<DiscoveryId>("trend");
   const [communityView, setCommunityView] = useState<"friends" | "topics">("friends");
   const [selectedTopic, setSelectedTopic] = useState<number | null>(null);
   const [likedPosts, setLikedPosts] = useState<number[]>([]);
-  const syncTimer = useRef<number | null>(null);
-
-  useEffect(() => {
-    if (hasInteracted) return;
-    const timer = window.setInterval(() => {
-      setActiveTab((current) => {
-        const currentIndex = tabs.findIndex((tab) => tab.id === current);
-        return tabs[(currentIndex + 1) % tabs.length].id;
-      });
-    }, 5200);
-    return () => window.clearInterval(timer);
-  }, [hasInteracted]);
+  const toastTimer = useRef<number | null>(null);
 
   useEffect(() => {
     return () => {
-      if (syncTimer.current !== null) window.clearTimeout(syncTimer.current);
+      if (toastTimer.current !== null) window.clearTimeout(toastTimer.current);
     };
   }, []);
 
-  const interact = () => setHasInteracted(true);
-
-  const selectTab = (tab: TabId) => {
-    interact();
-    setActiveTab(tab);
+  const setEpisode = (episode: number) => {
+    const show = shows[selectedShow];
+    const next = Math.max(0, Math.min(episode, show.total));
+    setEpisodes((current) => current.map((value, index) => (index === selectedShow ? next : value)));
+    setToast({ title: show.title, episode: next });
+    if (toastTimer.current !== null) window.clearTimeout(toastTimer.current);
+    toastTimer.current = window.setTimeout(() => setToast(null), 2400);
   };
 
-  const markNextEpisode = () => {
-    interact();
-    setEpisodes((current) =>
-      current.map((episode, index) =>
-        index === selectedShow ? Math.min(episode + 1, shows[index].total) : episode,
-      ),
-    );
-    setSyncVisible(true);
-    if (syncTimer.current !== null) window.clearTimeout(syncTimer.current);
-    syncTimer.current = window.setTimeout(() => setSyncVisible(false), 2600);
-  };
+  const markNextEpisode = () => setEpisode(episodes[selectedShow] + 1);
 
   const toggleLike = (postId: number) => {
-    interact();
     setLikedPosts((current) =>
       current.includes(postId)
         ? current.filter((id) => id !== postId)
@@ -133,64 +112,58 @@ export function ProductDemo() {
   const currentShow = shows[selectedShow];
   const currentEpisode = episodes[selectedShow];
   const isComplete = currentEpisode === currentShow.total;
-  const progress = `${Math.round((currentEpisode / currentShow.total) * 100)}%`;
-  const visibleCollection = collectionItems.filter((item) => item.status === collectionFilter);
+  const demoCollection = collectionItems.map((item) => {
+    const index = shows.findIndex((show) => show.title === item.title);
+    if (index < 0) return item;
+    return {
+      ...item,
+      status: episodes[index] === shows[index].total ? "看过" : "在看",
+      progress: `${episodes[index]} / ${shows[index].total}`,
+    };
+  });
+  const visibleCollection = demoCollection.filter((item) => item.status === collectionFilter);
   const currentDiscovery = discoverySets[discovery];
 
   return (
-    <div
-      className="app-showcase"
-      aria-label="可点击的 MuBangumi 产品演示"
-    >
-      <div className="showcase-orbit orbit-one" />
-      <div className="showcase-orbit orbit-two" />
-      <div className="demo-hint"><span>●</span> 可交互演示</div>
-      <div className="app-window">
-        <aside className="mock-sidebar" aria-label="演示导航">
-          <Image src={faviconUrl} alt="" width="34" height="34" />
-          {tabs.map((tab) => (
-            <button
-              className={`mock-nav ${activeTab === tab.id ? "active" : ""}`}
-              type="button"
-              aria-label={`打开${tab.label}`}
-              aria-pressed={activeTab === tab.id}
-              onClick={() => selectTab(tab.id)}
-              key={tab.id}
-            >
-              <span>{tab.icon}</span><b>{tab.label}</b>
-            </button>
-          ))}
-          <div className="mock-avatar">M</div>
-        </aside>
-
-        <div className="mock-content">
-          <div className="mock-topline">
-            <span>{activeTab === "community" ? "社区有 3 条新动态" : "晚上好，Mori"}</span>
-            <button type="button" aria-label="打开发现搜索" onClick={() => selectTab("discover")}>⌕</button>
-          </div>
-
+    <div className="app-showcase" aria-label="可点击的 MuBangumi 产品演示">
+      <div className="demo-hint"><span /> 可交互演示 · 示例数据</div>
+      <div className="phone">
+        <div className="phone-status" aria-hidden="true"><b>21:24</b><span /></div>
+        <div className="phone-screen">
           <div className="demo-panel" key={activeTab} role="tabpanel" aria-live="polite">
             {activeTab === "home" && (
               <>
                 <div className="mock-title-row">
-                  <div><small>继续观看</small><h2>我的追番</h2></div>
-                  <span className="mock-date">本季 · 12 部</span>
+                  <div><small>晚上好，Mori</small><h2>我的追番</h2></div>
+                  <span className="mock-chip">本季 12 部</span>
                 </div>
                 <div className="progress-card" key={currentShow.title}>
-                  <div className={`poster poster-main ${currentShow.poster}`}><span>{currentShow.score}</span></div>
-                  <div className="progress-copy">
-                    <span className={`status-pill ${isComplete ? "complete" : ""}`}>{isComplete ? "已看完" : "正在追"}</span>
-                    <h3>{currentShow.title}</h3>
-                    <p>看到第 {currentEpisode} 话 · 共 {currentShow.total} 话</p>
-                    <div className="progress-track"><span style={{ width: progress }} /></div>
-                    <button type="button" onClick={markNextEpisode} disabled={isComplete}>
-                      {isComplete ? "本季已看完" : "标记下一集"} <b>{isComplete ? "✓" : "→"}</b>
-                    </button>
+                  <div className="progress-head">
+                    <div className={`poster ${currentShow.poster}`}><span>{currentShow.score}</span></div>
+                    <div className="progress-copy">
+                      <span className={`status-pill ${isComplete ? "complete" : ""}`}>{isComplete ? "已看完" : `${currentShow.day}更新`}</span>
+                      <h3>{currentShow.title}</h3>
+                      <p>看到第 {currentEpisode} 话 · 共 {currentShow.total} 话</p>
+                    </div>
                   </div>
+                  <div className="episode-grid" role="group" aria-label="章节格子">
+                    {Array.from({ length: currentShow.total }, (_, index) => (
+                      <button
+                        type="button"
+                        className={index < currentEpisode ? "watched" : index === currentEpisode ? "next" : ""}
+                        aria-label={`看到第 ${index + 1} 话`}
+                        onClick={() => setEpisode(index + 1)}
+                        key={index}
+                      >{index + 1}</button>
+                    ))}
+                  </div>
+                  <button type="button" className="mark-next" onClick={markNextEpisode} disabled={isComplete}>
+                    {isComplete ? "本季已看完 ✓" : `标记下一集 · 第 ${currentEpisode + 1} 话`}
+                  </button>
                 </div>
                 <div className="mock-section-title">
                   <b>本周放送</b>
-                  <button type="button" onClick={() => selectTab("collection")}>查看全部</button>
+                  <button type="button" onClick={() => setActiveTab("collection")}>全部</button>
                 </div>
                 <div className="poster-row">
                   {shows.map((show, index) => (
@@ -198,10 +171,11 @@ export function ProductDemo() {
                       type="button"
                       className={selectedShow === index ? "selected" : ""}
                       aria-pressed={selectedShow === index}
-                      onClick={() => { interact(); setSelectedShow(index); }}
+                      aria-label={`${show.title}，${show.day}`}
+                      onClick={() => setSelectedShow(index)}
                       key={show.title}
                     >
-                      <div className={`poster ${show.poster}`}><i>{episodes[index]}/{show.total}</i></div>
+                      <span className={`poster ${show.poster}`}><i>{episodes[index]}/{show.total}</i></span>
                       <span>{show.day}</span>
                     </button>
                   ))}
@@ -212,33 +186,27 @@ export function ProductDemo() {
             {activeTab === "collection" && (
               <>
                 <div className="mock-title-row">
-                  <div><small>全部收藏</small><h2>我的收藏</h2></div>
-                  <span className="mock-date">共 146 部</span>
+                  <div><small>演示收藏 · {demoCollection.length} 部</small><h2>我的收藏</h2></div>
                 </div>
-                <div className="mock-filter-row" aria-label="收藏筛选">
+                <div className="segmented" aria-label="收藏筛选">
                   {(["在看", "想看", "看过"] as CollectionFilter[]).map((filter) => (
                     <button
                       type="button"
                       className={collectionFilter === filter ? "active" : ""}
                       aria-pressed={collectionFilter === filter}
-                      onClick={() => { interact(); setCollectionFilter(filter); }}
+                      onClick={() => setCollectionFilter(filter)}
                       key={filter}
-                    >{filter}</button>
+                    >{filter}<small aria-hidden="true">{demoCollection.filter((item) => item.status === filter).length}</small></button>
                   ))}
                 </div>
                 <div className="collection-list">
                   {visibleCollection.map((item) => (
-                    <button type="button" className="collection-row" onClick={() => selectTab("home")} key={item.title}>
+                    <button type="button" className="collection-row" onClick={() => setActiveTab("home")} key={item.title}>
                       <span className={`poster ${item.poster}`} />
                       <span><b>{item.title}</b><small>{item.progress}</small></span>
-                      <i>›</i>
+                      <i aria-hidden="true">›</i>
                     </button>
                   ))}
-                </div>
-                <div className="collection-summary">
-                  <span><b>32</b><small>在看</small></span>
-                  <span><b>48</b><small>想看</small></span>
-                  <span><b>66</b><small>看过</small></span>
                 </div>
               </>
             )}
@@ -247,15 +215,14 @@ export function ProductDemo() {
               <>
                 <div className="mock-title-row">
                   <div><small>找到下一部</small><h2>发现</h2></div>
-                  <span className="mock-date">为你推荐</span>
                 </div>
-                <div className="discover-tabs" aria-label="推荐方式">
+                <div className="segmented" aria-label="推荐方式">
                   {(Object.keys(discoverySets) as DiscoveryId[]).map((id) => (
                     <button
                       type="button"
                       className={discovery === id ? "active" : ""}
                       aria-pressed={discovery === id}
-                      onClick={() => { interact(); setDiscovery(id); }}
+                      onClick={() => setDiscovery(id)}
                       key={id}
                     >{discoverySets[id].label}</button>
                   ))}
@@ -263,7 +230,7 @@ export function ProductDemo() {
                 <p className="discover-description">{currentDiscovery.description}</p>
                 <div className="discover-grid" key={discovery}>
                   {currentDiscovery.items.map((item) => (
-                    <button type="button" onClick={() => selectTab("home")} key={item.title}>
+                    <button type="button" onClick={() => setActiveTab("home")} key={item.title}>
                       <span className={`poster ${item.poster}`}><i>{item.change}</i></span>
                       <b>{item.title}</b>
                       <small><em>★</em> {item.score}</small>
@@ -277,11 +244,10 @@ export function ProductDemo() {
               <>
                 <div className="mock-title-row">
                   <div><small>好友与社区</small><h2>时间线</h2></div>
-                  <span className="mock-date">实时更新</span>
                 </div>
-                <div className="community-tabs">
-                  <button type="button" className={communityView === "friends" ? "active" : ""} onClick={() => { interact(); setCommunityView("friends"); }}>好友动态</button>
-                  <button type="button" className={communityView === "topics" ? "active" : ""} onClick={() => { interact(); setCommunityView("topics"); }}>热门话题</button>
+                <div className="segmented">
+                  <button type="button" aria-pressed={communityView === "friends"} className={communityView === "friends" ? "active" : ""} onClick={() => setCommunityView("friends")}>好友动态</button>
+                  <button type="button" aria-pressed={communityView === "topics"} className={communityView === "topics" ? "active" : ""} onClick={() => setCommunityView("topics")}>热门话题</button>
                 </div>
                 {communityView === "friends" ? (
                   <div className="timeline-list">
@@ -289,7 +255,7 @@ export function ProductDemo() {
                       const liked = likedPosts.includes(post.id);
                       return (
                         <article className="timeline-post" key={post.id}>
-                          <span className="timeline-avatar">{post.avatar}</span>
+                          <span className="timeline-avatar" aria-hidden="true">{post.avatar}</span>
                           <div>
                             <p><b>{post.name}</b><small>{post.time}</small></p>
                             <div>{post.text}</div>
@@ -297,6 +263,7 @@ export function ProductDemo() {
                               type="button"
                               className={liked ? "liked" : ""}
                               aria-pressed={liked}
+                              aria-label={`贴贴，${post.likes + (liked ? 1 : 0)} 人`}
                               onClick={() => toggleLike(post.id)}
                             >{liked ? "♥" : "♡"} {post.likes + (liked ? 1 : 0)}</button>
                           </div>
@@ -311,12 +278,12 @@ export function ProductDemo() {
                         type="button"
                         className={selectedTopic === topic.id ? "selected" : ""}
                         aria-pressed={selectedTopic === topic.id}
-                        onClick={() => { interact(); setSelectedTopic(topic.id); }}
+                        onClick={() => setSelectedTopic(topic.id)}
                         key={topic.id}
                       >
                         <span>{topic.type}</span>
                         <div><b>{topic.title}</b><small>{selectedTopic === topic.id ? "已打开话题预览" : topic.meta}</small></div>
-                        <i>{selectedTopic === topic.id ? "✓" : "›"}</i>
+                        <i aria-hidden="true">{selectedTopic === topic.id ? "✓" : "›"}</i>
                       </button>
                     ))}
                   </div>
@@ -324,19 +291,39 @@ export function ProductDemo() {
               </>
             )}
           </div>
+
+          <div className={`demo-toast ${toast ? "visible" : ""}`} role="status">
+            {toast && <><b>✓</b> {toast.title} · 看到第 {toast.episode} 话</>}
+          </div>
         </div>
+
+        <nav className="phone-nav" aria-label="演示导航">
+          {tabs.map((tab) => (
+            <button
+              className={activeTab === tab.id ? "active" : ""}
+              type="button"
+              aria-label={`打开${tab.label}`}
+              aria-pressed={activeTab === tab.id}
+              onClick={() => setActiveTab(tab.id)}
+              key={tab.id}
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d={tab.icon} /></svg>
+              <span>{tab.label}</span>
+            </button>
+          ))}
+        </nav>
       </div>
 
-      <div className={`floating-card floating-sync ${syncVisible ? "visible" : ""}`} role="status">
-        <span className="float-icon">✓</span>
-        <div><b>进度已同步</b><small>{currentShow.title} · 第 {currentEpisode} 话</small></div>
+      <div className="floating-card floating-score" aria-hidden="true">
+        <small>当前条目评分</small>
+        <b>{currentShow.score}</b>
+        <span className="mini-stars">★★★★★</span>
       </div>
-      <div className="floating-card floating-score">
-        <small>{activeTab === "community" ? "今日社区动态" : "当前条目评分"}</small>
-        <b>{activeTab === "community" ? "28" : currentShow.score}<sup>{activeTab === "community" ? "条" : ""}</sup></b>
-      </div>
-      <div className="demo-pagination" aria-hidden="true">
-        {tabs.map((tab) => <i className={activeTab === tab.id ? "active" : ""} key={tab.id} />)}
+      <div className="floating-card floating-heat" aria-hidden="true">
+        <small>本周打卡</small>
+        <span className="heat-row">
+          {[3, 1, 0, 2, 4, 1, 2].map((level, index) => <i className={`h${level}`} key={index} />)}
+        </span>
       </div>
     </div>
   );

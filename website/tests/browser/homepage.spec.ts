@@ -49,3 +49,39 @@ test("homepage fits the viewport and loads without JavaScript exceptions", async
   expect(geometry.scroll, JSON.stringify(geometry)).toBeLessThanOrEqual(geometry.width);
   expect(errors).toEqual([]);
 });
+
+test("episode grid sets progress and the collection follows it", async ({ page }) => {
+  const demo = page.getByLabel("可点击的 MuBangumi 产品演示");
+  await demo.getByRole("button", { name: "看到第 28 话", exact: true }).click();
+  await expect(demo.locator(".progress-copy p")).toContainText("第 28 话");
+  await expect(demo.getByRole("button", { name: /本季已看完/ })).toBeDisabled();
+  await demo.getByRole("button", { name: "打开收藏", exact: true }).click();
+  await demo.getByRole("button", { name: /^看过/ }).click();
+  await expect(demo.locator(".collection-row", { hasText: "葬送的芙莉莲" })).toContainText("28 / 28");
+});
+
+test("downloads link the current packages and explain unavailable iOS", async ({ page }) => {
+  const downloads = page.locator("#platforms");
+  await expect(downloads).toContainText("2.4.2");
+  await expect(downloads.getByRole("link", { name: "下载 Android" })).toHaveAttribute("href", /v2\.4\.2%2B4032\/MuBangumi-2\.4\.2-build4032-android\.apk$/);
+  await expect(downloads.getByRole("link", { name: "下载 Windows" })).toHaveAttribute("href", /v2\.4\.2%2B4032\/MuBangumi-2\.4\.2-build4032-windows-x64\.zip$/);
+  await expect(downloads.getByText("本版未提供安装包", { exact: true })).toBeVisible();
+  await expect(downloads.getByRole("link", { name: /iOS/ })).toHaveCount(0);
+});
+
+test("help answers open from the keyboard", async ({ page }) => {
+  const first = page.locator("#faq details").first();
+  await first.locator("summary").focus();
+  await page.keyboard.press("Enter");
+  await expect(first).toHaveAttribute("open", "");
+  await expect(first).toContainText("新的空目录");
+});
+
+test("320px with enlarged text keeps navigation, downloads and disclaimer", async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 800 });
+  await page.addStyleTag({ content: "html { font-size: 20px; }" });
+  await expect(page.getByRole("navigation", { name: "主导航" }).getByRole("link", { name: "下载", exact: true })).toBeVisible();
+  await expect(page.locator("#platforms").getByRole("link", { name: "下载 Android" })).toBeVisible();
+  await expect(page.locator("footer").getByText("非官方客户端，与 Bangumi 番组计划官方无隶属关系。")).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(320);
+});
