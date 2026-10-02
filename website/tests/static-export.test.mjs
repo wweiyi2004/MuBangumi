@@ -9,7 +9,8 @@ test("exports a GitHub Pages-ready homepage", async () => {
 
   assert.match(html, /<title>MuBangumi — 简单又好看的 Bangumi 客户端<\/title>/i);
   assert.match(html, /可交互演示/);
-  assert.match(html, /标记下一集/);
+  assert.match(html, /看完下一集/);
+  assert.match(html, /每日追番/);
   assert.match(html, /参考与致谢/);
   assert.match(html, /https:\/\/wweiyi2004\.github\.io\/MuBangumi\//);
   assert.match(html, /\/MuBangumi\/_next\/static\//);
