@@ -28,11 +28,20 @@
   --gutter: clamp(16px, 4vw, 40px);
   --content: 1200px;
   --font-sans: var(--font-geist-sans), "PingFang SC", "HarmonyOS Sans SC", "MiSans", "Microsoft YaHei UI", "Microsoft YaHei", system-ui, sans-serif;
+  --mark-mix: 55%;
+  --grid-opacity: 1;
+  --phone-frame: #1d2433;
+  --os-bg: #1d2433;
+  --os-border: transparent;
+  --sun-display: none;
+  --moon-display: block;
   --font-mono: var(--font-geist-mono), ui-monospace, "SFMono-Regular", Consolas, monospace;
 }
 
+/* Dark tokens apply when the system prefers dark and the visitor has not
+   chosen light, or when the visitor explicitly chose dark. */
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme="light"]) {
     color-scheme: dark;
     --canvas: #101014;
     --surface: #16161e;
@@ -49,7 +58,42 @@
     --rise: #ff929b;
     --shadow: 0 1px 2px rgb(0 0 0 / 30%), 0 12px 32px -12px rgb(0 0 0 / 60%);
     --shadow-lg: 0 2px 4px rgb(0 0 0 / 30%), 0 40px 80px -24px rgb(0 0 0 / 70%);
+    --mark-mix: 32%;
+    --grid-opacity: 0.55;
+    --phone-frame: #2b2b38;
+    --os-bg: var(--surface-2);
+    --os-border: var(--line);
+    --sun-display: block;
+    --moon-display: none;
+  --sun-display: block;
+  --moon-display: none;
   }
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --canvas: #101014;
+  --surface: #16161e;
+  --surface-2: #1c1c26;
+  --surface-3: #23232f;
+  --line: #2b2b38;
+  --ink: #ececf2;
+  --ink-2: #b9bbc8;
+  --ink-3: #8f91a1;
+  --rose-ink: #ffb4bb;
+  --rose-wash: #2c1d24;
+  --teal: #5cc4b8;
+  --amber: #f1b654;
+  --rise: #ff929b;
+  --shadow: 0 1px 2px rgb(0 0 0 / 30%), 0 12px 32px -12px rgb(0 0 0 / 60%);
+  --shadow-lg: 0 2px 4px rgb(0 0 0 / 30%), 0 40px 80px -24px rgb(0 0 0 / 70%);
+  --mark-mix: 32%;
+  --grid-opacity: 0.55;
+  --phone-frame: #2b2b38;
+  --os-bg: var(--surface-2);
+  --os-border: var(--line);
+  --sun-display: block;
+  --moon-display: none;
 }
 
 *,
@@ -219,6 +263,42 @@ svg.fill-icon {
   stroke: none !important;
 }
 
+.theme-toggle {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  flex-shrink: 0;
+  border: 1px solid var(--line);
+  border-radius: 50%;
+  background: var(--surface);
+  color: var(--ink-2);
+  transition: border-color 0.15s, color 0.15s;
+}
+
+.theme-toggle:hover {
+  border-color: var(--ink-3);
+  color: var(--ink);
+}
+
+.theme-toggle svg {
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.theme-sun {
+  display: var(--sun-display) !important;
+}
+
+.theme-moon {
+  display: var(--moon-display) !important;
+}
+
 /* ---------- Shared ---------- */
 
 .section {
@@ -352,6 +432,7 @@ h2 {
   gap: 8px;
   mask-image: radial-gradient(ellipse at 70% 40%, #000 20%, transparent 72%);
   -webkit-mask-image: radial-gradient(ellipse at 70% 40%, #000 20%, transparent 72%);
+  opacity: var(--grid-opacity);
 }
 
 .hero-grid i {
@@ -415,7 +496,7 @@ h2 {
 
 .hero h1 mark {
   color: inherit;
-  --mark: color-mix(in srgb, var(--pink) 55%, transparent);
+  --mark: color-mix(in srgb, var(--pink) var(--mark-mix), transparent);
   background: linear-gradient(transparent 70%, var(--mark) 70%, var(--mark) 92%, transparent 92%);
   padding: 0 0.04em;
 }
@@ -458,16 +539,6 @@ h2 {
   height: 10px;
   border-radius: 3px;
   background: var(--teal);
-}
-
-@media (prefers-color-scheme: dark) {
-  .hero h1 mark {
-    --mark: color-mix(in srgb, var(--pink) 32%, transparent);
-  }
-
-  .hero-grid {
-    opacity: 0.55;
-  }
 }
 
 /* ---------- Product demo ---------- */
@@ -515,14 +586,8 @@ h2 {
   height: 680px;
   border-radius: 40px;
   padding: 10px;
-  background: var(--ink);
+  background: var(--phone-frame);
   box-shadow: var(--shadow-lg);
-}
-
-@media (prefers-color-scheme: dark) {
-  .phone {
-    background: #2b2b38;
-  }
 }
 
 .phone-status {
@@ -1619,16 +1684,10 @@ h2 {
   margin: clamp(72px, 10vw, 128px) auto 0;
   padding: clamp(32px, 5vw, 56px);
   border-radius: 24px;
-  background: #1d2433;
+  background: var(--os-bg);
+  border: 1px solid var(--os-border);
   color: #ececf2;
   overflow: hidden;
-}
-
-@media (prefers-color-scheme: dark) {
-  .opensource-section {
-    background: var(--surface-2);
-    border: 1px solid var(--line);
-  }
 }
 
 .opensource-section .kicker {

@@ -85,3 +85,17 @@ test("320px with enlarged text keeps navigation, downloads and disclaimer", asyn
   await expect(page.locator("footer").getByText("非官方客户端，与 Bangumi 番组计划官方无隶属关系。")).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(320);
 });
+
+test("theme toggle overrides a dark system setting and is remembered", async ({ page }) => {
+  await page.emulateMedia({ colorScheme: "dark" });
+  await page.reload();
+  const background = () => page.evaluate(() => getComputedStyle(document.body).backgroundColor);
+  expect(await background()).toBe("rgb(16, 16, 20)");
+  await page.getByRole("button", { name: "切换到浅色主题" }).click();
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
+  expect(await background()).toBe("rgb(251, 250, 249)");
+  await page.reload();
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
+  expect(await background()).toBe("rgb(251, 250, 249)");
+  await expect(page.getByRole("button", { name: "切换到深色主题" })).toBeVisible();
+});
