@@ -3,35 +3,69 @@ import { test, expect } from "@playwright/test";
 test.beforeEach(async ({ page }) => {
   await page.route("**/*", (route) => new URL(route.request().url()).hostname === "127.0.0.1" ? route.continue() : route.abort());
   await page.goto("./");
-  await page.getByRole("button", { name: "打开首页", exact: true }).click();
+  await page.getByRole("button", { name: "打开追番", exact: true }).click();
 });
 
-test("episode progress changes and remains after switching tabs", async ({ page }) => {
-  const demo = page.getByLabel("可点击的 MuBangumi 产品演示");
-  const progress = demo.locator(".progress-copy p");
-  const before = await progress.innerText();
-  const episode = Number(before.match(/第 (\d+) 话/)?.[1]);
-  await demo.getByRole("button", { name: /标记下一集/ }).click();
-  await expect(progress).toContainText(`第 ${episode + 1} 话`);
+const demoOf = (page: import("@playwright/test").Page) => page.getByLabel("可点击的 MuBangumi 产品演示");
+
+test("看完下一集 updates progress, the heatmap and survives tab switches", async ({ page }) => {
+  const demo = demoOf(page);
+  const tile = demo.locator(".continue-tile", { hasText: "葬送的芙莉莲" });
+  await expect(tile).toContainText("已记录 24 / 28 集");
+  await expect(demo.getByLabel("每日追番")).toContainText("今日 2 格");
+  await tile.getByRole("button", { name: /看完下一集/ }).click();
+  await expect(tile).toContainText("已记录 25 / 28 集");
+  await expect(demo.getByLabel("每日追番")).toContainText("今日 3 格");
   await demo.getByRole("button", { name: "打开收藏", exact: true }).click();
   await expect(demo.getByRole("heading", { name: "我的收藏" })).toBeVisible();
-  await demo.getByRole("button", { name: "打开首页", exact: true }).click();
-  await expect(progress).toContainText(`第 ${episode + 1} 话`);
+  await expect(demo.locator(".collection-row", { hasText: "葬送的芙莉莲" })).toContainText("看到 25 / 28");
+  await demo.getByRole("button", { name: "打开追番", exact: true }).click();
+  await expect(tile).toContainText("已记录 25 / 28 集");
 });
 
-test("collection filters and community reactions are interactive", async ({ page }) => {
-  const demo = page.getByLabel("可点击的 MuBangumi 产品演示");
+test("episode picker records and undoes episodes", async ({ page }) => {
+  const demo = demoOf(page);
+  await demo.getByRole("button", { name: "选择集数：葬送的芙莉莲" }).click();
+  await demo.getByRole("button", { name: "看到第 28 集", exact: true }).click();
+  await demo.getByRole("button", { name: "关闭选择集数" }).click();
+  const tile = demo.locator(".continue-tile", { hasText: "葬送的芙莉莲" });
+  await expect(tile).toContainText("已记录 28 / 28 集");
+  await expect(tile.getByRole("button", { name: /已看完/ })).toBeDisabled();
+  await demo.getByRole("button", { name: "选择集数：葬送的芙莉莲" }).click();
+  await demo.getByRole("button", { name: "看到第 28 集", exact: true }).click();
+  await demo.getByRole("button", { name: "关闭选择集数" }).click();
+  await expect(tile).toContainText("已记录 27 / 28 集");
+});
+
+test("collection status menu, discover topics and profile likes are interactive", async ({ page }) => {
+  const demo = demoOf(page);
   await demo.getByRole("button", { name: "打开收藏", exact: true }).click();
-  await demo.getByRole("button", { name: "想看", exact: true }).click();
-  await expect(demo.getByRole("button", { name: "想看", exact: true })).toHaveAttribute("aria-pressed", "true");
-  await demo.getByRole("button", { name: "打开社区", exact: true }).click();
+  await demo.getByRole("button", { name: "按状态筛选" }).click();
+  await demo.getByRole("menuitemradio", { name: "想看" }).click();
+  await expect(demo.getByText("状态：想看")).toBeVisible();
+  await expect(demo.locator(".collection-row", { hasText: "摇曳露营△" })).toBeVisible();
+  await demo.getByRole("button", { name: "打开发现", exact: true }).click();
+  await demo.getByRole("tab", { name: "超展开" }).click();
+  const topic = demo.locator(".topic-list button").first();
+  await expect(topic).toHaveAttribute("aria-pressed", "false");
+  await topic.click();
+  await expect(topic).toHaveAttribute("aria-pressed", "true");
+  await demo.getByRole("button", { name: "打开我的", exact: true }).click();
   const like = demo.locator(".timeline-post button").first();
   await expect(like).toHaveAttribute("aria-pressed", "false");
   await like.click();
   await expect(like).toHaveAttribute("aria-pressed", "true");
-  await demo.getByRole("button", { name: "热门话题", exact: true }).click();
-  await demo.locator(".topic-list button").first().click();
-  await expect(demo.getByText("已打开话题预览")).toBeVisible();
+});
+
+test("private messages open a conversation and send locally", async ({ page }) => {
+  const demo = demoOf(page);
+  await demo.getByRole("button", { name: "打开消息", exact: true }).click();
+  await demo.locator(".list-row", { hasText: "小夏" }).click();
+  await demo.getByLabel("输入回复").fill("周六一起看吧");
+  await demo.getByRole("button", { name: "发送" }).click();
+  await expect(demo.locator(".bubble-row.mine").last()).toContainText("周六一起看吧");
+  await demo.getByRole("button", { name: "返回消息列表" }).click();
+  await expect(demo.locator(".list-row", { hasText: "小夏" })).toContainText("周六一起看吧");
 });
 
 test("homepage fits the viewport and loads without JavaScript exceptions", async ({ page }) => {
@@ -39,7 +73,7 @@ test("homepage fits the viewport and loads without JavaScript exceptions", async
   page.on("pageerror", (error) => errors.push(error.message));
   await page.reload();
   await page.getByRole("button", { name: "打开发现", exact: true }).click();
-  await expect(page.getByLabel("可点击的 MuBangumi 产品演示").getByRole("heading", { name: "发现", exact: true })).toBeVisible();
+  await expect(demoOf(page).getByRole("heading", { name: "发现", exact: true })).toBeVisible();
   const geometry = await page.evaluate(() => ({
     width: window.innerWidth, scroll: document.documentElement.scrollWidth,
     overflow: [...document.querySelectorAll("body *")].map((element) => ({
@@ -48,16 +82,6 @@ test("homepage fits the viewport and loads without JavaScript exceptions", async
   }));
   expect(geometry.scroll, JSON.stringify(geometry)).toBeLessThanOrEqual(geometry.width);
   expect(errors).toEqual([]);
-});
-
-test("episode grid sets progress and the collection follows it", async ({ page }) => {
-  const demo = page.getByLabel("可点击的 MuBangumi 产品演示");
-  await demo.getByRole("button", { name: "看到第 28 话", exact: true }).click();
-  await expect(demo.locator(".progress-copy p")).toContainText("第 28 话");
-  await expect(demo.getByRole("button", { name: /本季已看完/ })).toBeDisabled();
-  await demo.getByRole("button", { name: "打开收藏", exact: true }).click();
-  await demo.getByRole("button", { name: /^看过/ }).click();
-  await expect(demo.locator(".collection-row", { hasText: "葬送的芙莉莲" })).toContainText("28 / 28");
 });
 
 test("downloads link the current packages and explain unavailable iOS", async ({ page }) => {
