@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import Image from "next/image";
 import { ProductDemo } from "./ProductDemo";
 import { currentRelease } from "./release";
+import { ThemeToggle } from "./ThemeToggle";
 
 export const dynamic = "force-static";
 
@@ -217,6 +218,7 @@ export default function Home() {
           <a href="#faq">帮助</a>
           <a href="#references">致谢</a>
         </nav>
+        <ThemeToggle />
         <a className="header-github" href={githubUrl} target="_blank" rel="noreferrer" aria-label="GitHub 仓库">
           <GithubIcon /><span>GitHub</span>
         </a>
