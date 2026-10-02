@@ -14,7 +14,7 @@ const geistMono = Geist_Mono({
 
 const title = "MuBangumi — 简单又好看的 Bangumi 客户端";
 const description =
-  "开源、跨平台的第三方 Bangumi 客户端，把收藏、进度、发现与社区收进一个舒服的应用。";
+  "MuBangumi 2.4.2：Android 与 Windows 开源 Bangumi 客户端。记录追番进度、章节打卡、番剧单与评分对比，支持外观自定义和密码保护的配置迁移。";
 const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ??
   "https://wweiyi2004.github.io/MuBangumi/";
 const metadataBase = new URL(siteUrl);

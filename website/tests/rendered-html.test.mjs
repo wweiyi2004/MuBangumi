@@ -33,6 +33,10 @@ test("server-renders the MuBangumi homepage", async () => {
   assert.match(html, /可交互演示/);
   assert.match(html, /标记下一集/);
   assert.match(html, /从“想看”到“看完”/);
+  assert.match(html.replace(/<!--[\s\S]*?-->/g, ""), /2\.4\.2 已发布/);
+  assert.match(html, /本版未提供安装包/);
+  assert.match(html, /<details/);
+  assert.match(html, /不会连接真实账号/);
   assert.match(html, /参考与致谢/);
   assert.match(html, /https:\/\/zcode\.z\.ai\/en/);
   assert.match(html, /https:\/\/bangumi\.tv\/dev\/garage/);

@@ -1,11 +1,12 @@
 import type { ReactNode } from "react";
 import Image from "next/image";
 import { ProductDemo } from "./ProductDemo";
+import { currentRelease } from "./release";
 
 export const dynamic = "force-static";
 
 const githubUrl = "https://github.com/wweiyi2004/MuBangumi";
-const releasesUrl = `${githubUrl}/releases`;
+const releasesUrl = `${githubUrl}/releases/latest`;
 const giteeRepository = process.env.NEXT_PUBLIC_GITEE_REPOSITORY ?? "";
 const giteeReleasesUrl = /^[a-zA-Z0-9_-]+\/[a-zA-Z0-9_.-]+$/.test(giteeRepository) &&
   !giteeRepository.split("/").some((part) => part === "." || part === "..")
@@ -17,7 +18,7 @@ const features = [
     icon: "check",
     title: "追番进度，清楚一点",
     description:
-      "收藏与章节状态实时同步，首页直接点格子，下一集也能一键标记为看过。",
+      "首页点格子、一键标记下一集，用打卡热力图看看自己的节奏；网络恢复后继续同步。",
   },
   {
     icon: "sparkles",
@@ -41,21 +42,37 @@ const features = [
     icon: "chart",
     title: "看懂评分变化",
     description:
-      "把历史评分、排名、收藏趋势和好友口味对比放进作品详情，而不是只看一个数字。",
+      "对比多部作品的历史评分，也能查看收藏统计和好友口味，不只盯着一个数字。",
   },
   {
     icon: "shield",
     title: "数据由你掌握",
     description:
-      "本地备注、内容屏蔽和收藏快照保存在设备上，登录凭据写入系统安全存储。",
+      "本地备注、好友分组与收藏快照留在设备上；配置迁移有密码保护，登录凭据单独存储。",
   },
 ] as const;
 
 const platforms = [
-  { label: "Android", note: "手机与平板", icon: "android" },
-  { label: "iOS", note: "iPhone 与 iPad", icon: "apple" },
-  { label: "Windows", note: "桌面大屏", icon: "windows" },
+  { label: "Android", note: "通用 APK · 手机与平板", icon: "android", available: true, href: currentRelease.assets.android },
+  { label: "Windows", note: "x64 便携 ZIP · 解压运行", icon: "windows", available: true, href: currentRelease.assets.windows },
+  { label: "iOS", note: "本版未提供安装包", icon: "apple", available: false, href: null },
 ] as const;
+
+const updates = [
+  { icon: "calendar", title: "把每一次看过，留在日历里", text: "章节打卡热力图记录启用后的观看操作，取消与撤销也会同步调整记录。" },
+  { icon: "chart", title: "一起挑选，也一起比较", text: "整理与分享番剧单，对比多部作品的评分历史，查看完整制作人员与个人介绍。" },
+  { icon: "sparkles", title: "外观，按自己的喜好来", text: "自定义配色、按需下载或导入字体、统一的圆角菜单，让自己的空间更舒服。" },
+  { icon: "shield", title: "常用功能，更轻一些", text: "图片按展示尺寸解码，临时缓存有容量限制；隐藏页面暂停动画，保留页面状态。" },
+] as const;
+
+const questions = [
+  { title: "第一次安装，选哪一个？", answer: "Android 下载通用 APK，按系统提示确认安装。Windows 下载 x64 ZIP，解压到新的空目录后运行 mubangumi.exe。本版没有 iOS 安装包，也没有 TestFlight 邀请入口。" },
+  { title: "已有旧版，怎样升级？", answer: "Android 2.4.2 沿用上一版签名，构建号升至 4032，可尝试覆盖安装；请先备份重要的本地设置。Windows 请使用新的空目录，不要覆盖混有旧程序数据的目录。实际设备的覆盖安装与通知送达仍需验收。" },
+  { title: "哪些内容能同步，哪些留在设备上？", answer: "收藏与章节进度通过 Bangumi 账号同步。本地备注、好友分组、外观设置和草稿有各自的存储范围；配置迁移不包含登录凭据、网页登录会话或待同步写队列。个人介绍和部分社区操作可能需要补充网页登录。" },
+  { title: "网页演示会修改我的 Bangumi 账号吗？", answer: "不会。演示只使用示例数据，进度、筛选和贴贴只保留在当前页面，刷新即可重置；网页不会连接或修改真实的 Bangumi 账号。它是交互示意，不是软件截图，也不是实时评分。" },
+  { title: "GitHub 下载不顺畅，怎么办？", answer: "可尝试下载区的 Gitee 镜像，但镜像同步可能晚于 GitHub。请核对版本与文件名；当前版本的来源记录、检查结果和 SHA-256 校验和都在 GitHub 发行页中。" },
+  { title: "本版有热补丁吗？遇到问题在哪里反馈？", answer: "2.4.2 提供 Android 和 Windows 整包更新，不提供本版 Shorebird 热补丁。可通过 GitHub Issues 反馈，附上系统、软件版本与复现步骤；请勿公开 Token、Cookie、私信内容或完整个人数据库。" },
+];
 
 function ArrowIcon() {
   return (
@@ -145,7 +162,8 @@ function PlatformIcon({ name }: { name: string }) {
 
 export default function Home() {
   return (
-    <main>
+    <main id="main-content">
+      <a className="skip-link" href="#top">跳到主要内容</a>
       <header className="site-header">
         <a className="brand" href="#top" aria-label="MuBangumi 首页">
           <Image src={faviconUrl} alt="" width="40" height="40" priority />
@@ -153,7 +171,9 @@ export default function Home() {
         </a>
         <nav aria-label="主导航">
           <a href="#features">功能</a>
-          <a href="#platforms">平台</a>
+          <a href="#updates">更新</a>
+          <a href="#platforms">下载</a>
+          <a href="#faq">帮助</a>
           <a href="#opensource">开源</a>
           <a href="#references">致谢</a>
         </nav>
@@ -163,21 +183,22 @@ export default function Home() {
         </a>
       </header>
 
-      <section className="hero" id="top">
+      <section className="hero" id="top" tabIndex={-1}>
         <div className="hero-glow hero-glow-one" />
         <div className="hero-glow hero-glow-two" />
         <div className="hero-copy">
           <div className="eyebrow"><span /> 第三方 Bangumi 客户端</div>
+          <a className="release-pill" href="#updates"><span>NEW</span> {currentRelease.version} 已发布 <ArrowIcon /></a>
           <h1>
             追番这件事，
             <em>简单又好看。</em>
           </h1>
           <p className="hero-description">
             把收藏、进度、发现与社区收进一个舒服的客户端。
-            一套 Flutter 代码，陪你从手机看到桌面。
+            在 Android 和 Windows 上，认真记录每一部喜欢。
           </p>
           <div className="hero-actions">
-            <a className="button button-primary" href={releasesUrl} target="_blank" rel="noreferrer">
+            <a className="button button-primary" href="#platforms">
               获取 MuBangumi <ArrowIcon />
             </a>
             <a className="button button-secondary" href={githubUrl} target="_blank" rel="noreferrer">
@@ -197,7 +218,17 @@ export default function Home() {
       <section className="trust-strip" aria-label="支持平台">
         <span>一个账号，进度处处同步</span>
         <div />
-        <b>Android</b><i>·</i><b>iOS</b><i>·</i><b>Windows</b>
+        <b>Android</b><i>·</i><b>Windows</b><i>·</i><span>iOS 暂无安装包</span>
+      </section>
+
+      <section className="section updates-section" id="updates" aria-labelledby="updates-title">
+        <div className="updates-heading">
+          <div><span className="section-kicker">这次的新变化</span><h2 id="updates-title">你的习惯，多一点自己的样子。</h2></div>
+          <a className="text-link" href={currentRelease.url} target="_blank" rel="noreferrer">2.4.2 更新说明 <ArrowIcon /></a>
+        </div>
+        <div className="update-grid">
+          {updates.map((update) => <article className="update-card" key={update.title}><FeatureIcon name={update.icon} /><h3>{update.title}</h3><p>{update.text}</p></article>)}
+        </div>
       </section>
 
       <section className="section features-section" id="features">
@@ -228,8 +259,8 @@ export default function Home() {
               <svg viewBox="0 0 460 150" preserveAspectRatio="none">
                 <defs>
                   <linearGradient id="chartFill" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0" stopColor="#ff315d" stopOpacity=".28" />
-                    <stop offset="1" stopColor="#ff315d" stopOpacity="0" />
+                    <stop offset="0" stopColor="#a84f5a" stopOpacity=".28" />
+                    <stop offset="1" stopColor="#a84f5a" stopOpacity="0" />
                   </linearGradient>
                 </defs>
                 <path className="chart-fill" d="M0 124 C55 118 74 96 116 103 S181 79 225 88 S292 54 330 63 S390 31 460 21 L460 150 L0 150Z" />
@@ -239,7 +270,8 @@ export default function Home() {
             <div className="chart-labels"><span>7/01</span><span>7/10</span><span>7/20</span><span>今天</span></div>
           </div>
           <div className="insight-card taste-card"><small>与好友的共同收藏</small><b>47 <span>部</span></b><div className="avatar-stack"><i>A</i><i>B</i><i>C</i><em>+8</em></div></div>
-          <div className="insight-card review-card"><span>年度回顾</span><b>今年看了 128 小时</b><div><i /><i /><i /><i /></div></div>
+          <div className="insight-card review-card"><span>收藏回顾 · 示例</span><b>今年完成了 32 部</b><div><i /><i /><i /><i /></div></div>
+          <span className="insight-disclaimer">统计与评分为展示示意</span>
         </div>
         <div className="insight-copy">
           <span className="section-kicker">不止记录，更有洞察</span>
@@ -255,19 +287,29 @@ export default function Home() {
 
       <section className="section platforms-section" id="platforms">
         <div className="section-heading compact">
-          <span className="section-kicker">随时回到你的进度</span>
-          <h2>手机、平板、桌面，<br />换设备不换体验。</h2>
+          <span className="section-kicker">开始下一集</span>
+          <h2 id="downloads-title">选择你的设备，<br />下载 MuBangumi。</h2>
+          <p>当前正式版 <b>{currentRelease.version}</b> · 构建 {currentRelease.build} · <time dateTime={currentRelease.date}>{currentRelease.date}</time></p>
         </div>
         <div className="platform-grid">
           {platforms.map((platform) => (
-            <div className="platform-card" key={platform.label}>
+            <article className={`platform-card ${platform.available ? "" : "unavailable"}`} key={platform.label}>
               <div className="platform-icon"><PlatformIcon name={platform.icon} /></div>
               <div><h3>{platform.label}</h3><p>{platform.note}</p></div>
-              <span>✓</span>
-            </div>
+              {platform.href ? <a className="button button-primary" href={platform.href}>下载 {platform.label}<ArrowIcon /></a> : <span className="platform-unavailable">暂未发布</span>}
+            </article>
           ))}
         </div>
-        <p className="platform-note">iOS 安装包需要在 macOS + Xcode 环境中完成签名与构建。</p>
+        <div className="download-guidance">
+          <p>Android 沿用上一版签名；Windows 请解压到新的空目录。首次使用与升级说明见下方常见问题。</p>
+          <div><a className="text-link" href={currentRelease.url} target="_blank" rel="noreferrer">发行说明与校验文件 <ArrowIcon /></a>{giteeReleasesUrl && <a className="text-link" href={giteeReleasesUrl} target="_blank" rel="noreferrer">国内镜像（可能延迟） <ArrowIcon /></a>}</div>
+        </div>
+      </section>
+
+      <section className="section faq-section" id="faq" aria-labelledby="faq-title">
+        <div className="section-heading compact"><span className="section-kicker">先回答几个小问题</span><h2 id="faq-title">下载之后，放心开始。</h2></div>
+        <div className="faq-list">{questions.map((question) => <details key={question.title}><summary>{question.title}<span aria-hidden="true">＋</span></summary><p>{question.answer}</p></details>)}</div>
+        <p className="faq-note">开源第三方客户端，与 Bangumi 官方无隶属关系。设备体验、真实账号业务与整机内存仍有人工验收项目，详见发行说明。</p>
       </section>
 
       <section className="opensource-section" id="opensource">
@@ -291,8 +333,8 @@ export default function Home() {
         <h2>下一集，从这里开始。</h2>
         <p>打开 MuBangumi，把喜欢的作品和每一点进度好好收起来。</p>
         <div className="hero-actions">
-          <a className="button button-primary" href={releasesUrl} target="_blank" rel="noreferrer">查看最新版本 <ArrowIcon /></a>
-          {giteeReleasesUrl && <a className="button button-secondary" href={giteeReleasesUrl} target="_blank" rel="noreferrer">国内下载（Gitee） <ArrowIcon /></a>}
+          <a className="button button-primary" href="#platforms">选择设备并下载 <ArrowIcon /></a>
+          <a className="button button-secondary" href={releasesUrl} target="_blank" rel="noreferrer">查看最新版本 <ArrowIcon /></a>
           <a className="button button-secondary" href={githubUrl} target="_blank" rel="noreferrer"><GithubIcon /> 浏览项目</a>
         </div>
       </section>
@@ -352,6 +394,7 @@ export default function Home() {
           <a href={githubUrl} target="_blank" rel="noreferrer">GitHub</a>
           <a href={`${githubUrl}/issues`} target="_blank" rel="noreferrer">问题反馈</a>
           <a href="https://github.com/bangumi/api" target="_blank" rel="noreferrer">Bangumi API</a>
+          <a href="#faq">常见问题</a>
           <a href="#references">参考与致谢</a>
         </div>
         <p>非官方客户端，与 Bangumi 番组计划官方无隶属关系。</p>

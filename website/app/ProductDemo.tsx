@@ -74,27 +74,47 @@ const topics = [
 
 export function ProductDemo() {
   const [activeTab, setActiveTab] = useState<TabId>("home");
-  const [hasInteracted, setHasInteracted] = useState(false);
+  const [autoPlay, setAutoPlay] = useState(false);
   const [selectedShow, setSelectedShow] = useState(0);
   const [episodes, setEpisodes] = useState<number[]>(() => shows.map((show) => show.episode));
   const [syncVisible, setSyncVisible] = useState(false);
+  const [lastMarked, setLastMarked] = useState<{ title: string; episode: number } | null>(null);
   const [collectionFilter, setCollectionFilter] = useState<CollectionFilter>("在看");
   const [discovery, setDiscovery] = useState<DiscoveryId>("trend");
   const [communityView, setCommunityView] = useState<"friends" | "topics">("friends");
   const [selectedTopic, setSelectedTopic] = useState<number | null>(null);
   const [likedPosts, setLikedPosts] = useState<number[]>([]);
   const syncTimer = useRef<number | null>(null);
+  const showcase = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    if (hasInteracted) return;
-    const timer = window.setInterval(() => {
-      setActiveTab((current) => {
-        const currentIndex = tabs.findIndex((tab) => tab.id === current);
-        return tabs[(currentIndex + 1) % tabs.length].id;
-      });
-    }, 5200);
-    return () => window.clearInterval(timer);
-  }, [hasInteracted]);
+    if (!autoPlay) return;
+    const motion = window.matchMedia("(prefers-reduced-motion: reduce)");
+    let inView = false;
+    let timer: number | undefined;
+    const schedule = () => {
+      window.clearInterval(timer);
+      timer = undefined;
+      if (motion.matches || document.hidden || !inView) return;
+      timer = window.setInterval(() => setActiveTab((current) => {
+        const index = tabs.findIndex((tab) => tab.id === current);
+        return tabs[(index + 1) % tabs.length].id;
+      }), 5200);
+    };
+    const observer = new IntersectionObserver(([entry]) => {
+      inView = entry.isIntersecting;
+      schedule();
+    }, { threshold: 0.2 });
+    if (showcase.current) observer.observe(showcase.current);
+    document.addEventListener("visibilitychange", schedule);
+    motion.addEventListener("change", schedule);
+    return () => {
+      window.clearInterval(timer);
+      observer.disconnect();
+      document.removeEventListener("visibilitychange", schedule);
+      motion.removeEventListener("change", schedule);
+    };
+  }, [autoPlay]);
 
   useEffect(() => {
     return () => {
@@ -102,7 +122,7 @@ export function ProductDemo() {
     };
   }, []);
 
-  const interact = () => setHasInteracted(true);
+  const interact = () => setAutoPlay(false);
 
   const selectTab = (tab: TabId) => {
     interact();
@@ -111,6 +131,7 @@ export function ProductDemo() {
 
   const markNextEpisode = () => {
     interact();
+    setLastMarked({ title: shows[selectedShow].title, episode: Math.min(episodes[selectedShow] + 1, shows[selectedShow].total) });
     setEpisodes((current) =>
       current.map((episode, index) =>
         index === selectedShow ? Math.min(episode + 1, shows[index].total) : episode,
@@ -134,12 +155,18 @@ export function ProductDemo() {
   const currentEpisode = episodes[selectedShow];
   const isComplete = currentEpisode === currentShow.total;
   const progress = `${Math.round((currentEpisode / currentShow.total) * 100)}%`;
-  const visibleCollection = collectionItems.filter((item) => item.status === collectionFilter);
+  const demoCollection = collectionItems.map((item) => {
+    const index = shows.findIndex((show) => show.title === item.title);
+    if (index < 0) return item;
+    return { ...item, status: episodes[index] === shows[index].total ? "看过" : "在看", progress: `${episodes[index]} / ${shows[index].total}` };
+  });
+  const visibleCollection = demoCollection.filter((item) => item.status === collectionFilter);
   const currentDiscovery = discoverySets[discovery];
 
   return (
     <div
       className="app-showcase"
+      ref={showcase}
       aria-label="可点击的 MuBangumi 产品演示"
     >
       <div className="showcase-orbit orbit-one" />
@@ -213,7 +240,7 @@ export function ProductDemo() {
               <>
                 <div className="mock-title-row">
                   <div><small>全部收藏</small><h2>我的收藏</h2></div>
-                  <span className="mock-date">共 146 部</span>
+                  <span className="mock-date">演示收藏 · {demoCollection.length} 部</span>
                 </div>
                 <div className="mock-filter-row" aria-label="收藏筛选">
                   {(["在看", "想看", "看过"] as CollectionFilter[]).map((filter) => (
@@ -236,9 +263,7 @@ export function ProductDemo() {
                   ))}
                 </div>
                 <div className="collection-summary">
-                  <span><b>32</b><small>在看</small></span>
-                  <span><b>48</b><small>想看</small></span>
-                  <span><b>66</b><small>看过</small></span>
+                  {(["在看", "想看", "看过"] as CollectionFilter[]).map((status) => <span key={status}><b>{demoCollection.filter((item) => item.status === status).length}</b><small>{status}</small></span>)}
                 </div>
               </>
             )}
@@ -280,8 +305,8 @@ export function ProductDemo() {
                   <span className="mock-date">实时更新</span>
                 </div>
                 <div className="community-tabs">
-                  <button type="button" className={communityView === "friends" ? "active" : ""} onClick={() => { interact(); setCommunityView("friends"); }}>好友动态</button>
-                  <button type="button" className={communityView === "topics" ? "active" : ""} onClick={() => { interact(); setCommunityView("topics"); }}>热门话题</button>
+                  <button type="button" aria-pressed={communityView === "friends"} className={communityView === "friends" ? "active" : ""} onClick={() => { interact(); setCommunityView("friends"); }}>好友动态</button>
+                  <button type="button" aria-pressed={communityView === "topics"} className={communityView === "topics" ? "active" : ""} onClick={() => { interact(); setCommunityView("topics"); }}>热门话题</button>
                 </div>
                 {communityView === "friends" ? (
                   <div className="timeline-list">
@@ -329,7 +354,7 @@ export function ProductDemo() {
 
       <div className={`floating-card floating-sync ${syncVisible ? "visible" : ""}`} role="status">
         <span className="float-icon">✓</span>
-        <div><b>进度已同步</b><small>{currentShow.title} · 第 {currentEpisode} 话</small></div>
+        <div><b>演示进度已更新</b><small>{lastMarked?.title} · 第 {lastMarked?.episode} 话</small></div>
       </div>
       <div className="floating-card floating-score">
         <small>{activeTab === "community" ? "今日社区动态" : "当前条目评分"}</small>
@@ -337,6 +362,11 @@ export function ProductDemo() {
       </div>
       <div className="demo-pagination" aria-hidden="true">
         {tabs.map((tab) => <i className={activeTab === tab.id ? "active" : ""} key={tab.id} />)}
+      </div>
+      <div className="demo-controls">
+        <div aria-label="演示页面选择">{tabs.map((tab) => <button type="button" key={tab.id} aria-pressed={activeTab === tab.id} onClick={() => selectTab(tab.id)}>演示{tab.label}</button>)}</div>
+        <button type="button" className="demo-play" aria-pressed={autoPlay} onClick={() => setAutoPlay((value) => !value)}>{autoPlay ? "停止轮播" : "开启轮播"}</button>
+        <p>仅为交互示意 · 示例数据不会连接真实账号</p>
       </div>
     </div>
   );
