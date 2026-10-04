@@ -33,6 +33,14 @@ try {
         throw 'Runtime exception accepted a different file or digest'
     }
     $passed++
+    foreach ($privateRoot in @(Get-WindowsPackagePrivateRoots)) {
+        $stream = [IO.MemoryStream]::new([Text.Encoding]::ASCII.GetBytes($privateRoot + '/private/source.cpp'))
+        $rejected = $false
+        try { Assert-NoSqlitePayload $stream 'native_plugin.dll' } catch { $rejected = $true }
+        finally { $stream.Dispose() }
+        if (-not $rejected) { throw 'Actual developer checkout or user profile path passed' }
+        $passed++
+    }
     foreach ($encoding in @([Text.Encoding]::ASCII, [Text.Encoding]::Unicode)) {
         foreach ($prefixLength in @(0, 65543)) {
             $publicPath = 'C:' + '/Users/' + 'runneradmin/.cargo/registry/src/example/src/lib.rs'

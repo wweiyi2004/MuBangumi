@@ -36,6 +36,22 @@ function Get-PublicRuntimeBuildPrefixes {
     return @()
 }
 
+function Get-WindowsPackagePrivateRoots {
+    if (-not $script:MuPackagePrivateRoots) {
+        $sourceRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
+        # A release worktree uses a neutral build directory. Check the actual
+        # developer checkout, so generated registrant URIs in that neutral
+        # directory are not misclassified as personal user data.
+        $commonDirectory = & git -C $sourceRoot rev-parse --path-format=absolute --git-common-dir 2>$null
+        if ($LASTEXITCODE -eq 0 -and $commonDirectory -and (Split-Path $commonDirectory -Leaf) -eq '.git') {
+            $sourceRoot = Split-Path $commonDirectory -Parent
+        }
+        $script:MuPackagePrivateRoots = @($sourceRoot, $env:USERPROFILE) |
+            Where-Object { $_ } | ForEach-Object { $_.Replace('\', '/').ToLowerInvariant() }
+    }
+    return $script:MuPackagePrivateRoots
+}
+
 function Assert-NoSqlitePayload {
     param([IO.Stream]$Stream, [string]$Name, [string[]]$PublicBuildPrefixes = @())
     $header = New-Object byte[] 16
@@ -51,8 +67,7 @@ function Assert-NoSqlitePayload {
     # Scan runtime binaries too: native diagnostics can embed the build user's
     # absolute paths even when the ZIP contains no private files. Keep a tail to
     # catch ASCII and UTF-16 strings spanning read boundaries. Never echo data.
-    $privateRoots = @([IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..')), $env:USERPROFILE) |
-        Where-Object { $_ } | ForEach-Object { $_.Replace('\', '/').ToLowerInvariant() }
+    $privateRoots = @(Get-WindowsPackagePrivateRoots)
     $tail = [Text.Encoding]::ASCII.GetString($header, 0, $read)
     $buffer = New-Object byte[] 65536
     do {
