@@ -156,12 +156,17 @@ try {
     $fixture.FailBuild = $false
     $passed++
 
+    $shorebirdCallStart = $fixture.Calls.Count
     Invoke-FixtureBuild -Target apk -Shorebird -BuildNumber 25
+    Assert-True ($fixture.Calls[$shorebirdCallStart] -contains '--enforce-lockfile') 'Shorebird release must enforce the dependency lock'
+    Assert-True ($fixture.Calls[$shorebirdCallStart + 1] -contains '--config-only' -and $fixture.Calls[$shorebirdCallStart + 1] -contains '--release') 'Shorebird release reused Debug plugin registration'
     Assert-True ($fixture.Calls[-1] -contains '--artifact=apk') 'Shorebird APK artifact option lost'
+    Assert-True (@($fixture.Calls[-1] | Where-Object { $_ -like '--split-debug-info=*' }).Count -eq 1) 'New Shorebird baseline must separate debugging information'
     Assert-True ($fixture.Calls[-1] -notcontains '--split-per-abi') 'Existing Shorebird compilation changed'
     Invoke-FixtureBuild -Target apk -Patch -ReleaseVersion '2.2.0+24' -DryRun
     Assert-True ($fixture.Calls[-1] -contains '--release-version=2.2.0+24') 'Patch baseline lost'
     Assert-True ($fixture.Calls[-1] -contains '--dry-run') 'Patch dry run lost'
+    Assert-True (@($fixture.Calls[-1] | Where-Object { $_ -like '--split-debug-info=*' }).Count -eq 0) 'Existing patch compilation options changed'
     $rejected = $false
     try { Invoke-FixtureBuild -Target apk -Patch -ReleaseVersion '2.2.0+24' -BuildNumber 25 } catch { $rejected = $true }
     Assert-True $rejected 'Patch accepted a conflicting build version'

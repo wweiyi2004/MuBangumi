@@ -25,6 +25,31 @@ function New-FixtureArchive {
 }
 
 try {
+    $knownDigest = '0177c65f93ce210580d8855ee69a4a46b36df97a7ac52c1f4ae1b731a812beee'
+    $publicPrefixes = @(Get-PublicRuntimeBuildPrefixes 'flutter_windows.dll' $knownDigest)
+    if ($publicPrefixes.Count -ne 1) { throw 'Known official runtime was not identified' }
+    if (@(Get-PublicRuntimeBuildPrefixes 'native_plugin.dll' $knownDigest).Count -ne 0 -or
+        @(Get-PublicRuntimeBuildPrefixes 'flutter_windows.dll' ('0' * 64)).Count -ne 0) {
+        throw 'Runtime exception accepted a different file or digest'
+    }
+    $passed++
+    foreach ($encoding in @([Text.Encoding]::ASCII, [Text.Encoding]::Unicode)) {
+        foreach ($prefixLength in @(0, 65543)) {
+            $publicPath = 'C:' + '/Users/' + 'runneradmin/.cargo/registry/src/example/src/lib.rs'
+            $payload = [byte[]]::new($prefixLength) + $encoding.GetBytes($publicPath)
+            $stream = [IO.MemoryStream]::new($payload)
+            try { Assert-NoSqlitePayload $stream 'flutter_windows.dll' $publicPrefixes } finally { $stream.Dispose() }
+            foreach ($privatePath in @(('C:' + '/Users/' + 'synthetic-person/source.cpp'), (Join-Path $env:USERPROFILE 'private/source.cpp'))) {
+                $payload = [byte[]]::new($prefixLength) + $encoding.GetBytes($publicPath + ' ' + $privatePath)
+                $stream = [IO.MemoryStream]::new($payload)
+                $rejected = $false
+                try { Assert-NoSqlitePayload $stream 'flutter_windows.dll' $publicPrefixes } catch { $rejected = $true }
+                finally { $stream.Dispose() }
+                if (-not $rejected) { throw 'Public SDK diagnostics masked a private path' }
+            }
+            $passed++
+        }
+    }
     $clean = Join-Path $testRoot 'clean.zip'
     New-FixtureArchive $clean
     Assert-WindowsPackageArchive $clean

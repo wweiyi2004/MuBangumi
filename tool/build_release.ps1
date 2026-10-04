@@ -121,6 +121,27 @@ try {
         if (-not (Get-Command shorebird -ErrorAction SilentlyContinue)) {
             throw '未找到 Shorebird CLI，请先安装并完成 shorebird login。'
         }
+        if (-not $Patch) {
+            # Full verification restores Debug plugin metadata. A new release
+            # must regenerate Release registrants before Shorebird's --no-pub
+            # build, so integration_test is never registered in the APK.
+            $lockedDependencies = @{}
+            foreach ($lock in @('pubspec.lock', 'packages/banjian_server/pubspec.lock')) {
+                if (Test-Path -LiteralPath $lock) {
+                    $lockedDependencies[$lock] = (Get-FileHash -LiteralPath $lock -Algorithm SHA256).Hash
+                }
+            }
+            Invoke-MuFlutter -Arguments @('pub', 'get', '--enforce-lockfile')
+            if ($LASTEXITCODE) { throw 'Locked Shorebird dependency preparation failed.' }
+            $configurationTarget = if ($Target -eq 'appbundle') { 'apk' } else { $Target }
+            Invoke-MuFlutter -Arguments (@('build', $configurationTarget, '--release', '--config-only') + $versionArguments)
+            if ($LASTEXITCODE) { throw 'Shorebird Release plugin configuration failed.' }
+            foreach ($lock in $lockedDependencies.Keys) {
+                if ((Get-FileHash -LiteralPath $lock -Algorithm SHA256).Hash -ne $lockedDependencies[$lock]) {
+                    throw "Dependency lock changed while preparing Shorebird Release plugins: $lock"
+                }
+            }
+        }
         $platform = if ($Target -eq 'windows') { 'windows' } else { 'android' }
         $arguments = if ($Patch) {
             @('patch', $platform, "--release-version=$ReleaseVersion")
@@ -129,6 +150,11 @@ try {
         }
         if (-not $Patch -and $Target -eq 'apk') {
             $arguments += '--artifact=apk'
+        }
+        if (-not $Patch) {
+            $symbolDirectory = Join-Path $repositoryRoot ('release-symbols\shorebird-' + $Target + '-' + [guid]::NewGuid().ToString('N'))
+            New-Item -ItemType Directory -Path $symbolDirectory | Out-Null
+            $arguments += "--split-debug-info=$symbolDirectory"
         }
         if ($DryRun) {
             $arguments += '--dry-run'
