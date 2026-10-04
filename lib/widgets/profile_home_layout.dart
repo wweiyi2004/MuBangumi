@@ -1,6 +1,7 @@
 import '../core/theme/anime_icon.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/cupertino.dart';
+import 'package:flutter/rendering.dart';
 import 'community_widgets.dart';
 import 'bounded_image.dart';
 import 'retained_tab_stack.dart';
@@ -68,10 +69,13 @@ class ProfileHomeLayout extends StatelessWidget {
                 child: NestedScrollView(
                   key: nestedKey,
                   headerSliverBuilder: (context, innerScrolled) => [
-                    SliverLayoutBuilder(
-                      builder: (context, constraints) {
-                        final visibility = (1 - constraints.scrollOffset / 250)
-                            .clamp(0.0, 1.0);
+                    _ProfileHeaderSliver(
+                      builder: (context, constraints, extent) {
+                        final visibility =
+                            (1 - constraints.scrollOffset / extent).clamp(
+                              0.0,
+                              1.0,
+                            );
                         return SliverToBoxAdapter(
                           child: IgnorePointer(
                             ignoring: visibility == 0,
@@ -85,7 +89,7 @@ class ProfileHomeLayout extends StatelessWidget {
                                     left: 0,
                                     right: 0,
                                     height: 230,
-                                    child: _SpaceCover(
+                                    child: ProfileSpaceCover(
                                       image: coverImage,
                                       paper: paper,
                                     ),
@@ -211,6 +215,7 @@ class ProfileHomeLayout extends StatelessWidget {
                                             ),
                                           ),
                                         ],
+                                        ?biography,
                                         const SizedBox(height: 10),
                                         Row(
                                           children: [
@@ -241,13 +246,6 @@ class ProfileHomeLayout extends StatelessWidget {
                         );
                       },
                     ),
-                    if (biography != null)
-                      SliverToBoxAdapter(
-                        child: Padding(
-                          padding: EdgeInsets.fromLTRB(inset, 0, inset, 12),
-                          child: biography,
-                        ),
-                      ),
                   ],
                   body: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -273,6 +271,31 @@ class ProfileHomeLayout extends StatelessWidget {
       ),
     );
   }
+}
+
+/// Measure the header's previous layout so introductions and large text cannot
+/// make its remaining visible controls disappear before the header leaves view.
+class _ProfileHeaderSliver extends StatefulWidget {
+  const _ProfileHeaderSliver({required this.builder});
+  final Widget Function(BuildContext, SliverConstraints, double) builder;
+  @override
+  State<_ProfileHeaderSliver> createState() => _ProfileHeaderSliverState();
+}
+
+class _ProfileHeaderSliverState extends State<_ProfileHeaderSliver> {
+  final _sliver = GlobalKey();
+  @override
+  Widget build(BuildContext context) => SliverLayoutBuilder(
+    builder: (context, constraints) {
+      final render =
+          _sliver.currentContext?.findRenderObject() as RenderSliver?;
+      final extent = render?.geometry?.scrollExtent ?? 400;
+      return KeyedSubtree(
+        key: _sliver,
+        child: widget.builder(context, constraints, extent > 0 ? extent : 400),
+      );
+    },
+  );
 }
 
 class _ProfileScrollFrame extends StatefulWidget {
@@ -385,8 +408,8 @@ class _ProfileScrollFrameState extends State<_ProfileScrollFrame> {
   }
 }
 
-class _SpaceCover extends StatelessWidget {
-  const _SpaceCover({this.image, required this.paper});
+class ProfileSpaceCover extends StatelessWidget {
+  const ProfileSpaceCover({super.key, this.image, required this.paper});
   final ImageProvider? image;
   final Color paper;
   @override
@@ -451,6 +474,111 @@ class _SpaceCover extends StatelessWidget {
           ),
         ),
       ],
+    );
+  }
+}
+
+/// The same soft cover and identity treatment as the personal space, with one feed.
+class PublicSpaceHeader extends StatelessWidget {
+  const PublicSpaceHeader({
+    super.key,
+    required this.nickname,
+    required this.username,
+    required this.avatarUrl,
+    this.sign = '',
+    this.biography,
+    this.footer,
+    this.loading = false,
+  });
+  final String nickname, username, avatarUrl, sign;
+  final Widget? biography, footer;
+  final bool loading;
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(24),
+      child: Stack(
+        children: [
+          Positioned(
+            top: 0,
+            left: 0,
+            right: 0,
+            height: 210,
+            child: ProfileSpaceCover(paper: scheme.surface),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 48, 20, 16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    DecoratedBox(
+                      decoration: BoxDecoration(
+                        color: scheme.surface,
+                        shape: BoxShape.circle,
+                        boxShadow: [
+                          BoxShadow(
+                            color: scheme.shadow.withValues(alpha: .08),
+                            blurRadius: 14,
+                            offset: const Offset(0, 4),
+                          ),
+                        ],
+                      ),
+                      child: Padding(
+                        padding: const EdgeInsets.all(4),
+                        child: CommunityAvatar(imageUrl: avatarUrl, radius: 38),
+                      ),
+                    ),
+                    const SizedBox(width: 16),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            nickname,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: Theme.of(context).textTheme.headlineSmall
+                                ?.copyWith(fontWeight: FontWeight.w700),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            '@$username',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: Theme.of(context).textTheme.bodySmall
+                                ?.copyWith(color: scheme.onSurfaceVariant),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+                if (sign.isNotEmpty) ...[
+                  const SizedBox(height: 14),
+                  Text(
+                    sign,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                      color: scheme.onSurfaceVariant,
+                    ),
+                  ),
+                ],
+                ?biography,
+                if (footer != null) ...[const SizedBox(height: 8), footer!],
+                if (loading) ...[
+                  const SizedBox(height: 10),
+                  const LinearProgressIndicator(minHeight: 2),
+                ],
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

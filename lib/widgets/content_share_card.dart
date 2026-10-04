@@ -59,13 +59,23 @@ class ContentShareCard extends StatelessWidget {
                 ),
                 const Spacer(),
                 Text(
-                  content.isTimeline ? '此刻的想法' : '值得相遇的作品',
+                  content.isCollection
+                      ? '把喜欢写进手账'
+                      : content.isTimeline
+                      ? '此刻的想法'
+                      : '值得相遇的作品',
                   style: const TextStyle(fontSize: 14, color: muted),
                 ),
               ],
             ),
             const SizedBox(height: 26),
-            Expanded(child: content.isTimeline ? _timeline() : _subject()),
+            Expanded(
+              child: content.isCollection
+                  ? _collection()
+                  : content.isTimeline
+                  ? _timeline()
+                  : _subject(),
+            ),
             const SizedBox(height: 22),
             const Divider(height: 1, color: Color(0xFFE3E7EF)),
             const SizedBox(height: 18),
@@ -222,6 +232,74 @@ class ContentShareCard extends StatelessWidget {
                 style: const TextStyle(fontSize: 15, height: 1.6),
               ),
             ],
+          ],
+        ),
+      ),
+    ],
+  );
+
+  Widget _collection() => Column(
+    crossAxisAlignment: CrossAxisAlignment.stretch,
+    children: [
+      Text(
+        content.title,
+        maxLines: 2,
+        overflow: TextOverflow.ellipsis,
+        style: const TextStyle(
+          fontSize: 32,
+          fontWeight: FontWeight.w800,
+          height: 1.25,
+        ),
+      ),
+      const SizedBox(height: 8),
+      Text(
+        '${content.subtitle} · ${content.detail}',
+        maxLines: 2,
+        overflow: TextOverflow.ellipsis,
+        style: const TextStyle(fontSize: 16, color: muted),
+      ),
+      const SizedBox(height: 24),
+      Row(
+        children: [
+          for (final metric in content.metrics)
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    metric.value,
+                    style: const TextStyle(
+                      fontSize: 36,
+                      fontWeight: FontWeight.w800,
+                      color: accent,
+                    ),
+                  ),
+                  Text(
+                    metric.label,
+                    style: const TextStyle(fontSize: 16, color: muted),
+                  ),
+                ],
+              ),
+            ),
+        ],
+      ),
+      const SizedBox(height: 24),
+      Expanded(
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (content.imageUrl.isNotEmpty) ...[
+              _cover(132, 186),
+              const SizedBox(width: 24),
+            ],
+            Expanded(
+              child: Text(
+                content.excerpt,
+                maxLines: 7,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(fontSize: 18, height: 1.7),
+              ),
+            ),
           ],
         ),
       ),

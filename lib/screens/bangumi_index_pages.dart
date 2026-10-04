@@ -586,62 +586,88 @@ class _IndexDetailState extends ConsumerState<BangumiIndexDetailPage> {
                       ),
                     if (index.description.isNotEmpty)
                       CommunityRichContent(index.description),
-                    Wrap(
-                      spacing: 8,
-                      children: [
-                        if (!index.isPrivate)
-                          OutlinedButton.icon(
-                            onPressed: _share,
-                            icon: const AnimeIcon(
-                              Icons.ios_share_rounded,
-                              size: 18,
+                    SingleChildScrollView(
+                      scrollDirection: Axis.horizontal,
+                      child: Row(
+                        key: const Key('index-action-row'),
+                        spacing: 6,
+                        children: [
+                          if (!index.isPrivate)
+                            OutlinedButton.icon(
+                              style: OutlinedButton.styleFrom(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 6,
+                                ),
+                              ),
+                              onPressed: _share,
+                              icon: const AnimeIcon(
+                                Icons.ios_share_rounded,
+                                size: 18,
+                              ),
+                              label: const Text('分享'),
                             ),
-                            label: const Text('分享番剧单'),
-                          ),
-                        if (_service.isAuthenticated)
-                          FilledButton.tonalIcon(
-                            onPressed: _busy
-                                ? null
-                                : () => _write(
-                                    () => _service.collectIndex(
-                                      widget.indexId,
-                                      !index.collected,
+                          if (_service.isAuthenticated)
+                            FilledButton.tonalIcon(
+                              style: FilledButton.styleFrom(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 6,
+                                ),
+                              ),
+                              onPressed: _busy
+                                  ? null
+                                  : () => _write(
+                                      () => _service.collectIndex(
+                                        widget.indexId,
+                                        !index.collected,
+                                      ),
                                     ),
-                                  ),
-                            icon: AnimeIcon(
-                              index.collected
-                                  ? Icons.bookmark_rounded
-                                  : Icons.bookmark_border_rounded,
+                              icon: AnimeIcon(
+                                index.collected
+                                    ? Icons.bookmark_rounded
+                                    : Icons.bookmark_border_rounded,
+                              ),
+                              label: Text(index.collected ? '已收藏' : '收藏'),
                             ),
-                            label: Text(index.collected ? '已收藏目录' : '收藏目录'),
-                          ),
-                        if (owner)
-                          TextButton.icon(
-                            onPressed: _busy
-                                ? null
-                                : () async {
-                                    final identity = _service.identityRevision;
-                                    final result = await _showIndexEditor(
-                                      context,
-                                      _service,
-                                      original: index,
-                                    );
-                                    if (mounted &&
-                                        result != null &&
-                                        identity == _service.identityRevision) {
-                                      _load(reset: true);
-                                    }
-                                  },
-                            icon: const AnimeIcon(Icons.edit_rounded),
-                            label: const Text('编辑番剧单'),
-                          ),
-                        if (owner)
-                          TextButton.icon(
-                            onPressed: _busy ? null : _add,
-                            icon: const AnimeIcon(Icons.add_rounded),
-                            label: const Text('添加作品'),
-                          ),
-                      ],
+                          if (owner)
+                            TextButton.icon(
+                              style: TextButton.styleFrom(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 6,
+                                ),
+                              ),
+                              onPressed: _busy
+                                  ? null
+                                  : () async {
+                                      final identity =
+                                          _service.identityRevision;
+                                      final result = await _showIndexEditor(
+                                        context,
+                                        _service,
+                                        original: index,
+                                      );
+                                      if (mounted &&
+                                          result != null &&
+                                          identity ==
+                                              _service.identityRevision) {
+                                        _load(reset: true);
+                                      }
+                                    },
+                              icon: const AnimeIcon(Icons.edit_rounded),
+                              label: const Text('编辑'),
+                            ),
+                          if (owner)
+                            TextButton.icon(
+                              style: TextButton.styleFrom(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 6,
+                                ),
+                              ),
+                              onPressed: _busy ? null : _add,
+                              icon: const AnimeIcon(Icons.add_rounded),
+                              label: const Text('添加'),
+                            ),
+                        ],
+                      ),
                     ),
                     Wrap(
                       spacing: 8,

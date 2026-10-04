@@ -1,4 +1,4 @@
-import '../widgets/bounded_image.dart';
+import '../widgets/profile_home_layout.dart';
 import '../widgets/user_biography.dart';
 import '../core/theme/anime_icon.dart';
 import '../state/service_providers.dart';
@@ -332,7 +332,7 @@ class _UserProfilePageState extends ConsumerState<UserProfilePage> {
         .preferenceFor(widget.username);
     return Scaffold(
       appBar: AppBar(
-        title: Text(user?.displayName ?? widget.username),
+        title: Text(_isSelf ? '我的空间' : '好友空间'),
         actions: [
           if (!_isSelf)
             IconButton(
@@ -388,81 +388,27 @@ class _UserProfilePageState extends ConsumerState<UserProfilePage> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Card(
-                      child: Padding(
-                        padding: const EdgeInsets.all(16),
-                        child: Row(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            CircleAvatar(
-                              radius: 34,
-                              backgroundColor: scheme.primaryContainer,
-                              backgroundImage:
-                                  user == null || user.avatarUrl.isEmpty
-                                  ? null
-                                  : boundedAvatarProvider(
-                                      context,
-                                      user.avatarUrl,
-                                      diameter: 68,
-                                    ),
-                              child: user == null || user.avatarUrl.isEmpty
-                                  ? Text(
-                                      (user?.displayName ?? widget.username)
-                                          .characters
-                                          .first
-                                          .toUpperCase(),
-                                      style: Theme.of(
-                                        context,
-                                      ).textTheme.headlineSmall,
-                                    )
-                                  : null,
-                            ),
-                            const SizedBox(width: 14),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    user?.displayName ?? widget.username,
-                                    style: Theme.of(
-                                      context,
-                                    ).textTheme.headlineSmall,
-                                  ),
-                                  Text(
-                                    '@${user?.username ?? widget.username}',
-                                    style: TextStyle(
-                                      color: scheme.onSurfaceVariant,
-                                    ),
-                                  ),
-                                  if ((user?.sign ?? '').isNotEmpty) ...[
-                                    const SizedBox(height: 8),
-                                    Text(user!.sign),
-                                  ],
-                                  UserBiography(
-                                    username: user?.username ?? widget.username,
-                                  ),
-                                  TextButton.icon(
-                                    onPressed: () => Navigator.of(context).push(
-                                      MaterialPageRoute<void>(
-                                        builder: (_) => IndexListRoute(
-                                          username:
-                                              user?.username ?? widget.username,
-                                        ),
-                                      ),
-                                    ),
-                                    icon: const AnimeIcon(
-                                      Icons.list_alt_rounded,
-                                    ),
-                                    label: const Text('TA 的番剧单'),
-                                  ),
-                                  if (_loadingProfile) ...[
-                                    const SizedBox(height: 10),
-                                    const LinearProgressIndicator(minHeight: 2),
-                                  ],
-                                ],
+                    PublicSpaceHeader(
+                      nickname: user?.displayName ?? widget.username,
+                      username: user?.username ?? widget.username,
+                      avatarUrl: user?.avatarUrl ?? '',
+                      sign: user?.sign ?? '',
+                      biography: UserBiography(
+                        username: user?.username ?? widget.username,
+                      ),
+                      loading: _loadingProfile,
+                      footer: Align(
+                        alignment: Alignment.centerLeft,
+                        child: TextButton.icon(
+                          onPressed: () => Navigator.of(context).push(
+                            MaterialPageRoute<void>(
+                              builder: (_) => IndexListRoute(
+                                username: user?.username ?? widget.username,
                               ),
                             ),
-                          ],
+                          ),
+                          icon: const AnimeIcon(Icons.list_alt_rounded),
+                          label: const Text('TA 的番剧单'),
                         ),
                       ),
                     ),

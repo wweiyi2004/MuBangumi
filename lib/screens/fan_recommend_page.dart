@@ -13,6 +13,7 @@ import '../state/recommendation_feedback_controller.dart';
 import '../widgets/recommendation_feedback_sheet.dart';
 import '../state/session_controller.dart';
 import '../widgets/subject_widgets.dart';
+import '../widgets/anime_lottery_panel.dart';
 
 /// 番会荐 — personal Bangumi recommendations from taste + free-form wishes.
 class FanRecommendPage extends ConsumerStatefulWidget {
@@ -368,6 +369,8 @@ class _FanRecommendPageState extends ConsumerState<FanRecommendPage> {
         children: [
           _HeroBanner(taste: taste),
           const SizedBox(height: 10),
+          const AnimeLotteryPanel(),
+          const SizedBox(height: 16),
           SegmentedButton<bool>(
             segments: const [
               ButtonSegment(
