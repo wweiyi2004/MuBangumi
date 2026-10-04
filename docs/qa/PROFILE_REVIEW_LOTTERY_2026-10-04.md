@@ -26,4 +26,14 @@
 
 合成数据视觉检查生成在 `.dart_tool`，不含真实账号或网站会话：概览、回顾、分享弹框、好友空间和封面画廊。封面长按保存用模拟文件选择器验证，不访问真实接收者或进行社区写入。
 
-最终运行 `tool/verify_all.ps1 -Mode Quick`；以对应 `.dart_tool/verification/*/results.json` 和日志为最终检查记录。未执行移动设备、真实账号、系统相册、其他应用接收分享或云端验收；本次不构建或发布安装包。
+功能编辑阶段运行 `tool/verify_all.ps1 -Mode Quick`，检查记录保存在对应 `.dart_tool/verification/*/results.json` 和日志中。官网已有的 7 项间接依赖高风险告警未修复，官网代码未随本次客户端调整。
+
+## 2.4.3+4033 发布检查
+
+后续按维护者指令建立并发布 Android / Windows Shorebird 新基线，记录 873908，两平台状态均为 active，旧 2.3.1+4029 基线继续保留。发布使用独立、已提交的干净源码，原开发目录的工作及本地资料保持原样。
+
+- 固定工具链下，客户端及发布工具范围的 `tool/verify_all.ps1 -Mode Full -Areas flutter,tools -WindowsSmoke` 共 16 项检查通过，客户端测试 1675 项通过。
+- GitHub 云端源码隐私、分析及测试流程，Android / Windows / iOS 模拟器编译均通过。云端编译不代表设备体验验收。
+- Android 通用 APK 的三种架构均与实际上传 AAB 的 `libapp.so` 一致；版本号 2.4.3、构建号 4033，签名与上一版一致。Windows ZIP 从实际上传的构建产物打包，并通过文件隐私检查。
+- 真人 OAuth、验证码、会话与账号切换、专用收件人私信、小组写入、移动设备体验、文件对话框、通知送达及覆盖安装仍未人工验收。维护者在知悉延期项后要求先行发布，验收记录保留为未执行，没有将这些项目记作通过。
+- 安装包、SHA-256、来源标识及实际检查范围见 [2.4.3 发行页](https://github.com/wweiyi2004/MuBangumi/releases/tag/v2.4.3%2B4033) 的 `provenance.json`、`verification.json` 和 `SHA256SUMS.txt`。本版需先安装新整包，后续才可接收 2.4.3+4033 热补丁。
