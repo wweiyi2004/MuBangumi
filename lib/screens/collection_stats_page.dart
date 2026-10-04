@@ -16,6 +16,8 @@ import '../models/bangumi_models.dart';
 import '../models/collection_coverage.dart';
 import '../widgets/subject_widgets.dart';
 import '../core/theme/app_tokens.dart';
+import '../core/sharing/share_content.dart';
+import '../widgets/content_share_sheet.dart';
 
 enum _ExportAction { save, share }
 
@@ -55,6 +57,8 @@ class _CollectionStatsPageState extends State<CollectionStatsPage> {
   CollectionYearReview? _review;
   SubjectType? _subjectType;
   bool _annual = false;
+  int _overviewSection = 0;
+  int _annualSection = 0;
   int? _month;
   int? _year;
   CollectionMemoryOrder _order = CollectionMemoryOrder.highest;
@@ -238,6 +242,24 @@ class _CollectionStatsPageState extends State<CollectionStatsPage> {
         title: const Text('统计与回顾'),
         actions: [
           IconButton(
+            tooltip: _annual ? '分享年度回顾' : '分享收藏概览',
+            onPressed: () => showContentShareSheet(
+              context,
+              ShareContent.collection(
+                username: widget.username,
+                displayName: _name,
+                collections: widget.collections,
+                subjectType: _subjectType,
+                year: _annual ? _year : null,
+                partial:
+                    widget.isLoading ||
+                    widget.isCached ||
+                    widget.coverage?.isComplete == false,
+              ),
+            ),
+            icon: const AnimeIcon(Icons.ios_share_rounded),
+          ),
+          IconButton(
             key: _exportButtonKey,
             tooltip: '导出收藏数据',
             onPressed: _exporting || _choosingExport ? null : _exportJson,
@@ -384,39 +406,58 @@ class _CollectionStatsPageState extends State<CollectionStatsPage> {
         ? '这里收下了你记录的 ${_statistics.total} 部${types.first.key.label}。'
         : '你记录了 ${types.length} 种类型，${types.first.key.label}在其中占了 ${(types.first.value / _statistics.total * 100).round()}%。';
     return [
-      _LedgerHeading(
-        title: '$_name 的收藏手账',
-        description: personalLine,
-        action: TextButton.icon(
-          onPressed: _filtered.isEmpty
-              ? null
-              : () => _browse('全部收藏', _filtered),
-          icon: const AnimeIcon(Icons.view_list_rounded),
-          label: const Text('浏览收藏记录'),
+      Container(
+        padding: const EdgeInsets.all(18),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(24),
+          gradient: LinearGradient(
+            colors: [
+              Theme.of(
+                context,
+              ).colorScheme.primaryContainer.withValues(alpha: .55),
+              Theme.of(context).colorScheme.surfaceContainerLow,
+            ],
+          ),
         ),
-      ),
-      const SizedBox(height: 16),
-      InsightMetrics(
-        children: [
-          _LedgerMetric(
-            label: widget.coverage?.isComplete == false ? '已加载收藏' : '总收藏',
-            value: '${_statistics.total}',
-          ),
-          _LedgerMetric(
-            label: '留下评分',
-            value: '${_statistics.ratedTotal}',
-            detail: _statistics.total == 0
-                ? '等待你的第一笔评价'
-                : '占收藏的 ${(_statistics.ratedTotal / _statistics.total * 100).round()}%',
-          ),
-          _LedgerMetric(
-            label: '你的平均分',
-            value: _statistics.ratedTotal == 0
-                ? '—'
-                : _statistics.averageRating.toStringAsFixed(1),
-            detail: '未评分作品不计入',
-          ),
-        ],
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            _LedgerHeading(
+              title: '$_name 的收藏手账',
+              description: personalLine,
+              action: TextButton.icon(
+                onPressed: _filtered.isEmpty
+                    ? null
+                    : () => _browse('全部收藏', _filtered),
+                icon: const AnimeIcon(Icons.view_list_rounded),
+                label: const Text('浏览收藏记录'),
+              ),
+            ),
+            const SizedBox(height: 16),
+            _CompactLedgerMetrics(
+              children: [
+                _LedgerMetric(
+                  label: widget.coverage?.isComplete == false ? '已加载收藏' : '总收藏',
+                  value: '${_statistics.total}',
+                ),
+                _LedgerMetric(
+                  label: '留下评分',
+                  value: '${_statistics.ratedTotal}',
+                  detail: _statistics.total == 0
+                      ? '等待你的第一笔评价'
+                      : '占收藏的 ${(_statistics.ratedTotal / _statistics.total * 100).round()}%',
+                ),
+                _LedgerMetric(
+                  label: '你的平均分',
+                  value: _statistics.ratedTotal == 0
+                      ? '—'
+                      : _statistics.averageRating.toStringAsFixed(1),
+                  detail: '未评分作品不计入',
+                ),
+              ],
+            ),
+          ],
+        ),
       ),
       const SizedBox(height: 16),
       Wrap(
@@ -457,6 +498,12 @@ class _CollectionStatsPageState extends State<CollectionStatsPage> {
           child: Text('收藏、评分和标签，会让这里逐渐成为你的作品地图。'),
         )
       else ...[
+        const SizedBox(height: 16),
+        _sectionTabs(
+          const ['收藏分布', '评分习惯', '喜好标签'],
+          _overviewSection,
+          (value) => setState(() => _overviewSection = value),
+        ),
         LayoutBuilder(
           builder: (context, constraints) {
             final composition = InsightSection(
@@ -515,17 +562,17 @@ class _CollectionStatsPageState extends State<CollectionStatsPage> {
                       ],
                     ),
                   );
-            if (constraints.maxWidth < 800) {
-              return Column(children: [composition, ratings, tagSection]);
-            }
-            return Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Expanded(child: Column(children: [composition, tagSection])),
-                const SizedBox(width: 24),
-                Expanded(child: ratings),
-              ],
-            );
+            return switch (_overviewSection) {
+              0 => composition,
+              1 => ratings,
+              _ =>
+                tags.isEmpty
+                    ? const InsightSection(
+                        title: '你常用的标签',
+                        child: Text('为收藏添加标签，在这里发现自己的喜好。'),
+                      )
+                    : tagSection,
+            };
           },
         ),
       ],
@@ -539,71 +586,90 @@ class _CollectionStatsPageState extends State<CollectionStatsPage> {
     final tag = stats.tagCounts.entries.firstOrNull;
     final peaks = review.peakMonths;
     return [
-      Text(
-        review.items.isEmpty
-            ? '这一年，暂时还没有可回顾的记录。'
-            : '${review.items.length} 条收藏更新，分布在 ${review.activeMonths} 个月里。${tag == null ? '' : '常用标签「${tag.key}」。'}',
-        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-          color: Theme.of(context).colorScheme.onSurfaceVariant,
+      Container(
+        padding: const EdgeInsets.all(18),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(24),
+          gradient: LinearGradient(
+            colors: [
+              Theme.of(
+                context,
+              ).colorScheme.primaryContainer.withValues(alpha: .55),
+              Theme.of(context).colorScheme.surfaceContainerLow,
+            ],
+          ),
         ),
-      ),
-      const SizedBox(height: 10),
-      Wrap(
-        spacing: 8,
-        runSpacing: 8,
-        children: [
-          if (stats.ratedTotal > 0)
-            Text(
-              '最高 ${review.items.first.rate} 分',
-              style: TextStyle(
-                color: Theme.of(context).colorScheme.primary,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-          if (peaks.isNotEmpty)
-            Text(
-              peaks.length == 1
-                  ? '${peaks.first} 月更新最活跃'
-                  : '${peaks.length} 个月并列最活跃',
-            ),
-        ],
-      ),
-      const SizedBox(height: 16),
-      Tooltip(
-        message:
-            '按收藏最后更新时间归档，不代表实际观看、游玩或完成日期；修改旧收藏可能改变归属年份。'
-            '${_statistics.undatedTotal == 0 ? '' : '另有 ${_statistics.undatedTotal} 条无日期记录，仅计入收藏概览。'}',
-        child: Row(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            AnimeIcon(
-              Icons.info_outline_rounded,
-              size: 14,
-              color: Theme.of(context).colorScheme.onSurfaceVariant,
-            ),
-            const SizedBox(width: 6),
-            Expanded(
-              child: Text(
-                '按收藏最后更新时间归档${_statistics.undatedTotal == 0 ? '' : ' · ${_statistics.undatedTotal} 条无日期记录未归档'}',
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  color: Theme.of(context).colorScheme.onSurfaceVariant,
-                ),
+            Text(
+              review.items.isEmpty
+                  ? '这一年，暂时还没有可回顾的记录。'
+                  : '${review.items.length} 条收藏更新，分布在 ${review.activeMonths} 个月里。${tag == null ? '' : '常用标签「${tag.key}」。'}',
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
               ),
+            ),
+            const SizedBox(height: 10),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                if (stats.ratedTotal > 0)
+                  Text(
+                    '最高 ${review.items.first.rate} 分',
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.primary,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                if (peaks.isNotEmpty)
+                  Text(
+                    peaks.length == 1
+                        ? '${peaks.first} 月更新最活跃'
+                        : '${peaks.length} 个月并列最活跃',
+                  ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            Tooltip(
+              message:
+                  '按收藏最后更新时间归档，不代表实际观看、游玩或完成日期；修改旧收藏可能改变归属年份。'
+                  '${_statistics.undatedTotal == 0 ? '' : '另有 ${_statistics.undatedTotal} 条无日期记录，仅计入收藏概览。'}',
+              child: Row(
+                children: [
+                  AnimeIcon(
+                    Icons.info_outline_rounded,
+                    size: 14,
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  ),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      '按收藏最后更新时间归档${_statistics.undatedTotal == 0 ? '' : ' · ${_statistics.undatedTotal} 条无日期记录未归档'}',
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 18),
+            _CompactLedgerMetrics(
+              children: [
+                _LedgerMetric(label: '收藏更新', value: '${stats.total}'),
+                _LedgerMetric(label: '其中已评分', value: '${stats.ratedTotal}'),
+                _LedgerMetric(
+                  label: '你的平均分',
+                  value: stats.ratedTotal == 0
+                      ? '—'
+                      : stats.averageRating.toStringAsFixed(1),
+                ),
+              ],
             ),
           ],
         ),
-      ),
-      const SizedBox(height: 18),
-      InsightMetrics(
-        children: [
-          _LedgerMetric(label: '收藏更新', value: '${stats.total}'),
-          _LedgerMetric(label: '其中已评分', value: '${stats.ratedTotal}'),
-          _LedgerMetric(
-            label: '你的平均分',
-            value: stats.ratedTotal == 0
-                ? '—'
-                : stats.averageRating.toStringAsFixed(1),
-          ),
-        ],
       ),
       if (review.items.isNotEmpty) ...[
         Padding(
@@ -641,110 +707,141 @@ class _CollectionStatsPageState extends State<CollectionStatsPage> {
             ],
           ),
         ),
-        InsightSection(
-          title: '这一年的记录节奏',
-          subtitle: '点击月份，翻看当时更新的收藏',
-          child: _MonthActivity(
-            counts: review.months,
-            selected: _month,
-            onSelected: (month) =>
-                setState(() => _month = _month == month ? null : month),
-          ),
+        const SizedBox(height: 16),
+        _sectionTabs(
+          const ['月度足迹', '收藏片段'],
+          _annualSection,
+          (value) => setState(() => _annualSection = value),
         ),
-        InsightSection(
-          title: _month == null ? '你的评分与收藏片段' : '$_month 月的收藏片段',
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Wrap(
-                spacing: 12,
-                runSpacing: 8,
-                crossAxisAlignment: WrapCrossAlignment.center,
-                children: [
-                  DropdownButton<CollectionMemoryOrder>(
-                    borderRadius: BorderRadius.circular(16),
-                    dropdownColor: Theme.of(context).colorScheme.surface,
-                    value: _order,
-                    items: [
-                      for (final order in CollectionMemoryOrder.values)
-                        DropdownMenuItem(
-                          value: order,
-                          child: Text(order.label),
-                        ),
-                    ],
-                    onChanged: (order) {
-                      if (order != null) setState(() => _order = order);
-                    },
-                  ),
-                  TextButton.icon(
-                    onPressed: selected.isEmpty
-                        ? null
-                        : () => _browse(
-                            '$_year 年${_month == null ? '' : ' $_month 月'}的收藏',
-                            selected,
+        if (_annualSection == 0)
+          InsightSection(
+            title: '这一年的记录节奏',
+            subtitle: '点击月份，翻看当时更新的收藏',
+            child: _MonthActivity(
+              counts: review.months,
+              selected: _month,
+              onSelected: (month) => setState(() {
+                _month = _month == month ? null : month;
+                _annualSection = 1;
+              }),
+            ),
+          ),
+        if (_annualSection == 1)
+          InsightSection(
+            title: _month == null ? '你的评分与收藏片段' : '$_month 月的收藏片段',
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Wrap(
+                  spacing: 12,
+                  runSpacing: 8,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  children: [
+                    DropdownButton<CollectionMemoryOrder>(
+                      borderRadius: BorderRadius.circular(16),
+                      dropdownColor: Theme.of(context).colorScheme.surface,
+                      value: _order,
+                      items: [
+                        for (final order in CollectionMemoryOrder.values)
+                          DropdownMenuItem(
+                            value: order,
+                            child: Text(order.label),
                           ),
-                    icon: const AnimeIcon(Icons.search_rounded),
-                    label: Text('查看全部 ${selected.length} 条'),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 12),
-              if (_month != null)
-                Align(
-                  alignment: Alignment.centerLeft,
-                  child: ActionChip(
-                    label: const Text('查看全年'),
-                    avatar: const AnimeIcon(Icons.close_rounded, size: 16),
-                    onPressed: () => setState(() => _month = null),
-                  ),
+                      ],
+                      onChanged: (order) {
+                        if (order != null) setState(() => _order = order);
+                      },
+                    ),
+                    TextButton.icon(
+                      onPressed: selected.isEmpty
+                          ? null
+                          : () => _browse(
+                              '$_year 年${_month == null ? '' : ' $_month 月'}的收藏',
+                              selected,
+                            ),
+                      icon: const AnimeIcon(Icons.search_rounded),
+                      label: Text('查看全部 ${selected.length} 条'),
+                    ),
+                  ],
                 ),
-              if (selected.isEmpty)
-                const Padding(
-                  padding: EdgeInsets.symmetric(vertical: 24),
-                  child: Text('这个月没有收藏更新记录。'),
-                ),
-              LayoutBuilder(
-                builder: (context, constraints) {
-                  final columns =
-                      constraints.maxWidth >= 760 &&
-                          MediaQuery.textScalerOf(context).scale(14) < 22
-                      ? 2
-                      : 1;
-                  return Wrap(
-                    spacing: 14,
-                    runSpacing: 14,
-                    children: [
-                      for (final item in selected.take(10))
-                        SizedBox(
-                          width:
-                              (constraints.maxWidth - (columns - 1) * 14) /
-                              columns,
-                          child: _MemoryCard(
-                            item: item,
-                            onTap: () => Navigator.of(context).push(
-                              MaterialPageRoute<void>(
-                                builder: (_) =>
-                                    SubjectRoute(subject: item.subject),
+                const SizedBox(height: 12),
+                if (_month != null)
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: ActionChip(
+                      label: const Text('查看全年'),
+                      avatar: const AnimeIcon(Icons.close_rounded, size: 16),
+                      onPressed: () => setState(() => _month = null),
+                    ),
+                  ),
+                if (selected.isEmpty)
+                  const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 24),
+                    child: Text('这个月没有收藏更新记录。'),
+                  ),
+                LayoutBuilder(
+                  builder: (context, constraints) {
+                    final columns =
+                        constraints.maxWidth >= 760 &&
+                            MediaQuery.textScalerOf(context).scale(14) < 22
+                        ? 2
+                        : 1;
+                    return Wrap(
+                      spacing: 14,
+                      runSpacing: 14,
+                      children: [
+                        for (final item in selected.take(3))
+                          SizedBox(
+                            width:
+                                (constraints.maxWidth - (columns - 1) * 14) /
+                                columns,
+                            child: _MemoryCard(
+                              item: item,
+                              onTap: () => Navigator.of(context).push(
+                                MaterialPageRoute<void>(
+                                  builder: (_) =>
+                                      SubjectRoute(subject: item.subject),
+                                ),
                               ),
                             ),
                           ),
-                        ),
-                    ],
-                  );
-                },
-              ),
-              const SizedBox(height: 10),
-              if (selected.length > 10)
-                Text(
-                  '预览 10 条 · 点击「查看全部」继续浏览和搜索',
-                  style: Theme.of(context).textTheme.bodySmall,
+                      ],
+                    );
+                  },
                 ),
-            ],
+                const SizedBox(height: 10),
+                if (selected.length > 3)
+                  Text(
+                    '预览 3 条 · 点击「查看全部」继续浏览和搜索',
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+              ],
+            ),
           ),
-        ),
       ],
     ];
   }
+
+  Widget _sectionTabs(
+    List<String> labels,
+    int selected,
+    ValueChanged<int> onSelect,
+  ) => SingleChildScrollView(
+    scrollDirection: Axis.horizontal,
+    child: Row(
+      children: [
+        for (var i = 0; i < labels.length; i++)
+          Padding(
+            padding: const EdgeInsets.only(right: 8),
+            child: ChoiceChip(
+              label: Text(labels[i]),
+              selected: selected == i,
+              onSelected: (_) => onSelect(i),
+            ),
+          ),
+      ],
+    ),
+  );
 }
 
 String _encodeCollectionExport(Map<String, Object?> payload) =>
@@ -797,6 +894,31 @@ class _LedgerHeading extends StatelessWidget {
   }
 }
 
+class _CompactLedgerMetrics extends StatelessWidget {
+  const _CompactLedgerMetrics({required this.children});
+  final List<Widget> children;
+  @override
+  Widget build(BuildContext context) => LayoutBuilder(
+    builder: (context, constraints) {
+      if (constraints.maxWidth < 225 ||
+          MediaQuery.textScalerOf(context).scale(14) > 20) {
+        return InsightMetrics(children: children);
+      }
+      return IntrinsicHeight(
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            for (var i = 0; i < children.length; i++) ...[
+              if (i > 0) const SizedBox(width: 8),
+              Expanded(child: children[i]),
+            ],
+          ],
+        ),
+      );
+    },
+  );
+}
+
 class _LedgerMetric extends StatelessWidget {
   const _LedgerMetric({required this.label, required this.value, this.detail});
   final String label;
@@ -805,7 +927,7 @@ class _LedgerMetric extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Container(
-    padding: const EdgeInsets.fromLTRB(0, 10, 12, 12),
+    padding: const EdgeInsets.fromLTRB(0, 10, 6, 12),
     decoration: BoxDecoration(
       border: Border(
         bottom: BorderSide(
@@ -825,7 +947,7 @@ class _LedgerMetric extends StatelessWidget {
           ).textTheme.headlineMedium?.copyWith(fontWeight: FontWeight.w700),
         ),
         const SizedBox(height: 4),
-        Text(label, style: Theme.of(context).textTheme.labelLarge),
+        Text(label, style: Theme.of(context).textTheme.labelMedium),
         if (detail != null) ...[
           const SizedBox(height: 4),
           Text(
@@ -1237,6 +1359,64 @@ class _MonthActivity extends StatelessWidget {
         padding: const EdgeInsets.all(16),
         child: LayoutBuilder(
           builder: (context, constraints) {
+            if (constraints.maxWidth < 520) {
+              final columns = MediaQuery.textScalerOf(context).scale(12) > 20
+                  ? 3
+                  : 4;
+              return Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  for (var i = 0; i < 12; i++)
+                    SizedBox(
+                      width:
+                          (constraints.maxWidth - (columns - 1) * 8) / columns,
+                      child: Tooltip(
+                        message: '${i + 1}月 · ${counts[i]} 条更新',
+                        child: Semantics(
+                          button: true,
+                          selected: selected == i + 1,
+                          child: InkWell(
+                            onTap: () => onSelected(i + 1),
+                            borderRadius: BorderRadius.circular(12),
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                vertical: 10,
+                                horizontal: 4,
+                              ),
+                              decoration: BoxDecoration(
+                                borderRadius: BorderRadius.circular(12),
+                                color: counts[i] > 0
+                                    ? scheme.primaryContainer.withValues(
+                                        alpha: .3 + .5 * counts[i] / maxCount,
+                                      )
+                                    : scheme.surfaceContainerLow,
+                              ),
+                              child: Column(
+                                children: [
+                                  Text(
+                                    '${i + 1}月',
+                                    style: Theme.of(
+                                      context,
+                                    ).textTheme.labelMedium,
+                                  ),
+                                  Text(
+                                    '${counts[i]} 条',
+                                    style: Theme.of(context).textTheme.bodySmall
+                                        ?.copyWith(
+                                          color: scheme.onSurfaceVariant,
+                                        ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                ],
+              );
+            }
             final minWidth =
                 (MediaQuery.textScalerOf(context).scale(11) * 2 + 6) * 12;
             final width = constraints.maxWidth > minWidth

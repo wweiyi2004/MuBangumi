@@ -19,7 +19,7 @@ void main() {
       tester.view.physicalSize = const Size(320, 800);
       tester.view.devicePixelRatio = 1;
       addTearDown(tester.view.reset);
-      final service = _Indexes();
+      final service = _Indexes(ownerId: 1);
       SubjectRoute? opened;
       final key = GlobalKey();
       final theme = await uxTheme(tester, dark: false);
@@ -48,6 +48,17 @@ void main() {
       );
       await tester.pumpAndSettle();
       expect(find.text('合成番剧单'), findsOneWidget);
+      Finder action(String label) => find.ancestor(
+        of: find.text(label),
+        matching: find.byWidgetPredicate(
+          (widget) => widget is ButtonStyleButton,
+        ),
+      );
+      final actionY = tester.getCenter(action('分享')).dy;
+      for (final label in ['收藏', '编辑', '添加']) {
+        expect(tester.getCenter(action(label)).dy, closeTo(actionY, 1));
+        expect(tester.getCenter(find.text(label)).dx, lessThan(320));
+      }
       expect(find.text('中文作品'), findsOneWidget);
       expect(find.textContaining('温柔的推荐语', findRichText: true), findsOneWidget);
       await captureUx(tester, key, 'bangumi-index-detail');
@@ -88,17 +99,18 @@ void main() {
 }
 
 class _Indexes extends CommunityService {
-  _Indexes() {
+  _Indexes({this.ownerId = 2}) {
     setAccessToken('synthetic');
     setCurrentUsername('alice');
   }
   int creates = 0;
+  final int ownerId;
   bool animeOnly = true;
   @override
   Future<BangumiIndex> loadIndex(int id, {bool refresh = false}) async =>
-      const BangumiIndex(
+      BangumiIndex(
         id: 7,
-        ownerId: 2,
+        ownerId: ownerId,
         title: '合成番剧单',
         description: '为喜欢的作品留下位置',
         total: 1,

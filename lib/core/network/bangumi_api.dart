@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:dio/dio.dart';
 
 import '../../models/bangumi_models.dart';
+import '../../models/anime_lottery.dart';
 import '../storage/bangumi_sync_store.dart';
 import 'bangumi_endpoints.dart';
 import 'bangumi_support.dart';
@@ -356,6 +357,33 @@ class BangumiApi {
       ),
     );
     return _subjectsFromPage(response.data);
+  }
+
+  Future<AnimeLotteryPage> getAnimeLotteryPage(
+    AnimePrize prize, {
+    int offset = 0,
+    int limit = 50,
+  }) async {
+    final response = await _request(
+      () => _dio.post<Map<String, dynamic>>(
+        '/search/subjects',
+        queryParameters: BangumiSupport.pageQuery(limit: limit, offset: offset),
+        data: {
+          'keyword': '',
+          'sort': 'rank',
+          'filter': {
+            'type': [SubjectType.anime.value],
+            'nsfw': false,
+            'rating': ['>0', '>=${prize.minimum}', '<=${prize.maximum}'],
+          },
+        },
+      ),
+    );
+    final subjects = _subjectsFromPage(response.data);
+    return AnimeLotteryPage(
+      subjects: subjects,
+      total: (response.data?['total'] as num?)?.toInt() ?? subjects.length,
+    );
   }
 
   Future<List<CharacterDetail>> searchCharacters(

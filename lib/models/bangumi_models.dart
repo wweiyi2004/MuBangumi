@@ -205,7 +205,9 @@ class Subject {
       id: _int(json['id']),
       type: SubjectType.fromValue(typeValue),
       name: _string(json['name']),
-      nameCn: _string(json['name_cn']),
+      nameCn: _string(json['name_cn']).trim().isNotEmpty
+          ? _string(json['name_cn'])
+          : _chineseNameFromInfobox(json['infobox']),
       imageUrl: _string(
         images['large'],
         fallback: _string(
@@ -585,6 +587,22 @@ Map<String, dynamic> _map(dynamic value) {
     return value.map((key, item) => MapEntry(key.toString(), item));
   }
   return <String, dynamic>{};
+}
+
+String _chineseNameFromInfobox(dynamic infobox) {
+  if (infobox is! List) return '';
+  for (final item in infobox) {
+    if (item is! Map || !const ['简体中文名', '中文名'].contains(item['key'])) continue;
+    final value = item['value'];
+    if (value is String && value.trim().isNotEmpty) return value.trim();
+    if (value is List) {
+      for (final entry in value) {
+        final name = entry is Map ? entry['v'] : entry;
+        if (name is String && name.trim().isNotEmpty) return name.trim();
+      }
+    }
+  }
+  return '';
 }
 
 String _officialSiteFromInfobox(dynamic infobox) {

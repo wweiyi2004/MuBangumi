@@ -240,12 +240,11 @@ class _EpisodeActivityHeatmapState
                   crossAxisAlignment: WrapCrossAlignment.center,
                   spacing: 12,
                   children: [
-                    Text(
-                      _selected == null
-                          ? '本机章节打卡 · 从启用后开始记录'
-                          : '$_selected · 完成 ${counts[_selected] ?? 0} 格',
-                      style: Theme.of(context).textTheme.bodySmall,
-                    ),
+                    if (_selected != null)
+                      Text(
+                        '$_selected · 完成 ${counts[_selected] ?? 0} 格',
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
                     Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [

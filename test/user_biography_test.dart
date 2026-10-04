@@ -21,10 +21,12 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
-      expect(find.text('自我介绍'), findsOneWidget);
+      expect(find.text('展开'), findsOneWidget);
       expect(find.textContaining('喜欢动漫与音乐'), findsOneWidget);
       expect(find.textContaining('隐藏的剧透'), findsNothing);
-      await tester.tap(find.text('查看完整介绍'));
+      expect(find.textContaining('[折叠内容]'), findsNothing);
+      expect(tester.widget<Text>(find.text('喜欢动漫与音乐')).maxLines, 1);
+      await tester.tap(find.text('展开'));
       await tester.pumpAndSettle();
       expect(find.byType(CommunityRichContent), findsOneWidget);
       expect(tester.takeException(), isNull);

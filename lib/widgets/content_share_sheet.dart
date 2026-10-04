@@ -20,6 +20,11 @@ Future<void> showContentShareSheet(
   context: context,
   isScrollControlled: true,
   showDragHandle: true,
+  useSafeArea: true,
+  constraints: const BoxConstraints(maxWidth: 640),
+  shape: const RoundedRectangleBorder(
+    borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+  ),
   builder: (_) => ContentShareSheet(content: content),
 );
 
@@ -161,6 +166,15 @@ class _ContentShareSheetState extends State<ContentShareSheet> {
     }
   }
 
+  Future<void> _chooseImageAction() async {
+    final action = await showDialog<String>(
+      context: context,
+      builder: (_) =>
+          ContentImageActions(content: widget.content, image: _image),
+    );
+    if (mounted && action != null) await _perform(action);
+  }
+
   @override
   Widget build(BuildContext context) => SafeArea(
     child: SingleChildScrollView(
@@ -174,7 +188,7 @@ class _ContentShareSheetState extends State<ContentShareSheet> {
                 children: [
                   Expanded(
                     child: Text(
-                      widget.content.isTimeline ? '分享动态' : '分享条目',
+                      widget.content.shareTitle,
                       style: Theme.of(context).textTheme.titleLarge,
                     ),
                   ),
@@ -266,7 +280,7 @@ class _ContentShareSheetState extends State<ContentShareSheet> {
                   FilledButton.icon(
                     onPressed: _busy || _loadingCover
                         ? null
-                        : () => _perform('image'),
+                        : _chooseImageAction,
                     icon: const AnimeIcon(Icons.ios_share_rounded),
                     label: Text(_busy ? '处理中…' : '分享图片'),
                   ),
@@ -278,4 +292,103 @@ class _ContentShareSheetState extends State<ContentShareSheet> {
       ),
     ),
   );
+}
+
+class ContentImageActions extends StatelessWidget {
+  const ContentImageActions({super.key, required this.content, this.image});
+  final ShareContent content;
+  final ImageProvider? image;
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Dialog(
+      insetPadding: const EdgeInsets.all(20),
+      clipBehavior: Clip.antiAlias,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(28)),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 400),
+        child: SingleChildScrollView(
+          child: Container(
+            padding: const EdgeInsets.all(20),
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [
+                  scheme.primaryContainer.withValues(alpha: .55),
+                  scheme.surface,
+                  scheme.secondaryContainer.withValues(alpha: .35),
+                ],
+              ),
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Row(
+                  children: [
+                    AnimeIcon(
+                      Icons.favorite_rounded,
+                      color: scheme.primary,
+                      size: 22,
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        '把喜欢分享出去',
+                        style: Theme.of(context).textTheme.titleMedium,
+                      ),
+                    ),
+                    IconButton(
+                      tooltip: '关闭图片分享',
+                      onPressed: () => Navigator.pop(context),
+                      icon: const AnimeIcon(Icons.close_rounded),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                SizedBox(
+                  height: 180,
+                  child: FittedBox(
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(24),
+                      child: ContentShareCard(content: content, image: image),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Text(
+                  content.title,
+                  textAlign: TextAlign.center,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.titleSmall,
+                ),
+                const SizedBox(height: 16),
+                FilledButton.icon(
+                  onPressed: () => Navigator.pop(context, 'image'),
+                  icon: const AnimeIcon(Icons.ios_share_rounded, size: 20),
+                  label: const Text('发送到其他应用'),
+                ),
+                const SizedBox(height: 8),
+                OutlinedButton.icon(
+                  onPressed: () => Navigator.pop(context, 'save'),
+                  icon: const AnimeIcon(Icons.download_rounded, size: 20),
+                  label: const Text('保存这张卡片'),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  '让今天的小小心动，被更多人看见',
+                  textAlign: TextAlign.center,
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: scheme.onSurfaceVariant,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 }

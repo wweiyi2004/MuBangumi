@@ -120,7 +120,89 @@ void main() {
     );
   }
 
-  for (final variant in ['subject', 'long', 'timeline']) {
+  test(
+    'collection share excludes private entries and respects year and type',
+    () {
+      UserCollection item(
+        int id, {
+        bool private = false,
+        int year = 2026,
+        int type = 2,
+      }) => UserCollection.fromJson({
+        'subject_id': id,
+        'subject_type': type,
+        'type': 2,
+        'rate': 9,
+        'private': private,
+        'updated_at': '$year-03-01T12:00:00+08:00',
+        'subject': {
+          'id': id,
+          'type': type,
+          'name': private ? '私密作品' : '公开作品$id',
+        },
+        'tags': [private ? '私密标签' : '日常'],
+        'comment': '不应出现在分享中的短评',
+      });
+      final content = ShareContent.collection(
+        username: 'alice',
+        displayName: '爱丽丝',
+        year: 2026,
+        subjectType: SubjectType.anime,
+        partial: true,
+        collections: [
+          item(1),
+          item(2, private: true),
+          item(3, year: 2025),
+          item(4, type: 1),
+        ],
+      );
+      expect(content.metrics.first.value, '1');
+      expect(content.shareTitle, '分享年度回顾');
+      expect(content.linkText, contains('公开作品1'));
+      expect(content.linkText, contains('已加载记录'));
+      expect(content.linkText, isNot(contains('私密')));
+      expect(content.linkText, isNot(contains('短评')));
+      expect(content.linkText, isNot(contains('暂无评分')));
+    },
+  );
+
+  testWidgets(
+    'image sharing opens the themed preview before native app handoff',
+    (tester) async {
+      tester.view.physicalSize = const Size(320, 740);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      final key = GlobalKey();
+      final theme = await uxTheme(tester, dark: true);
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: theme,
+          builder: (context, child) => MediaQuery(
+            data: MediaQuery.of(
+              context,
+            ).copyWith(textScaler: const TextScaler.linear(1.8)),
+            child: RepaintBoundary(key: key, child: child!),
+          ),
+          home: Scaffold(
+            body: ContentShareSheet(content: ShareContent.subject(_subject)),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.text('分享图片'));
+      await tester.tap(find.text('分享图片'));
+      await tester.pumpAndSettle();
+      expect(find.byType(ContentImageActions), findsOneWidget);
+      expect(find.text('发送到其他应用'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+      await captureUx(tester, key, 'share-image-actions-phone');
+      await tester.tap(find.byTooltip('关闭图片分享'));
+      await tester.pumpAndSettle();
+      expect(find.byType(ContentImageActions), findsNothing);
+    },
+  );
+
+  for (final variant in ['subject', 'long', 'timeline', 'collection']) {
     testWidgets('card exports a readable complete QR and fits $variant', (
       tester,
     ) async {
@@ -128,7 +210,14 @@ void main() {
       tester.view.devicePixelRatio = 1;
       addTearDown(tester.view.reset);
       final subject = ShareContent.subject(_subject);
-      final content = variant == 'timeline'
+      final content = variant == 'collection'
+          ? ShareContent.collection(
+              username: 'alice',
+              displayName: '爱丽丝',
+              year: 2026,
+              collections: [],
+            )
+          : variant == 'timeline'
           ? ShareContent.timeline(
               CommunityTimelineItem(
                 id: 64,

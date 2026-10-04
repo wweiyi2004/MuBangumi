@@ -8,6 +8,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:mubangumi/core/network/bangumi_api.dart';
 import 'package:mubangumi/core/storage/browsing_store.dart';
 import 'package:mubangumi/models/bangumi_models.dart';
+import 'package:mubangumi/models/anime_lottery.dart';
 import 'package:mubangumi/models/recommendation_feedback.dart';
 import 'package:mubangumi/screens/fan_recommend_page.dart';
 import 'package:mubangumi/state/session_controller.dart';
@@ -20,6 +21,42 @@ final _boundary = GlobalKey();
 const _firstTitle = '星际旅途：在遥远的星海中寻找故乡的少年';
 
 void main() {
+  testWidgets(
+    'lottery excludes watched titles and discards a late result after account change',
+    (tester) async {
+      final env = _Environment();
+      await _show(tester, env);
+      env.api.lotterySubjects = [
+        _subject(1, '已经看过'),
+        _subject(333, '未看过的抽签作品'),
+      ];
+      await tester.tap(find.text('好番剧奖'));
+      await tester.pumpAndSettle();
+      expect(find.text('未看过的抽签作品'), findsOneWidget);
+      final pending = Completer<AnimeLotteryPage>();
+      env.api.pendingLottery = pending.future;
+      await tester.tap(find.text('坏番剧奖'));
+      await tester.pump();
+      env.session.switchUser(2);
+      await tester.pumpAndSettle();
+      pending.complete(
+        AnimeLotteryPage(
+          total: 1,
+          subjects: [
+            Subject.fromJson({
+              'id': 444,
+              'name': '旧账号抽签结果',
+              'type': 2,
+              'score': 4,
+            }),
+          ],
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('旧账号抽签结果'), findsNothing);
+      expect(find.text('未看过的抽签作品'), findsNothing);
+    },
+  );
   testWidgets('compact conditions remain editable and retain their selection', (
     tester,
   ) async {
@@ -449,6 +486,27 @@ class _Session extends ProgressSession {
 }
 
 class _Api extends BangumiApi {
+  List<Subject> lotterySubjects = [];
+  Future<AnimeLotteryPage>? pendingLottery;
+  @override
+  Future<List<UserCollection>> getUserCollections(
+    String username, {
+    SubjectType? subjectType,
+    CollectionType? collectionType,
+    int? maxItems,
+    Future<bool> Function(List<UserCollection> items)? onPage,
+  }) async => [_collection(_subject(1, '已经看过'))];
+  @override
+  Future<AnimeLotteryPage> getAnimeLotteryPage(
+    AnimePrize prize, {
+    int offset = 0,
+    int limit = 50,
+  }) async =>
+      pendingLottery ??
+      AnimeLotteryPage(
+        total: lotterySubjects.length,
+        subjects: lotterySubjects,
+      );
   final candidates = [_subject(100, _firstTitle), _subject(101, '温暖的日常故事')];
   Future<List<Subject>>? pending;
   String mode = 'success';

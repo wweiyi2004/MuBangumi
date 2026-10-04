@@ -55,36 +55,60 @@ class UserBiography extends ConsumerWidget {
     }
     final bio = value.valueOrNull ?? '';
     if (bio.isEmpty) return const SizedBox.shrink();
+    final preview = plainShareText(
+      bio
+          .replaceAll(
+            RegExp(
+              r'\[(?:mask|spoiler)[^\]]*\].*?\[/(?:mask|spoiler)\]',
+              caseSensitive: false,
+              dotAll: true,
+            ),
+            '[折叠内容]',
+          )
+          .split(RegExp(r'\r?\n'))
+          .first,
+    );
     return Padding(
       padding: const EdgeInsets.only(top: 12),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text('自我介绍', style: Theme.of(context).textTheme.titleSmall),
-          const SizedBox(height: 4),
-          Text(
-            plainShareText(
-              bio.replaceAll(
-                RegExp(
-                  r'\[(?:mask|spoiler)[^\]]*\].*?\[/(?:mask|spoiler)\]',
-                  caseSensitive: false,
-                  dotAll: true,
+      child: Semantics(
+        label: '自我介绍',
+        button: true,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(12),
+          onTap: () => showDialog<void>(
+            context: context,
+            builder: (_) => BiographyDialog(source: bio, username: username),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 8),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    preview.isEmpty ? '自我介绍' : preview,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    ),
+                  ),
                 ),
-                '[折叠内容]',
-              ),
+                const SizedBox(width: 8),
+                Text(
+                  '展开',
+                  style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                    color: Theme.of(context).colorScheme.primary,
+                  ),
+                ),
+                Icon(
+                  Icons.expand_more_rounded,
+                  size: 18,
+                  color: Theme.of(context).colorScheme.primary,
+                ),
+              ],
             ),
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
-            style: Theme.of(context).textTheme.bodyMedium,
           ),
-          TextButton(
-            onPressed: () => showDialog<void>(
-              context: context,
-              builder: (_) => BiographyDialog(source: bio, username: username),
-            ),
-            child: const Text('查看完整介绍'),
-          ),
-        ],
+        ),
       ),
     );
   }
