@@ -151,7 +151,7 @@ try {
         if (-not $Patch -and $Target -eq 'apk') {
             $arguments += '--artifact=apk'
         }
-        if (-not $Patch) {
+        if (-not $Patch -and $Target -eq 'windows') {
             $symbolDirectory = Join-Path $repositoryRoot ('release-symbols\shorebird-' + $Target + '-' + [guid]::NewGuid().ToString('N'))
             New-Item -ItemType Directory -Path $symbolDirectory | Out-Null
             $arguments += "--split-debug-info=$symbolDirectory"
