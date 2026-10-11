@@ -38,3 +38,9 @@ const retainedCallback=window.turnstileCallback;
 retainedCallback('official-token-before-navigation');
 assert.deepEqual(messages,[{token:'official-token-before-navigation'}]);assert.equal(originalCalled,1);
 console.log('Official load-order callback passed: token delivered before retained callback navigates.');
+const layout = script('turnstileLayoutScript');
+for (const forbidden of ['turnstile.render', 'turnstileCallback', 'getResponse', 'postMessage']) {
+  assert.equal(layout.includes(forbidden), false, forbidden);
+}
+assert.equal(layout.includes('width=device-width'), true);
+console.log('Layout helper leaves the challenge API untouched.');

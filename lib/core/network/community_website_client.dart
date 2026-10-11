@@ -47,26 +47,39 @@ class CommunityWebsiteClient {
   }) async {
     final identity = readIdentity();
     final session = await requireSession();
-    final path = '/group/${Uri.encodeComponent(slug)}/new_topic';
-    final formhash = await _loadWebsiteFormhash(path, session);
+    final pagePath = '/group/${Uri.encodeComponent(slug)}/new_topic';
+    final html = await fetchHtml(pagePath, session);
+    checkLoginPage(html, session);
+    final form = _htmlParser.parseBlogCreateForm(html);
+    final parsedHash = form?.fields['formhash'];
+    final formhash = parsedHash != null && parsedHash.isNotEmpty
+        ? parsedHash
+        : await _loadWebsiteFormhash(pagePath, session);
     await _verifyWebsiteWriteContext(identity, session.authenticationKey);
+    var action = '/group/${Uri.encodeComponent(slug)}/topic/new';
+    if (form != null && form.action.isNotEmpty) {
+      action = _sameSitePath(form.action, action);
+      if (action.endsWith('/new_topic')) {
+        action = action.replaceFirst(RegExp(r'/new_topic$'), '/topic/new');
+      }
+    }
+    final submit = form?.fields['submit'];
     final Response<String> response;
     try {
       response = await _htmlDio.post<String>(
-        path,
+        action,
         data: {
           'formhash': formhash,
           'title': title,
-          'subject': title,
           'content': content,
-          'submit': 'submit',
+          'submit': submit != null && submit.isNotEmpty ? submit : '加上去',
         },
         options: Options(
           contentType: Headers.formUrlEncodedContentType,
           followRedirects: false,
           headers: {
             ...session.requestHeaders,
-            'Referer': 'https://bgm.tv$path',
+            'Referer': 'https://bgm.tv$pagePath',
             'Origin': 'https://bgm.tv',
           },
           validateStatus: (status) => status != null && status < 600,
@@ -82,7 +95,7 @@ class CommunityWebsiteClient {
     );
     final status = response.statusCode ?? 0;
     final location = response.headers.value('location') ?? '';
-    final redirect = Uri.parse('https://bgm.tv$path').resolve(location);
+    final redirect = Uri.parse('https://bgm.tv$pagePath').resolve(location);
     final topicPath = RegExp(
       r'^/group/topic/([1-9][0-9]*)/?$',
     ).firstMatch(redirect.path);
@@ -99,7 +112,7 @@ class CommunityWebsiteClient {
       body,
       session,
       cfMitigated: response.headers.value('cf-mitigated'),
-      recoveryUri: Uri.parse('https://bgm.tv$path'),
+      recoveryUri: Uri.parse('https://bgm.tv$pagePath'),
     );
     if (status >= 500 || status == 429) {
       throw const CommunitySubmissionUncertain();
@@ -134,6 +147,111 @@ class CommunityWebsiteClient {
       throw CommunitySubmissionRejected('发帖失败（HTTP $status）');
     }
     throw const CommunitySubmissionUncertain();
+  }
+
+  /// Publishes a blog through the classic `/blog/create` form when P1 returns
+  /// its generic 500 and the entry was not stored.
+  Future<void> createBlog({
+    required String title,
+    required String content,
+    required List<String> tags,
+    required bool isPublic,
+  }) async {
+    final identity = readIdentity();
+    final session = await requireSession();
+    const pagePath = '/blog/create';
+    final html = await fetchHtml(pagePath, session);
+    checkLoginPage(html, session);
+    final form = _htmlParser.parseBlogCreateForm(html);
+    if (form == null || form.fields['formhash']?.isNotEmpty != true) {
+      throw const FormatException('暂时无法打开发布日志页面，请稍后重试');
+    }
+    await _verifyWebsiteWriteContext(identity, session.authenticationKey);
+    final fields = Map<String, String>.from(form.fields);
+    fields['title'] = title;
+    fields['content'] = content;
+    if (fields.containsKey('tags')) fields['tags'] = tags.join(' ');
+    if (isPublic) {
+      fields['public'] = fields['public']?.isNotEmpty == true
+          ? fields['public']!
+          : '1';
+    } else {
+      fields.remove('public');
+    }
+    fields.putIfAbsent('submit', () => '提交');
+    final action = _sameSitePath(form.action, pagePath);
+    final Response<String> response;
+    try {
+      response = await _htmlDio.post<String>(
+        action,
+        data: fields,
+        options: Options(
+          contentType: Headers.formUrlEncodedContentType,
+          followRedirects: false,
+          headers: {
+            ...session.requestHeaders,
+            'Referer': 'https://bgm.tv$pagePath',
+            'Origin': 'https://bgm.tv',
+          },
+          validateStatus: (status) => status != null && status < 600,
+        ),
+      );
+    } on DioException {
+      throw const CommunitySubmissionUncertain(
+        '日志提交结果未知，请到「我的日志」确认，避免重复发布',
+      );
+    }
+    await _verifyWebsiteWriteContext(
+      identity,
+      session.authenticationKey,
+      submitted: true,
+    );
+    final status = response.statusCode ?? 0;
+    final location = response.headers.value('location') ?? '';
+    final redirect = Uri.parse('https://bgm.tv$pagePath').resolve(location);
+    final created = RegExp(
+      r'^/blog/(?:entry/)?([1-9][0-9]*)/?$',
+    ).firstMatch(redirect.path);
+    if (const [302, 303].contains(status) &&
+        redirect.scheme == 'https' &&
+        redirect.userInfo.isEmpty &&
+        redirect.port == 443 &&
+        const ['bgm.tv', 'bangumi.tv', 'chii.in'].contains(redirect.host) &&
+        created != null) {
+      return;
+    }
+    final body = response.data ?? '';
+    _throwIfWebsiteChallenge(
+      body,
+      session,
+      cfMitigated: response.headers.value('cf-mitigated'),
+      recoveryUri: Uri.parse('https://bgm.tv$pagePath'),
+    );
+    checkLoginPage(body, session);
+    if (status == 401 || isWebsiteLoginRedirect(status, location)) {
+      _websiteFailed(WebsiteAccessStatus.expired, session);
+      throw const WebsiteAccessException(
+        WebsiteAccessStatus.expired,
+        '网页版登录已过期，请重新登录网页版后再发布日志',
+      );
+    }
+    final notice = PmHtmlParser().parseSubmissionError(body);
+    if (notice != null) throw FormatException('发布日志失败：$notice');
+    if (status >= 400) throw FormatException('发布日志失败（HTTP $status）');
+    throw const CommunitySubmissionUncertain(
+      '日志提交结果未知，请到「我的日志」确认，避免重复发布',
+    );
+  }
+
+  String _sameSitePath(String action, String fallback) {
+    final uri = Uri.parse('https://bgm.tv$fallback').resolve(action);
+    if (uri.scheme != 'https' ||
+        uri.userInfo.isNotEmpty ||
+        uri.port != 443 ||
+        !const ['bgm.tv', 'bangumi.tv', 'chii.in'].contains(uri.host)) {
+      throw const FormatException('发布页地址无效');
+    }
+    return uri.hasQuery ? '${uri.path}?${uri.query}' : uri.path;
   }
 
   /// Posts a group topic reply through the classic website form

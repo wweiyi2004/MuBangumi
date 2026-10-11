@@ -31,6 +31,41 @@ class CommunityHtmlParser {
     return fromLogout;
   }
 
+  /// The logged-in new-blog form. Field names stay whatever the page emits.
+  ({String action, Map<String, String> fields})? parseBlogCreateForm(
+    String source,
+  ) {
+    final document = html_parser.parse(source);
+    for (final form in document.querySelectorAll('form')) {
+      if (form.querySelector('[name="title"]') == null ||
+          form.querySelector('[name="content"]') == null) {
+        continue;
+      }
+      final fields = <String, String>{};
+      for (final input in form.querySelectorAll('input, textarea')) {
+        final name = input.attributes['name']?.trim() ?? '';
+        if (name.isEmpty) continue;
+        final type = (input.attributes['type'] ?? '').toLowerCase();
+        if (type == 'submit' || type == 'button' || type == 'image') {
+          if (name == 'submit' && !fields.containsKey('submit')) {
+            fields['submit'] = input.attributes['value'] ?? '提交';
+          }
+          continue;
+        }
+        if (type == 'checkbox' || type == 'radio') {
+          if (input.attributes.containsKey('checked')) {
+            fields[name] = input.attributes['value'] ?? '1';
+          }
+          continue;
+        }
+        fields[name] = input.attributes['value'] ?? '';
+      }
+      final action = form.attributes['action']?.trim() ?? '';
+      return (action: action, fields: fields);
+    }
+    return null;
+  }
+
   List<CommunityTopic> parseRakuen(String source) {
     final document = html_parser.parse(source);
     final topics = <CommunityTopic>[];

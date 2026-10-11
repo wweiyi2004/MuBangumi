@@ -23,6 +23,16 @@ import 'account_diagnostics_interceptor.dart';
 import 'community_write_client.dart';
 import 'community_website_client.dart';
 
+/// Bangumi's generic 500 text. The write may already have been stored.
+const bangumiInternalErrorNotice = 'Bangumi 服务器处理失败。请先确认内容是否已经发出，再重新操作。';
+
+bool isBangumiInternalError(Object error) {
+  final text = error.toString();
+  final lower = text.toLowerCase();
+  return text.contains(bangumiInternalErrorNotice) ||
+      (lower.contains('internal error') && lower.contains('contact admin'));
+}
+
 /// Strong signals that a classic website page is actually the login form.
 bool looksLikeWebsiteLoginPage(String source) {
   return PmHtmlParser().looksLikeLoginPage(source);
@@ -656,13 +666,57 @@ class CommunityService {
       data['turnstileToken'] = _requireTurnstileToken(turnstileToken ?? '');
     }
     // Omitting subjectIDs preserves existing associations on PATCH.
-    await _nativeWrite(
-      original == null ? 'POST' : 'PATCH',
-      original == null ? '/blogs' : '/blogs/${original.id}',
-      data: data,
-    );
+    try {
+      await _nativeWrite(
+        original == null ? 'POST' : 'PATCH',
+        original == null ? '/blogs' : '/blogs/${original.id}',
+        data: data,
+      );
+    } catch (error) {
+      // The P1 blog route returns a generic 500 and does not store the entry.
+      // Confirm that, then submit the same text through the classic website form.
+      if (original != null || !isBangumiInternalError(error)) rethrow;
+      if (!await _ownBlogWasJustCreated(title.trim(), content.trim())) {
+        try {
+          await _website.createBlog(
+            title: title.trim(),
+            content: content.trim(),
+            tags: cleanedTags,
+            isPublic: isPublic,
+          );
+        } on WebsiteAccessException catch (error) {
+          throw WebsiteAccessException(
+            error.status,
+            'Bangumi 的日志接口在验证后没有写成。请在「我的 → 设置 → Bangumi 账号」登录网页后再发布，草稿已保留。',
+          );
+        }
+      }
+    }
     _jsonCache.clear();
     await _removeTimelineSnapshots();
+  }
+
+  /// A just-created entry with the same title and body. Older blogs with the
+  /// same text are ignored so a failed publish is not reported as success.
+  Future<bool> _ownBlogWasJustCreated(String title, String content) async {
+    final username = _currentUsername;
+    if (username == null) return false;
+    try {
+      final page = await loadUserBlogs(username, limit: 5, refresh: true);
+      final earliest = DateTime.now().toUtc().subtract(
+        const Duration(minutes: 3),
+      );
+      var matches = 0;
+      for (final blog in page.data.where((blog) => blog.title == title).take(3)) {
+        final detail = await loadBlog(blog.id, refresh: true);
+        final created = detail.createdAt?.toUtc();
+        if (created == null || created.isBefore(earliest)) continue;
+        if (detail.content.trim() == content) matches++;
+      }
+      return matches == 1;
+    } catch (_) {
+      return false;
+    }
   }
 
   /// Business error mapping stays here; the client owns account guards and retry.
@@ -1239,7 +1293,8 @@ class CommunityService {
     final encoded = Uri.encodeComponent(slug);
     int? topicId;
     try {
-      final result = await _postJson(
+      final result = await _writes.send(
+        'POST',
         '/groups/$encoded/topics',
         data: {
           'title': trimmedTitle,
@@ -1249,22 +1304,108 @@ class CommunityService {
       );
       topicId = parseCreatedCommunityTopicId(result);
       if (topicId == null) throw const CommunitySubmissionUncertain();
-    } on PrivateGroupMembershipException {
-      if (identity != _identityRevision) {
-        throw const FormatException('账号已变化，请重新发起讨论');
+    } on DioException catch (error) {
+      final privateGroup = _privateGroupName(error.response?.data);
+      final responseData = error.response?.data;
+      final joinGroupFirst =
+          const [401, 403].contains(error.response?.statusCode) &&
+          responseData is Map &&
+          responseData['code'] == 'NOT_ALLOWED' &&
+          (responseData['message']?.toString().toLowerCase().contains(
+                'join group first',
+              ) ??
+              false);
+      if ((privateGroup != null &&
+              const [401, 403].contains(error.response?.statusCode)) ||
+          joinGroupFirst) {
+        if (identity != _identityRevision) {
+          throw const FormatException('账号已变化，请重新发起讨论');
+        }
+        topicId = await _website.createGroupTopic(
+          slug: slug,
+          title: trimmedTitle,
+          content: trimmedContent,
+        );
+      } else if (_responseIsBangumiInternalError(error)) {
+        if (identity != _identityRevision) {
+          throw const FormatException('账号已变化，请重新发起讨论');
+        }
+        final existing = await _findExistingGroupTopic(
+          slug: slug,
+          title: trimmedTitle,
+          content: trimmedContent,
+        );
+        topicId = existing != null
+            ? existing.id
+            : await _publishGroupTopicOnWebsite(
+                slug: slug,
+                title: trimmedTitle,
+                content: trimmedContent,
+              );
+      } else if (error.response == null ||
+          (error.response?.statusCode ?? 0) >= 500) {
+        throw const CommunitySubmissionUncertain('提交结果暂未确认，请先核对结果，避免重复发送');
+      } else {
+        throw CommunitySubmissionRejected(_postErrorMessage(error));
       }
-      // The API explicitly refused the write. A website membership check can
-      // recover compatibility; an uncertain POST never takes this fallback.
-      topicId = await _website.createGroupTopic(
-        slug: slug,
-        title: trimmedTitle,
-        content: trimmedContent,
-      );
     }
     _jsonCache.removeWhere(
       (key) => key.contains('/groups/$encoded') || key.contains('/topics'),
     );
-    return createdGroupTopic(slug: slug, title: trimmedTitle, id: topicId);
+    final id = topicId;
+    if (id == null) throw const CommunitySubmissionUncertain();
+    return createdGroupTopic(slug: slug, title: trimmedTitle, id: id);
+  }
+
+  Future<CommunityTopic?> _findExistingGroupTopic({
+    required String slug,
+    required String title,
+    required String content,
+  }) async {
+    try {
+      return await findSubmittedGroupTopic(
+        slug: slug,
+        title: title,
+        content: content,
+        attemptedAt: DateTime.now().toUtc(),
+      );
+    } on FormatException catch (error) {
+      if (error.message.contains('账号已变化')) rethrow;
+      return null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  bool _responseIsBangumiInternalError(DioException error) {
+    final status = error.response?.statusCode ?? 0;
+    if (status < 500) return false;
+    final data = error.response?.data;
+    if (data is Map) {
+      return isBangumiInternalError(
+        data['message'] ?? data['error'] ?? data['description'] ?? '',
+      );
+    }
+    return data is String && isBangumiInternalError(data);
+  }
+
+  Future<int> _publishGroupTopicOnWebsite({
+    required String slug,
+    required String title,
+    required String content,
+  }) async {
+    try {
+      return await _website.createGroupTopic(
+        slug: slug,
+        title: title,
+        content: content,
+      );
+    } on WebsiteAccessException catch (error) {
+      throw WebsiteAccessException(
+        error.status,
+        'Bangumi 的小组讨论接口在验证后没有写成。请在「我的 → 设置 → Bangumi 账号」登录网页后再发布，草稿已保留。',
+      );
+    }
   }
 
   CommunityTopic createdGroupTopic({
@@ -2159,6 +2300,9 @@ class CommunityService {
       if (detail != null && detail.toString().trim().isNotEmpty) {
         final text = detail.toString().trim();
         // Turnstile failures are otherwise opaque.
+        if (isBangumiInternalError(text)) {
+          return bangumiInternalErrorNotice;
+        }
         if (text.toLowerCase().contains('turnstile') ||
             text.toLowerCase().contains('captcha')) {
           // Debug builds surface the raw server response so token-rejection
