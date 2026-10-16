@@ -30,6 +30,13 @@ abstract final class AppText {
   static const caption = 13.0, timestamp = 12.0;
 }
 
+/// Shared timings for content feedback; avoid continuous decorative animation.
+abstract final class AppMotion {
+  static const content = Duration(milliseconds: 180);
+  static const loadingDelay = Duration(milliseconds: 300);
+  static const slowLoading = Duration(seconds: 8);
+}
+
 /// Fixed colors that are not part of the color scheme. Scores use the
 /// scheme's tertiary amber, not these.
 abstract final class AppPalette {

@@ -1,3 +1,8 @@
+import '../state/subject_view_controller.dart';
+import '../widgets/subject_view_menu.dart';
+import '../widgets/scroll_to_top_frame.dart';
+import 'package:url_launcher/url_launcher.dart';
+import '../widgets/content_loading.dart';
 import '../core/theme/anime_icon.dart';
 import '../features/discover/application/discover_controller.dart';
 import '../features/discover/domain/discover_query.dart';
@@ -302,29 +307,32 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
     };
     final phone = AppLayout.isPhone(context);
     final pagePad = AppLayout.pagePadding(context);
-    return CustomScrollView(
+    return ScrollToTopFrame(
       controller: _scrollController,
-      physics: const AlwaysScrollableScrollPhysics(),
-      slivers: [
-        SliverPadding(
-          padding: EdgeInsets.fromLTRB(
-            pagePad,
-            widget.showTitle ? AppLayout.pageTopPadding(context) : 6,
-            pagePad,
-            0,
-          ),
-          sliver: SliverToBoxAdapter(
-            child: Center(
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 1220),
-                child: _buildDiscoverHeader(context, phone),
+      child: CustomScrollView(
+        controller: _scrollController,
+        physics: const AlwaysScrollableScrollPhysics(),
+        slivers: [
+          SliverPadding(
+            padding: EdgeInsets.fromLTRB(
+              pagePad,
+              widget.showTitle ? AppLayout.pageTopPadding(context) : 6,
+              pagePad,
+              0,
+            ),
+            sliver: SliverToBoxAdapter(
+              child: Center(
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 1220),
+                  child: _buildDiscoverHeader(context, phone),
+                ),
               ),
             ),
           ),
-        ),
-        ..._buildResultSlivers(context, collectionMap, pagePad),
-        SliverToBoxAdapter(child: SizedBox(height: phone ? 36 : 60)),
-      ],
+          ..._buildResultSlivers(context, collectionMap, pagePad),
+          SliverToBoxAdapter(child: SizedBox(height: phone ? 88 : 96)),
+        ],
+      ),
     );
   }
 
@@ -388,6 +396,11 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
                     : null,
               ),
             ),
+          ),
+          SubjectViewMenu(
+            value: ref.watch(subjectViewProvider('discover')),
+            onChanged: (view) =>
+                ref.read(subjectViewProvider('discover').notifier).select(view),
           ),
           const SizedBox(width: 10),
           Badge.count(
@@ -629,12 +642,36 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
       ),
     );
 
-    if (_loading) {
+    if (_loading &&
+        _subjects.isEmpty &&
+        _characters.isEmpty &&
+        _persons.isEmpty) {
       return [
         box(
-          const Padding(
-            padding: EdgeInsets.symmetric(vertical: 100),
-            child: Center(child: CircularProgressIndicator()),
+          Column(
+            children: [
+              LoadingStatus(
+                active: true,
+                operation: (
+                  _queryMode,
+                  _searchController.text.trim(),
+                  _subjectType,
+                  _browseYear,
+                  _browseQuarter,
+                  _browseSort,
+                  _searchSort,
+                ),
+                message: '正在加载发现内容',
+                onRetry: _runCurrentQuery,
+                onOpenWebsite: () => launchUrl(
+                  Uri.parse(
+                    'https://bgm.tv/subject_search/${Uri.encodeComponent(_searchController.text.trim())}',
+                  ),
+                  mode: LaunchMode.externalApplication,
+                ),
+              ),
+              const ContentSkeleton(),
+            ],
           ),
         ),
       ];
@@ -647,7 +684,7 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
         box(
           EmptyState(
             icon: Icons.cloud_off_outlined,
-            title: '没有连接上 Bangumi',
+            title: _searchingSubjects ? '筛选结果暂时无法加载' : '没有连接上 Bangumi',
             message: _error!,
             action: FilledButton.tonalIcon(
               onPressed: _runCurrentQuery,
@@ -658,17 +695,32 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
         ),
       ];
     }
-    // Subtle top indicator while refreshing over stale content.
-    final refreshingBar = _refreshing
-        ? [
-            box(
-              const Padding(
-                padding: EdgeInsets.only(bottom: 10),
-                child: LinearProgressIndicator(minHeight: 2),
-              ),
+    final refreshingBar = [
+      box(
+        LoadingStatus(
+          active: _refreshing || _loading,
+          operation: (
+            _queryMode,
+            _searchController.text.trim(),
+            _subjectType,
+            _browseYear,
+            _browseQuarter,
+            _browseSort,
+            _searchSort,
+          ),
+          message: _searchController.text.trim().isEmpty
+              ? '显示已有结果，正在更新'
+              : '正在搜索，已有结果仍可查看',
+          onRetry: _runCurrentQuery,
+          onOpenWebsite: () => launchUrl(
+            Uri.parse(
+              'https://bgm.tv/subject_search/${Uri.encodeComponent(_searchController.text.trim())}',
             ),
-          ]
-        : const <Widget>[];
+            mode: LaunchMode.externalApplication,
+          ),
+        ),
+      ),
+    ];
     if (_queryMode == DiscoverQueryMode.characterPrompt) {
       return [
         box(const DiscoverSearchPrompt(target: DiscoverSearchTarget.character)),
@@ -823,18 +875,27 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
             final contentWidth = width > 1220 ? 1220.0 : width;
             final side = (width - contentWidth) / 2;
             const spacing = 12.0;
-            final columns = subjectPosterColumnCount(contentWidth);
+            final view = ref.watch(subjectViewProvider('discover'));
+            final list = view == SubjectView.list;
+            final columns = switch (view) {
+              SubjectView.list => 1,
+              SubjectView.twoColumns => 2,
+              SubjectView.threeColumns => 3,
+              SubjectView.adaptive => subjectPosterColumnCount(contentWidth),
+            };
             return SliverPadding(
               padding: EdgeInsets.symmetric(horizontal: side),
               sliver: SliverGrid(
                 gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
                   crossAxisCount: columns,
-                  mainAxisExtent: subjectPosterItemHeight(
-                    contentWidth,
-                    columns,
-                    spacing: spacing,
-                    textScaler: MediaQuery.textScalerOf(context),
-                  ),
+                  mainAxisExtent: list
+                      ? subjectTileHeight(context)
+                      : subjectPosterItemHeight(
+                          contentWidth,
+                          columns,
+                          spacing: spacing,
+                          textScaler: MediaQuery.textScalerOf(context),
+                        ),
                   mainAxisSpacing: spacing,
                   crossAxisSpacing: spacing,
                 ),
@@ -842,6 +903,17 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
                   final subject = visibleSubjects[index];
                   final collection = collectionMap[subject.id];
                   final supportsEpisodes = subject.type.hasEpisodes;
+                  if (list) {
+                    return SubjectTile(
+                      subject: subject,
+                      collection: collection,
+                      onTap: () =>
+                          _openSearchResult(SubjectRoute(subject: subject)),
+                      onEpisodeGrid: collection != null && supportsEpisodes
+                          ? () => showEpisodeGridSheet(context, ref, collection)
+                          : null,
+                    );
+                  }
                   return SubjectPosterCard(
                     subject: subject,
                     collection: collection,

@@ -7,8 +7,9 @@ import '../../sync/domain/pending_mutation.dart';
 abstract final class CollectionReconciler {
   static List<UserCollection> overlayCollections(
     List<UserCollection> source,
-    List<PendingBangumiMutation> pending,
-  ) {
+    List<PendingBangumiMutation> pending, {
+    bool sort = true,
+  }) {
     final merged = List<UserCollection>.from(source);
     try {
       for (final mutation in pending) {
@@ -28,14 +29,16 @@ abstract final class CollectionReconciler {
           }
           continue;
         }
+        final watchedThrough = (payload['watched_through'] as num?)?.toInt();
+        final hasChapterProgress =
+            payload['complete_episodes'] == true ||
+            (watchedThrough != null && watchedThrough > 0);
         if (payload['status_only'] == true && previous != null) {
           merged[index] = previous.copyWith(
             type: CollectionType.fromValue(
               (payload['collection_type'] as num).toInt(),
             ),
-            episodeStatus: payload['complete_episodes'] == true
-                ? localEpisodeStatus
-                : null,
+            episodeStatus: hasChapterProgress ? localEpisodeStatus : null,
           );
           continue;
         }
@@ -53,7 +56,7 @@ abstract final class CollectionReconciler {
           rate: (payload['rate'] as num?)?.toInt() ?? previous?.rate ?? 0,
           episodeStatus:
               subject.type.hasEpisodes &&
-                  payload['complete_episodes'] != true &&
+                  !hasChapterProgress &&
                   previous != null
               ? previous.episodeStatus
               : localEpisodeStatus ??
@@ -85,7 +88,7 @@ abstract final class CollectionReconciler {
         }
       }
     } catch (_) {}
-    sortCollections(merged);
+    if (sort) sortCollections(merged);
     return merged;
   }
 
@@ -123,6 +126,15 @@ abstract final class CollectionReconciler {
           for (var index = 0; index < merged.length; index++) {
             if (merged[index].episode.type == 0) {
               merged[index] = merged[index].copyWith(type: 2);
+            }
+          }
+        } else if (mutation.kind == BangumiMutationKind.collection &&
+            ((payload['watched_through'] as num?)?.toInt() ?? 0) > 0) {
+          var remaining = (payload['watched_through'] as num).toInt();
+          for (var index = 0; index < merged.length && remaining > 0; index++) {
+            if (merged[index].episode.type == 0) {
+              merged[index] = merged[index].copyWith(type: 2);
+              remaining--;
             }
           }
         }
@@ -170,8 +182,8 @@ abstract final class CollectionReconciler {
 
   static void sortCollections(List<UserCollection> items) {
     items.sort((a, b) {
-      final aTime = a.updatedAt ?? DateTime.fromMillisecondsSinceEpoch(0);
-      final bTime = b.updatedAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+      final aTime = a.updatedAt?.microsecondsSinceEpoch ?? 0;
+      final bTime = b.updatedAt?.microsecondsSinceEpoch ?? 0;
       return bTime.compareTo(aTime);
     });
   }

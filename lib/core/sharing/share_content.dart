@@ -11,6 +11,28 @@ class ShareMetric {
   final String label, value;
 }
 
+/// Episode-progress panel copied onto a timeline share card.
+class ShareProgressCard {
+  const ShareProgressCard({
+    required this.title,
+    required this.subtitle,
+    this.score = '',
+    this.marks = const [],
+  });
+
+  final String title;
+  final String subtitle;
+  final String score;
+  final List<ShareEpisodeMark> marks;
+}
+
+class ShareEpisodeMark {
+  const ShareEpisodeMark(this.label, {this.active = false});
+
+  final String label;
+  final bool active;
+}
+
 /// Public content only. No session, account tokens or private collection data.
 class ShareContent {
   const ShareContent({
@@ -26,6 +48,7 @@ class ShareContent {
     this.isTimeline = false,
     this.isCollection = false,
     this.label = '',
+    this.progressCard,
   });
 
   final String title, subtitle, excerpt, imageUrl, detail, url, fileKey;
@@ -34,6 +57,7 @@ class ShareContent {
   final bool isTimeline;
   final bool isCollection;
   final String label;
+  final ShareProgressCard? progressCard;
   String get shareTitle => label.isNotEmpty
       ? '分享$label'
       : isTimeline
@@ -125,23 +149,34 @@ class ShareContent {
     final text = plainShareText(
       item.content.isNotEmpty ? item.content : item.rawContent,
     );
+    final progressCard = _shareProgressCard(item.progress);
     final date = item.createdAt.toLocal();
+    final progressImage = item.progress?.imageUrl ?? '';
     return ShareContent(
       title: '${item.user.displayName}的动态',
       subtitle: '@$username',
-      excerpt: text.isNotEmpty ? text : plainShareText(item.description),
-      imageUrl: targets.isNotEmpty && targets.first.imageUrl.isNotEmpty
+      excerpt: text.isNotEmpty
+          ? text
+          : progressCard == null
+          ? plainShareText(item.description)
+          : '',
+      imageUrl: progressImage.isNotEmpty
+          ? progressImage
+          : targets.isNotEmpty && targets.first.imageUrl.isNotEmpty
           ? targets.first.imageUrl
           : item.imageUrls.isNotEmpty
           ? item.imageUrls.first
           : '',
       detail: [
         '${date.year}.${date.month.toString().padLeft(2, '0')}.${date.day.toString().padLeft(2, '0')}',
-        if (item.description.isNotEmpty && text.isNotEmpty)
+        if (progressCard != null)
+          '${progressCard.title} · ${progressCard.subtitle}'
+        else if (item.description.isNotEmpty && text.isNotEmpty)
           plainShareText(item.description),
         if (targets.isNotEmpty)
           targets.take(4).map((target) => target.title).join(' / '),
       ].join(' · '),
+      progressCard: progressCard,
       metrics: [
         ShareMetric('回复', '${item.replyCount}'),
         ShareMetric(
@@ -170,7 +205,71 @@ class ShareContent {
   ].join('\n');
   String get qrUrl => SharedBangumiLink.parse(url)?.qrUrl ?? url;
 
-  double get cardHeight => isTimeline ? 660 : 720;
+  double get cardHeight => isTimeline ? (progressCard == null ? 660 : 840) : 720;
+}
+
+ShareProgressCard? _shareProgressCard(CommunityTimelineProgress? progress) {
+  if (progress == null || progress.title.isEmpty) return null;
+  final episode = progress.episode;
+  final subtitle = episode == null
+      ? _batchProgressText(progress)
+      : [
+          _episodeLabel(episode),
+          if (episode.title.isNotEmpty) episode.title,
+        ].join(' · ');
+  return ShareProgressCard(
+    title: progress.title,
+    subtitle: subtitle,
+    score: progress.score > 0
+        ? '评分 ${progress.score.toStringAsFixed(1)}'
+        : '',
+    marks: _progressMarks(progress),
+  );
+}
+
+List<ShareEpisodeMark> _progressMarks(CommunityTimelineProgress progress) {
+  final episode = progress.episode;
+  if (episode != null) {
+    return [ShareEpisodeMark(_episodeLabel(episode), active: true)];
+  }
+  final count = progress.episodeProgress ?? 0;
+  final volume = progress.volumeProgress ?? 0;
+  if (count <= 0 && volume <= 0) return const [];
+  if (count <= 0) return [ShareEpisodeMark('VOL.$volume', active: true)];
+  final first = count > 12 ? count - 11 : 1;
+  return [
+    if (first > 1) ShareEpisodeMark('EP.1…${first - 1}'),
+    for (var number = first; number <= count; number++)
+      ShareEpisodeMark('EP.$number', active: number == count),
+  ];
+}
+
+String _episodeLabel(CommunityTimelineEpisode episode) {
+  final prefix = switch (episode.type) {
+    1 => 'SP',
+    2 => 'OP',
+    3 => 'ED',
+    4 => 'PV',
+    5 => 'MAD',
+    6 => 'OTHER',
+    _ => 'EP',
+  };
+  final sort = episode.sort == episode.sort.roundToDouble()
+      ? episode.sort.toInt().toString()
+      : episode.sort.toStringAsFixed(1);
+  return '$prefix.$sort';
+}
+
+String _batchProgressText(CommunityTimelineProgress progress) {
+  final episode = progress.episodeProgress;
+  final volume = progress.volumeProgress;
+  final parts = <String>[
+    if (volume != null)
+      '第 $volume${progress.volumeTotal.isEmpty ? '' : '/${progress.volumeTotal}'} 卷',
+    if (episode != null)
+      '第 $episode${progress.episodeTotal.isEmpty ? '' : '/${progress.episodeTotal}'} 话',
+  ];
+  return parts.isEmpty ? '更新了章节进度' : '进度 ${parts.join(' · ')}';
 }
 
 String plainShareText(String source) {

@@ -306,6 +306,7 @@ class _SubjectDetailScreenState extends ConsumerState<SubjectDetailScreen> {
                         error: _content.history.error,
                         history: _content.history.value,
                         subjectId: subject.id,
+                        subjectTitle: subject.displayName,
                         compact: narrow,
                         initiallyExpanded: !narrow,
                         onRetry: () => unawaited(_content.history.load()),

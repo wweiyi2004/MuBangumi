@@ -1,3 +1,6 @@
+import '../state/subject_view_controller.dart';
+import '../widgets/subject_view_menu.dart';
+import '../widgets/scroll_to_top_frame.dart';
 import '../core/theme/anime_icon.dart';
 import '../navigation/app_destination.dart';
 import 'dart:async';
@@ -68,11 +71,16 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
   String _query = '';
   Timer? _searchDebounce;
   final _queryController = TextEditingController();
+  final _scrollController = ScrollController();
   String? _account;
   int _preferenceRevision = 0;
   bool _saveErrorShown = false;
   bool _selectionMode = false;
   final _selected = <int>{};
+  List<UserCollection>? _filteredSource;
+  Object? _filteredKey;
+  List<UserCollection> _filteredItems = const [];
+  int _typedCount = 0;
 
   @override
   void initState() {
@@ -113,6 +121,7 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
   void dispose() {
     _searchDebounce?.cancel();
     _queryController.dispose();
+    _scrollController.dispose();
     _preferenceRevision++;
     super.dispose();
   }
@@ -249,6 +258,24 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
 
   List<UserCollection> _filterItems(List<UserCollection> collections) {
     final keyword = _query.trim().toLowerCase();
+    final key = (
+      _subjectType,
+      _type,
+      keyword,
+      _minimumRating,
+      _progress,
+      _sort,
+    );
+    if (identical(_filteredSource, collections) && key == _filteredKey) {
+      return _filteredItems;
+    }
+    _filteredSource = collections;
+    _filteredKey = key;
+    _typedCount = collections
+        .where(
+          (item) => _subjectType == null || item.subject.type == _subjectType,
+        )
+        .length;
     final items = collections.where((item) {
       final matchSubject =
           _subjectType == null || item.subject.type == _subjectType;
@@ -265,7 +292,7 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
           _matchesProgress(item);
     }).toList();
     _sortItems(items);
-    return items;
+    return _filteredItems = items;
   }
 
   void _toggleSelection(int subjectId) => setState(() {
@@ -385,12 +412,8 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
     final updating = ref.watch(
       sessionProvider.select((state) => state.updatingSubjects),
     );
-    final typedCount = collections
-        .where(
-          (item) => _subjectType == null || item.subject.type == _subjectType,
-        )
-        .length;
     final items = _filterItems(collections);
+    final typedCount = _typedCount;
     final canBatch = ref.watch(
       sessionProvider.select(
         (state) =>
@@ -403,7 +426,16 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
     return LayoutBuilder(
       builder: (context, constraints) {
         final phone = constraints.maxWidth < AppLayout.phone;
-        final columns = constraints.maxWidth >= 1050
+        final view = ref.watch(subjectViewProvider('library'));
+        final poster =
+            !_selectionMode &&
+            (view == SubjectView.twoColumns ||
+                view == SubjectView.threeColumns);
+        final columns = _selectionMode || view == SubjectView.list
+            ? 1
+            : poster
+            ? (view == SubjectView.twoColumns ? 2 : 3)
+            : constraints.maxWidth >= 1050
             ? 3
             : constraints.maxWidth >= 640
             ? 2
@@ -412,122 +444,168 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
         return Column(
           children: [
             Expanded(
-              child: RefreshIndicator(
-                onRefresh: () => ref.read(sessionProvider.notifier).refresh(),
-                child: CustomScrollView(
-                  physics: const AlwaysScrollableScrollPhysics(),
-                  slivers: [
-                    SliverPadding(
-                      padding: EdgeInsets.fromLTRB(
-                        pagePad,
-                        phone ? 8 : AppLayout.pageTopPadding(context),
-                        pagePad,
-                        0,
-                      ),
-                      sliver: SliverToBoxAdapter(
-                        child: Center(
-                          child: ConstrainedBox(
-                            constraints: const BoxConstraints(maxWidth: 1220),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                _LibraryHeader(
-                                  phone: phone,
-                                  title: widget.showTitle
-                                      ? Text(
-                                          '我的收藏',
-                                          style: phone
-                                              ? Theme.of(
-                                                  context,
-                                                ).textTheme.titleLarge
-                                              : AppLayout.pageTitleStyle(
-                                                  context,
+              child: ScrollToTopFrame(
+                controller: _scrollController,
+                child: RefreshIndicator(
+                  onRefresh: () => ref.read(sessionProvider.notifier).refresh(),
+                  child: CustomScrollView(
+                    controller: _scrollController,
+                    physics: const AlwaysScrollableScrollPhysics(),
+                    slivers: [
+                      SliverPadding(
+                        padding: EdgeInsets.fromLTRB(
+                          pagePad,
+                          phone ? 8 : AppLayout.pageTopPadding(context),
+                          pagePad,
+                          0,
+                        ),
+                        sliver: SliverToBoxAdapter(
+                          child: Center(
+                            child: ConstrainedBox(
+                              constraints: const BoxConstraints(maxWidth: 1220),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  _LibraryHeader(
+                                    phone: phone,
+                                    title: widget.showTitle
+                                        ? Text(
+                                            '我的收藏',
+                                            style: phone
+                                                ? Theme.of(
+                                                    context,
+                                                  ).textTheme.titleLarge
+                                                : AppLayout.pageTitleStyle(
+                                                    context,
+                                                  ),
+                                          )
+                                        : null,
+                                    actions: [
+                                      SubjectViewMenu(
+                                        value: view,
+                                        onChanged: (value) => ref
+                                            .read(
+                                              subjectViewProvider(
+                                                'library',
+                                              ).notifier,
+                                            )
+                                            .select(value),
+                                      ),
+                                      if (widget.showTitle)
+                                        TextButton.icon(
+                                          onPressed: () =>
+                                              Navigator.of(context).push(
+                                                MaterialPageRoute<void>(
+                                                  builder: (_) =>
+                                                      const IndexListRoute(),
                                                 ),
-                                        )
-                                      : null,
-                                  actions: [
-                                    if (widget.showTitle)
-                                      TextButton.icon(
-                                        onPressed: () =>
+                                              ),
+                                          icon:
+                                              phone &&
+                                                  MediaQuery.sizeOf(
+                                                        context,
+                                                      ).width <
+                                                      400
+                                              ? null
+                                              : const AnimeIcon(
+                                                  Icons.view_list_rounded,
+                                                  size: 18,
+                                                ),
+                                          label: const FittedBox(
+                                            fit: BoxFit.scaleDown,
+                                            child: Text('番剧单', maxLines: 1),
+                                          ),
+                                        ),
+                                      if (widget.showTitle)
+                                        TextButton.icon(
+                                          onPressed: () {
+                                            final user = ref
+                                                .read(sessionProvider)
+                                                .user;
+                                            if (user == null) return;
                                             Navigator.of(context).push(
                                               MaterialPageRoute<void>(
-                                                builder: (_) =>
-                                                    const IndexListRoute(),
-                                              ),
-                                            ),
-                                        icon:
-                                            phone &&
-                                                MediaQuery.sizeOf(
-                                                      context,
-                                                    ).width <
-                                                    400
-                                            ? null
-                                            : const AnimeIcon(
-                                                Icons.view_list_rounded,
-                                                size: 18,
-                                              ),
-                                        label: const FittedBox(
-                                          fit: BoxFit.scaleDown,
-                                          child: Text('番剧单', maxLines: 1),
-                                        ),
-                                      ),
-                                    if (widget.showTitle)
-                                      TextButton.icon(
-                                        onPressed: () {
-                                          final user = ref
-                                              .read(sessionProvider)
-                                              .user;
-                                          if (user == null) return;
-                                          Navigator.of(context).push(
-                                            MaterialPageRoute<void>(
-                                              builder: (_) => Consumer(
-                                                builder: (context, ref, _) {
-                                                  final snapshot = ref.watch(
-                                                    sessionProvider.select(
-                                                      (state) => (
-                                                        user: state.user,
-                                                        collections:
-                                                            state.collections,
-                                                        loading: state
-                                                            .isLoadingCollections,
-                                                        cached: state
-                                                            .isUsingCachedCollections,
-                                                        coverage: state
-                                                            .collectionCoverage,
-                                                      ),
-                                                    ),
-                                                  );
-                                                  if (snapshot.user?.username !=
-                                                      user.username) {
-                                                    return Scaffold(
-                                                      appBar: AppBar(
-                                                        title: const Text(
-                                                          '统计与回顾',
-                                                        ),
-                                                      ),
-                                                      body: const Center(
-                                                        child: Text(
-                                                          '账号已变更，请返回收藏重新进入',
+                                                builder: (_) => Consumer(
+                                                  builder: (context, ref, _) {
+                                                    final snapshot = ref.watch(
+                                                      sessionProvider.select(
+                                                        (state) => (
+                                                          user: state.user,
+                                                          collections:
+                                                              state.collections,
+                                                          loading: state
+                                                              .isLoadingCollections,
+                                                          cached: state
+                                                              .isUsingCachedCollections,
+                                                          coverage: state
+                                                              .collectionCoverage,
                                                         ),
                                                       ),
                                                     );
-                                                  }
-                                                  return CollectionStatsPage(
-                                                    displayName: snapshot
-                                                        .user
-                                                        ?.displayName,
-                                                    username: user.username,
-                                                    collections:
-                                                        snapshot.collections,
-                                                    isLoading: snapshot.loading,
-                                                    isCached: snapshot.cached,
-                                                    coverage: snapshot.coverage,
-                                                  );
-                                                },
+                                                    if (snapshot
+                                                            .user
+                                                            ?.username !=
+                                                        user.username) {
+                                                      return Scaffold(
+                                                        appBar: AppBar(
+                                                          title: const Text(
+                                                            '统计与回顾',
+                                                          ),
+                                                        ),
+                                                        body: const Center(
+                                                          child: Text(
+                                                            '账号已变更，请返回收藏重新进入',
+                                                          ),
+                                                        ),
+                                                      );
+                                                    }
+                                                    return CollectionStatsPage(
+                                                      displayName: snapshot
+                                                          .user
+                                                          ?.displayName,
+                                                      username: user.username,
+                                                      collections:
+                                                          snapshot.collections,
+                                                      isLoading:
+                                                          snapshot.loading,
+                                                      isCached: snapshot.cached,
+                                                      coverage:
+                                                          snapshot.coverage,
+                                                    );
+                                                  },
+                                                ),
                                               ),
-                                            ),
-                                          );
-                                        },
+                                            );
+                                          },
+                                          icon:
+                                              phone &&
+                                                  MediaQuery.sizeOf(
+                                                        context,
+                                                      ).width <
+                                                      400
+                                              ? null
+                                              : const AnimeIcon(
+                                                  Icons.insights_outlined,
+                                                  size: 18,
+                                                ),
+                                          label: const FittedBox(
+                                            fit: BoxFit.scaleDown,
+                                            child: Text('统计与回顾', maxLines: 1),
+                                          ),
+                                        ),
+                                      TextButton.icon(
+                                        key: const ValueKey(
+                                          'library-selection-toggle',
+                                        ),
+                                        onPressed: !canBatch
+                                            ? null
+                                            : () => setState(() {
+                                                _selectionMode =
+                                                    !_selectionMode;
+                                                if (!_selectionMode) {
+                                                  _selected.clear();
+                                                }
+                                              }),
                                         icon:
                                             phone &&
                                                 MediaQuery.sizeOf(
@@ -536,370 +614,369 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
                                                     400
                                             ? null
                                             : const AnimeIcon(
-                                                Icons.insights_outlined,
+                                                Icons.checklist_rounded,
                                                 size: 18,
                                               ),
-                                        label: const FittedBox(
+                                        label: FittedBox(
                                           fit: BoxFit.scaleDown,
-                                          child: Text('统计与回顾', maxLines: 1),
-                                        ),
-                                      ),
-                                    TextButton.icon(
-                                      key: const ValueKey(
-                                        'library-selection-toggle',
-                                      ),
-                                      onPressed: !canBatch
-                                          ? null
-                                          : () => setState(() {
-                                              _selectionMode = !_selectionMode;
-                                              if (!_selectionMode) {
-                                                _selected.clear();
-                                              }
-                                            }),
-                                      icon:
-                                          phone &&
-                                              MediaQuery.sizeOf(context).width <
-                                                  400
-                                          ? null
-                                          : const AnimeIcon(
-                                              Icons.checklist_rounded,
-                                              size: 18,
-                                            ),
-                                      label: FittedBox(
-                                        fit: BoxFit.scaleDown,
-                                        child: Text(
-                                          _selectionMode ? '结束多选' : '批量整理',
-                                          maxLines: 1,
-                                        ),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                                const SizedBox(height: 6),
-                                Text(
-                                  phone
-                                      ? '找到 ${items.length} 部'
-                                            '${isLoadingCollections ? ' · 同步中' : ''}'
-                                      : '找到 ${items.length} 部 · '
-                                            '当前类型 $typedCount 部 · '
-                                            '全部 ${collections.length} 部'
-                                            '${isLoadingCollections ? ' · 同步中' : ''}',
-                                  style: TextStyle(
-                                    color: Theme.of(
-                                      context,
-                                    ).colorScheme.onSurfaceVariant,
-                                    fontSize: phone ? 13 : null,
-                                  ),
-                                ),
-                                const CollectionSyncStatus(),
-                                if (isLoadingCollections &&
-                                    collections.isEmpty) ...[
-                                  const SizedBox(height: 10),
-                                  const LinearProgressIndicator(minHeight: 3),
-                                ],
-                                SizedBox(height: phone ? 8 : 24),
-                                Row(
-                                  children: [
-                                    Expanded(
-                                      child: TextField(
-                                        controller: _queryController,
-                                        onChanged: _onQueryChanged,
-                                        decoration: InputDecoration(
-                                          hintText: '在收藏中搜索',
-                                          isDense: phone,
-                                          prefixIcon: const AnimeIcon(
-                                            Icons.search_rounded,
+                                          child: Text(
+                                            _selectionMode ? '结束多选' : '批量整理',
+                                            maxLines: 1,
                                           ),
                                         ),
                                       ),
-                                    ),
-                                    if (phone)
-                                      PopupMenuButton<int>(
-                                        key: const ValueKey(
-                                          'library-status-menu',
-                                        ),
-                                        tooltip: '收藏状态',
-                                        initialValue: _type?.value ?? 0,
-                                        icon: const AnimeIcon(
-                                          Icons.filter_list_rounded,
-                                        ),
-                                        onSelected: (value) => _changeFilters(
-                                          () => _type = value == 0
-                                              ? null
-                                              : CollectionType.values
-                                                    .firstWhere(
-                                                      (type) =>
-                                                          type.value == value,
-                                                    ),
-                                        ),
-                                        itemBuilder: (_) => [
-                                          const PopupMenuItem(
-                                            value: 0,
-                                            child: Text('全部状态'),
-                                          ),
-                                          for (final type
-                                              in CollectionType.values)
-                                            PopupMenuItem(
-                                              value: type.value,
-                                              child: Text(_statusLabel(type)),
-                                            ),
-                                        ],
-                                      ),
-                                    const SizedBox(width: 8),
-                                    Badge.count(
-                                      count: _activeFilters,
-                                      isLabelVisible: _activeFilters > 0,
-                                      child: phone
-                                          ? IconButton.filledTonal(
-                                              tooltip: '筛选',
-                                              onPressed: _showFilters,
-                                              icon: const AnimeIcon(
-                                                Icons.tune_rounded,
-                                              ),
-                                            )
-                                          : FilledButton.tonalIcon(
-                                              onPressed: _showFilters,
-                                              icon: const AnimeIcon(
-                                                Icons.tune_rounded,
-                                              ),
-                                              label: const Text('筛选'),
-                                            ),
-                                    ),
-                                  ],
-                                ),
-                                SizedBox(height: phone ? 8 : 16),
-                                SingleChildScrollView(
-                                  scrollDirection: Axis.horizontal,
-                                  child: Row(
-                                    children: [
-                                      ChoiceChip(
-                                        label: const Text('全部类型'),
-                                        selected: _subjectType == null,
-                                        onSelected: (_) => _changeFilters(() {
-                                          _subjectType = null;
-                                          _progress = _ProgressFilter.all;
-                                        }),
-                                      ),
-                                      const SizedBox(width: 8),
-                                      for (final type
-                                          in SubjectType.values) ...[
-                                        ChoiceChip(
-                                          avatar: AnimeIcon(
-                                            subjectTypeIcon(type),
-                                            size: 16,
-                                          ),
-                                          label: Text(type.label),
-                                          selected: _subjectType == type,
-                                          onSelected: (_) => _changeFilters(() {
-                                            _subjectType = type;
-                                            if (!type.hasEpisodes &&
-                                                !type.hasVolumes) {
-                                              _progress = _ProgressFilter.all;
-                                            }
-                                          }),
-                                        ),
-                                        const SizedBox(width: 8),
-                                      ],
                                     ],
                                   ),
-                                ),
-                                if (!phone) ...[
-                                  const SizedBox(height: 12),
+                                  const SizedBox(height: 6),
+                                  Text(
+                                    phone
+                                        ? '找到 ${items.length} 部'
+                                              '${isLoadingCollections ? ' · 同步中' : ''}'
+                                        : '找到 ${items.length} 部 · '
+                                              '当前类型 $typedCount 部 · '
+                                              '全部 ${collections.length} 部'
+                                              '${isLoadingCollections ? ' · 同步中' : ''}',
+                                    style: TextStyle(
+                                      color: Theme.of(
+                                        context,
+                                      ).colorScheme.onSurfaceVariant,
+                                      fontSize: phone ? 13 : null,
+                                    ),
+                                  ),
+                                  const CollectionSyncStatus(),
+                                  if (isLoadingCollections &&
+                                      collections.isEmpty) ...[
+                                    const SizedBox(height: 10),
+                                    const LinearProgressIndicator(minHeight: 3),
+                                  ],
+                                  SizedBox(height: phone ? 8 : 24),
+                                  Row(
+                                    children: [
+                                      Expanded(
+                                        child: TextField(
+                                          controller: _queryController,
+                                          onChanged: _onQueryChanged,
+                                          decoration: InputDecoration(
+                                            hintText: '在收藏中搜索',
+                                            isDense: phone,
+                                            prefixIcon: const AnimeIcon(
+                                              Icons.search_rounded,
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                      if (phone)
+                                        PopupMenuButton<int>(
+                                          key: const ValueKey(
+                                            'library-status-menu',
+                                          ),
+                                          tooltip: '收藏状态',
+                                          initialValue: _type?.value ?? 0,
+                                          icon: const AnimeIcon(
+                                            Icons.filter_list_rounded,
+                                          ),
+                                          onSelected: (value) => _changeFilters(
+                                            () => _type = value == 0
+                                                ? null
+                                                : CollectionType.values
+                                                      .firstWhere(
+                                                        (type) =>
+                                                            type.value == value,
+                                                      ),
+                                          ),
+                                          itemBuilder: (_) => [
+                                            const PopupMenuItem(
+                                              value: 0,
+                                              child: Text('全部状态'),
+                                            ),
+                                            for (final type
+                                                in CollectionType.values)
+                                              PopupMenuItem(
+                                                value: type.value,
+                                                child: Text(_statusLabel(type)),
+                                              ),
+                                          ],
+                                        ),
+                                      const SizedBox(width: 8),
+                                      Badge.count(
+                                        count: _activeFilters,
+                                        isLabelVisible: _activeFilters > 0,
+                                        child: phone
+                                            ? IconButton.filledTonal(
+                                                tooltip: '筛选',
+                                                onPressed: _showFilters,
+                                                icon: const AnimeIcon(
+                                                  Icons.tune_rounded,
+                                                ),
+                                              )
+                                            : FilledButton.tonalIcon(
+                                                onPressed: _showFilters,
+                                                icon: const AnimeIcon(
+                                                  Icons.tune_rounded,
+                                                ),
+                                                label: const Text('筛选'),
+                                              ),
+                                      ),
+                                    ],
+                                  ),
+                                  SizedBox(height: phone ? 8 : 16),
                                   SingleChildScrollView(
                                     scrollDirection: Axis.horizontal,
                                     child: Row(
                                       children: [
                                         ChoiceChip(
-                                          label: const Text('全部状态'),
-                                          selected: _type == null,
-                                          onSelected: (_) => _changeFilters(
-                                            () => _type = null,
-                                          ),
+                                          label: const Text('全部类型'),
+                                          selected: _subjectType == null,
+                                          onSelected: (_) => _changeFilters(() {
+                                            _subjectType = null;
+                                            _progress = _ProgressFilter.all;
+                                          }),
                                         ),
                                         const SizedBox(width: 8),
                                         for (final type
-                                            in CollectionType.values) ...[
+                                            in SubjectType.values) ...[
                                           ChoiceChip(
-                                            label: Text(_statusLabel(type)),
-                                            selected: _type == type,
-                                            onSelected: (_) => _changeFilters(
-                                              () => _type = type,
+                                            avatar: AnimeIcon(
+                                              subjectTypeIcon(type),
+                                              size: 16,
                                             ),
+                                            label: Text(type.label),
+                                            selected: _subjectType == type,
+                                            onSelected: (_) =>
+                                                _changeFilters(() {
+                                                  _subjectType = type;
+                                                  if (!type.hasEpisodes &&
+                                                      !type.hasVolumes) {
+                                                    _progress =
+                                                        _ProgressFilter.all;
+                                                  }
+                                                }),
                                           ),
                                           const SizedBox(width: 8),
                                         ],
                                       ],
                                     ),
                                   ),
-                                ],
-                                if (phone && _type != null)
-                                  Padding(
-                                    padding: const EdgeInsets.only(top: 6),
-                                    child: Text(
-                                      '状态：${_statusLabel(_type!)}',
-                                      style: Theme.of(
-                                        context,
-                                      ).textTheme.bodySmall,
+                                  if (!phone) ...[
+                                    const SizedBox(height: 12),
+                                    SingleChildScrollView(
+                                      scrollDirection: Axis.horizontal,
+                                      child: Row(
+                                        children: [
+                                          ChoiceChip(
+                                            label: const Text('全部状态'),
+                                            selected: _type == null,
+                                            onSelected: (_) => _changeFilters(
+                                              () => _type = null,
+                                            ),
+                                          ),
+                                          const SizedBox(width: 8),
+                                          for (final type
+                                              in CollectionType.values) ...[
+                                            ChoiceChip(
+                                              label: Text(_statusLabel(type)),
+                                              selected: _type == type,
+                                              onSelected: (_) => _changeFilters(
+                                                () => _type = type,
+                                              ),
+                                            ),
+                                            const SizedBox(width: 8),
+                                          ],
+                                        ],
+                                      ),
                                     ),
-                                  ),
-                                if (_activeFilters > 0) ...[
-                                  const SizedBox(height: 12),
-                                  Wrap(
-                                    spacing: 8,
-                                    runSpacing: 8,
-                                    crossAxisAlignment:
-                                        WrapCrossAlignment.center,
-                                    children: [
-                                      Text(
-                                        '已启用：',
+                                  ],
+                                  if (phone && _type != null)
+                                    Padding(
+                                      padding: const EdgeInsets.only(top: 6),
+                                      child: Text(
+                                        '状态：${_statusLabel(_type!)}',
                                         style: Theme.of(
                                           context,
-                                        ).textTheme.labelMedium,
+                                        ).textTheme.bodySmall,
                                       ),
-                                      if (_progress != _ProgressFilter.all)
-                                        Chip(
-                                          label: Text(
-                                            _progressLabel(_progress),
+                                    ),
+                                  if (_activeFilters > 0) ...[
+                                    const SizedBox(height: 12),
+                                    Wrap(
+                                      spacing: 8,
+                                      runSpacing: 8,
+                                      crossAxisAlignment:
+                                          WrapCrossAlignment.center,
+                                      children: [
+                                        Text(
+                                          '已启用：',
+                                          style: Theme.of(
+                                            context,
+                                          ).textTheme.labelMedium,
+                                        ),
+                                        if (_progress != _ProgressFilter.all)
+                                          Chip(
+                                            label: Text(
+                                              _progressLabel(_progress),
+                                            ),
                                           ),
+                                        if (_minimumRating > 0)
+                                          Chip(
+                                            label: Text(
+                                              '个人评分 ≥ $_minimumRating',
+                                            ),
+                                          ),
+                                        if (_sort != _LibrarySort.updated)
+                                          Chip(label: Text(_sortLabel(_sort))),
+                                        TextButton(
+                                          onPressed: _resetFilters,
+                                          child: const Text('清除'),
                                         ),
-                                      if (_minimumRating > 0)
-                                        Chip(
-                                          label: Text('个人评分 ≥ $_minimumRating'),
-                                        ),
-                                      if (_sort != _LibrarySort.updated)
-                                        Chip(label: Text(_sortLabel(_sort))),
-                                      TextButton(
-                                        onPressed: _resetFilters,
-                                        child: const Text('清除'),
-                                      ),
-                                    ],
-                                  ),
+                                      ],
+                                    ),
+                                  ],
+                                  SizedBox(height: phone ? 10 : 18),
                                 ],
-                                SizedBox(height: phone ? 10 : 18),
-                              ],
+                              ),
                             ),
                           ),
                         ),
                       ),
-                    ),
-                    if (items.isEmpty)
-                      const SliverFillRemaining(
-                        hasScrollBody: false,
-                        child: Padding(
-                          padding: EdgeInsets.all(24),
-                          child: EmptyState(
-                            scene: ProjectionScene.collection,
-                            icon: Icons.filter_alt_off_outlined,
-                            title: '没有符合条件的收藏',
-                            message: '换个类型、分类、搜索词或清除筛选条件试试看。',
+                      if (items.isEmpty)
+                        const SliverFillRemaining(
+                          hasScrollBody: false,
+                          child: Padding(
+                            padding: EdgeInsets.all(24),
+                            child: EmptyState(
+                              scene: ProjectionScene.collection,
+                              icon: Icons.filter_alt_off_outlined,
+                              title: '没有符合条件的收藏',
+                              message: '换个类型、分类、搜索词或清除筛选条件试试看。',
+                            ),
                           ),
-                        ),
-                      )
-                    else
-                      SliverPadding(
-                        padding: EdgeInsets.fromLTRB(pagePad, 0, pagePad, 60),
-                        sliver: SliverLayoutBuilder(
-                          builder: (context, constraints) {
-                            final width = constraints.crossAxisExtent;
-                            final contentWidth = width > 1220 ? 1220.0 : width;
-                            final side = (width - contentWidth) / 2;
-                            return SliverPadding(
-                              padding: EdgeInsets.symmetric(
-                                horizontal: side > 0 ? side : 0,
-                              ),
-                              sliver: SliverGrid(
-                                gridDelegate:
-                                    SliverGridDelegateWithFixedCrossAxisCount(
-                                      crossAxisCount: columns,
-                                      mainAxisExtent: subjectTileHeight(
-                                        context,
+                        )
+                      else
+                        SliverPadding(
+                          padding: EdgeInsets.fromLTRB(pagePad, 0, pagePad, 60),
+                          sliver: SliverLayoutBuilder(
+                            builder: (context, constraints) {
+                              final width = constraints.crossAxisExtent;
+                              final contentWidth = width > 1220
+                                  ? 1220.0
+                                  : width;
+                              final side = (width - contentWidth) / 2;
+                              return SliverPadding(
+                                padding: EdgeInsets.symmetric(
+                                  horizontal: side > 0 ? side : 0,
+                                ),
+                                sliver: SliverGrid(
+                                  gridDelegate:
+                                      SliverGridDelegateWithFixedCrossAxisCount(
+                                        crossAxisCount: columns,
+                                        mainAxisExtent: poster
+                                            ? subjectPosterItemHeight(
+                                                contentWidth,
+                                                columns,
+                                                spacing: 14,
+                                                textScaler:
+                                                    MediaQuery.textScalerOf(
+                                                      context,
+                                                    ),
+                                              )
+                                            : subjectTileHeight(context),
+                                        mainAxisSpacing: 14,
+                                        crossAxisSpacing: 14,
                                       ),
-                                      mainAxisSpacing: 14,
-                                      crossAxisSpacing: 14,
-                                    ),
-                                delegate: SliverChildBuilderDelegate((
-                                  context,
-                                  index,
-                                ) {
-                                  final collection = items[index];
-                                  final supportsEpisodes =
-                                      collection.subject.type.hasEpisodes;
-                                  return SubjectTile(
-                                    key: ValueKey(
-                                      'library-subject-${collection.subjectId}',
-                                    ),
-                                    selected: _selectionMode
-                                        ? _selected.contains(
-                                            collection.subjectId,
-                                          )
-                                        : null,
-                                    onSelectionChanged: _selectionMode
-                                        ? () => _toggleSelection(
-                                            collection.subjectId,
-                                          )
-                                        : null,
-                                    subject: collection.subject,
-                                    collection: collection,
-                                    showTypeBadge: _subjectType == null,
-                                    busy: updating.contains(
-                                      collection.subjectId,
-                                    ),
-                                    onTap: _selectionMode
-                                        ? () => _toggleSelection(
-                                            collection.subjectId,
-                                          )
-                                        : () => Navigator.of(context).push(
-                                            MaterialPageRoute(
-                                              builder: (_) => SubjectRoute(
-                                                subject: collection.subject,
-                                              ),
+                                  delegate: SliverChildBuilderDelegate((
+                                    context,
+                                    index,
+                                  ) {
+                                    final collection = items[index];
+                                    final supportsEpisodes =
+                                        collection.subject.type.hasEpisodes;
+                                    if (poster) {
+                                      return SubjectPosterCard(
+                                        key: ValueKey(
+                                          'library-subject-${collection.subjectId}',
+                                        ),
+                                        subject: collection.subject,
+                                        collection: collection,
+                                        busy: updating.contains(
+                                          collection.subjectId,
+                                        ),
+                                        onTap: () => Navigator.of(context).push(
+                                          MaterialPageRoute(
+                                            builder: (_) => SubjectRoute(
+                                              subject: collection.subject,
                                             ),
                                           ),
-                                    onEpisodeGrid:
-                                        supportsEpisodes && !_selectionMode
-                                        ? () => showEpisodeGridSheet(
-                                            context,
-                                            ref,
-                                            collection,
-                                          )
-                                        : null,
-                                    onNextEpisode:
-                                        supportsEpisodes &&
-                                            !_selectionMode &&
-                                            collection.type ==
-                                                CollectionType.doing
-                                        ? () async {
-                                            EpisodeUndo? undo;
-                                            final controller = ref.read(
-                                              sessionProvider.notifier,
-                                            );
-                                            final error = await controller
-                                                .markNextEpisode(
-                                                  collection,
-                                                  onUndoReady: (value) =>
-                                                      undo = value,
-                                                );
-                                            if (context.mounted) {
-                                              if (error != null) {
-                                                showAppMessage(context, error);
-                                              } else if (undo != null) {
-                                                showEpisodeUndoMessage(
-                                                  context,
-                                                  controller,
-                                                  undo!,
-                                                );
-                                              }
-                                            }
-                                          }
-                                        : null,
-                                  );
-                                }, childCount: items.length),
-                              ),
-                            );
-                          },
+                                        ),
+                                        onNextEpisode:
+                                            supportsEpisodes &&
+                                                collection.type ==
+                                                    CollectionType.doing
+                                            ? () => _markNext(collection)
+                                            : null,
+                                        onEpisodeGrid: supportsEpisodes
+                                            ? () => showEpisodeGridSheet(
+                                                context,
+                                                ref,
+                                                collection,
+                                              )
+                                            : null,
+                                      );
+                                    }
+                                    return SubjectTile(
+                                      key: ValueKey(
+                                        'library-subject-${collection.subjectId}',
+                                      ),
+                                      selected: _selectionMode
+                                          ? _selected.contains(
+                                              collection.subjectId,
+                                            )
+                                          : null,
+                                      onSelectionChanged: _selectionMode
+                                          ? () => _toggleSelection(
+                                              collection.subjectId,
+                                            )
+                                          : null,
+                                      subject: collection.subject,
+                                      collection: collection,
+                                      showTypeBadge: _subjectType == null,
+                                      busy: updating.contains(
+                                        collection.subjectId,
+                                      ),
+                                      onTap: _selectionMode
+                                          ? () => _toggleSelection(
+                                              collection.subjectId,
+                                            )
+                                          : () => Navigator.of(context).push(
+                                              MaterialPageRoute(
+                                                builder: (_) => SubjectRoute(
+                                                  subject: collection.subject,
+                                                ),
+                                              ),
+                                            ),
+                                      onEpisodeGrid:
+                                          supportsEpisodes && !_selectionMode
+                                          ? () => showEpisodeGridSheet(
+                                              context,
+                                              ref,
+                                              collection,
+                                            )
+                                          : null,
+                                      onNextEpisode:
+                                          supportsEpisodes &&
+                                              !_selectionMode &&
+                                              collection.type ==
+                                                  CollectionType.doing
+                                          ? () => _markNext(collection)
+                                          : null,
+                                    );
+                                  }, childCount: items.length),
+                                ),
+                              );
+                            },
+                          ),
                         ),
-                      ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
             ),
@@ -908,6 +985,21 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
         );
       },
     );
+  }
+
+  Future<void> _markNext(UserCollection collection) async {
+    EpisodeUndo? undo;
+    final controller = ref.read(sessionProvider.notifier);
+    final error = await controller.markNextEpisode(
+      collection,
+      onUndoReady: (value) => undo = value,
+    );
+    if (!mounted) return;
+    if (error != null) {
+      showAppMessage(context, error);
+    } else if (undo != null) {
+      showEpisodeUndoMessage(context, controller, undo!);
+    }
   }
 
   bool _matchesProgress(UserCollection item) {
@@ -941,8 +1033,8 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
     switch (_sort) {
       case _LibrarySort.updated:
         items.sort((a, b) {
-          final aTime = a.updatedAt ?? DateTime.fromMillisecondsSinceEpoch(0);
-          final bTime = b.updatedAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+          final aTime = a.updatedAt?.microsecondsSinceEpoch ?? 0;
+          final bTime = b.updatedAt?.microsecondsSinceEpoch ?? 0;
           return bTime.compareTo(aTime);
         });
       case _LibrarySort.title:
