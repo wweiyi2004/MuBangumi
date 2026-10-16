@@ -1353,7 +1353,6 @@ class CommunityService {
       (key) => key.contains('/groups/$encoded') || key.contains('/topics'),
     );
     final id = topicId;
-    if (id == null) throw const CommunitySubmissionUncertain();
     return createdGroupTopic(slug: slug, title: trimmedTitle, id: id);
   }
 
