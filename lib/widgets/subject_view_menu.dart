@@ -14,7 +14,7 @@ class SubjectViewMenu extends StatelessWidget {
   Widget build(BuildContext context) => PopupMenuButton<SubjectView>(
     tooltip: '切换视图',
     initialValue: value,
-    icon: const AnimeIcon(Icons.view_module_rounded),
+    icon: const AnimeIcon(Icons.grid_view_rounded),
     onSelected: onChanged,
     itemBuilder: (_) => [
       for (final view in SubjectView.values)

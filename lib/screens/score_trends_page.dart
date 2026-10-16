@@ -221,7 +221,16 @@ class _ScoreTrendsPageState extends ConsumerState<ScoreTrendsPage>
           tabAlignment: TabAlignment.start,
           tabs: [
             for (final kind in _TrendKind.values) Tab(text: kind.label),
-            const Tab(text: '历史对比'),
+            const Tab(
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  AnimeIcon(Icons.multiline_chart_rounded, size: 18),
+                  SizedBox(width: 6),
+                  Text('历史对比'),
+                ],
+              ),
+            ),
           ],
         ),
       ),

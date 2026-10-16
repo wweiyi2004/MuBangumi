@@ -69,12 +69,12 @@ class ScoreChartControls extends StatelessWidget {
       IconButton(
         tooltip: '放大评分尺度',
         onPressed: points.isEmpty ? null : () => _zoom(.5),
-        icon: const AnimeIcon(Icons.zoom_in_rounded),
+        icon: const AnimeIcon(Icons.add_rounded),
       ),
       IconButton(
         tooltip: '缩小评分尺度',
         onPressed: points.isEmpty ? null : () => _zoom(2),
-        icon: const AnimeIcon(Icons.zoom_out_rounded),
+        icon: const AnimeIcon(Icons.remove_rounded),
       ),
       TextButton(
         onPressed: () => onChanged(const ScoreChartAxes()),
@@ -179,7 +179,7 @@ class _AxesDialogState extends State<_AxesDialog> {
                     });
                   }
                 },
-                icon: const AnimeIcon(Icons.date_range_rounded),
+                icon: const AnimeIcon(Icons.calendar_today_outlined),
                 label: Text(
                   _start == null
                       ? '选择日期范围'

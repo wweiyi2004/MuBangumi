@@ -149,10 +149,7 @@ class _EpisodeActivityHeatmapState
                             onPressed:
                                 widget.onExpand ??
                                 () => _openExpanded(context, today),
-                            icon: const AnimeIcon(
-                              Icons.open_in_full_rounded,
-                              size: 20,
-                            ),
+                            icon: const AnimeIcon(Icons.open_in_full, size: 20),
                           ),
                       ],
                     ),

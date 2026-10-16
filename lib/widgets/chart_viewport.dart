@@ -113,7 +113,7 @@ class _ChartViewportState extends State<ChartViewport> {
                 child: IconButton.filledTonal(
                   tooltip: '重置图表视图',
                   onPressed: () => setState(() => _rect = full),
-                  icon: const AnimeIcon(Icons.fit_screen_rounded, size: 18),
+                  icon: const AnimeIcon(Icons.restart_alt_rounded, size: 18),
                 ),
               ),
           ],
