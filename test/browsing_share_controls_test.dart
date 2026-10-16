@@ -86,7 +86,7 @@ void main() {
         await tester.tap(find.byTooltip('切换视图'));
         await tester.pumpAndSettle();
         await tester.tap(
-          find.widgetWithText(CheckedPopupMenuItem<SubjectView>, '一行 3 个'),
+          find.widgetWithText(PopupMenuItem<SubjectView>, '一行 3 个'),
         );
         await tester.pumpAndSettle();
         final grid = tester.widget<SliverGrid>(find.byType(SliverGrid));
@@ -109,7 +109,7 @@ void main() {
         await tester.tap(find.byTooltip('切换视图'));
         await tester.pumpAndSettle();
         await tester.tap(
-          find.widgetWithText(CheckedPopupMenuItem<SubjectView>, '列表视图'),
+          find.widgetWithText(PopupMenuItem<SubjectView>, '列表视图'),
         );
         await tester.pumpAndSettle();
         expect(find.byType(SubjectTile), findsWidgets);
@@ -156,10 +156,34 @@ void main() {
         find.widgetWithText(TextFormField, '评分上限'),
         '8.50',
       );
+      await tester.enterText(
+        find.widgetWithText(TextFormField, '开始日期'),
+        '2026/02/30',
+      );
+      await tester.enterText(
+        find.widgetWithText(TextFormField, '结束日期'),
+        '2026/03/01',
+      );
+      await tester.tap(find.text('应用'));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('请填写有效的起止日期'), findsWidgets);
+      await tester.enterText(
+        find.widgetWithText(TextFormField, '开始日期'),
+        '2026/03/02',
+      );
+      await tester.tap(find.text('应用'));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('结束日期不得早于开始日期'), findsWidgets);
+      await tester.enterText(
+        find.widgetWithText(TextFormField, '开始日期'),
+        '2026/02/01',
+      );
       await tester.tap(find.text('应用'));
       await tester.pumpAndSettle();
       expect(axes.minimum, 8);
       expect(axes.maximum, 8.5);
+      expect(axes.start, DateTime(2026, 2, 1));
+      expect(axes.end, DateTime(2026, 3, 1));
       await tester.tap(find.byTooltip('放大评分尺度'));
       await tester.pump();
       expect(axes.maximum! - axes.minimum!, closeTo(.25, .001));

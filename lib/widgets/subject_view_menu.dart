@@ -18,15 +18,28 @@ class SubjectViewMenu extends StatelessWidget {
     onSelected: onChanged,
     itemBuilder: (_) => [
       for (final view in SubjectView.values)
-        CheckedPopupMenuItem(
+        PopupMenuItem(
           value: view,
-          checked: view == value,
-          child: Text(switch (view) {
-            SubjectView.adaptive => '默认视图',
-            SubjectView.list => '列表视图',
-            SubjectView.twoColumns => '一行 2 个',
-            SubjectView.threeColumns => '一行 3 个',
-          }),
+          child: Semantics(
+            selected: view == value,
+            child: Row(
+              children: [
+                SizedBox(
+                  width: 24,
+                  child: view == value
+                      ? const AnimeIcon(Icons.check_rounded, size: 18)
+                      : null,
+                ),
+                const SizedBox(width: 8),
+                Text(switch (view) {
+                  SubjectView.adaptive => '默认视图',
+                  SubjectView.list => '列表视图',
+                  SubjectView.twoColumns => '一行 2 个',
+                  SubjectView.threeColumns => '一行 3 个',
+                }),
+              ],
+            ),
+          ),
         ),
     ],
   );

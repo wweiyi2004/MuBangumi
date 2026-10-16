@@ -105,11 +105,18 @@ class _AxesDialogState extends State<_AxesDialog> {
   late final _maximum = TextEditingController(
     text: widget.axes.maximum?.toStringAsFixed(2) ?? '',
   );
-  late DateTime? _start = widget.axes.start, _end = widget.axes.end;
+  late final _startDate = TextEditingController(
+    text: widget.axes.start == null ? '' : scoreChartDate(widget.axes.start!),
+  );
+  late final _endDate = TextEditingController(
+    text: widget.axes.end == null ? '' : scoreChartDate(widget.axes.end!),
+  );
   @override
   void dispose() {
     _minimum.dispose();
     _maximum.dispose();
+    _startDate.dispose();
+    _endDate.dispose();
     super.dispose();
   }
 
@@ -128,6 +135,34 @@ class _AxesDialogState extends State<_AxesDialog> {
             high - low < .01
         ? '请输入 0–10，上限须大于下限至少 0.01'
         : null;
+  }
+
+  DateTime? _parseDate(String text) {
+    final parts = RegExp(
+      r'^(\d{4})[-/](\d{1,2})[-/](\d{1,2})$',
+    ).firstMatch(text.trim());
+    if (parts == null) return null;
+    final year = int.parse(parts[1]!);
+    final month = int.parse(parts[2]!);
+    final day = int.parse(parts[3]!);
+    final date = DateTime(year, month, day);
+    return date.year == year && date.month == month && date.day == day
+        ? date
+        : null;
+  }
+
+  String? _validateDates(String? _) {
+    if (_startDate.text.trim().isEmpty && _endDate.text.trim().isEmpty) {
+      return null;
+    }
+    final start = _parseDate(_startDate.text), end = _parseDate(_endDate.text);
+    if (start == null || end == null) return '请填写有效的起止日期，如 2026/10/16';
+    if (start.isBefore(DateTime(1900)) ||
+        end.isAfter(DateTime.now()) ||
+        end.isBefore(start)) {
+      return '日期须在 1900 年至今天之间，结束日期不得早于开始日期';
+    }
+    return null;
   }
 
   @override
@@ -162,38 +197,32 @@ class _AxesDialogState extends State<_AxesDialog> {
                 validator: _validate,
               ),
               const SizedBox(height: 16),
-              OutlinedButton.icon(
-                onPressed: () async {
-                  final range = await showDateRangePicker(
-                    context: context,
-                    firstDate: DateTime(1900),
-                    lastDate: DateTime.now(),
-                    initialDateRange: _start == null
-                        ? null
-                        : DateTimeRange(start: _start!, end: _end!),
-                  );
-                  if (mounted && range != null) {
-                    setState(() {
-                      _start = range.start;
-                      _end = range.end;
-                    });
-                  }
-                },
-                icon: const AnimeIcon(Icons.calendar_today_outlined),
-                label: Text(
-                  _start == null
-                      ? '选择日期范围'
-                      : '${scoreChartDate(_start!)} – ${scoreChartDate(_end!)}',
+              TextFormField(
+                controller: _startDate,
+                keyboardType: TextInputType.datetime,
+                decoration: const InputDecoration(
+                  labelText: '开始日期',
+                  hintText: 'YYYY/MM/DD，留空时显示全部日期',
                 ),
+                validator: _validateDates,
               ),
-              if (_start != null)
-                TextButton(
-                  onPressed: () => setState(() {
-                    _start = null;
-                    _end = null;
-                  }),
-                  child: const Text('全部日期'),
+              const SizedBox(height: 12),
+              TextFormField(
+                controller: _endDate,
+                keyboardType: TextInputType.datetime,
+                decoration: const InputDecoration(
+                  labelText: '结束日期',
+                  hintText: 'YYYY/MM/DD',
                 ),
+                validator: _validateDates,
+              ),
+              TextButton(
+                onPressed: () {
+                  _startDate.clear();
+                  _endDate.clear();
+                },
+                child: const Text('全部日期'),
+              ),
             ],
           ),
         ),
@@ -212,8 +241,8 @@ class _AxesDialogState extends State<_AxesDialog> {
               ScoreChartAxes(
                 minimum: double.tryParse(_minimum.text.trim()),
                 maximum: double.tryParse(_maximum.text.trim()),
-                start: _start,
-                end: _end,
+                start: _parseDate(_startDate.text),
+                end: _parseDate(_endDate.text),
               ),
             );
           }
