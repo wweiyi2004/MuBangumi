@@ -972,11 +972,11 @@ void main() {
 
       expect(p1Requests, 1);
       expect(formGet?.path, contains('/group/fillgrids/new_topic'));
-      expect(formPost?.path, contains('/group/fillgrids/new_topic'));
+      expect(formPost?.path, contains('/group/fillgrids/topic/new'));
       expect(formPost?.data, containsPair('formhash', 'abc12345'));
       expect(formPost?.data, containsPair('title', '测试标题'));
       expect(formPost?.data, containsPair('content', '测试正文'));
-      expect(formPost?.data, containsPair('submit', 'submit'));
+      expect(formPost?.data, containsPair('submit', '加上去'));
     },
   );
 
