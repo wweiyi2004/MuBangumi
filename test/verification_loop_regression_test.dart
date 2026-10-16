@@ -182,7 +182,7 @@ void main() {
             await expectLater(pending, throwsException);
           }
           expect(requests, 1);
-          expect(htmlReads, membership ? 1 : 0);
+          expect(htmlReads, membership ? 2 : 0);
           expect(htmlWrites, membership ? 1 : 0);
         },
       );
