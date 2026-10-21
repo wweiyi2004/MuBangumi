@@ -228,7 +228,7 @@ class RoomServer {
     final local = Uri.tryParse('http://${r.headers.value('host')}');
     return origin == publicOrigin ||
         (local != null &&
-            isPrivateLanHost(local.host) &&
+            validServerUri(local) &&
             origin == local.origin);
   }
 
