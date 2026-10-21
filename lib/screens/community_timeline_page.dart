@@ -9,6 +9,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../core/network/community_service.dart';
 import '../models/bangumi_models.dart';
 import '../models/community_models.dart';
+import '../models/community_topic_submission.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../state/user_preferences_controller.dart';
 import '../widgets/community_composer.dart';
 import '../widgets/community_widgets.dart';
@@ -52,6 +54,7 @@ class _CommunityTimelinePageState extends ConsumerState<CommunityTimelinePage> {
   String? _error;
   int _requestId = 0;
   int _lastSuccessfulRequest = -1;
+  bool _restoredWebsiteSnapshot = false;
   int? _nextUntil;
   int? _nextWebsitePage;
   String? _sourceNotice;
@@ -182,6 +185,8 @@ class _CommunityTimelinePageState extends ConsumerState<CommunityTimelinePage> {
       if (!mounted) return;
       setState(() {
         _items = [];
+        _restoredWebsiteSnapshot = false;
+        _lastSuccessfulRequest = -1;
         _mutationBusy.clear();
         _deletedIds.clear();
         _reactionOverrides.clear();
@@ -313,18 +318,30 @@ class _CommunityTimelinePageState extends ConsumerState<CommunityTimelinePage> {
     Future<void> restore() async {
       if (!restoreAllowed) return;
       try {
-        final cached = await _service.readCachedTimeline(mode);
+        final cached = await _service.readCachedTimelinePage(mode);
         if (!mounted ||
             requestId != _requestId ||
-            _lastSuccessfulRequest == requestId ||
             cached == null ||
-            cached.isEmpty) {
+            cached.items.isEmpty) {
+          return;
+        }
+        final networkFinished = _lastSuccessfulRequest == requestId;
+        if (networkFinished &&
+            (_sourceNotice == null ||
+                !cached.isWebsite ||
+                (_items.isNotEmpty &&
+                    cached.items.first.id < _items.first.id))) {
           return;
         }
         setState(() {
-          _items = _visibleItems(cached);
-          _nextUntil = cached.last.id;
-          _paging.hasMore = cached.isNotEmpty;
+          _items = _visibleItems(cached.items);
+          _nextUntil = cached.nextUntil;
+          _nextWebsitePage = cached.nextPage;
+          _restoredWebsiteSnapshot = cached.isWebsite;
+          _sourceNotice = networkFinished
+              ? '网站动态暂不可用，当前显示上次缓存，请稍后刷新。'
+              : '正在联网核对最新动态，暂时显示上次内容';
+          _paging.hasMore = cached.hasMore;
         });
       } catch (_) {}
     }
@@ -382,12 +399,13 @@ class _CommunityTimelinePageState extends ConsumerState<CommunityTimelinePage> {
         final keepCurrent =
             page.notice != null &&
             _items.isNotEmpty &&
-            _lastSuccessfulRequest >= 0;
+            (_lastSuccessfulRequest >= 0 || _restoredWebsiteSnapshot);
         if (!keepCurrent) {
           _items = _visibleItems(items);
           _nextUntil = page.nextUntil;
           _nextWebsitePage = page.nextPage;
           _paging.hasMore = page.hasMore;
+          _restoredWebsiteSnapshot = false;
         }
         _lastSuccessfulRequest = activeRequest;
         _sourceNotice = page.notice;
@@ -522,6 +540,8 @@ class _CommunityTimelinePageState extends ConsumerState<CommunityTimelinePage> {
     setState(() {
       _mode = mode;
       _items = const [];
+      _restoredWebsiteSnapshot = false;
+      _lastSuccessfulRequest = -1;
       _paging.reset();
       _nextUntil = null;
       _nextWebsitePage = null;
@@ -541,9 +561,24 @@ class _CommunityTimelinePageState extends ConsumerState<CommunityTimelinePage> {
 
   Future<void> _post() async {
     final draftAccount = _service.currentUsername;
+    final submission = CommunityTopicDraft(kind: 'timeline-post');
     final sent = await showCommunityComposer(
       context,
       heading: '发布动态',
+      topicDraft: submission,
+      confirmSubmission: (_, content, attemptedAt) async {
+        submission.confirmedId = await _service.findSubmittedTimeline(
+          content: content,
+          attemptedAt: attemptedAt,
+        );
+        return submission.confirmedId != null;
+      },
+      inspectSubmission: () => launchUrl(
+        Uri.parse(
+          'https://bgm.tv/user/${Uri.encodeComponent(draftAccount ?? '')}/timeline',
+        ),
+        mode: LaunchMode.externalApplication,
+      ),
       tokenProvider: widget.tokenProvider,
       isAccountCurrent: () =>
           _service.isAuthenticated && _service.currentUsername == draftAccount,

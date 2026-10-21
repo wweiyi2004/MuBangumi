@@ -25,6 +25,7 @@ sdk/
 & git -C $testRoot -c user.name=Fixture -c user.email=fixture@example.test commit --quiet -m fixture
 # Only synthetic credentials are used; the real workspace configuration is never read.
 '{"BGM_CLIENT_ID":"fixture-id","BGM_CLIENT_SECRET":"fixture-secret"}' | Set-Content -LiteralPath (Join-Path $testRoot 'config\oauth.local.json') -Encoding utf8
+'shorebird @args' | Set-Content (Join-Path $testRoot 'config\shorebird.ps1') -Encoding utf8
 $fixture = @{ Calls = [Collections.Generic.List[object]]::new(); OmitAbi = ''; OmitSymbols = $false; FailBuild = $false; DriftLock = $false }
 $passed = 0
 
@@ -97,11 +98,11 @@ function Invoke-FixtureBuild {
         }
     }
     $verification = Join-Path $testRoot 'config\verification.json'
-    @{passed=$true;mode='Full';createdUtc=[DateTime]::UtcNow.ToString('o');source=$source;checks=@(@('flutter-analyze','flutter-tests','architecture','repository-privacy','provenance-tests','android-build','windows-build') | ForEach-Object {@{name=$_;status='passed'}})} | ConvertTo-Json -Depth 8 | Set-Content $verification
+    @{passed=$true;mode='Full';areas=@('flutter','server','website','python','tools');createdUtc=[DateTime]::UtcNow.ToString('o');source=$source;checks=@(@('flutter-analyze','flutter-tests','architecture','repository-privacy','provenance-tests','android-build','windows-build','server-analyze','server-tests','server-bundle','browser-protocol','website-check','website-audit','website-browser','dataset-tests','semantic-tests','mirror-tests','toolchain-files','toolchain_npm','windows_package_safety','release_build','repository-privacy-tests') | ForEach-Object {@{name=$_;status='passed'}})} | ConvertTo-Json -Depth 8 | Set-Content $verification
     $acceptance = Join-Path $testRoot 'config\acceptance.json'
     $cases=@{}; foreach($case in @('oauth_login','saved_session','session_expiry','website_challenge','network_recovery','foreground_resume','account_switch','pm_delivery','group_write')){$cases[$case]='passed'}
     @{platform=$platform;version=$(if($baseline){$baseline}else{"$versionName+$number"});source_fingerprint=$source.fingerprint;completedUtc=[DateTime]::UtcNow.ToString('o');evidence='synthetic test only';cases=$cases} | ConvertTo-Json -Depth 5 | Set-Content $acceptance
-    & (Join-Path $testRoot 'tool\build_release.ps1') @args -VerificationReport $verification -AcceptanceReport $acceptance
+    & (Join-Path $testRoot 'tool\build_release.ps1') @args -ShorebirdCli (Join-Path $testRoot 'config\shorebird.ps1') -VerificationReport $verification -AcceptanceReport $acceptance
 }
 
 try {

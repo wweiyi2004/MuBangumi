@@ -42,16 +42,30 @@ class _ScoreComparisonPageState extends ConsumerState<ScoreComparisonPage> {
     _controller = ScoreComparisonController(
       (id) => ref.read(netabaApiProvider).getSubjectHistory(id),
     )..addListener(_changed);
-    ref.listenManual(
-      sessionProvider.select((state) => state.user?.id),
-      (_, _) => _controller.reset(),
-    );
-    Future<void>.microtask(() {
-      if (!mounted) return;
-      for (final subject in widget.initial.take(6)) {
-        unawaited(_controller.add(subject));
-      }
+    ref.listenManual(sessionProvider.select((state) => state.user?.id), (_, _) {
+      _seededInitial = false;
+      _controller.reset();
     });
+    Future<void>.microtask(() {
+      _seedInitial();
+    });
+  }
+
+  bool _seededInitial = false;
+  void _seedInitial() {
+    if (!mounted || _seededInitial || widget.initial.isEmpty) return;
+    _seededInitial = true;
+    for (final subject in widget.initial.take(6)) {
+      unawaited(_controller.add(subject));
+    }
+  }
+
+  @override
+  void didUpdateWidget(covariant ScoreComparisonPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!_seededInitial && widget.initial.isNotEmpty) {
+      Future<void>.microtask(_seedInitial);
+    }
   }
 
   void _changed() {

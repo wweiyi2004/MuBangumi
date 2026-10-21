@@ -205,7 +205,8 @@ class ShareContent {
   ].join('\n');
   String get qrUrl => SharedBangumiLink.parse(url)?.qrUrl ?? url;
 
-  double get cardHeight => isTimeline ? (progressCard == null ? 660 : 840) : 720;
+  double get cardHeight =>
+      isTimeline ? (progressCard == null ? 660 : 840) : 720;
 }
 
 ShareProgressCard? _shareProgressCard(CommunityTimelineProgress? progress) {
@@ -220,9 +221,7 @@ ShareProgressCard? _shareProgressCard(CommunityTimelineProgress? progress) {
   return ShareProgressCard(
     title: progress.title,
     subtitle: subtitle,
-    score: progress.score > 0
-        ? '评分 ${progress.score.toStringAsFixed(1)}'
-        : '',
+    score: progress.score > 0 ? '评分 ${progress.score.toStringAsFixed(1)}' : '',
     marks: _progressMarks(progress),
   );
 }

@@ -19,6 +19,60 @@ class Store extends CommunityDraftRepository {
 
 void main() {
   testWidgets(
+    'plain account draft persists an uncertain attempt without explicit topic wiring',
+    (tester) async {
+      final store = Store();
+      var writes = 0;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Builder(
+            builder: (context) => Scaffold(
+              body: TextButton(
+                onPressed: () => showCommunityComposer(
+                  context,
+                  heading: '合成普通编辑器',
+                  initialContent: '合成正文',
+                  draftKey: 'alice/subject/1',
+                  draftStore: store,
+                  tokenProvider: (_) async => 'synthetic',
+                  onSubmit: (_, _, _) async {
+                    writes++;
+                    throw const CommunitySubmissionUncertain();
+                  },
+                ),
+                child: const Text('打开'),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.tap(find.text('打开'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(FilledButton, '发送'));
+      await tester.pumpAndSettle();
+      expect(writes, 1);
+      expect(
+        tester
+            .widget<FilledButton>(find.widgetWithText(FilledButton, '核对发布结果'))
+            .onPressed,
+        isNull,
+      );
+      await tester.tap(find.text('保留并关闭'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('打开'));
+      await tester.pumpAndSettle();
+      expect(find.text('合成正文'), findsOneWidget);
+      expect(
+        tester
+            .widget<FilledButton>(find.widgetWithText(FilledButton, '核对发布结果'))
+            .onPressed,
+        isNull,
+      );
+      expect(writes, 1);
+      await tester.pumpWidget(const SizedBox.shrink());
+    },
+  );
+  testWidgets(
     'legacy draft can find its existing post without publishing again',
     (tester) async {
       final store = Store()..value = (title: 'legacy', content: 'body');

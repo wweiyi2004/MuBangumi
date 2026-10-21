@@ -1,7 +1,7 @@
 import 'dart:convert';
 
-import 'package:path/path.dart' as path;
 import 'package:sqflite/sqflite.dart';
+import 'episode_activity_ledger.dart';
 
 import '../../features/sync/domain/pending_mutation.dart';
 
@@ -46,6 +46,7 @@ class BangumiSyncStore {
         'blocked': 0,
         'last_error': null,
       };
+      int? replacing;
       if (existing.isNotEmpty) {
         final prior = jsonDecode(existing.first['payload'] as String) as Map;
         if (mutationKey.startsWith('collection:') &&
@@ -60,6 +61,7 @@ class BangumiSyncStore {
             whereArgs: [existing.first['id']],
           );
         } else {
+          replacing = existing.first['id'] as int;
           await transaction.delete(
             'bangumi_sync_queue',
             where: 'id = ?',
@@ -78,9 +80,16 @@ class BangumiSyncStore {
             : (existing.first['revision'] as num).toInt() + 1,
         ...values,
       });
-      if (kind == BangumiMutationKind.episode &&
-          payload.containsKey('activity_before')) {
-        await _recordActivity(transaction, username, payload, moment);
+      await EpisodeActivityLedger.record(
+        transaction,
+        username,
+        insertedId,
+        payload,
+        moment,
+        replacing: replacing,
+      );
+      if (replacing != null) {
+        await EpisodeActivityLedger.discard(transaction, replacing);
       }
       final subjectId = (payload['subject_id'] as num?)?.toInt();
       if (subjectId != null && subjectId > 0) {
@@ -150,12 +159,15 @@ class BangumiSyncStore {
 
   Future<bool> removeIfUnchanged(PendingBangumiMutation mutation) async {
     final database = await _open();
-    final removed = await database.delete(
-      'bangumi_sync_queue',
-      where: 'id = ? AND revision = ?',
-      whereArgs: [mutation.id, mutation.revision],
-    );
-    return removed > 0;
+    return database.transaction((txn) async {
+      final removed = await txn.delete(
+        'bangumi_sync_queue',
+        where: 'id = ? AND revision = ?',
+        whereArgs: [mutation.id, mutation.revision],
+      );
+      if (removed > 0) await EpisodeActivityLedger.confirmed(txn, mutation.id);
+      return removed > 0;
+    });
   }
 
   Future<bool> markFailure(
@@ -232,25 +244,67 @@ class BangumiSyncStore {
 
   Future<bool> discardIfUnchanged(PendingBangumiMutation mutation) async {
     final database = await _open();
-    final removed = await database.delete(
-      'bangumi_sync_queue',
-      where: 'id = ? AND username = ? AND revision = ? AND blocked = 1',
-      whereArgs: [mutation.id, mutation.username, mutation.revision],
-    );
-    return removed > 0;
+    return database.transaction((txn) async {
+      final removed = await txn.delete(
+        'bangumi_sync_queue',
+        where: 'id = ? AND username = ? AND revision = ? AND blocked = 1',
+        whereArgs: [mutation.id, mutation.username, mutation.revision],
+      );
+      if (removed > 0) await EpisodeActivityLedger.discard(txn, mutation.id);
+      return removed > 0;
+    });
   }
 
   Future<void> close() async {
     await _connection.close();
   }
 
+  /// Offline bulk edits may not yet know chapter IDs. Record their original
+  /// local day once the guarded replay reads chapters, before writing progress.
+  Future<bool> recordBulkActivity(
+    PendingBangumiMutation mutation,
+    List<Map<String, int>> episodes,
+  ) async {
+    final database = await _open();
+    return database.transaction((txn) async {
+      final rows = await txn.query(
+        'bangumi_sync_queue',
+        where: 'id = ? AND username = ? AND revision = ?',
+        whereArgs: [mutation.id, mutation.username, mutation.revision],
+      );
+      if (rows.isEmpty) return false;
+      final payload = Map<String, dynamic>.from(
+        jsonDecode(rows.single['payload'] as String) as Map,
+      );
+      if (payload.containsKey('activity_episodes')) return false;
+      payload['activity_episodes'] = episodes;
+      await txn.update(
+        'bangumi_sync_queue',
+        {'payload': jsonEncode(payload)},
+        where: 'id = ? AND revision = ?',
+        whereArgs: [mutation.id, mutation.revision],
+      );
+      final moment =
+          DateTime.tryParse(payload['local_updated_at']?.toString() ?? '') ??
+          mutation.createdAt;
+      await EpisodeActivityLedger.record(
+        txn,
+        mutation.username,
+        mutation.id,
+        payload,
+        moment,
+      );
+      return true;
+    });
+  }
+
   Future<Database> _open() => _connection.open(_createDatabase);
 
   Future<Database> _createDatabase() async {
     final factory = sqliteFactory;
-    final root = await factory.getDatabasesPath();
     final resolvedPath =
-        databasePath ?? path.join(root, 'mubangumi_sync.sqlite');
+        databasePath ??
+        await PersonalDatabasePaths.resolve('mubangumi_sync.sqlite');
     return factory.openDatabase(
       resolvedPath,
       options: OpenDatabaseOptions(
@@ -324,8 +378,7 @@ class BangumiSyncStore {
                   'collection_id': collection
                       ? row['id']
                       : old?.collectionId ?? 0,
-                  'completion_id':
-                      collection && _carriesChapterWork(payload)
+                  'completion_id': collection && _carriesChapterWork(payload)
                       ? row['id']
                       : old?.completionId ?? 0,
                 },
@@ -365,58 +418,8 @@ class BangumiSyncStore {
     'CREATE TABLE bangumi_sync_versions (username TEXT NOT NULL, subject_id INTEGER NOT NULL, any_id INTEGER NOT NULL, collection_id INTEGER NOT NULL, completion_id INTEGER NOT NULL, PRIMARY KEY(username, subject_id))',
   );
 
-  Future<void> _createActivity(Database db) async {
-    await db.execute(
-      'CREATE TABLE IF NOT EXISTS episode_activity (username TEXT NOT NULL, episode_id INTEGER NOT NULL, subject_id INTEGER NOT NULL, day TEXT NOT NULL, active INTEGER NOT NULL, PRIMARY KEY(username, episode_id))',
-    );
-    await db.execute(
-      'CREATE INDEX IF NOT EXISTS episode_activity_days ON episode_activity(username, active, day)',
-    );
-  }
-
-  Future<void> _recordActivity(
-    Transaction txn,
-    String username,
-    Map<String, dynamic> payload,
-    DateTime moment,
-  ) async {
-    final owner = username.trim().toLowerCase();
-    final episode = payload['episode_id'];
-    final type = payload['type'];
-    final before = payload['activity_before'];
-    if (episode is! int || episode <= 0 || before == null) return;
-    final existing = await txn.query(
-      'episode_activity',
-      where: 'username = ? AND episode_id = ?',
-      whereArgs: [owner, episode],
-      limit: 1,
-    );
-    if (type != 2) {
-      await txn.update(
-        'episode_activity',
-        {'active': 0},
-        where: 'username = ? AND episode_id = ?',
-        whereArgs: [owner, episode],
-      );
-      return;
-    }
-    if (before == 2) return;
-    final restoring = payload['activity_undo'] == true;
-    if (restoring && existing.isEmpty) {
-      return; // Never invent pre-feature history.
-    }
-    final local = moment.toLocal();
-    final day = restoring
-        ? existing.single['day'] as String
-        : '${local.year}-${local.month.toString().padLeft(2, '0')}-${local.day.toString().padLeft(2, '0')}';
-    await txn.insert('episode_activity', {
-      'username': owner,
-      'episode_id': episode,
-      'subject_id': payload['subject_id'],
-      'day': day,
-      'active': 1,
-    }, conflictAlgorithm: ConflictAlgorithm.replace);
-  }
+  Future<void> _createActivity(Database db) =>
+      EpisodeActivityLedger.configure(db);
 
   Future<Map<String, int>> episodeActivityDays(String username) async {
     final db = await _open();

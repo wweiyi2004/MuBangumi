@@ -4,6 +4,14 @@ import 'package:mubangumi/models/community_models.dart';
 /// Existing widget fixtures model API cursor paging, without live HTTP reads.
 mixin ApiTimelineFixture on CommunityService {
   @override
+  Future<CommunityTimelinePageResult?> readCachedTimelinePage(
+    CommunityTimelineMode mode,
+  ) async {
+    final rows = await readCachedTimeline(mode);
+    return rows == null ? null : CommunityTimelinePageResult.api(rows);
+  }
+
+  @override
   Future<CommunityTimelinePageResult> loadFreshTimelinePage(
     CommunityTimelineMode mode, {
     String? username,

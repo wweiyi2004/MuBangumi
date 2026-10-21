@@ -225,8 +225,11 @@ class RoomServer {
   bool _originAllowed(HttpRequest r, String? origin) {
     if (origin == null)
       return true; // Native clients send explicit bearer auth.
+    final local = Uri.tryParse('http://${r.headers.value('host')}');
     return origin == publicOrigin ||
-        origin == 'http://${r.headers.value('host')}';
+        (local != null &&
+            isPrivateLanHost(local.host) &&
+            origin == local.origin);
   }
 
   void _rate(String key, int limit, int seconds) {
@@ -467,6 +470,7 @@ class RoomServer {
                 unawaited(repairAvatars(textField(c, 'event')));
             case '/api/command':
               _rate('write:${digest(token)}', 120, 60);
+              _rate('write-ip:$ip', 1200, 60);
               RoomCommand.fromJson(c, participant: true);
               _json(r.response, store.submit(token, c));
               _broadcast();
@@ -616,7 +620,7 @@ class RoomServer {
         if (!s.admin) store.participant({'id': s.event}, s.token);
         entry.key.add(
           jsonEncode(
-            s.invalidate && _socketVersions[entry.key] == info['version']
+            s.invalidate
                 ? {
                     'type': 'invalidate',
                     'event': s.event,

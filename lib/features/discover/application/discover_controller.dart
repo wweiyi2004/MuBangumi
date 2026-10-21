@@ -197,7 +197,12 @@ class DiscoverController {
       );
       if (!mounted || requestId != _requestId) return;
       _update(() {
-        _characters = append ? [..._characters, ...items] : items;
+        _characters = append
+            ? {
+                for (final item in _characters) item.id: item,
+                for (final item in items) item.id: item,
+              }.values.toList()
+            : items;
         _offset = offset + items.length;
         _hasMore = items.length >= _pageSize;
         _loading = false;
@@ -243,7 +248,12 @@ class DiscoverController {
       );
       if (!mounted || requestId != _requestId) return;
       _update(() {
-        _persons = append ? [..._persons, ...items] : items;
+        _persons = append
+            ? {
+                for (final item in _persons) item.id: item,
+                for (final item in items) item.id: item,
+              }.values.toList()
+            : items;
         _offset = offset + items.length;
         _hasMore = items.length >= _pageSize;
         _loading = false;

@@ -12,6 +12,8 @@ param(
 
     [string]$FlutterVersion,
 
+    [string]$ShorebirdCli,
+
     [ValidatePattern('^\d+\.\d+\.\d+$')]
     [string]$BuildName,
 
@@ -30,6 +32,9 @@ $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'toolchain.ps1')
 if ($UniversalApk -and ($Target -ne 'apk' -or $Patch)) {
     throw '-UniversalApk requires a full APK build.'
+}
+if (-not $Patch -and $ReleaseVersion) {
+    throw '-ReleaseVersion is only valid for a patch; a new release must use its actual version for acceptance.'
 }
 if (-not $FlutterVersion) { $FlutterVersion = $script:MuVersions.flutter }
 if (-not $Patch -and $FlutterVersion -ne $script:MuVersions.flutter) { throw 'FlutterVersion 必须与 tool/toolchain.json 保持一致。' }
@@ -118,7 +123,11 @@ try {
     & python @provenanceArguments
     if ($LASTEXITCODE) { throw '发布前检查未通过，尚未运行构建或上传；请查看上方具体原因。' }
     if ($Shorebird) {
-        if (-not (Get-Command shorebird -ErrorAction SilentlyContinue)) {
+        if (-not $ShorebirdCli) {
+            $shorebirdApplication = Get-Command shorebird -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+            if ($shorebirdApplication) { $ShorebirdCli = $shorebirdApplication.Source }
+        }
+        if (-not $ShorebirdCli -or -not (Test-Path -LiteralPath $ShorebirdCli -PathType Leaf)) {
             throw '未找到 Shorebird CLI，请先安装并完成 shorebird login。'
         }
         if (-not $Patch) {
@@ -168,7 +177,7 @@ try {
         # Keep existing Shorebird base/patch compilation options compatible.
         $arguments += @('--', '--no-pub', "--dart-define-from-file=$oauthConfigPath") + $versionArguments
         Write-Host "使用本地 OAuth 配置构建 Shorebird $platform（不会打印密钥）"
-        & shorebird @arguments
+        & $ShorebirdCli @arguments
     } else {
         if ($DryRun) {
             throw '-DryRun 仅适用于 Shorebird 构建。'
@@ -271,6 +280,9 @@ try {
     & python @finishArguments
     if ($LASTEXITCODE) { throw '构建来源或产物记录校验失败。' }
     Write-Host "来源与校验记录：$provenanceFile"
+    if ($Shorebird -and -not $Patch -and -not $DryRun) {
+        Write-Warning 'CLI 已完成；尚需核对远端 release ID，并用 release_provenance.py release-receipt 保存真实回执。'
+    }
 } catch {
     $buildFailure = $_
     if ($provenanceFile -and (Test-Path -LiteralPath $provenanceFile)) {

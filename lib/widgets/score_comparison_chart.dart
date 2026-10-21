@@ -78,7 +78,23 @@ class _ScoreComparisonChartState extends State<ScoreComparisonChart> {
         );
     return ChartViewport(
       enabled: widget.interactive,
-      resetKey: (widget.axes, widget.lines),
+      resetKey: (
+        widget.axes.minimum,
+        widget.axes.maximum,
+        widget.axes.start,
+        widget.axes.end,
+        Object.hashAll(
+          widget.lines.map(
+            (line) => Object.hash(
+              line.label,
+              line.color,
+              Object.hashAll(
+                line.points.map((point) => (point.at, point.value)),
+              ),
+            ),
+          ),
+        ),
+      ),
       builder: (context, viewport) {
         final minTime =
             (baseMinTime + (baseMaxTime - baseMinTime) * viewport.left).round();
@@ -98,8 +114,11 @@ class _ScoreComparisonChartState extends State<ScoreComparisonChart> {
             LayoutBuilder(
               builder: (context, constraints) {
                 void inspect(double x) => setState(
-                  () => _position = ((x - 40) / (constraints.maxWidth - 52))
-                      .clamp(0.0, 1.0),
+                  () => _position =
+                      ((x - 40) / math.max(1, constraints.maxWidth - 52)).clamp(
+                        0.0,
+                        1.0,
+                      ),
                 );
                 return Semantics(
                   label: '作品评分历史对比，同一日期轴、同一评分轴。点击图表查看附近的实际记录。',

@@ -28,6 +28,7 @@ class PmConversationScreen extends ConsumerStatefulWidget {
     this.service,
     this.onClose,
     this.onMessagesChanged,
+    this.onRead,
     this.showQueueAction = true,
   });
 
@@ -39,6 +40,7 @@ class PmConversationScreen extends ConsumerStatefulWidget {
   final PmService? service;
   final Future<void> Function()? onClose;
   final Future<void> Function()? onMessagesChanged;
+  final VoidCallback? onRead;
 
   @override
   ConsumerState<PmConversationScreen> createState() =>
@@ -190,6 +192,7 @@ class PmConversationScreenState extends ConsumerState<PmConversationScreen> {
           _scroll.jumpTo(0);
         }
       });
+      widget.onRead?.call();
     } catch (error) {
       if (!mounted || requestId != _requestId) return;
       setState(() {

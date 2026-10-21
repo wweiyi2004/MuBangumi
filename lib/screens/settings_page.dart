@@ -112,7 +112,11 @@ class SettingsPage extends ConsumerWidget {
                   title: const Text('加密配置迁移'),
                   subtitle: const Text('扫码同步外观、好友分组、新番表与 RSS'),
                   trailing: const AnimeIcon(Icons.chevron_right_rounded),
-                  onTap: () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const ConfigTransferPage())),
+                  onTap: () => Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => const ConfigTransferPage(),
+                    ),
+                  ),
                 ),
                 ListTile(
                   leading: const AnimeIcon(Icons.backup_outlined),

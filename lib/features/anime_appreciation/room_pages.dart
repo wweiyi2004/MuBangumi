@@ -1137,6 +1137,19 @@ class _RoomParticipationPageState extends ConsumerState<RoomParticipationPage> {
       _score = c.drafts[r['id']]?['score'] ?? r['myScore'];
     }
     final round = r;
+    final rejected = c.rejectedComment;
+    if (round != null && rejected?['round'] == round['id']) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted || _editorRound != rejected?['round']) return;
+        if (_comment.text.isEmpty) {
+          _comment.text = rejected?['text'] as String? ?? '';
+          _comment.selection = TextSelection.collapsed(
+            offset: _comment.text.length,
+          );
+        }
+        unawaited(c.acknowledgeRejectedComment(rejected!['op'] as String));
+      });
+    }
     return Scaffold(
       appBar: AppBar(
         title: Text(

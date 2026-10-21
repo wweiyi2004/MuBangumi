@@ -1,7 +1,6 @@
 import 'dart:convert';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:path/path.dart' as path;
 import 'package:sqflite/sqflite.dart';
 
 import '../../models/bangumi_models.dart';
@@ -157,7 +156,8 @@ class BrowsingStore
   @override
   Future<void> rememberSearch(String account, RecentSearch search) {
     final key = _account(account);
-    final keyword = search.keyword.trim();
+    final input = search.keyword.trim();
+    final keyword = input.length > 4096 ? input.substring(0, 4096) : input;
     if (key.isEmpty ||
         keyword.isEmpty ||
         !const ['subject', 'character', 'person'].contains(search.target)) {
@@ -167,7 +167,11 @@ class BrowsingStore
       (db) => db.transaction((transaction) async {
         await transaction.insert('recent_search', {
           'account': key,
-          'search_key': search.key,
+          'search_key': RecentSearch(
+            keyword: keyword,
+            target: search.target,
+            subjectType: search.subjectType,
+          ).key,
           'keyword': keyword,
           'target': search.target,
           'subject_type': search.subjectType.value,
@@ -372,10 +376,7 @@ class BrowsingStore
     final factory = sqliteFactory;
     return factory.openDatabase(
       databasePath ??
-          path.join(
-            await factory.getDatabasesPath(),
-            'mubangumi_browsing.sqlite',
-          ),
+          await PersonalDatabasePaths.resolve('mubangumi_browsing.sqlite'),
       options: OpenDatabaseOptions(
         onConfigure: configurePersonalDatabase,
         version: 5,

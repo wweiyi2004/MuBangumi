@@ -436,6 +436,16 @@ class _Session extends SessionController {
 // method dispatch, so detail tests exercise the real collection editor.
 class _EmptyQueue extends BangumiSyncStore {
   @override
+  Future<Map<String, int>> episodeActivityDays(String username) async =>
+      const {};
+
+  @override
+  Future<bool> recordBulkActivity(
+    PendingBangumiMutation mutation,
+    List<Map<String, int>> episodes,
+  ) async => false;
+
+  @override
   Future<List<PendingBangumiMutation>> pendingFor(
     String username, {
     bool includeBlocked = false,

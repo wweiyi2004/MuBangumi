@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
+import 'auth_cleanup_marker.dart';
 
 import 'package:crypto/crypto.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
@@ -296,6 +297,7 @@ class WebsiteSessionStore {
   final FlutterSecureStorage _storage;
 
   Future<WebsiteSessionSnapshot?> read() async {
+    if ((await AuthCleanupMarker.current()).websitePending) return null;
     final raw = await _storage.read(key: _key);
     if (raw == null || raw.isEmpty) return null;
     try {
@@ -311,8 +313,14 @@ class WebsiteSessionStore {
   }
 
   Future<void> write(WebsiteSessionSnapshot snapshot) async {
+    final cleanup = await AuthCleanupMarker.current();
     await _storage.write(key: _key, value: jsonEncode(snapshot.toJson()));
+    await AuthCleanupMarker.completeWebsiteStore(cleanup.websiteNonce);
   }
 
-  Future<void> clear() => _storage.delete(key: _key);
+  Future<void> clear() async {
+    final cleanup = await AuthCleanupMarker.current();
+    await _storage.delete(key: _key);
+    await AuthCleanupMarker.completeWebsiteStore(cleanup.websiteNonce);
+  }
 }

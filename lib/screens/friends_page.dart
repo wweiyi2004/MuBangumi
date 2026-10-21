@@ -326,7 +326,12 @@ class _FriendsPageState extends ConsumerState<FriendsPage> {
                               children: [
                                 ChoiceChip(
                                   label: const Text('全部'),
-                                  selected: _groupFilter == null,
+                                  selected:
+                                      _groupFilter == null ||
+                                      (_groupFilter != '__none__' &&
+                                          !groups.groups.names.containsKey(
+                                            _groupFilter,
+                                          )),
                                   onSelected: (_) =>
                                       setState(() => _groupFilter = null),
                                 ),

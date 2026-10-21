@@ -540,6 +540,11 @@ class _PmPageState extends ConsumerState<PmPage> {
                                 peerAvatar: selection.avatarUrl,
                                 onClose: _closeConversation,
                                 onMessagesChanged: _refreshMailboxes,
+                                onRead: () {
+                                  if (_selected?.id == selection.id) {
+                                    _inbox.markRead(selection.id);
+                                  }
+                                },
                               ),
                             ),
                           ],

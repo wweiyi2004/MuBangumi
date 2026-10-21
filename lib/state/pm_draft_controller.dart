@@ -4,11 +4,17 @@ import 'package:flutter/foundation.dart';
 import '../core/storage/pm_draft_store.dart';
 import '../core/storage/pm_outbox_repository.dart';
 import '../models/pm_send_command.dart';
+import '../core/platform/window_close.dart';
 
 /// Owns immutable snapshots so saving and clearing remain safe after a route
 /// closes or a different conversation takes over its text fields.
 class PmDraftController extends ChangeNotifier {
-  PmDraftController(this.repository, this.data);
+  PmDraftController(this.repository, this.data) {
+    _unregisterClose = WindowCloseCoordinator.register(
+      () async => !ready || sent || _abandoned || !dirty || await flush(),
+    );
+  }
+  late final VoidCallback _unregisterClose;
   final PmDraftRepository repository;
   PmDraft data;
   bool loading = true;
@@ -209,6 +215,7 @@ class PmDraftController extends ChangeNotifier {
 
   @override
   void dispose() {
+    _unregisterClose();
     _timer?.cancel();
     if (!sent && dirty && !_abandoned) unawaited(flush());
     _closed = true;

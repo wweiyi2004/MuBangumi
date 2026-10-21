@@ -1,6 +1,5 @@
 import 'dart:convert';
 
-import 'package:path/path.dart' as path;
 import 'package:sqflite/sqflite.dart';
 import 'serial_task_queue.dart';
 import 'sqlite_support.dart';
@@ -127,8 +126,7 @@ class CommunityDraftStore implements CommunityDraftRepository {
     final factory = sqliteFactory;
     return factory.openDatabase(
       databasePath ??
-          path.join(
-            await factory.getDatabasesPath(),
+          await PersonalDatabasePaths.resolve(
             'mubangumi_community_drafts.sqlite',
           ),
       options: OpenDatabaseOptions(

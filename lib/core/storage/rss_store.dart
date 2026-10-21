@@ -1,5 +1,4 @@
 import 'package:flutter/foundation.dart';
-import 'package:path/path.dart' as path;
 import 'package:sqflite/sqflite.dart';
 
 import '../../models/rss_models.dart';
@@ -288,9 +287,9 @@ class RssStore {
 
   Future<Database> _createDatabase() async {
     final factory = sqliteFactory;
-    final root = await factory.getDatabasesPath();
     final resolvedPath =
-        databasePath ?? path.join(root, 'mubangumi_rss.sqlite');
+        databasePath ??
+        await PersonalDatabasePaths.resolve('mubangumi_rss.sqlite');
     return factory.openDatabase(
       resolvedPath,
       options: OpenDatabaseOptions(

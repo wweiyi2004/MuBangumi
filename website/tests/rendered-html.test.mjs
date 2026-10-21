@@ -34,7 +34,7 @@ test("server-renders the MuBangumi homepage", async () => {
   assert.match(html, /看完下一集/);
   assert.match(html, /每日追番/);
   assert.match(html, /从“想看”到“看完”/);
-  assert.match(html, /MuBangumi-2\.4\.2-build4032-android\.apk/);
+  assert.match(html, /MuBangumi-2\.5\.0-build4034-android\.apk/);
   assert.match(html, /本版未提供安装包/);
   assert.match(html, /<details/);
   assert.match(html, /演示只用示例数据/);

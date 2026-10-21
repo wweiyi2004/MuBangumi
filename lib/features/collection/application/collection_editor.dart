@@ -53,6 +53,7 @@ class CollectionEditor implements EpisodeCollectionReader {
   final _confirmedEpisodeRevisions = <int, int>{};
   int _localMutationRevision = 0;
   final _optimisticSubjects = <int>{};
+  final _durableCollectionRevisions = <int, int>{};
   final _episodeSnapshots = <int, List<UserEpisodeCollection>>{};
   final _episodeSnapshotTimes = <int, DateTime>{};
   final _snapshotWrites = <String, Future<void>>{};
@@ -63,10 +64,15 @@ class CollectionEditor implements EpisodeCollectionReader {
     Future<void> Function() work,
   ) async {
     final key = '$generation:$subjectId';
+    final revision = collectionMutationRevision(subjectId);
     final future = (_snapshotWrites[key] ?? Future<void>.value()).then((
       _,
     ) async {
-      if (!_isCurrentAuth(generation) || _account?.username != username) return;
+      if (!_isCurrentAuth(generation) ||
+          _account?.username != username ||
+          collectionMutationRevision(subjectId) != revision) {
+        return;
+      }
       try {
         await work();
       } catch (_) {
@@ -142,6 +148,7 @@ class CollectionEditor implements EpisodeCollectionReader {
   /// generation until they settle. They must still hit their account guards.
   void reset() {
     _optimisticSubjects.clear();
+    _durableCollectionRevisions.clear();
     _episodeSnapshots.clear();
     _episodeSnapshotTimes.clear();
     _subjectMutationRevisions.clear();
@@ -304,7 +311,13 @@ class CollectionEditor implements EpisodeCollectionReader {
       source,
       requestMutationRevision,
       current: _view.collections,
-      subjectRevisions: _subjectMutationRevisions,
+      subjectRevisions: {
+        ..._subjectMutationRevisions,
+        for (final entry in _durableCollectionRevisions.entries)
+          entry.key: entry.value > (_subjectMutationRevisions[entry.key] ?? 0)
+              ? entry.value
+              : _subjectMutationRevisions[entry.key]!,
+      },
     );
     final byId = {for (final item in preserved) item.subjectId: item};
     for (final item in _view.collections) {
@@ -462,8 +475,11 @@ class CollectionEditor implements EpisodeCollectionReader {
       await _refreshPendingCount(username);
       _requireEditAccount(generation, username);
       if (!discarded) return '同步记录已变化，请刷新列表后重试';
+      _view = _view.copyWith(activityRevision: _view.activityRevision + 1);
       if (mutation.superseded) return null;
       _subjectMutationRevisions[subjectId] = ++_localMutationRevision;
+      _episodeSnapshots.remove(subjectId);
+      _episodeSnapshotTimes.remove(subjectId);
       for (final change
           in _episodeChanges.values
               .where((change) => change.subjectId == subjectId)
@@ -512,6 +528,10 @@ class CollectionEditor implements EpisodeCollectionReader {
     if (!_isCurrentAuth(generation) || _account?.username != username) {
       throw const BangumiApiException('登录状态已变化，修改已保存在原账号的本地队列中');
     }
+    if (payload.containsKey('activity_before') ||
+        payload.containsKey('activity_episodes')) {
+      _view = _view.copyWith(activityRevision: _view.activityRevision + 1);
+    }
     final subjectId = (payload['subject_id'] as num?)?.toInt();
     if (subjectId != null && subjectId > 0) {
       if (_view.episodeUndo?.change.subjectId == subjectId) {
@@ -521,6 +541,9 @@ class CollectionEditor implements EpisodeCollectionReader {
         _localMutationRevision++;
         _subjectMutationRevisions[subjectId] = _localMutationRevision;
       }
+      // A response begun during persistence must remain older than the durable
+      // edit even if upload removes its queue entry before the response arrives.
+      _durableCollectionRevisions[subjectId] = ++_localMutationRevision;
     }
     unawaited(
       _refreshPendingCount(
@@ -995,6 +1018,17 @@ class CollectionEditor implements EpisodeCollectionReader {
           'volume_status': subject.type.hasVolumes ? nextVolumeStatus : null,
           'complete_episodes': shouldCompleteEpisodes,
           'watched_through': ?targetThrough,
+          if ((shouldCompleteEpisodes || targetThrough != null) &&
+              cachedEpisodes != null)
+            'activity_episodes': [
+              for (final item
+                  in shouldCompleteEpisodes
+                      ? BangumiSupport.mainEpisodeCollections(cachedEpisodes)
+                      : BangumiSupport.mainEpisodeCollections(
+                          cachedEpisodes,
+                        ).take(targetThrough!))
+                {'episode_id': item.episode.id, 'before': item.type},
+            ],
           'local_updated_at': DateTime.now().toIso8601String(),
         },
       );

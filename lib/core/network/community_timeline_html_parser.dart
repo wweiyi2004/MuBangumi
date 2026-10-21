@@ -145,6 +145,7 @@ class CommunityTimelineHtmlParser {
               const [],
           // Renames/signature changes also use p.status but cannot be replied to.
           isStatus: status != null && reply != null,
+          canLoadReplies: reply != null,
           replyCount:
               int.tryParse(
                 RegExp(r'\d+').firstMatch(reply?.text ?? '')?.group(0) ?? '',
@@ -167,6 +168,7 @@ class CommunityTimelineHtmlParser {
               page + 1,
         );
     return CommunityTimelinePageResult(
+      isWebsite: true,
       items: items,
       nextPage: next ? page + 1 : null,
     );

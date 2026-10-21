@@ -57,10 +57,10 @@ class ScheduleExportPoster extends StatelessWidget {
       for (var day = DateTime.monday; day <= DateTime.sunday; day++)
         schedule.itemsOn(day),
     ];
-    final maxRows = scheduled
-        .map((list) => list.length)
-        .fold<int>(0, math.max)
-        .clamp(1, 12);
+    final maxRows = math.max(
+      1,
+      scheduled.map((list) => list.length).fold<int>(0, math.max),
+    );
     final unscheduled = schedule.unscheduled;
     final total = schedule.items.length;
     final placed = schedule.items.where((e) => e.isScheduled).length;
@@ -472,9 +472,10 @@ class ScheduleImageExporter {
     final longest = math.max(renderObject.size.width, renderObject.size.height);
     var ratio = pixelRatio;
     if (longest * ratio > 4096) {
-      ratio = 4096 / longest;
+      ratio = 4095 / longest;
     }
-    ratio = ratio.clamp(1.0, 3.0);
+    ratio = math.min(ratio, 3.0);
+    if (ratio <= 0 || !ratio.isFinite) throw StateError('海报截图比例无效');
 
     final image = await renderObject.toImage(pixelRatio: ratio);
     try {

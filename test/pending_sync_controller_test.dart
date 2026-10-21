@@ -121,6 +121,16 @@ class _Api extends BangumiApi {
 }
 
 class _Queue extends BangumiSyncStore {
+  @override
+  Future<Map<String, int>> episodeActivityDays(String username) async =>
+      const {};
+
+  @override
+  Future<bool> recordBulkActivity(
+    PendingBangumiMutation mutation,
+    List<Map<String, int>> episodes,
+  ) async => false;
+
   final items = <PendingBangumiMutation>[];
   Completer<int>? countResult;
 

@@ -1,4 +1,3 @@
-import 'package:path/path.dart' as path;
 import 'package:sqflite/sqflite.dart';
 import 'serial_task_queue.dart';
 import 'sqlite_support.dart';
@@ -90,9 +89,11 @@ class UserPreferenceStore implements UserPreferenceRepository {
 
   Future<Database> _createDatabase() async {
     final factory = sqliteFactory;
-    final root = await factory.getDatabasesPath();
     return factory.openDatabase(
-      databasePath ?? path.join(root, 'mubangumi_user_preferences.sqlite'),
+      databasePath ??
+          await PersonalDatabasePaths.resolve(
+            'mubangumi_user_preferences.sqlite',
+          ),
       options: OpenDatabaseOptions(
         version: 1,
         onConfigure: configurePersonalDatabase,

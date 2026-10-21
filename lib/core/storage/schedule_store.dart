@@ -1,7 +1,6 @@
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
-import 'package:path/path.dart' as path;
 import 'package:sqflite/sqflite.dart';
 
 import '../../models/schedule_models.dart';
@@ -176,10 +175,7 @@ class ScheduleStore {
     final factory = sqliteFactory;
     final resolvedPath =
         databasePath ??
-        path.join(
-          await factory.getDatabasesPath(),
-          'mubangumi_schedule.sqlite',
-        );
+        await PersonalDatabasePaths.resolve('mubangumi_schedule.sqlite');
     return factory.openDatabase(
       resolvedPath,
       options: OpenDatabaseOptions(

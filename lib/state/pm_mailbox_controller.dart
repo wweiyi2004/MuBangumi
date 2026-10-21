@@ -23,6 +23,22 @@ class PmMailboxController extends ChangeNotifier {
   Future<void>? _refresh;
   List<PmConversation> _freshItems = const [];
   List<PmConversation> _retainedItems = const [];
+  final _read = <String, (String, String)>{};
+
+  void markRead(String id) {
+    final item = items.where((row) => row.id == id).firstOrNull;
+    if (item == null || _disposed) return;
+    _read[id] = (item.preview, item.timeText);
+    items = items.map(_applyRead).toList();
+    _freshItems = _freshItems.map(_applyRead).toList();
+    _retainedItems = _retainedItems.map(_applyRead).toList();
+    notifyListeners();
+  }
+
+  PmConversation _applyRead(PmConversation item) =>
+      _read[item.id] == (item.preview, item.timeText)
+      ? item.copyWith(isUnread: false)
+      : item;
 
   Future<void> refresh({bool supersede = false, bool preserveHistory = false}) {
     if (_disposed) return Future.value();
@@ -62,7 +78,10 @@ class PmMailboxController extends ChangeNotifier {
       final known = append
           ? _freshItems.map((item) => item.id).toSet()
           : <String>{};
-      final added = next.where((item) => known.add(item.id)).toList();
+      final added = next
+          .where((item) => known.add(item.id))
+          .map(_applyRead)
+          .toList();
       _freshItems = [if (append) ..._freshItems, ...added];
       _page = page;
       loaded = true;
@@ -105,6 +124,7 @@ class PmMailboxController extends ChangeNotifier {
   bool _current(int generation) => !_disposed && generation == _generation;
 
   void reset({bool requireAuth = false}) {
+    _read.clear();
     _generation++;
     _refresh = null;
     items = const [];

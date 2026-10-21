@@ -348,6 +348,14 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
           Expanded(
             child: TextField(
               controller: _searchController,
+              maxLength: 4096,
+              buildCounter:
+                  (
+                    _, {
+                    required currentLength,
+                    required isFocused,
+                    maxLength,
+                  }) => null,
               onChanged: _onSearchChanged,
               textInputAction: TextInputAction.search,
               onSubmitted: (_) {

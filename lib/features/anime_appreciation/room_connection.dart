@@ -189,18 +189,26 @@ class ParticipationController extends ChangeNotifier {
   Future<void> _writes = Future.value();
   bool get active => _saved['active'] == true && invite != null;
   bool hasIdentity(RoomInvite target) =>
-      (target.sameRoom(invite) && _saved['token'] != null) ||
+      ((target.sameRoom(invite) || target.sameServiceEvent(invite)) &&
+          _saved['token'] != null) ||
       ((_saved['archives'] as Json?)?.values.any(
             (record) =>
                 record is Json &&
-                target.sameRoom(
-                  RoomInvite.parse(record['url'] as String? ?? ''),
-                ),
+                (target.sameRoom(
+                      RoomInvite.parse(record['url'] as String? ?? ''),
+                    ) ||
+                    target.sameServiceEvent(
+                      RoomInvite.parse(record['url'] as String? ?? ''),
+                    )),
           ) ??
           false);
   String get name => _saved['name'] as String? ?? '';
   List<Json> get pending => ((_saved['pending'] as List?) ?? []).cast<Json>();
   Json get drafts => (_saved['drafts'] as Json?) ?? {};
+  Json? get rejectedComment => _saved['rejectedComment'] as Json?;
+  Future<void> acknowledgeRejectedComment(String op) => _mutate((next) {
+    if (next['rejectedComment']?['op'] == op) next.remove('rejectedComment');
+  });
   List<Json> get rounds => ((event?['rounds'] as List?) ?? []).cast<Json>();
   Json? get current {
     for (final r in rounds) {
@@ -280,7 +288,7 @@ class ParticipationController extends ChangeNotifier {
       _retry?.cancel();
       await _socket?.close();
       _socket = null;
-      final same = target.sameRoom(invite);
+      final same = target.sameRoom(invite) || target.sameServiceEvent(invite);
       final archives = clone((_saved['archives'] as Json?) ?? {});
       if (!same && invite != null) {
         final old = clone(_saved)..remove('archives');
@@ -289,7 +297,12 @@ class ParticipationController extends ChangeNotifier {
       final restoreKey = archives.keys.where((key) {
         final record = archives[key];
         return record is Json &&
-            target.sameRoom(RoomInvite.parse(record['url'] as String? ?? ''));
+            (target.sameRoom(
+                  RoomInvite.parse(record['url'] as String? ?? ''),
+                ) ||
+                target.sameServiceEvent(
+                  RoomInvite.parse(record['url'] as String? ?? ''),
+                ));
       }).firstOrNull;
       var restored = restoreKey == null ? null : archives.remove(restoreKey);
       if (!same &&
@@ -688,6 +701,12 @@ class ParticipationController extends ChangeNotifier {
                 next['drafts']?[c['round']]?['text'] == c['text']) {
               next['drafts'][c['round']]['text'] = '';
             }
+          } else if (c['action'] == 'comment') {
+            next['rejectedComment'] = {
+              'op': c['op'],
+              'round': c['round'],
+              'text': c['text'],
+            };
           }
         });
       }

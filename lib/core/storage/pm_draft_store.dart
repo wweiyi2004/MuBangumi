@@ -1,7 +1,6 @@
 import 'dart:convert';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:path/path.dart' as path;
 import 'package:sqflite/sqflite.dart';
 import '../../models/pm_send_command.dart';
 import '../../models/pm_draft.dart';
@@ -14,7 +13,8 @@ final pmDraftRepositoryProvider = Provider<PmDraftRepository>(
   (ref) => PmDraftStore.shared,
 );
 
-class PmDraftStore implements PmDraftRepository, PmOutboxRepository {
+class PmDraftStore
+    implements PmDraftRepository, PmOutboxRepository, PmRecipientBindings {
   PmDraftStore({this.databasePath});
   static final shared = PmDraftStore();
   final String? databasePath;
@@ -246,6 +246,19 @@ class PmDraftStore implements PmDraftRepository, PmOutboxRepository {
   );
 
   @override
+  Future<void> bindRecipient(int ownerId, String commandId, int recipientId) {
+    if (recipientId <= 0) throw const FormatException('收件人编号无效');
+    return _write((db) async {
+      await db.update(
+        'pm_send_queue',
+        {'target_key': '$recipientId'},
+        where: 'owner_id = ? AND command_id = ?',
+        whereArgs: [ownerId, commandId],
+      );
+    });
+  }
+
+  @override
   Future<List<PmSendCommand>> outboxFor(int ownerId) async {
     await _writes.done;
     final rows = await (await _open()).query(
@@ -352,10 +365,7 @@ class PmDraftStore implements PmDraftRepository, PmOutboxRepository {
     final factory = sqliteFactory;
     return factory.openDatabase(
       databasePath ??
-          path.join(
-            await factory.getDatabasesPath(),
-            'mubangumi_pm_drafts.sqlite',
-          ),
+          await PersonalDatabasePaths.resolve('mubangumi_pm_drafts.sqlite'),
       options: OpenDatabaseOptions(
         onConfigure: configurePersonalDatabase,
         version: 2,

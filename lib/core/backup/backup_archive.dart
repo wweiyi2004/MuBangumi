@@ -434,7 +434,9 @@ void validateBackupRow(BackupCategory category, Map<String, dynamic> row) {
           _oneOf(row['view'], {'today', 'week', 'board'});
         case 'search':
           _keys(row, {'kind', 'keyword', 'target', 'subject_type', 'position'});
-          _string(row['keyword'], 4096, nonempty: true);
+          // Legacy local history had no per-query cap. Preserve those values
+          // within the existing 16 MB archive limit instead of blocking export.
+          _string(row['keyword'], BackupArchive.maxBytes, nonempty: true);
           _oneOf(row['target'], {'subject', 'character', 'person'});
           _oneOf(row['subject_type'], _subjectTypes);
           _int(row['position'], 0, 11);
@@ -451,7 +453,14 @@ void validateBackupRow(BackupCategory category, Map<String, dynamic> row) {
       _keys(row, {'target', 'title', 'content', 'updated_at'});
       final target = _list(row['target'], 8);
       if (target.isEmpty) throw const BackupException('社区草稿缺少目标');
-      _oneOf(target.first, {'topic', 'group', 'timeline'});
+      _oneOf(target.first, {
+        'topic',
+        'group',
+        'timeline',
+        'subject',
+        'edit',
+        'blog-v1',
+      });
       for (final value in target) {
         if (value is int) {
           _int(value, 0, 0x7fffffff);

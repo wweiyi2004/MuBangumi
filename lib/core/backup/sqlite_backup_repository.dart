@@ -43,10 +43,8 @@ class SqliteBackupRepository implements BackupRepository {
   final _operations = SerialTaskQueue();
 
   static Future<SqliteBackupRepository> shared() async {
-    final factory = sqliteFactory;
     return SqliteBackupRepository(
-      coordinatorPath: path.join(
-        await factory.getDatabasesPath(),
+      coordinatorPath: await PersonalDatabasePaths.resolve(
         'mubangumi_backup_import.sqlite',
       ),
       databasePaths: {

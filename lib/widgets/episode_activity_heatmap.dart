@@ -10,7 +10,7 @@ final episodeActivityProvider = FutureProvider.autoDispose<Map<String, int>>((
 ) {
   ref.watch(
     sessionProvider.select(
-      (state) => (state.user?.id, state.lastEpisodeEdit?.revision),
+      (state) => (state.user?.id, state.episodeActivityRevision),
     ),
   );
   final result = Completer<Map<String, int>>();
@@ -63,18 +63,39 @@ class EpisodeActivityHeatmap extends ConsumerStatefulWidget {
 class _EpisodeActivityHeatmapState
     extends ConsumerState<EpisodeActivityHeatmap> {
   Timer? _dayTimer;
+  late final AppLifecycleListener _lifecycle;
+  bool _visible = true;
   String? _selected;
   @override
   void initState() {
     super.initState();
+    _lifecycle = AppLifecycleListener(
+      onResume: _scheduleDayTimer,
+      onPause: () => _dayTimer?.cancel(),
+      onHide: () => _dayTimer?.cancel(),
+    );
+    _scheduleDayTimer();
+  }
+
+  void _scheduleDayTimer() {
+    _dayTimer?.cancel();
+    if (!_visible) return;
     _dayTimer = Timer.periodic(const Duration(minutes: 1), (_) {
       if (mounted) setState(() {});
     });
   }
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _visible = TickerMode.valuesOf(context).enabled;
+    _scheduleDayTimer();
+  }
+
+  @override
   void dispose() {
     _dayTimer?.cancel();
+    _lifecycle.dispose();
     super.dispose();
   }
 

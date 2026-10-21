@@ -14,6 +14,9 @@ $resultDirectory = Join-Path $script:MuRoot ('.dart_tool/verification/' + [DateT
 New-Item -ItemType Directory -Path $resultDirectory -Force | Out-Null
 $checks = [Collections.Generic.List[object]]::new()
 $deferred = [Collections.Generic.List[string]]::new()
+foreach ($area in @('flutter','server','website','python','tools')) {
+    if ($Areas -notcontains $area) { $deferred.Add("Area skipped by -Areas: $area") }
+}
 function Check([string]$Name, [scriptblock]$Action) {
     $log = Join-Path $resultDirectory ($Name + '.log')
     Write-Host "Checking $Name..."
@@ -22,7 +25,7 @@ function Check([string]$Name, [scriptblock]$Action) {
     try {
         & $Action *> $log
         if ($LASTEXITCODE -ne 0) { throw "Command exited with $LASTEXITCODE" }
-        $checks.Add(@{name=$Name;status='passed';seconds=[math]::Round($watch.Elapsed.TotalSeconds,2);log=$log})
+        $checks.Add(@{name=$Name;status='passed';seconds=[math]::Round($watch.Elapsed.TotalSeconds,2);log=$log;configuration=$(if($Name -in @('windows-build','android-build','ios-build')){'debug'}else{$null})})
     } catch {
         $_.Exception.Message | Add-Content -LiteralPath $log
         $checks.Add(@{name=$Name;status='failed';seconds=[math]::Round($watch.Elapsed.TotalSeconds,2);log=$log})
@@ -46,7 +49,7 @@ try {
         # --no-pub commands below otherwise reuse mode-specific generated files.
         Check 'flutter-dependencies' { Invoke-MuFlutter -Arguments @('pub','get','--enforce-lockfile') }
         Check 'flutter-analyze' { Invoke-MuFlutter -Arguments @('analyze','--no-pub') }
-        Check 'flutter-tests' { Invoke-MuFlutter -Arguments @('test','--no-pub','--reporter','expanded') }
+        Check 'flutter-tests' { Invoke-MuFlutter -Arguments @('test','--no-pub','--concurrency','4','--reporter','expanded') }
         if ($Mode -eq 'Full') {
             if ($DeviceId) { Check 'device-smoke' { Invoke-MuFlutter -Arguments @('test','--no-pub','integration_test/platform_smoke_test.dart','-d',$DeviceId) } }
             if (-not $DeviceId -or $DeviceId -in @('windows','linux','macos','chrome','edge')) {
@@ -70,6 +73,7 @@ try {
             if ($IsMacOS) { Check 'ios-build' { Invoke-MuFlutter -Arguments @('build','ios','--simulator','--debug','--no-codesign','--no-pub') } }
             else { $deferred.Add('iOS simulator build not run: requires macOS; CI configuration is not execution evidence') }
             $deferred.Add('Real-account acceptance, native file exchange, reminders and update installation are separate manual checks; automated smoke does not certify them')
+            $deferred.Add('Platform build checks use debug mode; release AOT, signing and final package validation run separately in the release workflow')
         }
     }
     if ($Areas -contains 'server') {
@@ -92,7 +96,7 @@ try {
     if ($Areas -contains 'python') {
         Check 'dataset-tests' { & (Get-MuPython recommend_dataset) -m pytest tool/recommend_dataset/tests -q }
         Check 'semantic-tests' { & (Get-MuPython semantic_retrieval) -m pytest tool/semantic_retrieval/tests -q }
-        Check 'mirror-tests' { & (Get-MuPython release_mirror) -m unittest discover -s tool/tests -p mirror_release_test.py }
+        Check 'mirror-tests' { & (Get-MuPython release_mirror) tool/run_unittests.py --start tool/tests --pattern mirror_release_test.py }
     }
     if ($Areas -contains 'tools') {
         Check 'architecture' { python tool/verify_architecture.py --self-test }
@@ -102,8 +106,8 @@ try {
             Check $name { & pwsh -NoProfile -File "tool/tests/${name}_test.ps1" }
         }
         Check 'repository-privacy' { & pwsh -NoProfile -File tool/verify_repository_privacy.ps1 }
-        Check 'repository-privacy-tests' { python -m unittest discover -s tool/tests -p repository_privacy_test.py }
-        Check 'provenance-tests' { python -m unittest discover -s tool/tests -p release_provenance_test.py }
+        Check 'repository-privacy-tests' { python tool/run_unittests.py --start tool/tests --pattern repository_privacy_test.py }
+        Check 'provenance-tests' { python tool/run_unittests.py --start tool/tests --pattern release_provenance_test.py }
     }
 } finally {
     $sourceAfter = (& python (Join-Path $script:MuRoot 'tool/release_provenance.py') identity --root $script:MuRoot | ConvertFrom-Json)
@@ -112,7 +116,7 @@ try {
     }
     Pop-Location
     $failed = @($checks | Where-Object status -eq 'failed').Count
-    @{schema=1;createdUtc=[DateTime]::UtcNow.ToString('o');mode=$Mode;source=$sourceAfter;passed=($failed -eq 0);checks=@($checks);deferred=@($deferred)} |
+    @{schema=2;createdUtc=[DateTime]::UtcNow.ToString('o');mode=$Mode;areas=@($Areas | Sort-Object -Unique);source=$sourceAfter;passed=($failed -eq 0);checks=@($checks);deferred=@($deferred)} |
         ConvertTo-Json -Depth 6 | Set-Content (Join-Path $resultDirectory 'results.json') -Encoding utf8
 }
 Write-Host "Verification report: $(Join-Path $resultDirectory 'results.json')"

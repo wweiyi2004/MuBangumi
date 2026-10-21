@@ -144,11 +144,12 @@ jobs:
       - name: Verify mirror publication safeguards
         run: |
           python -m pip install --require-hashes -r tool/requirements-mirror.txt
-          python -m unittest discover -s tool/tests -p mirror_release_test.py
+          python tool/run_unittests.py --start tool/tests --pattern mirror_release_test.py
 
       - name: Verify maintenance tooling
         run: |
           python tool/check_toolchain.py
-          python -m unittest discover -s tool/tests -p release_provenance_test.py
-          python -m unittest discover -s tool/tests -p repository_privacy_test.py
+          python tool/run_unittests.py --start tool/tests --pattern release_provenance_test.py
+          python tool/run_unittests.py --start tool/tests --pattern repository_privacy_test.py
           ./tool/tests/workspace_cleanup_test.ps1
+          ./tool/tests/toolchain_npm_test.ps1
