@@ -1,9 +1,8 @@
 import 'dart:convert';
-import 'dart:io';
 
-import 'package:path/path.dart' as path;
 import 'package:sqflite/sqflite.dart';
-import 'package:sqflite_common_ffi/sqflite_ffi.dart' as ffi;
+import 'serial_task_queue.dart';
+import 'sqlite_support.dart';
 
 typedef CommunityDraftData = ({String title, String content});
 
@@ -45,8 +44,8 @@ class CommunityDraftStore implements CommunityDraftRepository {
 
   static final shared = CommunityDraftStore();
   final String? databasePath;
-  Future<Database>? _database;
-  Future<void> _writes = Future.value();
+  final _connection = SqliteConnection();
+  final _writes = SerialTaskQueue();
 
   @override
   Future<CommunityDraftData?> load(String key) async {
@@ -55,7 +54,7 @@ class CommunityDraftStore implements CommunityDraftRepository {
 
   @override
   Future<CommunityDraftSlot> loadVersioned(String key) async {
-    await _writes;
+    await _writes.done;
     final db = await _open();
     final rows = await db.query(
       'draft',
@@ -91,8 +90,8 @@ class CommunityDraftStore implements CommunityDraftRepository {
     CommunityDraftData draft, {
     int? expectedRevision,
   }) {
-    final future = _writes.then(
-      (_) async => (await _open()).transaction((txn) async {
+    return _writes.run(
+      () async => (await _open()).transaction((txn) async {
         final rows = await txn.query(
           'draft',
           columns: ['revision'],
@@ -114,39 +113,24 @@ class CommunityDraftStore implements CommunityDraftRepository {
         return revision + 1;
       }),
     );
-    _writes = future.then<void>((_) {}, onError: (Object _, StackTrace _) {});
-    return future;
   }
 
   Future<String> databaseForBackup() async {
-    await _writes;
+    await _writes.done;
     return (await _open()).path;
   }
 
-  Future<Database> _open() =>
-      _database ??= _create().catchError((Object error) {
-        _database = null;
-        throw error;
-      });
+  Future<Database> _open() => _connection.open(_create);
 
   Future<Database> _create() async {
-    final DatabaseFactory factory;
-    if (Platform.isWindows || Platform.isLinux) {
-      ffi.sqfliteFfiInit();
-      factory = ffi.databaseFactoryFfi;
-    } else {
-      factory = databaseFactory;
-    }
+    final factory = sqliteFactory;
     return factory.openDatabase(
       databasePath ??
-          path.join(
-            await factory.getDatabasesPath(),
+          await PersonalDatabasePaths.resolve(
             'mubangumi_community_drafts.sqlite',
           ),
       options: OpenDatabaseOptions(
-        onConfigure: (db) async {
-          await db.rawQuery('PRAGMA journal_mode=DELETE');
-        },
+        onConfigure: configurePersonalDatabase,
         version: 2,
         onUpgrade: (db, old, _) async {
           if (old < 2) {
@@ -173,8 +157,7 @@ class CommunityDraftStore implements CommunityDraftRepository {
   }
 
   Future<void> close() async {
-    await _writes;
-    await (await _database)?.close();
-    _database = null;
+    await _writes.done;
+    await _connection.close();
   }
 }

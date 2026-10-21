@@ -115,6 +115,8 @@ class BackupTestStores {
         excludeKeywords: '合集',
       ),
     );
+    // The cached response follows rule creation, which invalidates validators.
+    await rss.upsertSource(source);
     await rss.insertItemsIgnoreDup([
       RssItem(
         id: 0,

@@ -45,6 +45,8 @@ class _UserProfilePageState extends ConsumerState<UserProfilePage> {
   bool _loadingProfile = true;
   bool _loadingCollections = true;
   bool _loadingTimeline = true;
+  String? _timelineNotice;
+  String? _timelineError;
   bool _friendBusy = false;
   bool? _isFriend;
   String? _error;
@@ -75,24 +77,48 @@ class _UserProfilePageState extends ConsumerState<UserProfilePage> {
   }
 
   Future<void> _loadTimeline() async {
-    setState(() => _loadingTimeline = true);
+    setState(() {
+      _loadingTimeline = true;
+      _timelineError = null;
+    });
     try {
-      final items = await _community.loadUserTimeline(
-        widget.username,
-        limit: 8,
+      // P1 user timelines can lag days behind the website.
+      final page = await _community.loadFreshTimelinePage(
+        CommunityTimelineMode.all,
+        username: widget.username,
         refresh: true,
-        fallbackNickname: _user?.nickname ?? widget.seed?.nickname,
-        fallbackAvatarUrl: _user?.avatarUrl ?? widget.seed?.avatarUrl,
       );
       if (!mounted) return;
+      final nickname = _user?.nickname ?? widget.seed?.nickname ?? '';
+      final avatarUrl = _user?.avatarUrl ?? widget.seed?.avatarUrl ?? '';
+      final owner = widget.username.trim().toLowerCase();
+      final items = [
+        for (final item in page.items.take(8))
+          if (item.user.username.toLowerCase() == owner)
+            // Profile timeline rows carry neither nickname nor avatar.
+            item.copyWith(
+              user: CommunityUser(
+                id: item.user.id,
+                username: item.user.username,
+                nickname: nickname.isNotEmpty ? nickname : item.user.nickname,
+                avatarUrl: item.user.avatarUrl.isNotEmpty
+                    ? item.user.avatarUrl
+                    : avatarUrl,
+                joinedAt: item.user.joinedAt,
+              ),
+            )
+          else
+            item,
+      ];
       setState(() {
         _timeline = items;
+        _timelineNotice = page.notice;
         _loadingTimeline = false;
       });
-    } catch (_) {
+    } catch (error) {
       if (!mounted) return;
       setState(() {
-        _timeline = const [];
+        _timelineError = '动态加载失败，请重试';
         _loadingTimeline = false;
       });
     }
@@ -200,8 +226,9 @@ class _UserProfilePageState extends ConsumerState<UserProfilePage> {
         // Doing lists stay moderate; full browse caps for responsiveness.
         maxItems: status == null ? 80 : 60,
       );
-      final counts = await countsFuture;
-      final items = await itemsFuture;
+      final results = await Future.wait<Object>([countsFuture, itemsFuture]);
+      final counts = results[0] as Map<CollectionType, int>;
+      final items = results[1] as List<UserCollection>;
       if (!mounted || requestId != _requestId) return;
       setState(() {
         _counts = counts;
@@ -492,7 +519,10 @@ class _UserProfilePageState extends ConsumerState<UserProfilePage> {
                         ),
                       ),
                     ],
-                    if (_loadingTimeline || _timeline.isNotEmpty) ...[
+                    if (_loadingTimeline ||
+                        _timeline.isNotEmpty ||
+                        _timelineError != null ||
+                        _timelineNotice != null) ...[
                       const SizedBox(height: 14),
                       Text(
                         '最近动态',
@@ -500,6 +530,17 @@ class _UserProfilePageState extends ConsumerState<UserProfilePage> {
                             ?.copyWith(fontWeight: FontWeight.w800),
                       ),
                       const SizedBox(height: 8),
+                      if (_timelineNotice != null) Text(_timelineNotice!),
+                      if (_timelineError != null)
+                        Row(
+                          children: [
+                            Expanded(child: Text(_timelineError!)),
+                            TextButton(
+                              onPressed: _loadTimeline,
+                              child: const Text('重试'),
+                            ),
+                          ],
+                        ),
                       if (_loadingTimeline)
                         const Padding(
                           padding: EdgeInsets.symmetric(vertical: 12),

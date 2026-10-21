@@ -1,3 +1,8 @@
+import 'package:url_launcher/url_launcher.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../state/community_submission_controller.dart';
+import '../models/community_topic_submission.dart';
+import '../widgets/community_submission_card.dart';
 import '../core/theme/anime_icon.dart';
 import '../state/service_providers.dart';
 import '../navigation/app_destination.dart';
@@ -16,8 +21,13 @@ Future<bool> showBlogEditor(
   CommunityService service, {
   CommunityBlog? original,
   CommunityTokenProvider? tokenProvider,
+  ValueChanged<CommunityPendingSubmission>? onAccepted,
 }) {
   final identity = service.identityRevision;
+  final owner = service.currentUsername;
+  final submission = original == null
+      ? CommunityTopicDraft(kind: 'blog')
+      : null;
   final metadata = CommunityBlogDraft(
     tags: original?.tags ?? [],
     isPublic: original?.isPublic ?? true,
@@ -30,8 +40,40 @@ Future<bool> showBlogEditor(
     initialContent: original?.content ?? '',
     maxLength: 100000,
     blogDraft: metadata,
+    topicDraft: submission,
+    onAccepted: original == null ? onAccepted : null,
+    inspectSubmission: () => launchUrl(
+      Uri.parse('https://bgm.tv/user/${Uri.encodeComponent(owner ?? '')}/blog'),
+      mode: LaunchMode.externalApplication,
+    ).then((_) {}),
+    confirmSubmission: original != null
+        ? null
+        : (title, content, attemptedAt) async {
+            final page = await service.loadUserBlogs(
+              owner ?? '',
+              refresh: true,
+            );
+            final matches = <CommunityBlog>[];
+            for (final blog in page.data.where((blog) => blog.title == title)) {
+              final detail = await service.loadBlog(blog.id, refresh: true);
+              if (service.identityRevision != identity) return false;
+              if (attemptedAt != null &&
+                  detail.createdAt != null &&
+                  !detail.createdAt!.isBefore(
+                    attemptedAt.subtract(const Duration(seconds: 5)),
+                  ) &&
+                  detail.content.replaceAll('\r\n', '\n').trim() ==
+                      content.replaceAll('\r\n', '\n').trim()) {
+                matches.add(detail);
+              }
+            }
+            if (matches.length != 1) return false;
+            submission!.confirmedId = matches.single.id;
+            return true;
+          },
     submitLabel: original == null ? '发布' : '保存',
     requireVerification: original == null,
+    protectSubmission: original == null,
     tokenProvider: tokenProvider,
     draftKey: communityDraftKey(service.currentUsername, [
       'blog-v1',
@@ -50,7 +92,7 @@ Future<bool> showBlogEditor(
   );
 }
 
-class CommunityBlogListScreen extends StatefulWidget {
+class CommunityBlogListScreen extends ConsumerStatefulWidget {
   const CommunityBlogListScreen({
     super.key,
     this.username,
@@ -65,11 +107,12 @@ class CommunityBlogListScreen extends StatefulWidget {
   final bool embedded;
   final bool usePrimaryScrollController;
   @override
-  State<CommunityBlogListScreen> createState() =>
+  ConsumerState<CommunityBlogListScreen> createState() =>
       _CommunityBlogListScreenState();
 }
 
-class _CommunityBlogListScreenState extends State<CommunityBlogListScreen> {
+class _CommunityBlogListScreenState
+    extends ConsumerState<CommunityBlogListScreen> {
   late final CommunityService _service =
       widget.service ?? communityServiceFor(context);
   String get _username => widget.username ?? _service.currentUsername ?? '';
@@ -147,15 +190,47 @@ class _CommunityBlogListScreenState extends State<CommunityBlogListScreen> {
   }
 
   Future<void> _create() async {
+    if (ref
+        .read(communitySubmissionsProvider(_service))
+        .forScope('blog:$_username')
+        .any((entry) => entry.status == CommunitySubmissionStatus.publishing)) {
+      return;
+    }
     final identity = _service.identityRevision;
+    var accepted = false;
     final sent = await showBlogEditor(
       context,
       _service,
       tokenProvider: widget.tokenProvider,
+      onAccepted: (entry) {
+        accepted = true;
+        ref
+            .read(communitySubmissionsProvider(_service))
+            .add('blog:$_username', entry);
+        unawaited(
+          entry.completion.then((_) {
+            if (mounted &&
+                entry.isAccountCurrent() &&
+                entry.status == CommunitySubmissionStatus.sent) {
+              unawaited(_load(refresh: true));
+            }
+          }),
+        );
+      },
     );
-    if (sent && mounted && identity == _service.identityRevision) {
-      await _load(refresh: true);
+    if (!sent ||
+        !mounted ||
+        identity != _service.identityRevision ||
+        accepted) {
+      return;
     }
+    ref
+        .read(communitySubmissionsProvider(_service))
+        .removeDraft(
+          'blog:$_username',
+          communityDraftKey(_service.currentUsername, ['blog-v1', 'new']),
+        );
+    await _load(refresh: true);
   }
 
   @override
@@ -167,90 +242,107 @@ class _CommunityBlogListScreenState extends State<CommunityBlogListScreen> {
   }
 
   @override
-  Widget build(BuildContext context) => Scaffold(
-    appBar: widget.embedded
-        ? null
-        : AppBar(
-            title: Text(
-              widget.username == null ? '我的日志' : '${widget.username} 的日志',
+  Widget build(BuildContext context) {
+    final pending = ref
+        .watch(communitySubmissionsProvider(_service))
+        .forScope('blog:$_username')
+        .where((entry) => entry.status != CommunitySubmissionStatus.sent)
+        .toList();
+    return Scaffold(
+      appBar: widget.embedded
+          ? null
+          : AppBar(
+              title: Text(
+                widget.username == null ? '我的日志' : '${widget.username} 的日志',
+              ),
             ),
-          ),
-    floatingActionButton:
-        _service.isAuthenticated &&
-            _username.toLowerCase() == _service.currentUsername?.toLowerCase()
-        ? FloatingActionButton.extended(
-            onPressed: _create,
-            icon: const AnimeIcon(Icons.edit_outlined),
-            label: const Text('写日志'),
-          )
-        : null,
-    body: NotificationListener<ScrollNotification>(
-      onNotification: (notification) {
-        if (widget.usePrimaryScrollController &&
-            _paging.shouldLoadMoreOnNotification(
-              notification,
-              threshold: 400,
-            )) {
-          unawaited(_load());
-        }
-        return false;
-      },
-      child: RefreshIndicator(
-        onRefresh: () => _load(refresh: true),
-        child: ListView.builder(
-          key: PageStorageKey('profile-blogs-$_username'),
-          primary: widget.usePrimaryScrollController,
-          controller: widget.usePrimaryScrollController ? null : _scroll,
-          physics: const AlwaysScrollableScrollPhysics(),
-          padding: const EdgeInsets.fromLTRB(16, 12, 16, 90),
-          itemCount: _items.length + 1,
-          itemBuilder: (context, index) {
-            if (index == _items.length) {
-              return Column(
-                children: [
-                  if (!_paging.loading &&
-                      _paging.loadMoreError == null &&
-                      _items.isEmpty)
-                    Padding(
-                      padding: const EdgeInsets.all(32),
-                      child: Text(_username.isEmpty ? '请登录查看自己的日志' : '还没有日志'),
-                    ),
-                  CommunityLoadMoreFooter(
-                    loading: _paging.loading,
-                    hasMore: _paging.hasMore,
-                    error: _paging.loadMoreError,
-                    onLoad: () =>
-                        _load(refresh: _paging.refreshFailed || _items.isEmpty),
-                  ),
-                ],
-              );
-            }
-            final blog = _items[index];
-            return Card(
-              child: ListTile(
-                title: Text(blog.title),
-                subtitle: Text(
-                  '${blog.isPublic ? '公开' : '仅好友可见'} · ${blog.replyCount} 条评论',
-                ),
-                trailing: const AnimeIcon(Icons.chevron_right),
-                onTap: () async {
-                  await Navigator.of(context).push(
-                    MaterialPageRoute<void>(
-                      builder: (_) => CommunityBlogScreen(
-                        blogId: blog.id,
-                        service: _service,
+      floatingActionButton:
+          _service.isAuthenticated &&
+              _username.toLowerCase() == _service.currentUsername?.toLowerCase()
+          ? FloatingActionButton.extended(
+              onPressed: _create,
+              icon: const AnimeIcon(Icons.edit_outlined),
+              label: const Text('写日志'),
+            )
+          : null,
+      body: NotificationListener<ScrollNotification>(
+        onNotification: (notification) {
+          if (widget.usePrimaryScrollController &&
+              _paging.shouldLoadMoreOnNotification(
+                notification,
+                threshold: 400,
+              )) {
+            unawaited(_load());
+          }
+          return false;
+        },
+        child: RefreshIndicator(
+          onRefresh: () => _load(refresh: true),
+          child: ListView.builder(
+            key: PageStorageKey('profile-blogs-$_username'),
+            primary: widget.usePrimaryScrollController,
+            controller: widget.usePrimaryScrollController ? null : _scroll,
+            physics: const AlwaysScrollableScrollPhysics(),
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 90),
+            itemCount: _items.length + 2,
+            itemBuilder: (context, index) {
+              if (index == 0) {
+                return Column(
+                  children: [
+                    for (final entry in pending)
+                      CommunitySubmissionCard(entry: entry, onInspect: _create),
+                  ],
+                );
+              }
+              index--;
+              if (index == _items.length) {
+                return Column(
+                  children: [
+                    if (!_paging.loading &&
+                        _paging.loadMoreError == null &&
+                        _items.isEmpty)
+                      Padding(
+                        padding: const EdgeInsets.all(32),
+                        child: Text(_username.isEmpty ? '请登录查看自己的日志' : '还没有日志'),
+                      ),
+                    CommunityLoadMoreFooter(
+                      loading: _paging.loading,
+                      hasMore: _paging.hasMore,
+                      error: _paging.loadMoreError,
+                      onLoad: () => _load(
+                        refresh: _paging.refreshFailed || _items.isEmpty,
                       ),
                     ),
-                  );
-                  if (mounted) await _load(refresh: true);
-                },
-              ),
-            );
-          },
+                  ],
+                );
+              }
+              final blog = _items[index];
+              return Card(
+                child: ListTile(
+                  title: Text(blog.title),
+                  subtitle: Text(
+                    '${blog.isPublic ? '公开' : '仅好友可见'} · ${blog.replyCount} 条评论',
+                  ),
+                  trailing: const AnimeIcon(Icons.chevron_right),
+                  onTap: () async {
+                    await Navigator.of(context).push(
+                      MaterialPageRoute<void>(
+                        builder: (_) => CommunityBlogScreen(
+                          blogId: blog.id,
+                          service: _service,
+                        ),
+                      ),
+                    );
+                    if (mounted) await _load(refresh: true);
+                  },
+                ),
+              );
+            },
+          ),
         ),
       ),
-    ),
-  );
+    );
+  }
 }
 
 class CommunityBlogScreen extends StatefulWidget {

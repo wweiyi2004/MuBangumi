@@ -1,3 +1,4 @@
+import 'package:mubangumi/models/community_topic_submission.dart';
 import 'dart:async';
 import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -7,6 +8,40 @@ import 'package:mubangumi/core/network/community_service.dart';
 import 'package:mubangumi/models/community_models.dart';
 
 void main() {
+  test(
+    'subject discussion failures reach the retry section and can recover',
+    () async {
+      var failed = true;
+      final dio = Dio()
+        ..interceptors.add(
+          InterceptorsWrapper(
+            onRequest: (options, handler) {
+              if (failed) {
+                handler.reject(
+                  DioException(
+                    requestOptions: options,
+                    type: DioExceptionType.connectionError,
+                  ),
+                );
+              } else {
+                handler.resolve(
+                  Response(
+                    requestOptions: options,
+                    data: {'data': <dynamic>[], 'total': 0},
+                  ),
+                );
+              }
+            },
+          ),
+        );
+      final service = CommunityService.test(p1Dio: dio);
+      addTearDown(service.dispose);
+      await expectLater(service.loadTopicsForSubject(9), throwsA(anything));
+      failed = false;
+      expect(await service.loadTopicsForSubject(9), isEmpty);
+    },
+  );
+
   test(
     'identical notices merge requests but manual refresh bypasses stored data',
     () async {
@@ -972,11 +1007,11 @@ void main() {
 
       expect(p1Requests, 1);
       expect(formGet?.path, contains('/group/fillgrids/new_topic'));
-      expect(formPost?.path, contains('/group/fillgrids/new_topic'));
+      expect(formPost?.path, contains('/group/fillgrids/topic/new'));
       expect(formPost?.data, containsPair('formhash', 'abc12345'));
       expect(formPost?.data, containsPair('title', '测试标题'));
       expect(formPost?.data, containsPair('content', '测试正文'));
-      expect(formPost?.data, containsPair('submit', 'submit'));
+      expect(formPost?.data, containsPair('submit', '加上去'));
     },
   );
 
@@ -1143,6 +1178,191 @@ void main() {
     expect(requests, 2);
     expect(refreshes, 1);
   });
+
+  test(
+    'blog 500 with empty read-back remains uncertain without a website POST',
+    () async {
+      final p1 = Dio(BaseOptions(baseUrl: 'https://next.bgm.tv'));
+      p1.interceptors.add(
+        InterceptorsWrapper(
+          onRequest: (options, handler) {
+            if (options.method == 'POST') {
+              handler.reject(
+                DioException(
+                  requestOptions: options,
+                  type: DioExceptionType.badResponse,
+                  response: Response(
+                    requestOptions: options,
+                    statusCode: 500,
+                    data: const {
+                      'message': 'internal error, please contact admin',
+                    },
+                  ),
+                ),
+              );
+              return;
+            }
+            handler.resolve(
+              Response(
+                requestOptions: options,
+                statusCode: 200,
+                data: const {'data': <Object>[], 'total': 0},
+              ),
+            );
+          },
+        ),
+      );
+      RequestOptions? formPost;
+      final html = Dio(BaseOptions(baseUrl: 'https://bgm.tv'));
+      html.interceptors.add(
+        InterceptorsWrapper(
+          onRequest: (options, handler) {
+            if (options.method == 'GET') {
+              handler.resolve(
+                Response<String>(
+                  requestOptions: options,
+                  statusCode: 200,
+                  data:
+                      '<form method="post" action="/blog/create">'
+                      '<input type="hidden" name="formhash" value="abc12345">'
+                      '<input name="title">'
+                      '<textarea name="content"></textarea>'
+                      '<input name="tags">'
+                      '<input type="checkbox" name="public" value="1" checked>'
+                      '<input type="submit" name="submit" value="提交">'
+                      '</form>',
+                ),
+              );
+              return;
+            }
+            formPost = options;
+            handler.resolve(
+              Response<String>(
+                requestOptions: options,
+                statusCode: 302,
+                headers: Headers.fromMap({
+                  'location': ['https://bgm.tv/blog/99'],
+                }),
+                data: '',
+              ),
+            );
+          },
+        ),
+      );
+      final service =
+          CommunityService.test(
+              p1Dio: p1,
+              htmlDio: html,
+              sessionStore: _memorySessionStore(
+                userAgent: 'Mozilla/5.0 Test-Community',
+              ),
+            )
+            ..setAccessToken('oauth-token')
+            ..setCurrentUsername('alice');
+      await expectLater(
+        service.saveBlog(
+          title: '新日志',
+          content: '正文',
+          tags: const ['日常'],
+          isPublic: true,
+          turnstileToken: 'verified-token-value-0123456789',
+        ),
+        throwsA(isA<CommunitySubmissionUncertain>()),
+      );
+      expect(formPost, isNull);
+    },
+  );
+
+  test(
+    'group topic 500 with empty read-back remains uncertain without a website POST',
+    () async {
+      final p1 = Dio(BaseOptions(baseUrl: 'https://next.bgm.tv'));
+      p1.interceptors.add(
+        InterceptorsWrapper(
+          onRequest: (options, handler) {
+            if (options.method == 'POST') {
+              handler.reject(
+                DioException(
+                  requestOptions: options,
+                  type: DioExceptionType.badResponse,
+                  response: Response(
+                    requestOptions: options,
+                    statusCode: 500,
+                    data: const {
+                      'message': 'internal error, please contact admin',
+                    },
+                  ),
+                ),
+              );
+              return;
+            }
+            handler.resolve(
+              Response(
+                requestOptions: options,
+                statusCode: 200,
+                data: const {'data': <Object>[], 'total': 0},
+              ),
+            );
+          },
+        ),
+      );
+      RequestOptions? formPost;
+      final html = Dio(BaseOptions(baseUrl: 'https://bgm.tv'));
+      html.interceptors.add(
+        InterceptorsWrapper(
+          onRequest: (options, handler) {
+            if (options.method == 'GET') {
+              handler.resolve(
+                Response<String>(
+                  requestOptions: options,
+                  statusCode: 200,
+                  data:
+                      '<form action="/group/demo/new_topic">'
+                      '<input name="title">'
+                      '<textarea name="content"></textarea>'
+                      '<input name="formhash" value="abc12345">'
+                      '<input type="submit" name="submit" value="加上去">'
+                      '</form>',
+                ),
+              );
+              return;
+            }
+            formPost = options;
+            handler.resolve(
+              Response<String>(
+                requestOptions: options,
+                statusCode: 302,
+                headers: Headers.fromMap({
+                  'location': ['https://bgm.tv/group/topic/77'],
+                }),
+                data: '',
+              ),
+            );
+          },
+        ),
+      );
+      final service =
+          CommunityService.test(
+              p1Dio: p1,
+              htmlDio: html,
+              sessionStore: _memorySessionStore(
+                userAgent: 'Mozilla/5.0 Test-Community',
+              ),
+            )
+            ..setAccessToken('oauth-token')
+            ..setCurrentUsername('alice');
+      await expectLater(
+        service.createGroupTopic(
+          slug: 'demo',
+          title: '新讨论',
+          content: '正文',
+          turnstileToken: 'verified-token-value-0123456789',
+        ),
+        throwsA(isA<CommunitySubmissionUncertain>()),
+      );
+      expect(formPost, isNull);
+    },
+  );
 }
 
 const _groupTopic = CommunityTopic(

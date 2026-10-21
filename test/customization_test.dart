@@ -1,7 +1,7 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter_markdown_plus/flutter_markdown_plus.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_svg/flutter_svg.dart';
@@ -275,7 +275,7 @@ void main() {
     },
   );
   testWidgets(
-    'biography supports Markdown code, images and folded BBCode at 320px',
+    'biography keeps BBCode code, images and spoilers when text resembles Markdown',
     (tester) async {
       tester.view.physicalSize = const Size(320, 800);
       tester.view.devicePixelRatio = 1;
@@ -291,26 +291,25 @@ void main() {
               child: const BiographyDialog(
                 username: 'alice',
                 source:
-                    '# 喜欢的故事\n\n**一起追番**\n\n```dart\nfinal episode = 1;\n```\n\n![封面](https://example.com/cover.png)\n\n[mask]隐藏的剧透[/mask]',
+                    '# 喜欢的故事\n\n**一起追番**\n\n[code]final episode = 1;[/code]\n\n[img]https://example.com/cover.png[/img]\n\n[mask]隐藏的剧透[/mask]',
               ),
             ),
           ),
         ),
       );
       await tester.pumpAndSettle();
-      expect(find.byType(MarkdownBody), findsWidgets);
       expect(find.byType(Image), findsOneWidget);
       expect(
         ((tester.widget<Image>(find.byType(Image)).image as ResizeImage)
                     .imageProvider
-                as NetworkImage)
+                as CachedNetworkImageProvider)
             .url,
         'https://example.com/cover.png',
       );
       expect(find.byType(CommunityRichContent), findsOneWidget);
       expect(find.textContaining('隐藏的剧透'), findsNothing);
       expect(tester.takeException(), isNull);
-      await captureUx(tester, key, 'biography-markdown-320');
+      await captureUx(tester, key, 'biography-bbcode-320');
       expect(biographyUri('file:///private'), isNull);
       expect(biographyUri('javascript:alert(1)'), isNull);
       expect(biographyUri('https://user:pass@example.com/x'), isNull);

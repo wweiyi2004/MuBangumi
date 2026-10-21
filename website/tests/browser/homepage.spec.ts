@@ -86,9 +86,9 @@ test("homepage fits the viewport and loads without JavaScript exceptions", async
 
 test("downloads link the current packages and explain unavailable iOS", async ({ page }) => {
   const downloads = page.locator("#platforms");
-  await expect(downloads).toContainText("2.4.2");
-  await expect(downloads.getByRole("link", { name: "下载 Android" })).toHaveAttribute("href", /v2\.4\.2%2B4032\/MuBangumi-2\.4\.2-build4032-android\.apk$/);
-  await expect(downloads.getByRole("link", { name: "下载 Windows" })).toHaveAttribute("href", /v2\.4\.2%2B4032\/MuBangumi-2\.4\.2-build4032-windows-x64\.zip$/);
+  await expect(downloads).toContainText("2.5.0");
+  await expect(downloads.getByRole("link", { name: "下载 Android" })).toHaveAttribute("href", /v2\.5\.0%2B4034\/MuBangumi-2\.5\.0-build4034-android\.apk$/);
+  await expect(downloads.getByRole("link", { name: "下载 Windows" })).toHaveAttribute("href", /v2\.5\.0%2B4034\/MuBangumi-2\.5\.0-build4034-windows-x64\.zip$/);
   await expect(downloads.getByText("本版未提供安装包", { exact: true })).toBeVisible();
   await expect(downloads.getByRole("link", { name: /iOS/ })).toHaveCount(0);
 });

@@ -11,6 +11,20 @@ import 'projection_art.dart';
 export 'projection_art.dart' show ProjectionScene;
 
 class SubjectCover extends StatelessWidget {
+  static ImageProvider imageProvider(
+    Subject subject, {
+    required double width,
+    required double height,
+    required double pixelRatio,
+    BangumiImageSize size = BangumiImageSize.large,
+  }) => ResizeImage.resizeIfNeeded(
+    (width * pixelRatio).round().clamp(1, 2048),
+    (height * pixelRatio).round().clamp(1, 2048),
+    CachedNetworkImageProvider(
+      BangumiEndpoints.imageUrl(subject.imageUrl, size: size),
+    ),
+  );
+
   const SubjectCover({
     super.key,
     required this.subject,

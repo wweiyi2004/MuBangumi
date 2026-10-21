@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 enum SubjectType {
   book(1, '书籍', '读'),
   anime(2, '动画', '看'),
@@ -167,7 +169,7 @@ class Subject {
       variance += delta * delta * count;
     });
     variance /= ratingTotal;
-    return variance <= 0 ? 0 : _sqrt(variance);
+    return variance <= 0 ? 0 : math.sqrt(variance);
   }
 
   /// Human-readable controversy from stddev (garage #31 style).
@@ -353,15 +355,6 @@ class FriendSubjectStatus {
   final int rate;
   final int episodeStatus;
   final String comment;
-}
-
-double _sqrt(double value) {
-  if (value <= 0) return 0;
-  var x = value;
-  for (var i = 0; i < 12; i++) {
-    x = 0.5 * (x + value / x);
-  }
-  return x;
 }
 
 class UserCollection {

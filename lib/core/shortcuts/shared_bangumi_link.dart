@@ -17,11 +17,24 @@ class SharedBangumiLink {
     this.id, {
     this.username,
     this.isStatus = true,
+    this.postId,
   });
   final SharedBangumiKind kind;
   final int id;
   final String? username;
   final bool isStatus;
+  final int? postId;
+  String get _postFragment =>
+      postId != null &&
+          const {
+            SharedBangumiKind.groupTopic,
+            SharedBangumiKind.subjectTopic,
+            SharedBangumiKind.episodeTopic,
+            SharedBangumiKind.character,
+            SharedBangumiKind.person,
+          }.contains(kind)
+      ? '#post_$postId'
+      : '';
   String get path => switch (kind) {
     SharedBangumiKind.subject => '/subject/$id',
     SharedBangumiKind.directory => '/index/$id',
@@ -36,14 +49,14 @@ class SharedBangumiLink {
           : '/user/$username/timeline',
   };
   String get url =>
-      'https://bgm.tv$path${kind == SharedBangumiKind.timeline && !isStatus ? '?until=${id + 1}' : ''}';
+      'https://bgm.tv$path${kind == SharedBangumiKind.timeline && !isStatus ? '?until=${id + 1}' : ''}$_postFragment';
 
   /// Our scanner decodes the fragment locally; other readers open the download
   /// page through the same public HTTPS URL.
   String get qrUrl => Uri.parse(downloadUrl)
       .replace(
         fragment:
-            '${path.substring(1)}${kind == SharedBangumiKind.timeline && !isStatus ? '?until=${id + 1}' : ''}',
+            '${path.substring(1)}${kind == SharedBangumiKind.timeline && !isStatus ? '?until=${id + 1}' : ''}$_postFragment',
       )
       .toString();
   String get label =>
@@ -69,7 +82,11 @@ class SharedBangumiLink {
         uri.path == '/wweiyi2004/MuBangumi/releases/latest' &&
         !uri.hasQuery &&
         uri.fragment.isNotEmpty) {
-      return parse('https://bgm.tv/${uri.fragment}');
+      try {
+        return parse('https://bgm.tv/${Uri.decodeComponent(uri.fragment)}');
+      } on FormatException {
+        return null;
+      }
     }
     if (uri == null ||
         !['http', 'https'].contains(uri.scheme.toLowerCase()) ||
@@ -107,7 +124,7 @@ class SharedBangumiLink {
       );
     }
     final match = RegExp(
-      r'^/(subject|person|character|index|ep|group/topic|subject/topic|rakuen/topic/(?:grp|sbj|ep))/(\d+)/?$',
+      r'^/(subject|person|character|index|ep|group/topic|subject/topic|rakuen/topic/(?:group|subject|grp|sbj|ep|crt|prsn))/(\d+)/?$',
     ).firstMatch(uri.path);
     if (match == null) return null;
     final id = int.tryParse(match[2]!);
@@ -115,13 +132,26 @@ class SharedBangumiLink {
     final kind = switch (match[1]) {
       'subject' => SharedBangumiKind.subject,
       'index' => SharedBangumiKind.directory,
-      'person' => SharedBangumiKind.person,
-      'character' => SharedBangumiKind.character,
-      'group/topic' || 'rakuen/topic/grp' => SharedBangumiKind.groupTopic,
-      'subject/topic' || 'rakuen/topic/sbj' => SharedBangumiKind.subjectTopic,
+      'person' || 'rakuen/topic/prsn' => SharedBangumiKind.person,
+      'character' || 'rakuen/topic/crt' => SharedBangumiKind.character,
+      'group/topic' ||
+      'rakuen/topic/grp' ||
+      'rakuen/topic/group' => SharedBangumiKind.groupTopic,
+      'subject/topic' ||
+      'rakuen/topic/sbj' ||
+      'rakuen/topic/subject' => SharedBangumiKind.subjectTopic,
       _ => SharedBangumiKind.episodeTopic,
     };
-    return SharedBangumiLink(kind, id);
+    final fragmentId = int.tryParse(
+      RegExp(r'^post_(\d+)$').firstMatch(uri.fragment)?.group(1) ?? '',
+    );
+    return SharedBangumiLink(
+      kind,
+      id,
+      postId: fragmentId != null && fragmentId > 0 && fragmentId <= 2147483647
+          ? fragmentId
+          : null,
+    );
   }
 
   static List<SharedBangumiLink> fromText(String text) {

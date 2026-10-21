@@ -164,11 +164,14 @@ class CommunityTimelineCard extends StatelessWidget {
                 color: colors.onSurfaceVariant,
               ),
             ),
-            trailing: item.replyCount > 0 || repliesExpanded
+            trailing:
+                item.replyCount > 0 || item.canLoadReplies || repliesExpanded
                 ? Tooltip(
                     message: repliesExpanded
                         ? '收起回复'
-                        : '${item.replyCount} 条回复',
+                        : item.replyCount > 0
+                        ? '${item.replyCount} 条回复'
+                        : '查看已有回复',
                     child: TextButton.icon(
                       onPressed: onToggleReplies,
                       style: TextButton.styleFrom(
@@ -180,7 +183,7 @@ class CommunityTimelineCard extends StatelessWidget {
                         size: 24,
                       ),
                       label: Text(
-                        '${item.replyCount}',
+                        item.replyCount > 0 ? '${item.replyCount}' : '查看回复',
                         style: const TextStyle(fontSize: 13),
                       ),
                     ),

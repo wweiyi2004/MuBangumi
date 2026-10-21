@@ -16,6 +16,7 @@ class SessionState {
     this.hasPendingVerification = false,
     this.canRetrySignOut = false,
     this.isPreparingHome = false,
+    this.requiresAccessCheck = false,
     this.user,
     this.collections = const [],
     this.isRefreshing = false,
@@ -31,6 +32,7 @@ class SessionState {
     this.message,
     this.episodeUndo,
     this.lastEpisodeEdit,
+    this.episodeActivityRevision = 0,
   });
 
   final SessionPhase phase;
@@ -42,6 +44,9 @@ class SessionState {
   final bool hasPendingVerification;
   final bool canRetrySignOut;
   final bool isPreparingHome;
+
+  /// A new login stays on the access check until API and website both pass.
+  final bool requiresAccessCheck;
   bool get isAuthenticating =>
       authActivity == AuthActivity.authorizing ||
       authActivity == AuthActivity.verifying;
@@ -62,6 +67,7 @@ class SessionState {
   final String? message;
   final EpisodeUndo? episodeUndo;
   final EpisodeEdit? lastEpisodeEdit;
+  final int episodeActivityRevision;
 
   UserCollection? collectionFor(int subjectId) {
     for (final collection in collections) {
@@ -77,6 +83,7 @@ class SessionState {
     bool? hasPendingVerification,
     bool? canRetrySignOut,
     bool? isPreparingHome,
+    bool? requiresAccessCheck,
     BangumiUser? user,
     List<UserCollection>? collections,
     bool? isRefreshing,
@@ -96,6 +103,7 @@ class SessionState {
     EpisodeUndo? episodeUndo,
     bool clearEpisodeUndo = false,
     EpisodeEdit? lastEpisodeEdit,
+    int? episodeActivityRevision,
   }) => SessionState(
     phase: phase ?? this.phase,
     authActivity: authActivity ?? this.authActivity,
@@ -104,9 +112,12 @@ class SessionState {
         hasPendingVerification ?? this.hasPendingVerification,
     canRetrySignOut: canRetrySignOut ?? this.canRetrySignOut,
     isPreparingHome: isPreparingHome ?? this.isPreparingHome,
+    requiresAccessCheck: requiresAccessCheck ?? this.requiresAccessCheck,
     user: clearUser ? null : user ?? this.user,
     episodeUndo: clearEpisodeUndo ? null : episodeUndo ?? this.episodeUndo,
     lastEpisodeEdit: lastEpisodeEdit ?? this.lastEpisodeEdit,
+    episodeActivityRevision:
+        episodeActivityRevision ?? this.episodeActivityRevision,
     collections: collections ?? this.collections,
     collectionCoverage:
         collectionCoverage ??

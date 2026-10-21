@@ -1,4 +1,5 @@
 import 'dart:async';
+import '../core/auth/auth_cleanup_marker.dart';
 import 'dart:io';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -400,7 +401,13 @@ class WebsiteSessionController extends StateNotifier<WebsiteSessionState> {
         }
         continue;
       }
-      if (index >= 0 && merged[index].value == cookie.value) continue;
+      if (index >= 0 &&
+          merged[index].value == cookie.value &&
+          merged[index].expiresAt == expires &&
+          merged[index].isSecure == cookie.secure &&
+          merged[index].isHttpOnly == cookie.httpOnly) {
+        continue;
+      }
       final next = WebsiteCookie(
         name: cookie.name,
         value: cookie.value,
@@ -769,11 +776,19 @@ class WebsiteSessionController extends StateNotifier<WebsiteSessionState> {
   Future<void> clear({String? message}) async {
     final generation = ++_generation;
     _readFailed = false;
-    state = WebsiteSessionState(ready: true, message: message ?? '已清除网站登录会话');
+    state = WebsiteSessionState(ready: true, message: message ?? '正在清理网站登录会话');
     try {
+      final nonce = await AuthCleanupMarker.beginWebsiteCleanup(
+        includeStoredSession: true,
+      );
       await _write(_store.clear);
+      await AuthCleanupMarker.completeWebsiteStore(nonce);
       await WebsiteCookieBridge.clearBgmCookies(strict: true);
+      if (mounted && generation == _generation) {
+        state = state.copyWith(message: message ?? '已清除网站登录会话');
+      }
     } catch (_) {
+      WebsiteCookieBridge.requireCleanup();
       if (mounted && generation == _generation) {
         state = state.copyWith(
           status: WebsiteAccessStatus.cleanupRequired,

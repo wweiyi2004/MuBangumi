@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'dart:async';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
@@ -29,6 +30,9 @@ final _subject = Subject.fromJson({
 
 void main() {
   FilePicker.platform = _Picker('cancel');
+  tearDownAll(() async {
+    await _Picker.directory.delete(recursive: true);
+  });
   for (final result in ['save', 'cancel', 'fail']) {
     testWidgets('PNG save action exports the preview and handles $result', (
       tester,
@@ -48,7 +52,9 @@ void main() {
       await tester.tap(find.text('保存图片'));
       await tester.runAsync(() async {
         final deadline = DateTime.now().add(const Duration(seconds: 10));
-        while (picker.bytes == null) {
+        while (picker.bytes == null ||
+            (result == 'save' &&
+                find.textContaining('已保存：').evaluate().isEmpty)) {
           if (DateTime.now().isAfter(deadline)) {
             throw TimeoutException('PNG save was not called');
           }
@@ -63,7 +69,7 @@ void main() {
         'https://github.com/wweiyi2004/MuBangumi/releases/latest#subject/42',
       );
       expect(
-        find.text('分享卡片已保存到所选位置'),
+        find.textContaining('已保存：'),
         result == 'save' ? findsOneWidget : findsNothing,
       );
       expect(
@@ -119,6 +125,104 @@ void main() {
       },
     );
   }
+
+  test('episode progress share keeps the cover and episode card', () {
+    final content = ShareContent.timeline(
+      CommunityTimelineItem(
+        id: 8,
+        user: const CommunityUser(id: 1, username: 'alice', nickname: '爱丽丝'),
+        description: '看过 在蓝色彼端 EP.3',
+        createdAt: DateTime(2026, 10, 1),
+        progress: const CommunityTimelineProgress(
+          subjectId: 42,
+          subjectName: 'Beyond the blue',
+          subjectNameCn: '在蓝色彼端',
+          imageUrl: 'https://lain.bgm.tv/pic/cover/l/abc.jpg',
+          score: 8.6,
+          episode: CommunityTimelineEpisode(
+            id: 3,
+            subjectId: 42,
+            type: 0,
+            sort: 3,
+            nameCn: '再会',
+          ),
+        ),
+      ),
+    );
+    expect(content.imageUrl, 'https://lain.bgm.tv/pic/cover/l/abc.jpg');
+    expect(content.progressCard?.title, '在蓝色彼端');
+    expect(content.progressCard?.subtitle, 'EP.3 · 再会');
+    expect(content.progressCard?.score, '评分 8.6');
+    expect(content.progressCard?.marks.single.label, 'EP.3');
+    expect(content.progressCard?.marks.single.active, isTrue);
+    expect(content.linkText, contains('在蓝色彼端 · EP.3 · 再会'));
+  });
+
+  test('batch episode progress share lists the watched episodes', () {
+    final content = ShareContent.timeline(
+      CommunityTimelineItem(
+        id: 9,
+        user: const CommunityUser(id: 1, username: 'alice', nickname: '爱丽丝'),
+        description: '观看 在蓝色彼端 的进度到第 14 话',
+        createdAt: DateTime(2026, 10, 2),
+        progress: const CommunityTimelineProgress(
+          subjectId: 42,
+          subjectName: 'Beyond the blue',
+          subjectNameCn: '在蓝色彼端',
+          imageUrl: 'https://lain.bgm.tv/pic/cover/l/abc.jpg',
+          episodeProgress: 14,
+          episodeTotal: '24',
+        ),
+      ),
+    );
+    expect(content.progressCard?.subtitle, '进度 第 14/24 话');
+    expect(content.progressCard?.marks.first.label, 'EP.1…2');
+    expect(content.progressCard?.marks.last.label, 'EP.14');
+    expect(content.progressCard?.marks.last.active, isTrue);
+    expect(
+      content.progressCard?.marks.where((mark) => mark.active),
+      hasLength(1),
+    );
+  });
+
+  testWidgets('progress share card draws the cover panel and episode marks', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(900, 950);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final content = ShareContent.timeline(
+      CommunityTimelineItem(
+        id: 8,
+        user: const CommunityUser(id: 1, username: 'alice', nickname: '爱丽丝'),
+        description: '观看 在蓝色彼端 的进度到第 14 话',
+        content: '这几集一次补完，封面和进度都应该留在分享卡片上。',
+        createdAt: DateTime(2026, 10, 1),
+        progress: const CommunityTimelineProgress(
+          subjectId: 42,
+          subjectName: 'Beyond the blue',
+          subjectNameCn: '在蓝色彼端',
+          imageUrl: 'https://lain.bgm.tv/pic/cover/l/abc.jpg',
+          episodeProgress: 14,
+          episodeTotal: '24',
+        ),
+      ),
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: Center(child: ContentShareCard(content: content)),
+        ),
+      ),
+    );
+    await tester.pump();
+    expect(find.text('在蓝色彼端'), findsOneWidget);
+    expect(find.text('进度 第 14/24 话'), findsOneWidget);
+    expect(find.text('EP.1…2'), findsOneWidget);
+    expect(find.text('EP.14'), findsOneWidget);
+    expect(find.text('这几集一次补完，封面和进度都应该留在分享卡片上。'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
 
   test(
     'collection share excludes private entries and respects year and type',
@@ -318,6 +422,9 @@ void main() {
 class _Picker extends FilePicker {
   _Picker(this.result);
   final String result;
+  static final directory = Directory.systemTemp.createTempSync(
+    'mubangumi-share-test-',
+  );
   Uint8List? bytes;
   String? filename;
   @override
@@ -333,6 +440,6 @@ class _Picker extends FilePicker {
     this.bytes = bytes;
     filename = fileName;
     if (result == 'fail') throw StateError('synthetic write failure');
-    return result == 'save' ? 'chosen.png' : null;
+    return result == 'save' ? '${directory.path}/chosen.png' : null;
   }
 }

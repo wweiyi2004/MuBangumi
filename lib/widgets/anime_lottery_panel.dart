@@ -9,6 +9,7 @@ import '../navigation/app_destination.dart';
 import '../state/session_controller.dart';
 import '../state/recommendation_feedback_controller.dart';
 import 'subject_widgets.dart';
+import 'content_loading.dart';
 
 class AnimeLotteryPanel extends ConsumerStatefulWidget {
   const AnimeLotteryPanel({super.key});
@@ -24,6 +25,18 @@ class _AnimeLotteryPanelState extends ConsumerState<AnimeLotteryPanel> {
   Subject? _result;
   AnimePrize? _prize;
   LibraryBatchAccount? _owner;
+  List<UserCollection>? _verifiedCollections;
+  DateTime? _verifiedAt;
+  List<UserCollection>? _watchedSource;
+  Set<int> _watched = {};
+
+  Set<int> _watchedIds(List<UserCollection> items) {
+    if (!identical(items, _watchedSource)) {
+      _watchedSource = items;
+      _watched = AnimeLottery.watchedIds(items);
+    }
+    return _watched;
+  }
 
   @override
   void initState() {
@@ -38,6 +51,9 @@ class _AnimeLotteryPanelState extends ConsumerState<AnimeLotteryPanel> {
         return;
       }
       _generation++;
+      _verifiedCollections = null;
+      _verifiedAt = null;
+      _lottery.resetHistory();
       setState(() {
         _result = null;
         _message = null;
@@ -65,17 +81,26 @@ class _AnimeLotteryPanelState extends ConsumerState<AnimeLotteryPanel> {
     setState(() {
       _busy = true;
       _message = '正在翻找未看过的番…';
-      _result = null;
       _owner = account;
       _prize = prize;
     });
     try {
       final api = ref.read(bangumiApiProvider);
       final snapshot = ref.read(sessionProvider);
-      final remote =
-          snapshot.collectionCoverage?.isComplete == true &&
-              !snapshot.isUsingCachedCollections
+      final hasFreshAnime =
+          (snapshot.collectionCoverage?.isComplete == true ||
+              snapshot.collectionCoverage?.loadedTypes.contains(
+                    SubjectType.anime,
+                  ) ==
+                  true) &&
+          !snapshot.isUsingCachedCollections;
+      final recent =
+          _verifiedAt != null &&
+          DateTime.now().difference(_verifiedAt!) < const Duration(minutes: 5);
+      final remote = hasFreshAnime
           ? snapshot.collections
+          : recent
+          ? _verifiedCollections!
           : await api.withRequestGuard(
               current,
               () => api.getUserCollections(
@@ -85,6 +110,11 @@ class _AnimeLotteryPanelState extends ConsumerState<AnimeLotteryPanel> {
               ),
             );
       if (!current()) return;
+      if (hasFreshAnime || !recent) {
+        _verifiedCollections = remote;
+        _verifiedAt = DateTime.now();
+      }
+      final remoteWatched = AnimeLottery.watchedIds(remote);
       final result = await _lottery.draw(
         prize: prize,
         fetch: (offset, limit) => api.withRequestGuard(
@@ -93,8 +123,8 @@ class _AnimeLotteryPanelState extends ConsumerState<AnimeLotteryPanel> {
         ),
         isCurrent: current,
         excludedIds: () => {
-          ...AnimeLottery.watchedIds(remote),
-          ...AnimeLottery.watchedIds(ref.read(sessionProvider).collections),
+          ...remoteWatched,
+          ..._watchedIds(ref.read(sessionProvider).collections),
           ...ref
               .read(recommendationFeedbackProvider(account.userId))
               .hidden
@@ -103,9 +133,11 @@ class _AnimeLotteryPanelState extends ConsumerState<AnimeLotteryPanel> {
       );
       if (!current()) return;
       setState(() {
-        _result = result;
+        if (result != null) _result = result;
         _message = result == null
-            ? '这次没有抽到符合条件的未看作品，再抽一次试试吧'
+            ? (_result == null
+                  ? '这次没有抽到符合条件的未看作品，再抽一次试试吧'
+                  : '暂时没有找到新的作品，已保留上一张')
             : '抽中了！${prize.description}，下一部就试试它吧';
       });
     } catch (_) {
@@ -117,9 +149,11 @@ class _AnimeLotteryPanelState extends ConsumerState<AnimeLotteryPanel> {
 
   @override
   Widget build(BuildContext context) {
-    final state = ref.watch(sessionProvider);
+    final selected = ref.watch(
+      sessionProvider.select((state) => (state.user?.id, state.collections)),
+    );
     final feedback = ref.watch(
-      recommendationFeedbackProvider(state.user?.id ?? 0),
+      recommendationFeedbackProvider(selected.$1 ?? 0),
     );
     final scheme = Theme.of(context).colorScheme;
     final result = _result;
@@ -129,7 +163,7 @@ class _AnimeLotteryPanelState extends ConsumerState<AnimeLotteryPanel> {
     final visible =
         current &&
         result != null &&
-        !AnimeLottery.watchedIds(state.collections).contains(result.id) &&
+        !_watchedIds(selected.$2).contains(result.id) &&
         !feedback.hidden.containsKey(result.id);
     return Container(
       key: const Key('anime-lottery-panel'),
@@ -189,10 +223,11 @@ class _AnimeLotteryPanelState extends ConsumerState<AnimeLotteryPanel> {
               ],
             ],
           ),
-          if (_busy) ...[
-            const SizedBox(height: 12),
-            const LinearProgressIndicator(),
-          ],
+          LoadingStatus(
+            active: _busy,
+            operation: _generation,
+            message: '正在准备下一张，已有结果仍可查看',
+          ),
           if (_message != null) ...[
             const SizedBox(height: 10),
             Text(_message!, style: Theme.of(context).textTheme.bodySmall),

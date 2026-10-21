@@ -53,10 +53,10 @@ class CollectionYearReview {
       collections.where((item) => item.updatedAt?.toLocal().year == year),
     );
     statistics = CollectionStatistics(items);
-    months = [
-      for (var month = 1; month <= 12; month++)
-        items.where((item) => item.updatedAt!.toLocal().month == month).length,
-    ];
+    months = List.filled(12, 0);
+    for (final item in items) {
+      months[item.updatedAt!.toLocal().month - 1]++;
+    }
   }
 
   final int year;

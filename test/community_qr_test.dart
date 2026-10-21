@@ -1,3 +1,4 @@
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:mubangumi/navigation/app_destination.dart';
 import 'package:mubangumi/navigation/app_router.dart';
 import 'dart:typed_data';
@@ -33,6 +34,7 @@ void main() {
               return Scaffold(appBar: AppBar(title: const Text('分享内容')));
             },
             child: MaterialApp(
+              builder: (_, child) => ProviderScope(child: child!),
               home: Scaffold(
                 body: Builder(
                   builder: (context) => TextButton(
@@ -67,6 +69,7 @@ void main() {
       AppRouteScope(
         resolve: AppRouter.resolve,
         child: MaterialApp(
+          builder: (_, child) => ProviderScope(child: child!),
           home: CommunityGroupScreen(
             group: _Service.group,
             service: service,
@@ -165,6 +168,7 @@ void main() {
         AppRouteScope(
           resolve: AppRouter.resolve,
           child: MaterialApp(
+            builder: (_, child) => ProviderScope(child: child!),
             home: Scaffold(
               body: Builder(
                 builder: (context) => TextButton(
@@ -199,6 +203,7 @@ void main() {
         AppRouteScope(
           resolve: AppRouter.resolve,
           child: MaterialApp(
+            builder: (_, child) => ProviderScope(child: child!),
             home: Scaffold(
               body: Builder(
                 builder: (context) => TextButton(

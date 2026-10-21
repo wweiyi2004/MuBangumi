@@ -235,9 +235,7 @@ class ScheduleController extends StateNotifier<ScheduleState> {
       state = state.copyWith(message: '已在本季新番表中');
       return;
     }
-    final sortOrder = weekday == null
-        ? current.unscheduled.length
-        : current.itemsOn(weekday).length;
+    final sortOrder = _nextSortOrder(current, weekday);
     final items = [
       ...current.items,
       ScheduleItem.fromSubject(subject, weekday: weekday, sortOrder: sortOrder),
@@ -289,8 +287,8 @@ class ScheduleController extends StateNotifier<ScheduleState> {
       final added = <int>{}, existing = existingKnown;
       final items = [...current.items];
       final orders = <int?, int>{
-        null: current.unscheduled.length,
-        for (var day = 1; day <= 7; day++) day: current.itemsOn(day).length,
+        null: _nextSortOrder(current, null),
+        for (var day = 1; day <= 7; day++) day: _nextSortOrder(current, day),
       };
       for (final subject in subjects) {
         if (subject.id <= 0) continue;
@@ -368,6 +366,13 @@ class ScheduleController extends StateNotifier<ScheduleState> {
       message: removed == null ? '已删除安排' : '已删除安排：$removed',
     );
   }
+
+  int _nextSortOrder(SeasonSchedule schedule, int? weekday) =>
+      (weekday == null ? schedule.unscheduled : schedule.itemsOn(weekday))
+          .fold<int>(
+            0,
+            (next, item) => item.sortOrder >= next ? item.sortOrder + 1 : next,
+          );
 
   /// Move to a weekday (`1–7`) or `null` 待安排. Optional insert index in that day.
   Future<void> setWeekday(int subjectId, int? weekday, {int? insertIndex}) =>

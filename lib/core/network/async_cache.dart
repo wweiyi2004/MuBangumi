@@ -20,6 +20,7 @@ class AsyncCache<T> {
   final DateTime Function() _now;
   final _values = <String, ({T value, DateTime savedAt, int weight})>{};
   final _pending = <String, Future<T>>{};
+  final _pendingRefresh = <String>{};
   int _weight = 0;
 
   int get cachedWeight => _weight;
@@ -42,7 +43,11 @@ class AsyncCache<T> {
 
   Future<T> get(String key, Future<T> Function() load, {bool refresh = false}) {
     final pending = _pending[key];
-    if (pending != null) return pending;
+    // A forced refresh may join another refresh, but never an earlier ordinary
+    // read: that request can be serving an answer older than the refresh.
+    if (pending != null && (!refresh || _pendingRefresh.contains(key))) {
+      return pending;
+    }
     final now = _now();
     _expire(now);
     final cached = _values[key];
@@ -77,9 +82,17 @@ class AsyncCache<T> {
           return value;
         })
         .whenComplete(() {
-          if (identical(_pending[key], request)) _pending.remove(key);
+          if (identical(_pending[key], request)) {
+            _pending.remove(key);
+            _pendingRefresh.remove(key);
+          }
         });
     _pending[key] = request;
+    if (refresh) {
+      _pendingRefresh.add(key);
+    } else {
+      _pendingRefresh.remove(key);
+    }
     return request;
   }
 
@@ -88,11 +101,13 @@ class AsyncCache<T> {
       _removeValue(key);
     }
     _pending.removeWhere((key, _) => predicate(key));
+    _pendingRefresh.removeWhere(predicate);
   }
 
   void clear() {
     clearCompleted();
     _pending.clear();
+    _pendingRefresh.clear();
   }
 
   /// Keep request coalescing and stale-response guards during memory pressure.

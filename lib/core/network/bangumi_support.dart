@@ -1,3 +1,6 @@
+import 'package:html/dom.dart' as dom;
+import 'package:html/parser.dart' as html_parser;
+
 import '../../models/bangumi_models.dart';
 import '../../models/subject_search_filter.dart';
 
@@ -444,63 +447,83 @@ class BangumiSupport {
 
   /// Parse HTML comments page fragments (bgm.tv subject comments).
   static List<SubjectComment> parseSubjectCommentsHtml(String html) {
-    final result = <SubjectComment>[];
-    // Each comment block typically has user + content.
-    final blockRe = RegExp(
-      r'id="item_(\d+)"[\s\S]*?'
-      r'class="avatarNeue[^"]*"[^>]*style="background-image:url\(([^)]+)\)"[\s\S]*?'
-      r'(?:href="[^"]*/user/([^"]+)"[^>]*class="l"|class="l"[^>]*href="[^"]*/user/([^"]+)"|class="l")[^>]*>([^<]+)</a>[\s\S]*?'
-      r'(?:class="starlight stars(\d+)"[\s\S]*?)?'
-      r'class="comment"[^>]*>([\s\S]*?)</div>',
-      caseSensitive: false,
-    );
-    for (final match in blockRe.allMatches(html)) {
-      final content = match
-          .group(7)!
-          .replaceAll(RegExp(r'<[^>]+>'), ' ')
-          .replaceAll(RegExp(r'\s+'), ' ')
-          .trim();
-      if (content.isEmpty) continue;
-      final username = (match.group(3) ?? match.group(4) ?? '').trim();
-      final display = (match.group(5) ?? '').trim();
-      result.add(
-        SubjectComment(
-          id: int.tryParse(match.group(1) ?? '') ?? 0,
-          userName: display,
-          username: username.isNotEmpty ? username : display,
-          avatarUrl: (match.group(2) ?? '').replaceAll("'", '').trim(),
-          rate: int.tryParse(match.group(6) ?? '') ?? 0,
-          comment: content,
-        ),
-      );
+    final document = html_parser.parse(html);
+    final box = document.querySelector('#comment_box');
+    final rows =
+        box?.querySelectorAll('.item') ??
+        document.querySelectorAll('[id^="item_"]');
+    if (box != null && rows.isEmpty) return const [];
+    if (rows.isNotEmpty) {
+      return [for (final row in rows) _parseSubjectComment(row)];
     }
-    if (result.isNotEmpty) return result;
-
-    // Fallback simpler pattern for text-only blocks.
-    final simple = RegExp(
-      r'class="text"[^>]*>\s*<p>([\s\S]*?)</p>',
-      caseSensitive: false,
-    );
-    var i = 0;
-    for (final match in simple.allMatches(html)) {
-      final content = match
-          .group(1)!
-          .replaceAll(RegExp(r'<[^>]+>'), ' ')
-          .replaceAll(RegExp(r'\s+'), ' ')
-          .trim();
-      if (content.isEmpty) continue;
-      result.add(
+    // Legacy text-only fragments have no server identity. Zero means unknown;
+    // inventing page-local IDs would discard unrelated comments on later pages.
+    final paragraphs = document.querySelectorAll('.text > p');
+    if (paragraphs.isEmpty) {
+      throw const FormatException('无法识别吐槽页面，请稍后重试');
+    }
+    return [
+      for (final paragraph in paragraphs)
         SubjectComment(
-          id: i++,
+          id: 0,
           userName: '',
-          username: '',
           avatarUrl: '',
           rate: 0,
-          comment: content,
+          comment: _commentText(paragraph),
         ),
-      );
+    ];
+  }
+
+  static SubjectComment _parseSubjectComment(dom.Element row) {
+    final content = row.querySelector('.comment');
+    if (content == null) throw const FormatException('无法识别吐槽内容，请稍后重试');
+    final user = row.querySelector('a.l');
+    return SubjectComment(
+      id:
+          int.tryParse(
+            RegExp(r'(?:likes_grid_|item_)(\d+)')
+                    .firstMatch(row.querySelector('.likes_grid')?.id ?? row.id)
+                    ?.group(1) ??
+                '',
+          ) ??
+          0,
+      userName: user?.text.trim() ?? '',
+      username:
+          Uri.tryParse(
+            user?.attributes['href'] ?? '',
+          )?.pathSegments.lastOrNull ??
+          row.attributes['data-item-user'] ??
+          '',
+      avatarUrl:
+          RegExp(r'''url\(['"]?([^)'";]+)''')
+              .firstMatch(
+                row.querySelector('.avatarNeue')?.attributes['style'] ?? '',
+              )
+              ?.group(1) ??
+          '',
+      rate:
+          int.tryParse(
+            RegExp(r'\bstars(\d+)\b')
+                    .firstMatch(
+                      row.querySelector('.starlight')?.className ?? '',
+                    )
+                    ?.group(1) ??
+                '',
+          ) ??
+          0,
+      comment: _commentText(content),
+    );
+  }
+
+  static String _commentText(dom.Element element) {
+    final copy = element.clone(true);
+    for (final br in copy.querySelectorAll('br')) {
+      br.replaceWith(dom.Text('\n'));
     }
-    return result;
+    for (final image in copy.querySelectorAll('img')) {
+      image.replaceWith(dom.Text(image.attributes['alt'] ?? ''));
+    }
+    return copy.text.trim();
   }
 }
 

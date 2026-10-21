@@ -1,3 +1,4 @@
+import 'support/api_timeline_fixture.dart';
 import 'package:mubangumi/state/pm_contacts_controller.dart';
 import 'package:mubangumi/navigation/app_destination.dart';
 import 'package:mubangumi/navigation/app_router.dart';
@@ -344,7 +345,7 @@ void main() {
   }
 }
 
-class _Community extends CommunityService {
+class _Community extends CommunityService with ApiTimelineFixture {
   _Community() : super.test() {
     setAccessToken('review-only');
     setCurrentUsername('demo');

@@ -1,9 +1,7 @@
 import 'dart:convert';
-import 'dart:io';
 
 import 'package:path/path.dart' as path;
 import 'package:sqflite/sqflite.dart';
-import 'package:sqflite_common_ffi/sqflite_ffi.dart' as ffi;
 
 import '../storage/browsing_store.dart';
 import '../storage/community_draft_store.dart';
@@ -11,6 +9,8 @@ import '../storage/pm_draft_store.dart';
 import '../storage/pending_personal_writes.dart';
 import '../storage/rss_store.dart';
 import '../storage/schedule_store.dart';
+import '../storage/serial_task_queue.dart';
+import '../storage/sqlite_support.dart';
 import '../storage/user_preference_store.dart';
 import 'backup_archive.dart';
 import 'backup_plan.dart';
@@ -40,13 +40,11 @@ class SqliteBackupRepository implements BackupRepository {
 
   /// Failure/crash injection for integration tests; absent in the application.
   final Future<void> Function(BackupCategory)? afterCategoryWritten;
-  Future<void> _operations = Future.value();
+  final _operations = SerialTaskQueue();
 
   static Future<SqliteBackupRepository> shared() async {
-    final factory = _factory();
     return SqliteBackupRepository(
-      coordinatorPath: path.join(
-        await factory.getDatabasesPath(),
+      coordinatorPath: await PersonalDatabasePaths.resolve(
         'mubangumi_backup_import.sqlite',
       ),
       databasePaths: {
@@ -60,20 +58,12 @@ class SqliteBackupRepository implements BackupRepository {
     );
   }
 
-  static DatabaseFactory _factory() {
-    if (Platform.isWindows || Platform.isLinux) {
-      ffi.sqfliteFfiInit();
-      return ffi.databaseFactoryFfi;
-    }
-    return databaseFactory;
-  }
-
   Future<T> _withDatabase<T>(
     BackupOwner owner,
     Set<BackupCategory> categories,
     Future<T> Function(Database) action,
   ) {
-    final next = _operations.then((_) async {
+    return _operations.run(() async {
       if (categories.isEmpty) throw const BackupException('请选择数据类别');
       await PendingPersonalWrites.drain(owner.id, categories);
       final files = <BackupDatabase, String>{};
@@ -89,13 +79,13 @@ class SqliteBackupRepository implements BackupRepository {
               files.length + 1) {
         throw const BackupException('备份需要独立的持久数据库');
       }
-      final db = await _factory().openDatabase(
+      final db = await sqliteFactory.openDatabase(
         coordinatorPath,
         options: OpenDatabaseOptions(
           singleInstance: false,
           version: 1,
           onConfigure: (db) async {
-            await db.rawQuery('PRAGMA journal_mode=DELETE');
+            await configurePersonalDatabase(db);
             await db.execute('PRAGMA synchronous=FULL');
           },
           onCreate: (db, _) => db.execute('''CREATE TABLE import_log (
@@ -124,8 +114,6 @@ class SqliteBackupRepository implements BackupRepository {
         await db.close();
       }
     });
-    _operations = next.then<void>((_) {}, onError: (Object _, StackTrace _) {});
-    return next;
   }
 
   void _checkOwner(BackupOwner owner, BackupArchive archive) {

@@ -16,12 +16,23 @@ import 'bangumi_smiles.dart';
 import 'async_cache.dart';
 import 'bangumi_user_agent.dart';
 import 'community_html_parser.dart';
+import 'community_timeline_html_parser.dart';
 import 'community_p1_parser.dart';
 import 'pm_html_parser.dart';
 import '../diagnostics/account_diagnostics.dart';
 import 'account_diagnostics_interceptor.dart';
 import 'community_write_client.dart';
 import 'community_website_client.dart';
+
+/// Bangumi's generic 500 text. The write may already have been stored.
+const bangumiInternalErrorNotice = 'Bangumi 服务器处理失败。请先确认内容是否已经发出，再重新操作。';
+
+bool isBangumiInternalError(Object error) {
+  final text = error.toString();
+  final lower = text.toLowerCase();
+  return text.contains(bangumiInternalErrorNotice) ||
+      (lower.contains('internal error') && lower.contains('contact admin'));
+}
 
 /// Strong signals that a classic website page is actually the login form.
 bool looksLikeWebsiteLoginPage(String source) {
@@ -510,6 +521,7 @@ class CommunityService {
       await _persistentCache.removePrefix(_cachePrefix(owner));
     }
     _cacheOwners.clear();
+    await _persistentCache.clearAccountData();
     _friendsCache.clear();
   }
 
@@ -579,8 +591,12 @@ class CommunityService {
   }
 
   Future<void> _removeTimelineSnapshots() async {
-    for (final mode in CommunityTimelineMode.values) {
-      await _persistentCache.remove(_snapshotKey('timeline:${mode.name}'));
+    final keys = [
+      for (final mode in CommunityTimelineMode.values)
+        _snapshotKey('timeline:${mode.name}'),
+    ];
+    for (final key in keys) {
+      await _persistentCache.remove(key);
     }
   }
 
@@ -631,6 +647,14 @@ class CommunityService {
     required bool isPublic,
     String? turnstileToken,
   }) async {
+    _requireAuthentication();
+    final identity = _identityRevision;
+    void guard() {
+      if (identity != _identityRevision || !isAuthenticated) {
+        throw const CommunitySubmissionUncertain('登录已变化，请返回原账号核对日志提交结果，避免重复发布');
+      }
+    }
+
     if (title.trim().isEmpty || title.trim().runes.length > 80) {
       throw const FormatException('标题需为 1 至 80 个字');
     }
@@ -656,13 +680,56 @@ class CommunityService {
       data['turnstileToken'] = _requireTurnstileToken(turnstileToken ?? '');
     }
     // Omitting subjectIDs preserves existing associations on PATCH.
-    await _nativeWrite(
-      original == null ? 'POST' : 'PATCH',
-      original == null ? '/blogs' : '/blogs/${original.id}',
-      data: data,
-    );
+    try {
+      await _nativeWrite(
+        original == null ? 'POST' : 'PATCH',
+        original == null ? '/blogs' : '/blogs/${original.id}',
+        data: data,
+      );
+    } catch (error) {
+      guard();
+      // Bangumi sometimes inserts the entry and then fails while serializing
+      // the response, so the editor sees a 500 even though the blog exists.
+      if (original != null || !isBangumiInternalError(error)) rethrow;
+      final bool created;
+      try {
+        created = await _ownBlogWasJustCreated(title.trim(), content.trim());
+      } catch (_) {
+        guard();
+        throw const CommunitySubmissionUncertain(
+          '日志提交结果未知，暂时无法核对，请先查看「我的日志」，避免重复发布',
+        );
+      }
+      guard();
+      if (!created) {
+        throw const CommunitySubmissionUncertain(
+          '日志可能已发布，请核对「我的日志」；暂未找到记录不会自动重发',
+        );
+      }
+    }
+    guard();
     _jsonCache.clear();
     await _removeTimelineSnapshots();
+    guard();
+  }
+
+  /// A just-created entry with the same title and body. Older blogs with the
+  /// same text are ignored so a failed publish is not reported as success.
+  Future<bool> _ownBlogWasJustCreated(String title, String content) async {
+    final username = _currentUsername;
+    if (username == null) throw const FormatException('请先确认当前账号');
+    final page = await loadUserBlogs(username, limit: 5, refresh: true);
+    final earliest = DateTime.now().toUtc().subtract(
+      const Duration(minutes: 3),
+    );
+    var matches = 0;
+    for (final blog in page.data.where((blog) => blog.title == title).take(3)) {
+      final detail = await loadBlog(blog.id, refresh: true);
+      final created = detail.createdAt?.toUtc();
+      if (created == null || created.isBefore(earliest)) continue;
+      if (detail.content.trim() == content) matches++;
+    }
+    return matches == 1;
   }
 
   /// Business error mapping stays here; the client owns account guards and retry.
@@ -676,11 +743,16 @@ class CommunityService {
     try {
       return await _writes.send(method, path, data: data);
     } on DioException catch (error) {
-      if (method == 'POST' && error.response == null) {
-        throw Exception('提交结果尚未确认，请先查看日志列表，确认没有发布后再重试');
+      if (method == 'POST' &&
+          (error.response == null ||
+              (error.response?.statusCode ?? 0) >= 500)) {
+        throw CommunitySubmissionUncertain(_postErrorMessage(error));
       }
       if (accountPreferences) {
         throw AccountContentPreferencesException(error.response?.statusCode);
+      }
+      if (method == 'POST') {
+        throw CommunitySubmissionRejected(_postErrorMessage(error));
       }
       throw Exception(_postErrorMessage(error));
     }
@@ -973,6 +1045,94 @@ class CommunityService {
     _jsonCache.removeWhere((key) => key.contains('/topics'));
   }
 
+  /// Read-back never interprets an absent match as permission to post again.
+  Future<int?> findSubmittedSubjectTopic({
+    required int subjectId,
+    required String title,
+    required String content,
+    required DateTime? attemptedAt,
+  }) async {
+    _requireAuthentication();
+    final identity = _identityRevision;
+    final username = _requireCurrentUsername().toLowerCase();
+    final moment = attemptedAt?.toUtc() ?? DateTime.now().toUtc();
+    final lower = attemptedAt == null
+        ? moment.subtract(const Duration(hours: 24))
+        : moment.subtract(const Duration(seconds: 5));
+    final upper = moment.add(const Duration(minutes: 5));
+    final page = await _getJson(
+      '/subjects/$subjectId/topics',
+      query: {'limit': 100},
+      refresh: true,
+    );
+    _checkIdentity(identity);
+    final rows = page['data'];
+    if (rows is! List) throw const FormatException('暂时无法核对讨论列表');
+    final matches = <int>{};
+    var inspected = 0;
+    for (final row in rows.whereType<Map>()) {
+      if (row['title'] != title.trim()) continue;
+      final id = parseCreatedCommunityTopicId(row);
+      if (id == null || ++inspected > 5) continue;
+      final detail = await _getJson('/subjects/-/topics/$id', refresh: true);
+      _checkIdentity(identity);
+      final seconds = detail['createdAt'];
+      final created = seconds is num
+          ? DateTime.fromMillisecondsSinceEpoch(
+              (seconds * 1000).round(),
+              isUtc: true,
+            )
+          : null;
+      final posts = detail['replies'];
+      final original = posts is List
+          ? posts.whereType<Map>().firstOrNull
+          : null;
+      final creator = original?['creator'];
+      if (detail['title'] == title.trim() &&
+          created != null &&
+          !created.isBefore(lower) &&
+          !created.isAfter(upper) &&
+          creator is Map &&
+          creator['username']?.toString().toLowerCase() == username &&
+          original?['content']?.toString().replaceAll('\r\n', '\n').trim() ==
+              content.replaceAll('\r\n', '\n').trim()) {
+        matches.add(id);
+      }
+    }
+    return matches.length == 1 ? matches.single : null;
+  }
+
+  Future<int?> findSubmittedTimeline({
+    required String content,
+    required DateTime? attemptedAt,
+  }) async {
+    _requireAuthentication();
+    final identity = _identityRevision;
+    final username = _requireCurrentUsername();
+    final page = await loadFreshTimelinePage(
+      CommunityTimelineMode.me,
+      username: username,
+      refresh: true,
+    );
+    _checkIdentity(identity);
+    final moment = attemptedAt?.toUtc() ?? DateTime.now().toUtc();
+    final lower = attemptedAt == null
+        ? moment.subtract(const Duration(hours: 24))
+        : moment.subtract(const Duration(seconds: 5));
+    final upper = moment.add(const Duration(minutes: 5));
+    final matches = page.items
+        .where(
+          (item) =>
+              item.user.username.toLowerCase() == username.toLowerCase() &&
+              !item.createdAt.toUtc().isBefore(lower) &&
+              !item.createdAt.toUtc().isAfter(upper) &&
+              item.content.replaceAll('\r\n', '\n').trim() ==
+                  content.replaceAll('\r\n', '\n').trim(),
+        )
+        .toList();
+    return matches.length == 1 ? matches.single.id : null;
+  }
+
   bool canManagePost(CommunityTopic topic, CommunityPost post) {
     final username = _currentUsername;
     final author = Uri.tryParse(post.userUrl)?.pathSegments;
@@ -1111,11 +1271,65 @@ class CommunityService {
 
   Future<List<CommunityTimelineItem>?> readCachedTimeline(
     CommunityTimelineMode mode,
+  ) async => (await _readCachedTimelinePage(mode))?.items;
+
+  Future<CommunityTimelinePageResult?> readCachedTimelinePage(
+    CommunityTimelineMode mode,
+  ) => _readCachedTimelinePage(mode);
+
+  Future<CommunityTimelinePageResult?> _readCachedTimelinePage(
+    CommunityTimelineMode mode,
   ) async {
     final json = await _readSnapshot('timeline:${mode.name}');
+    final website = json?['html'];
+    if (website is String) {
+      try {
+        return CommunityTimelineHtmlParser().parse(
+          website,
+          page: 1,
+          owner: mode == CommunityTimelineMode.me
+              ? _timelineOwner(_requireCurrentUsername())
+              : null,
+        );
+      } catch (_) {
+        return null;
+      }
+    }
     final data = json?['data'];
     if (data is! List) return null;
-    return decodeCachedTimeline(mode, data);
+    return CommunityTimelinePageResult.api(decodeCachedTimeline(mode, data));
+  }
+
+  CommunityUser _timelineOwner(String owner) => CommunityUser(
+    id: int.tryParse(owner) ?? 0,
+    username: owner,
+    nickname: owner == _currentUsername ? _currentNickname : owner,
+    avatarUrl: owner == _currentUsername ? _currentAvatarUrl : '',
+  );
+
+  /// Website snapshots are authoritative; a lagging P1 fallback may only
+  /// replace one when it actually carries a newer first event.
+  Future<void> _writeTimelineSnapshot(
+    CommunityTimelineMode mode,
+    Map<String, dynamic> value, {
+    required int identity,
+    required int newest,
+    required bool website,
+  }) async {
+    final key = 'timeline:${mode.name}';
+    if (!website) {
+      final existing = await _readSnapshot(key);
+      final stored = existing?['newest'];
+      if (existing?['html'] is String && stored is int && stored >= newest) {
+        return;
+      }
+    }
+    await _writeSnapshot(
+      key,
+      {...value, 'newest': newest},
+      identity: identity,
+      accountScoped: mode != CommunityTimelineMode.all,
+    );
   }
 
   /// Cached own-timeline rows omit `user`; rebuild identity the same way
@@ -1137,6 +1351,126 @@ class CommunityService {
           ? _currentAvatarUrl
           : null,
     );
+  }
+
+  /// Read the classic site first: P1 inboxes can remain days behind the site.
+  /// On a failed first-page read, keep API data explicitly marked as stale.
+  /// A website pagination failure must not jump into a different API history.
+  Future<CommunityTimelinePageResult> loadFreshTimelinePage(
+    CommunityTimelineMode mode, {
+    String? username,
+    int? until,
+    int? websitePage,
+    bool refresh = false,
+  }) async {
+    final identity = _identityRevision;
+    final contentRevision = _contentRevision;
+    void check() {
+      _checkIdentity(identity);
+      if (contentRevision != _contentRevision) {
+        throw const FormatException('内容偏好已变化，请刷新动态');
+      }
+    }
+
+    Future<List<CommunityTimelineItem>> api() =>
+        username?.trim().isNotEmpty == true
+        ? loadUserTimeline(username!, limit: 20, until: until, refresh: refresh)
+        : loadTimeline(mode, until: until, refresh: refresh);
+    // Existing notification links and API fallback pagination use ID cursors.
+    if (until != null) return CommunityTimelinePageResult.api(await api());
+    try {
+      final page = websitePage ?? 1;
+      final owner = username?.trim().isNotEmpty == true
+          ? username!.trim()
+          : mode == CommunityTimelineMode.me
+          ? _requireCurrentUsername()
+          : null;
+      final String source;
+      if (owner == null && mode == CommunityTimelineMode.friends) {
+        // Never send an unverified stored cookie, or treat the anonymous
+        // homepage's all-site feed as the signed-in user's friends.
+        final guard = websiteSessionGuard;
+        if (guard == null) {
+          throw const _TimelineWebsiteLoginRequired('好友最新动态需要验证网页登录');
+        }
+        final session = await guard();
+        check();
+        source = await _website.fetchHtml(
+          '/ajax/timeline?type=all&page=$page&ajax=1',
+          session,
+        );
+        check();
+        _website.checkLoginPage(source, session);
+        // The AJAX endpoint silently serves the public feed for expired
+        // cookies. Verify account chrome after reading it, on every page.
+        final home = await _website.fetchHtml('/', session);
+        check();
+        _website.checkLoginPage(home, session);
+        final signedIn = PmHtmlParser().parseSignedInUser(home);
+        if (signedIn == null ||
+            (signedIn != _currentUsername &&
+                signedIn != '${session.verifiedUserId}')) {
+          throw const _TimelineWebsiteLoginRequired('无法确认好友动态的网页登录身份，请重新验证');
+        }
+        final current = await guard();
+        check();
+        if (current.authenticationKey != session.authenticationKey) {
+          throw const FormatException('网页登录已变化，请刷新好友动态');
+        }
+      } else {
+        final path = owner == null
+            ? '/timeline'
+            : '/user/${Uri.encodeComponent(owner)}/timeline';
+        source = await _getHtml(
+          path,
+          query: {'type': 'all', 'page': page},
+          // Offset pages shift when new events arrive; never reuse an older
+          // page 2 beneath a fresh page 1.
+          refresh: true,
+        );
+      }
+      check();
+      final parser = CommunityTimelineHtmlParser();
+      final fragment = parser.extractTimeline(source);
+      final result = parser.parse(
+        fragment,
+        page: page,
+        owner: owner == null ? null : _timelineOwner(owner),
+      );
+      // Restore the website's first page on the next launch, rather than the
+      // last (possibly days-old) P1 fallback.
+      if (page == 1 && username?.trim().isNotEmpty != true) {
+        try {
+          await _writeTimelineSnapshot(
+            mode,
+            {'html': fragment},
+            identity: identity,
+            newest: result.items.firstOrNull?.id ?? 0,
+            website: true,
+          );
+        } catch (_) {
+          // A cache write failure must not discard a fresh website page.
+        }
+        check();
+      }
+      return result;
+    } catch (error) {
+      check();
+      if (websitePage != null) rethrow;
+      final items = await api();
+      check();
+      final loginRequired =
+          error is _TimelineWebsiteLoginRequired ||
+          error is WebsiteAccessException &&
+              (error.status.requiresLogin ||
+                  error.status == WebsiteAccessStatus.unverified);
+      return CommunityTimelinePageResult.api(
+        items,
+        websiteLoginRequired: loginRequired,
+        notice:
+            '未能读取网站最新动态，当前内容可能滞后。${error.toString().replaceFirst('Exception: ', '')}',
+      );
+    }
   }
 
   Future<List<CommunityTimelineItem>> loadTimeline(
@@ -1163,11 +1497,13 @@ class CommunityService {
       throw const FormatException('账号或内容偏好已变化，请刷新动态');
     }
     if (until == null) {
-      await _writeSnapshot(
-        'timeline:${mode.name}',
+      final first = data.firstOrNull;
+      await _writeTimelineSnapshot(
+        mode,
         {'data': data},
         identity: identity,
-        accountScoped: mode != CommunityTimelineMode.all,
+        newest: first is Map && first['id'] is int ? first['id'] as int : 0,
+        website: false,
       );
       if (identity != _identityRevision ||
           contentRevision != _contentRevision) {
@@ -1239,7 +1575,8 @@ class CommunityService {
     final encoded = Uri.encodeComponent(slug);
     int? topicId;
     try {
-      final result = await _postJson(
+      final result = await _writes.send(
+        'POST',
         '/groups/$encoded/topics',
         data: {
           'title': trimmedTitle,
@@ -1249,22 +1586,91 @@ class CommunityService {
       );
       topicId = parseCreatedCommunityTopicId(result);
       if (topicId == null) throw const CommunitySubmissionUncertain();
-    } on PrivateGroupMembershipException {
-      if (identity != _identityRevision) {
-        throw const FormatException('账号已变化，请重新发起讨论');
+    } on DioException catch (error) {
+      final privateGroup = _privateGroupName(error.response?.data);
+      final responseData = error.response?.data;
+      final joinGroupFirst =
+          const [401, 403].contains(error.response?.statusCode) &&
+          responseData is Map &&
+          responseData['code'] == 'NOT_ALLOWED' &&
+          (responseData['message']?.toString().toLowerCase().contains(
+                'join group first',
+              ) ??
+              false);
+      if ((privateGroup != null &&
+              const [401, 403].contains(error.response?.statusCode)) ||
+          joinGroupFirst) {
+        if (identity != _identityRevision) {
+          throw const FormatException('账号已变化，请重新发起讨论');
+        }
+        topicId = await _website.createGroupTopic(
+          slug: slug,
+          title: trimmedTitle,
+          content: trimmedContent,
+        );
+      } else if (_responseIsBangumiInternalError(error)) {
+        // A 500 can follow a committed write. Read-back cannot prove absence.
+        if (identity != _identityRevision) {
+          throw const FormatException('账号已变化，请重新发起讨论');
+        }
+        final existing = await _findExistingGroupTopic(
+          slug: slug,
+          title: trimmedTitle,
+          content: trimmedContent,
+        );
+        if (existing == null) {
+          throw const CommunitySubmissionUncertain(
+            '帖子可能已发布，请先核对结果；暂未找到记录不会自动重发',
+          );
+        }
+        topicId = existing.id;
+      } else if (error.response == null ||
+          (error.response?.statusCode ?? 0) >= 500) {
+        throw const CommunitySubmissionUncertain('提交结果暂未确认，请先核对结果，避免重复发送');
+      } else {
+        throw CommunitySubmissionRejected(_postErrorMessage(error));
       }
-      // The API explicitly refused the write. A website membership check can
-      // recover compatibility; an uncertain POST never takes this fallback.
-      topicId = await _website.createGroupTopic(
-        slug: slug,
-        title: trimmedTitle,
-        content: trimmedContent,
-      );
     }
     _jsonCache.removeWhere(
       (key) => key.contains('/groups/$encoded') || key.contains('/topics'),
     );
     return createdGroupTopic(slug: slug, title: trimmedTitle, id: topicId);
+  }
+
+  Future<CommunityTopic?> _findExistingGroupTopic({
+    required String slug,
+    required String title,
+    required String content,
+  }) async {
+    try {
+      return await findSubmittedGroupTopic(
+        slug: slug,
+        title: title,
+        content: content,
+        attemptedAt: DateTime.now().toUtc(),
+      );
+    } on FormatException catch (error) {
+      if (error.message.contains('账号已变化')) rethrow;
+      throw const CommunitySubmissionUncertain(
+        '发帖结果未知，暂时无法核对，请先查看已发表话题，避免重复发送',
+      );
+    } catch (_) {
+      throw const CommunitySubmissionUncertain(
+        '发帖结果未知，暂时无法核对，请先查看已发表话题，避免重复发送',
+      );
+    }
+  }
+
+  bool _responseIsBangumiInternalError(DioException error) {
+    final status = error.response?.statusCode ?? 0;
+    if (status < 500) return false;
+    final data = error.response?.data;
+    if (data is Map) {
+      return isBangumiInternalError(
+        data['message'] ?? data['error'] ?? data['description'] ?? '',
+      );
+    }
+    return data is String && isBangumiInternalError(data);
   }
 
   CommunityTopic createdGroupTopic({
@@ -1531,90 +1937,11 @@ class CommunityService {
   String _groupCacheKey(CommunityGroupMode mode, CommunityGroupSort sort) =>
       'groups:${mode.name}:${sort.name}';
 
-  Future<List<CommunityTopic>> loadRakuen({
-    String type = '',
-    bool refresh = false,
-  }) async {
-    if (type == 'group') return _loadGroupTopics(refresh: refresh);
-    if (type == 'subject') return _loadSubjectTopics(refresh: refresh);
-    if (type.isEmpty) {
-      try {
-        final pages = await Future.wait([
-          _getJson(
-            '/groups/-/topics',
-            query: const {'mode': 'all', 'limit': 30, 'offset': 0},
-            refresh: refresh,
-          ),
-          _getJson(
-            '/subjects/-/topics',
-            query: const {'limit': 30, 'offset': 0},
-            refresh: refresh,
-          ),
-        ]);
-        final topics = [
-          ..._p1Parser.parseGroupTopics(pages[0]),
-          ..._p1Parser.parseSubjectTopics(pages[1]),
-        ]..sort(_newestTopicFirst);
-        return topics.take(50).toList();
-      } catch (_) {
-        return _loadRakuenHtml(type: type, refresh: refresh);
-      }
-    }
-    return _loadRakuenHtml(type: type, refresh: refresh);
-  }
-
-  Future<CommunityLanding> loadGroups({bool refresh = false}) async {
-    try {
-      final pages = await Future.wait([
-        _getJson(
-          '/groups',
-          query: const {
-            'mode': 'all',
-            'sort': 'members',
-            'limit': 20,
-            'offset': 0,
-          },
-          refresh: refresh,
-        ),
-        _getJson(
-          '/groups/-/topics',
-          query: const {'mode': 'all', 'limit': 40, 'offset': 0},
-          refresh: refresh,
-        ),
-      ]);
-      return CommunityLanding(
-        groups: _p1Parser.parseGroups(pages[0]),
-        topics: _p1Parser.parseGroupTopics(pages[1]),
-      );
-    } catch (_) {
-      final html = await _getHtml('/group', refresh: refresh);
-      return _htmlParser.parseGroupLanding(html);
-    }
-  }
-
-  Future<CommunityLanding> discoverGroups({bool refresh = false}) async {
-    try {
-      final page = await _getJson(
-        '/groups',
-        query: const {
-          'mode': 'all',
-          'sort': 'updated',
-          'limit': 60,
-          'offset': 0,
-        },
-        refresh: refresh,
-      );
-      return CommunityLanding(groups: _p1Parser.parseGroups(page));
-    } catch (_) {
-      final html = await _getHtml('/group/all', refresh: refresh);
-      return _htmlParser.parseGroupLanding(html);
-    }
-  }
-
   Future<CommunityTopicDetail> loadTopic(
     CommunityTopic topic, {
     bool refresh = false,
   }) async {
+    final identity = _identityRevision;
     if (topic.kind == CommunityTopicKind.group) {
       return _loadGroupTopic(topic, refresh: refresh);
     }
@@ -1649,24 +1976,45 @@ class CommunityService {
       }
       return thread;
     }
-    if (topic.kind == CommunityTopicKind.group ||
-        topic.kind == CommunityTopicKind.subject) {
+    if (topic.kind == CommunityTopicKind.subject) {
+      final id = resolveTopicId(topic);
+      if (id == null) throw const FormatException('无法识别话题编号');
       try {
-        final id = resolveTopicId(topic);
-        if (id == null) throw const FormatException('无法识别话题编号');
-        final area = topic.kind == CommunityTopicKind.group
-            ? 'groups'
-            : 'subjects';
-        final json = await _getJson('/$area/-/topics/$id', refresh: refresh);
-        return _p1Parser.parseTopicDetail(json, topic);
+        final json = await _getJson('/subjects/-/topics/$id', refresh: refresh);
+        if (json['replies'] is! List) throw const FormatException('话题数据不完整');
+        final detail = _p1Parser.parseTopicDetail(json, topic);
+        if (!_hasDiscussionBody(detail)) {
+          throw const FormatException('话题正文暂时不可见');
+        }
+        return detail;
       } catch (_) {
+        _checkIdentity(identity);
         // The private API has no compatibility guarantee. The public page
         // parser remains a transparent fallback if its schema changes.
       }
     }
-    final html = await _getHtml(topic.webUrl, refresh: refresh);
-    return _htmlParser.parseTopicDetail(html, topic);
+    final path = topic.kind == CommunityTopicKind.subject
+        ? '/subject/topic/${resolveTopicId(topic)}'
+        : topic.webUrl;
+    final html = await _getHtml(path, refresh: refresh);
+    _checkIdentity(identity);
+    final detail = _htmlParser.parseTopicDetail(html, topic);
+    if (looksLikeWebsiteLoginPage(html) ||
+        WebsiteIdentityProbe.isChallenge(html) ||
+        detail.posts.isEmpty) {
+      throw const FormatException('暂时无法读取话题正文，请稍后重试或在官网核对');
+    }
+    return detail;
   }
+
+  bool _hasDiscussionBody(CommunityTopicDetail detail) => detail.posts.any(
+    (post) =>
+        post.isOriginal &&
+        (int.tryParse(post.id) ?? 0) > 0 &&
+        (post.rawBody.isNotEmpty ||
+            post.body.isNotEmpty ||
+            post.images.isNotEmpty),
+  );
 
   Future<CommunityTopicDetail> _loadGroupTopic(
     CommunityTopic topic, {
@@ -1680,7 +2028,9 @@ class CommunityService {
       _checkGroupContext(context);
       if (json['replies'] is! List) throw const FormatException('话题数据不完整');
       final detail = _p1Parser.parseTopicDetail(json, topic);
-      if (detail.posts.isEmpty) throw const FormatException('话题正文暂时不可见');
+      if (!_hasDiscussionBody(detail)) {
+        throw const FormatException('话题正文暂时不可见');
+      }
       return detail;
     } catch (_) {
       _checkGroupContext(context);
@@ -1718,34 +2068,6 @@ class CommunityService {
     return detail;
   }
 
-  Future<List<CommunityTopic>> _loadGroupTopics({required bool refresh}) async {
-    try {
-      final page = await _getJson(
-        '/groups/-/topics',
-        query: const {'mode': 'all', 'limit': 50, 'offset': 0},
-        refresh: refresh,
-      );
-      return _p1Parser.parseGroupTopics(page);
-    } catch (_) {
-      return _loadRakuenHtml(type: 'group', refresh: refresh);
-    }
-  }
-
-  Future<List<CommunityTopic>> _loadSubjectTopics({
-    required bool refresh,
-  }) async {
-    try {
-      final page = await _getJson(
-        '/subjects/-/topics',
-        query: const {'limit': 50, 'offset': 0},
-        refresh: refresh,
-      );
-      return _p1Parser.parseSubjectTopics(page);
-    } catch (_) {
-      return _loadRakuenHtml(type: 'subject', refresh: refresh);
-    }
-  }
-
   /// Topics under a single subject (条目讨论).
   Future<List<CommunityTopic>> loadTopicsForSubject(
     int subjectId, {
@@ -1754,35 +2076,14 @@ class CommunityService {
     bool refresh = false,
   }) async {
     if (subjectId <= 0) return const [];
-    try {
-      final page = await _getJson(
-        '/subjects/$subjectId/topics',
-        query: {'limit': limit, 'offset': offset},
-        refresh: refresh,
-      );
-      return _p1Parser.parseSubjectTopics(page);
-    } catch (_) {
-      return const [];
-    }
-  }
-
-  Future<List<CommunityTopic>> _loadRakuenHtml({
-    required String type,
-    required bool refresh,
-  }) async {
-    final query = type.isEmpty ? null : {'type': type};
-    final html = await _getHtml(
-      '/rakuen/topiclist',
-      query: query,
+    final page = await _getJson(
+      '/subjects/$subjectId/topics',
+      query: {'limit': limit, 'offset': offset},
       refresh: refresh,
     );
-    return _htmlParser.parseRakuen(html);
-  }
-
-  int _newestTopicFirst(CommunityTopic a, CommunityTopic b) {
-    final aTime = a.updatedAt ?? DateTime.fromMillisecondsSinceEpoch(0);
-    final bTime = b.updatedAt ?? DateTime.fromMillisecondsSinceEpoch(0);
-    return bTime.compareTo(aTime);
+    // Preserve failures so the detail section can offer retry instead of
+    // claiming that a subject has no discussions.
+    return _p1Parser.parseSubjectTopics(page);
   }
 
   /// Prefer the numeric topic id; fall back to parsing web/rakuen URLs.
@@ -1965,7 +2266,9 @@ class CommunityService {
   Future<Map<int, String>> loadNoticeContents(
     Iterable<BangumiNotice> notices, {
     bool refresh = false,
+    void Function(Map<int, String> contents, Set<int> completedIds)? onProgress,
   }) async {
+    final identity = _identityRevision;
     final batches = <String, _NoticeTopicBatch>{};
     for (final notice in notices) {
       final topic = notice.nativeTopic;
@@ -2005,10 +2308,15 @@ class CommunityService {
           } catch (_) {
             // A detail failure must not hide or fail the parent notice list.
           }
+          if (identity == _identityRevision) {
+            onProgress?.call(Map.unmodifiable(contents), {
+              for (final notice in batch.notices) notice.id,
+            });
+          }
         }),
       );
     }
-    return contents;
+    return identity == _identityRevision ? contents : {};
   }
 
   /// Mark notices read. Empty [ids] clears all unread.
@@ -2159,6 +2467,9 @@ class CommunityService {
       if (detail != null && detail.toString().trim().isNotEmpty) {
         final text = detail.toString().trim();
         // Turnstile failures are otherwise opaque.
+        if (isBangumiInternalError(text)) {
+          return bangumiInternalErrorNotice;
+        }
         if (text.toLowerCase().contains('turnstile') ||
             text.toLowerCase().contains('captcha')) {
           // Debug builds surface the raw server response so token-rejection
@@ -2260,4 +2571,12 @@ class _CachedFriends {
 
   final CommunityPageResult<BangumiUser> page;
   final DateTime createdAt;
+}
+
+/// Friends timeline fallback that the user resolves by verifying web login.
+class _TimelineWebsiteLoginRequired implements Exception {
+  const _TimelineWebsiteLoginRequired(this.message);
+  final String message;
+  @override
+  String toString() => message;
 }

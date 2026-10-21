@@ -221,7 +221,7 @@ class _FriendsPageState extends ConsumerState<FriendsPage> {
   );
 
   Widget _buildPage(BuildContext context) {
-    final me = ref.watch(sessionProvider).user;
+    final me = ref.watch(sessionProvider.select((state) => state.user));
     final groups = me == null || !_isOwnList
         ? null
         : ref.watch(friendGroupsProvider(me.id));
@@ -326,7 +326,12 @@ class _FriendsPageState extends ConsumerState<FriendsPage> {
                               children: [
                                 ChoiceChip(
                                   label: const Text('全部'),
-                                  selected: _groupFilter == null,
+                                  selected:
+                                      _groupFilter == null ||
+                                      (_groupFilter != '__none__' &&
+                                          !groups.groups.names.containsKey(
+                                            _groupFilter,
+                                          )),
                                   onSelected: (_) =>
                                       setState(() => _groupFilter = null),
                                 ),

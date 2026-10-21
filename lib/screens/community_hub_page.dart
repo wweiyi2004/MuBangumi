@@ -1,3 +1,4 @@
+import '../widgets/content_loading.dart';
 import '../core/theme/anime_icon.dart';
 import '../state/service_providers.dart';
 import '../navigation/app_destination.dart';
@@ -148,6 +149,7 @@ class _RakuenPageState extends State<_RakuenPage> {
   late final _service = widget.service ?? communityServiceFor(context);
   final _scrollController = ScrollController();
   RakuenMode _mode = RakuenMode.subjectTrending;
+  RakuenMode? _contentMode;
   List<CommunityTopic> _topics = const [];
   List<CommunityGroup> _hotGroups = const [];
   int _total = 0;
@@ -186,6 +188,7 @@ class _RakuenPageState extends State<_RakuenPage> {
         }
         setState(() {
           _topics = cached.data;
+          _contentMode = _mode;
           _total = cached.total;
           _nextOffset = cached.data.length;
           _paging.hasMore = _total > 0
@@ -214,6 +217,7 @@ class _RakuenPageState extends State<_RakuenPage> {
       if (!mounted || activeRequest != _requestId || mode != _mode) return;
       setState(() {
         _topics = page.data;
+        _contentMode = mode;
         _lastSuccessfulRequest = activeRequest;
         _nextOffset = page.data.length;
         _paging.hasMore =
@@ -234,7 +238,9 @@ class _RakuenPageState extends State<_RakuenPage> {
   }
 
   Future<void> _loadMore() async {
-    if (!_paging.canLoadMore || _topics.isEmpty) {
+    if (!_paging.canLoadMore ||
+        _topics.isEmpty ||
+        _lastSuccessfulRequest != _requestId) {
       return;
     }
     final mode = _mode;
@@ -296,8 +302,6 @@ class _RakuenPageState extends State<_RakuenPage> {
     if (_mode == mode) return;
     setState(() {
       _mode = mode;
-      _topics = const [];
-      _total = 0;
       _paging.reset();
       _nextOffset = 0;
       _error = null;
@@ -354,7 +358,12 @@ class _RakuenPageState extends State<_RakuenPage> {
       if (_topics.isNotEmpty)
         CommunityRefreshStatus(
           loading: _paging.loading,
+          operation: _requestId,
+          loadingMessage: _contentMode != _mode
+              ? '正在切换分类，暂时显示上一列表'
+              : '显示已有内容，正在更新',
           error: _error,
+          message: _contentMode != _mode ? '切换分类失败，仍显示上一列表' : '刷新失败，已保留当前内容',
           onRetry: () => _load(refresh: true),
         ),
       Expanded(child: _buildBody()),
@@ -363,7 +372,16 @@ class _RakuenPageState extends State<_RakuenPage> {
 
   Widget _buildBody() {
     if (_paging.loading && _topics.isEmpty) {
-      return const Center(child: CircularProgressIndicator());
+      return Column(
+        children: [
+          LoadingStatus(
+            active: true,
+            message: '正在加载',
+            onRetry: () => _load(refresh: true),
+          ),
+          const ContentSkeleton(),
+        ],
+      );
     }
     if (_error != null && _topics.isEmpty) {
       return CommunityErrorView(
@@ -563,6 +581,8 @@ class CommunityGroupBrowserState extends State<CommunityGroupBrowser> {
   late CommunityGroupSort _sort = widget.joinedOnly
       ? CommunityGroupSort.updated
       : CommunityGroupSort.members;
+  CommunityGroupMode? _contentMode;
+  CommunityGroupSort? _contentSort;
   List<CommunityGroup> _groups = const [];
   int _total = 0;
   final _paging = CommunityPaging(loading: true);
@@ -616,6 +636,8 @@ class CommunityGroupBrowserState extends State<CommunityGroupBrowser> {
         }
         setState(() {
           _groups = cached.data;
+          _contentMode = _mode;
+          _contentSort = _sort;
           _total = cached.total;
           _nextOffset = cached.rawCount ?? cached.data.length;
           _paging.hasMore = _total > 0
@@ -654,6 +676,8 @@ class CommunityGroupBrowserState extends State<CommunityGroupBrowser> {
       }
       setState(() {
         _groups = page.data;
+        _contentMode = mode;
+        _contentSort = sort;
         _lastSuccessfulRequest = activeRequest;
         _nextOffset = page.rawCount ?? page.data.length;
         _paging.hasMore =
@@ -672,7 +696,7 @@ class CommunityGroupBrowserState extends State<CommunityGroupBrowser> {
   }
 
   Future<void> _loadMore() async {
-    if (!_paging.canLoadMore) {
+    if (!_paging.canLoadMore || _lastSuccessfulRequest != _requestId) {
       return;
     }
     final mode = _mode;
@@ -728,8 +752,6 @@ class CommunityGroupBrowserState extends State<CommunityGroupBrowser> {
     setState(() {
       _mode = mode ?? _mode;
       _sort = sort ?? _sort;
-      _groups = const [];
-      _total = 0;
       _paging.reset();
       _nextOffset = 0;
       _error = null;
@@ -822,7 +844,14 @@ class CommunityGroupBrowserState extends State<CommunityGroupBrowser> {
       if (_groups.isNotEmpty)
         CommunityRefreshStatus(
           loading: _paging.loading,
+          operation: _requestId,
+          loadingMessage: _contentMode != _mode || _contentSort != _sort
+              ? '正在切换分类，暂时显示上一列表'
+              : '显示已有内容，正在更新',
           error: _error,
+          message: _contentMode != _mode || _contentSort != _sort
+              ? '切换分类失败，仍显示上一列表'
+              : '刷新失败，已保留当前内容',
           onRetry: () => _load(refresh: true),
         ),
       Expanded(child: _buildBody()),
@@ -831,7 +860,16 @@ class CommunityGroupBrowserState extends State<CommunityGroupBrowser> {
 
   Widget _buildBody() {
     if (_paging.loading && _groups.isEmpty) {
-      return const Center(child: CircularProgressIndicator());
+      return Column(
+        children: [
+          LoadingStatus(
+            active: true,
+            message: '正在加载',
+            onRetry: () => _load(refresh: true),
+          ),
+          const ContentSkeleton(),
+        ],
+      );
     }
     if (_error != null && _groups.isEmpty) {
       return CommunityErrorView(

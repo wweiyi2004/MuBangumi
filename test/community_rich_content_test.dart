@@ -7,6 +7,7 @@ import 'package:mubangumi/widgets/community_composer.dart';
 import 'package:mubangumi/widgets/community_rich_content.dart';
 import 'package:mubangumi/widgets/community_widgets.dart';
 import 'package:mubangumi/models/community_models.dart';
+import 'package:mubangumi/widgets/bounded_image.dart';
 
 Iterable<TextSpan> spans(InlineSpan span) sync* {
   if (span is TextSpan) {
@@ -41,6 +42,135 @@ Future<void> show(
 }
 
 void main() {
+  testWidgets(
+    'changing plain content resets expansion for the replacement post',
+    (tester) async {
+      Widget content(String text) => MaterialApp(
+        home: Scaffold(
+          body: SingleChildScrollView(child: CollapsibleCommunityText(text)),
+        ),
+      );
+      await tester.pumpWidget(content('${'旧正文' * 260}旧结尾'));
+      await tester.tap(find.text('展开全文'));
+      await tester.pump();
+      await tester.pumpWidget(content('${'新正文' * 260}新结尾'));
+      expect(find.textContaining('新结尾', findRichText: true), findsNothing);
+      expect(find.text('展开全文'), findsOneWidget);
+    },
+  );
+
+  testWidgets('switching rich formats reparses an unchanged source', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      const MaterialApp(
+        home: Scaffold(body: CommunityRichContent('<b>格式切换</b>')),
+      ),
+    );
+    expect(find.textContaining('<b>', findRichText: true), findsWidgets);
+    await tester.pumpWidget(
+      const MaterialApp(
+        home: Scaffold(body: CommunityRichContent.html('<b>格式切换</b>')),
+      ),
+    );
+    expect(find.textContaining('<b>', findRichText: true), findsNothing);
+    expect(find.textContaining('格式切换', findRichText: true), findsWidgets);
+  });
+
+  testWidgets('unlabelled website smiles remain visible at inline height', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      const MaterialApp(
+        home: Scaffold(
+          body: CommunityRichContent.html(
+            '<img class="smile" src="/img/smiles/tv/77.gif">',
+          ),
+        ),
+      ),
+    );
+    final smile = find.byType(BoundedNetworkImage);
+    expect(smile, findsOneWidget);
+    expect(tester.getSize(smile).height, 22);
+  });
+
+  testWidgets('deep website markup has a bounded rendering depth', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: CommunityRichContent.html('${'<b>' * 128}极深内容${'</b>' * 128}'),
+        ),
+      ),
+    );
+    expect(find.textContaining('内容嵌套过深', findRichText: true), findsWidgets);
+    expect(tester.takeException(), isNull);
+  });
+  testWidgets(
+    'website fallback hides classic masks and keeps literal BBCode and links',
+    (tester) async {
+      Uri? opened;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: CommunityRichContent.html(
+              '<a href="/subject/9">条目</a><span style="background-color:#555; color: #555;">结局[/mask]</span><b>[i]文字[/i]</b>',
+              onOpenLink: (uri) => opened = uri,
+            ),
+          ),
+        ),
+      );
+      expect(find.textContaining('结局', findRichText: true), findsNothing);
+      expect(
+        find.textContaining('[i]文字[/i]', findRichText: true),
+        findsWidgets,
+      );
+      final link = tester
+          .widgetList<SelectableText>(find.byType(SelectableText))
+          .expand((text) => spans(text.textSpan!))
+          .firstWhere((span) => span.text == '条目');
+      (link.recognizer! as TapGestureRecognizer).onTap!();
+      expect(opened.toString(), 'https://bgm.tv/subject/9');
+      await tester.tap(find.text('显示剧透'));
+      await tester.pump();
+      expect(
+        find.textContaining('结局[/mask]', findRichText: true),
+        findsWidgets,
+      );
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets('crossed styles never reveal text inside a spoiler', (
+    tester,
+  ) async {
+    await show(tester, '[b][mask]隐藏一[/b]隐藏二[/mask]可见');
+    expect(find.textContaining('隐藏二', findRichText: true), findsNothing);
+    await tester.tap(find.text('显示剧透'));
+    await tester.pump();
+    expect(find.textContaining('隐藏二', findRichText: true), findsWidgets);
+  });
+  for (final alignment in ['left', 'center', 'right']) {
+    testWidgets(
+      'website alignment alias $alignment retains BBCode formatting',
+      (tester) async {
+        await show(tester, '[$alignment][b]内容[/b][/$alignment]');
+        expect(
+          tester
+              .widgetList<SelectableText>(find.byType(SelectableText))
+              .any(
+                (text) => text.textAlign == TextAlign.values.byName(alignment),
+              ),
+          isTrue,
+        );
+        expect(
+          find.textContaining('[$alignment]', findRichText: true),
+          findsNothing,
+        );
+      },
+    );
+  }
   testWidgets('color and alignment keep nested formatting and spoilers', (
     tester,
   ) async {

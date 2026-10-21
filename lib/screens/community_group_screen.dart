@@ -1,3 +1,7 @@
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../state/community_submission_controller.dart';
+import '../widgets/community_submission_card.dart';
+import '../widgets/content_loading.dart';
 import '../core/theme/anime_icon.dart';
 import '../state/service_providers.dart';
 import '../navigation/app_destination.dart';
@@ -17,7 +21,7 @@ import '../widgets/community_loading.dart';
 import '../widgets/group_qr_sheet.dart';
 import 'website_login_screen.dart';
 
-class CommunityGroupScreen extends StatefulWidget {
+class CommunityGroupScreen extends ConsumerStatefulWidget {
   const CommunityGroupScreen({
     super.key,
     required this.group,
@@ -30,10 +34,11 @@ class CommunityGroupScreen extends StatefulWidget {
   final CommunityGroupDetail? initialDetail;
 
   @override
-  State<CommunityGroupScreen> createState() => _CommunityGroupScreenState();
+  ConsumerState<CommunityGroupScreen> createState() =>
+      _CommunityGroupScreenState();
 }
 
-class _CommunityGroupScreenState extends State<CommunityGroupScreen> {
+class _CommunityGroupScreenState extends ConsumerState<CommunityGroupScreen> {
   late final _service = widget.service ?? communityServiceFor(context);
   CommunityGroupDetail? _detail;
   bool _loading = true;
@@ -176,10 +181,17 @@ class _CommunityGroupScreenState extends State<CommunityGroupScreen> {
   }
 
   Future<void> _createTopic() async {
+    if (ref
+        .read(communitySubmissionsProvider(_service))
+        .forScope('group:$_slug')
+        .any((entry) => entry.status == CommunitySubmissionStatus.publishing)) {
+      return;
+    }
     final draftAccount = _service.currentUsername;
     final identity = _service.identityRevision;
     final submission = CommunityTopicDraft();
     CommunityTopic? receipt;
+    var accepted = false;
     final sent = await showCommunityComposer(
       context,
       heading: '在「${_detail?.group.name ?? widget.group.name}」发帖',
@@ -190,6 +202,22 @@ class _CommunityGroupScreenState extends State<CommunityGroupScreen> {
           _service.identityRevision == identity,
       draftKey: communityDraftKey(draftAccount, ['group', _slug]),
       topicDraft: submission,
+      onAccepted: (entry) {
+        accepted = true;
+        final registry = ref.read(communitySubmissionsProvider(_service));
+        registry.add('group:$_slug', entry);
+        unawaited(
+          entry.completion.then((_) {
+            if (!mounted ||
+                !entry.isAccountCurrent() ||
+                entry.status != CommunitySubmissionStatus.sent) {
+              return;
+            }
+            setState(() => _publishedTopic = receipt);
+            unawaited(_load(refresh: true));
+          }),
+        );
+      },
       submitLabel: '发布',
       onSubmit: (title, content, token) async {
         receipt = await _service.createGroupTopic(
@@ -215,12 +243,19 @@ class _CommunityGroupScreenState extends State<CommunityGroupScreen> {
       },
       inspectSubmission: _openWeb,
     );
+    if (accepted) return;
     if (!sent ||
         !mounted ||
         identity != _service.identityRevision ||
         receipt == null) {
       return;
     }
+    ref
+        .read(communitySubmissionsProvider(_service))
+        .removeDraft(
+          'group:$_slug',
+          communityDraftKey(draftAccount, ['group', _slug]),
+        );
     setState(() => _publishedTopic = receipt);
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
@@ -266,6 +301,10 @@ class _CommunityGroupScreenState extends State<CommunityGroupScreen> {
   @override
   Widget build(BuildContext context) {
     final detail = _detail;
+    final pending = ref
+        .watch(communitySubmissionsProvider(_service))
+        .forScope('group:$_slug')
+        .where((entry) => entry.status != CommunitySubmissionStatus.sent);
     return Scaffold(
       backgroundColor: SocialChatStyle.paper(context),
       appBar: AppBar(
@@ -326,6 +365,21 @@ class _CommunityGroupScreenState extends State<CommunityGroupScreen> {
       body: SafeArea(
         child: Column(
           children: [
+            if (pending.isNotEmpty)
+              ConstrainedBox(
+                constraints: const BoxConstraints(maxHeight: 220),
+                child: SingleChildScrollView(
+                  child: Column(
+                    children: [
+                      for (final entry in pending)
+                        CommunitySubmissionCard(
+                          entry: entry,
+                          onInspect: _createTopic,
+                        ),
+                    ],
+                  ),
+                ),
+              ),
             if (_publishedTopic case final published?)
               ListTile(
                 leading: const AnimeIcon(Icons.check_circle_outline),
@@ -354,7 +408,7 @@ class _CommunityGroupScreenState extends State<CommunityGroupScreen> {
                     : '刷新失败，已保留当前内容',
                 onRetry: () => _load(refresh: true),
               ),
-            Expanded(child: _buildBody()),
+            Expanded(child: ContentTransition(child: _buildBody())),
           ],
         ),
       ),
@@ -364,7 +418,12 @@ class _CommunityGroupScreenState extends State<CommunityGroupScreen> {
   Widget _buildBody() {
     final detail = _detail;
     if (_loading && detail == null) {
-      return const Center(child: CircularProgressIndicator());
+      return Column(
+        children: [
+          LoadingStatus(active: true, message: '正在加载小组', onRetry: _load),
+          const ContentSkeleton(),
+        ],
+      );
     }
     if (_error != null && detail == null) {
       return CommunityErrorView(message: _error!, onRetry: _load);

@@ -22,6 +22,26 @@ const _firstTitle = '星际旅途：在遥远的星海中寻找故乡的少年';
 
 void main() {
   testWidgets(
+    'repeat lottery draws reuse verified collections and the candidate page',
+    (tester) async {
+      final env = _Environment();
+      await _show(tester, env);
+      env.api.lotterySubjects = [_subject(333, '候选甲'), _subject(334, '候选乙')];
+      await tester.tap(find.text('好番剧奖'));
+      await tester.pumpAndSettle();
+      final first = env.api.lotteryReads;
+      await tester.tap(find.text('再抽一部'));
+      await tester.pumpAndSettle();
+      expect(env.api.lotteryReads, first);
+      expect(env.api.collectionReads, 1);
+      await tester.tap(find.text('再抽一部'));
+      await tester.pumpAndSettle();
+      expect(find.text('暂时没有找到新的作品，已保留上一张'), findsOneWidget);
+      expect(find.text('再抽一部'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    },
+  );
+  testWidgets(
     'lottery excludes watched titles and discards a late result after account change',
     (tester) async {
       final env = _Environment();
@@ -486,6 +506,7 @@ class _Session extends ProgressSession {
 }
 
 class _Api extends BangumiApi {
+  int lotteryReads = 0, collectionReads = 0;
   List<Subject> lotterySubjects = [];
   Future<AnimeLotteryPage>? pendingLottery;
   @override
@@ -495,18 +516,25 @@ class _Api extends BangumiApi {
     CollectionType? collectionType,
     int? maxItems,
     Future<bool> Function(List<UserCollection> items)? onPage,
-  }) async => [_collection(_subject(1, '已经看过'))];
+  }) async {
+    collectionReads++;
+    return [_collection(_subject(1, '已经看过'))];
+  }
+
   @override
   Future<AnimeLotteryPage> getAnimeLotteryPage(
     AnimePrize prize, {
     int offset = 0,
     int limit = 50,
-  }) async =>
-      pendingLottery ??
-      AnimeLotteryPage(
-        total: lotterySubjects.length,
-        subjects: lotterySubjects,
-      );
+  }) async {
+    lotteryReads++;
+    return pendingLottery ??
+        AnimeLotteryPage(
+          total: lotterySubjects.length,
+          subjects: lotterySubjects,
+        );
+  }
+
   final candidates = [_subject(100, _firstTitle), _subject(101, '温暖的日常故事')];
   Future<List<Subject>>? pending;
   String mode = 'success';

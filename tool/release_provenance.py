@@ -68,11 +68,18 @@ def validate_verification(path: Path, source: dict, target: str) -> dict:
     require_recent(report.get('createdUtc'), 'Verification')
     if report.get('source', {}).get('fingerprint') != source['fingerprint']:
         raise ValueError('Verification report belongs to different source content')
-    required = {'flutter-analyze', 'flutter-tests', 'architecture', 'repository-privacy',
-                'provenance-tests', 'windows-build' if target == 'windows' else 'android-build'}
+    if set(report.get('areas', [])) != {'flutter','server','website','python','tools'}:
+        raise ValueError('Publication requires every verification area; selected-area checks are not Full release evidence')
+    required = {'flutter-analyze', 'flutter-tests', 'architecture', 'repository-privacy', 'provenance-tests',
+                'server-analyze','server-tests','server-bundle','browser-protocol',
+                'website-check','website-audit','website-browser','dataset-tests','semantic-tests','mirror-tests',
+                'toolchain-files','toolchain_npm','windows_package_safety','release_build','repository-privacy-tests',
+                'windows-build' if target == 'windows' else 'android-build'}
     passed = {c['name'] for c in report.get('checks', []) if c.get('status') == 'passed'}
     if not required <= passed: raise ValueError('Verification report is missing required platform checks')
-    return {'sha256': digest(path), 'createdUtc': report.get('createdUtc'), 'checks': sorted(passed)}
+    return {'sha256': digest(path), 'createdUtc': report.get('createdUtc'), 'areas': sorted(report['areas']),
+            'checks': sorted(passed), 'nativeBuilds': {c['name']: c.get('configuration', 'unspecified')
+            for c in report['checks'] if c['name'] in ('windows-build','android-build','ios-build')}}
 
 def validate_acceptance(path: Path, source: dict, target: str, version: str) -> dict:
     report = read_json(path)
@@ -93,6 +100,8 @@ def validate_acceptance(path: Path, source: dict, target: str, version: str) -> 
 def create(root: Path, *, target: str, kind: str, sdk_metadata: Path,
            version: str, baseline: str = '', allow_dirty: bool = False,
            verification: Path | None = None, acceptance: Path | None = None) -> dict:
+    if baseline and kind not in ('shorebird-patch','dry-run'):
+        raise ValueError('Only patches may use a baseline acceptance version')
     source = identity(root)
     if source['dirty'] and not allow_dirty:
         raise ValueError('Release source is dirty; commit reviewed changes or use --allow-dirty for a local non-publication build')
@@ -140,8 +149,22 @@ def finish(root: Path, manifest: Path, artifacts: list[Path], symbols: list[Path
     else:
         data['artifacts'] = [artifact_record(root, p) for p in artifacts]
         data['symbols'] = [artifact_record(root, p) for p in symbols]
-        data['status'] = 'awaiting-patch-receipt' if data['kind'] == 'shorebird-patch' else 'dry-run-passed' if data['kind'] == 'dry-run' else 'built'
+        data['status'] = ('receipt-recorded' if data.get('publication') else 'awaiting-patch-receipt'
+            if data['kind'] == 'shorebird-patch' else 'awaiting-release-receipt'
+            if data['kind'] == 'shorebird-release' else 'dry-run-passed' if data['kind'] == 'dry-run' else 'built')
     data['finishedUtc'] = datetime.now(timezone.utc).isoformat()
+    write_json(manifest, data)
+
+def record_release_receipt(root: Path, manifest: Path, release_id: str, version: str):
+    data = read_json(manifest)
+    if (data.get('kind') != 'shorebird-release' or data.get('status') != 'awaiting-release-receipt' or
+            not re.fullmatch(r'\d+', release_id) or int(release_id) <= 0 or version != data.get('version')):
+        raise ValueError('Release receipt must match the completed pending release version and a real server ID')
+    if identity(root)['fingerprint'] != data['source']['fingerprint']:
+        raise ValueError('Release source content has changed')
+    data['publication'] = {'provider': 'shorebird', 'releaseId': release_id, 'version': version,
+                           'target': data['target'], 'evidence': 'operator-verified remote release receipt'}
+    data['status'] = 'receipt-recorded'
     write_json(manifest, data)
 
 def main():
@@ -159,6 +182,9 @@ def main():
     receipt = sub.add_parser('patch-receipt'); receipt.add_argument('--manifest',type=Path,required=True)
     receipt.add_argument('--root',type=Path,default=Path.cwd()); receipt.add_argument('--artifact',type=Path,action='append',required=True)
     receipt.add_argument('--patch-number',type=int,required=True); receipt.add_argument('--server-id',required=True); receipt.add_argument('--channel',choices=['staging','stable'],required=True)
+    release_receipt = sub.add_parser('release-receipt')
+    release_receipt.add_argument('--root',type=Path,default=Path.cwd()); release_receipt.add_argument('--manifest',type=Path,required=True)
+    release_receipt.add_argument('--release-id',required=True); release_receipt.add_argument('--version',required=True)
     args = parser.parse_args()
     if args.action == 'identity': print(json.dumps(identity(args.root))); return
     if args.action == 'create':
@@ -166,6 +192,8 @@ def main():
           baseline=args.baseline,allow_dirty=args.allow_dirty,verification=args.verification,acceptance=args.acceptance)
         write_json(args.out,value); return
     if args.action == 'finish': finish(args.root,args.manifest,args.artifact,args.symbol,failed=args.failed); return
+    if args.action == 'release-receipt':
+        record_release_receipt(args.root,args.manifest,args.release_id,args.version); return
     data=read_json(args.manifest)
     if data['kind']!='shorebird-patch' or data['status']!='awaiting-patch-receipt' or args.patch_number<=0 or not re.fullmatch(r'\d+',args.server_id):
         raise ValueError('Patch receipt does not describe a completed pending patch upload')

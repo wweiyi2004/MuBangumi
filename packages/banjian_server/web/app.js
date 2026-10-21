@@ -128,13 +128,14 @@ function openParticipantSheet(kind){
   dialog.classList.add('participant-drawer');if(!dialog.open)dialog.showModal();renderParticipantSheet();
 }
 
-function requestLiveRefresh(){liveDirty=true;if(activeReads||liveTimer)return;liveTimer=setTimeout(()=>{liveTimer=null;liveDirty=false;void refresh();},60);}
+function requestLiveRefresh(){if(!admin&&!identity.joined)return;liveDirty=true;if(activeReads||liveTimer)return;liveTimer=setTimeout(()=>{liveTimer=null;liveDirty=false;void refresh();},60);}
 function applySnapshot(next){
   if(next.id!==event?.id&&event?.rounds)return false;
   if(event?.id===next.id&&event.serverEpoch===next.serverEpoch&&next.revision!=null&&event.revision!=null&&next.revision<event.revision)return false;
   if(event?.serverEpoch!==next.serverEpoch)announcedRevision=0;event=RoomProtocol.snapshot(next);return true;
 }
 function connect(){
+  if(!admin&&!identity.joined)return;
   if(!event?.id||!token)return;
   const key=token+':'+event.id;
   if(socketKey===key&&socket&&socket.readyState<=1)return;
@@ -155,6 +156,7 @@ function connect(){
   ws.onerror=()=>ws.close();
 }
 async function refresh(){
+  if(!admin&&!identity.joined)return;
   const epoch=++readEpoch,auth=token,id=event?.id||eventId,observedLive=liveEpoch,base=event;
   const valid=()=>epoch===readEpoch&&token===auth&&(event?.id||eventId)===id;
   activeReads++;
@@ -193,7 +195,7 @@ async function flush(){if(flushing||!online||!identity.joined||admin)return;flus
 document.addEventListener('input',e=>{if(e.target.id==='comment-draft'){const r=current();if(r){drafts[r.id]={...drafts[r.id],text:e.target.value};save(storageKey+':drafts',drafts);}}});
 document.addEventListener('submit',async e=>{e.preventDefault();if(busy)return;busy=true;try{
   if(e.target.id==='login'){const data=await api('login',{password:$('#password').value},'');token=data.token;sessionStorage.setItem('banjian-admin',token);await refresh();}
-  if(e.target.id==='join'){const name=$('#name').value.trim();if(!name){toast('请填写活动显示名');return;}identity={...identity,name,invite,token:identity.token||secret(),op:secret()};if(!save(storageKey,identity))return;await api('join',{op:identity.op,event:eventId,invite,token:identity.token,name},'');identity.joined=true;save(storageKey,identity);token=identity.token;await refresh();}
+  if(e.target.id==='join'){const name=$('#name').value.trim();if(!name){toast('请填写活动显示名');return;}identity={...identity,name,invite,token:identity.token||secret(),op:secret()};if(!save(storageKey,identity))return;await api('join',{op:identity.op,event:eventId,invite,token:identity.token,name},'');identity.joined=true;save(storageKey,identity);token=identity.token;event=null;await refresh();}
   if(e.target.id==='search-form'){const data=await api('search?q='+encodeURIComponent($('#search-q').value));$('#search-results').innerHTML=data.subjects.map(s=>`<div class="list-row"><div class="grow"><h3>${esc(s.title)}</h3><small>#${s.id}</small></div><button class="soft" data-action="add" data-id="${s.id}">加入番单</button></div>`).join('')||'<div class="empty">没有找到动画条目</div>';}
 }catch(error){toast(error.message);}finally{busy=false;}});
 document.addEventListener('click',async e=>{const b=e.target.closest('[data-action]');if(!b||b.disabled)return;const a=b.dataset.action,r=b.dataset.round;try{
@@ -227,7 +229,14 @@ document.addEventListener('click',async e=>{const b=e.target.closest('[data-acti
   else if(a==='score'){const r=current();drafts[r.id]={...drafts[r.id],score:Number(b.dataset.score)};save(storageKey+':drafts',drafts);render();}
   else if(a==='submit-score'){const r=current();await enqueue('score',{score:drafts[r.id]?.score??r.myScore});}
   else if(a==='submit-comment'){const text=$('#comment-draft').value.trim();if(!text){toast('先写一句感受吧');return;}if(pending.some(c=>c.action==='comment'&&c.round===event.current&&c.text===text)){toast('这条短评还在等待确认');return;}await enqueue('comment',{text});}
-  else if(a==='leave'){if(!confirm('退出活动？评分记录仍会保留，下次用本浏览器可恢复参与身份。'))return;identity.joined=false;save(storageKey,identity);socket?.close();online=false;render();}
+  else if(a==='leave'){
+    if(!confirm('退出活动？评分记录仍会保留，下次用本浏览器可恢复参与身份。'))return;
+    identity.joined=false;save(storageKey,identity);
+    ++readEpoch;clearTimeout(reconnect);clearTimeout(liveTimer);
+    reconnect=null;liveTimer=null;liveDirty=false;
+    const previousSocket=socket;socket=null;socketKey=null;
+    previousSocket?.close();online=false;render();
+  }
   else{if(['end','close','start','remove','rotateInvite'].includes(a)&&!confirm({end:'结束活动后不能继续评分，确认结束？',close:'截止后无法重新开放本轮，确认截止？',start:'开始这部番剧，并截止当前轮次？',remove:'移除这部未开始的番剧？',rotateInvite:'更新后，未入场的人需要新链接。已入场身份保留。'}[a]))return;if(a==='publish'&&b.dataset.value==='true'&&!confirm('公布这一轮的均分和分布？'))return;await command(a,{...(r?{round:r}:{}),...(b.dataset.value?{value:b.dataset.value==='true'}:{}),...(a==='hide'?{comment:b.dataset.id}:{}),...(a==='move'?{index:Number(b.dataset.index)}:{})});if(a==='rotateInvite')$('#modal').close();}
 }catch(error){toast(error.message);b.disabled=false;}});
 async function loadInitialView(){render();if(admin){if(token)await refresh();}else if(eventId){if(identity.joined){await refresh();}else{try{event=await api('preview',{event:eventId,invite},'');online=true;render();}catch(e){online=false;toast(e.message);$('#app').innerHTML=`<main class="phone empty"><strong>暂时无法加入</strong>${esc(e.message)}<p>请确认设备连接同一 Wi-Fi，或向主持人获取有效邀请。</p><button data-action="reload">重新连接</button></main>`;document.querySelector('[data-action="reload"]').onclick=()=>location.reload();}}}}

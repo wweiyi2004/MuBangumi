@@ -187,31 +187,11 @@ class _ColorSettingsState extends ConsumerState<ColorSettingsSheet> {
     crossAxisAlignment: CrossAxisAlignment.start,
     children: [
       const SizedBox(height: 8),
-      TextFormField(
-        key: ValueKey('$label:${color.toARGB32()}'),
-        initialValue: color
-            .toARGB32()
-            .toRadixString(16)
-            .substring(2)
-            .toUpperCase(),
-        maxLength: 6,
-        decoration: InputDecoration(
-          labelText: label,
-          prefixText: '#',
-          counterText: '',
-          suffixIcon: Padding(
-            padding: const EdgeInsets.all(12),
-            child: CircleAvatar(backgroundColor: color, radius: 10),
-          ),
-        ),
-        onChanged: (v) {
-          if (RegExp(r'^[0-9a-fA-F]{6}$').hasMatch(v)) {
-            setState(
-              () =>
-                  _draft = change(Color(0xFF000000 | int.parse(v, radix: 16))),
-            );
-          }
-        },
+      _HexColorField(
+        key: ValueKey(label),
+        label: label,
+        color: color,
+        onChanged: (value) => setState(() => _draft = change(value)),
       ),
       Wrap(
         spacing: 8,
@@ -243,5 +223,59 @@ class _ColorSettingsState extends ConsumerState<ColorSettingsSheet> {
         ],
       ),
     ],
+  );
+}
+
+class _HexColorField extends StatefulWidget {
+  const _HexColorField({
+    super.key,
+    required this.label,
+    required this.color,
+    required this.onChanged,
+  });
+  final String label;
+  final Color color;
+  final ValueChanged<Color> onChanged;
+  @override
+  State<_HexColorField> createState() => _HexColorFieldState();
+}
+
+class _HexColorFieldState extends State<_HexColorField> {
+  String hex(Color color) =>
+      color.toARGB32().toRadixString(16).substring(2).toUpperCase();
+  late final controller = TextEditingController(text: hex(widget.color));
+  @override
+  void didUpdateWidget(covariant _HexColorField oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.color != widget.color &&
+        controller.text.toUpperCase() != hex(widget.color)) {
+      controller.text = hex(widget.color);
+    }
+  }
+
+  @override
+  void dispose() {
+    controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => TextFormField(
+    controller: controller,
+    maxLength: 6,
+    decoration: InputDecoration(
+      labelText: widget.label,
+      prefixText: '#',
+      counterText: '',
+      suffixIcon: Padding(
+        padding: const EdgeInsets.all(12),
+        child: CircleAvatar(backgroundColor: widget.color, radius: 10),
+      ),
+    ),
+    onChanged: (value) {
+      if (RegExp(r'^[0-9a-fA-F]{6}$').hasMatch(value)) {
+        widget.onChanged(Color(0xFF000000 | int.parse(value, radix: 16)));
+      }
+    },
   );
 }

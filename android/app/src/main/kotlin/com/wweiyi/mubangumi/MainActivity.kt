@@ -10,6 +10,7 @@ import android.os.Build
 import io.flutter.embedding.engine.FlutterEngineCache
 
 class MainActivity : FlutterActivity() {
+    private val gallerySaver by lazy { GallerySaver(this) }
     private val pendingShares = ArrayDeque<String>()
     private var sharedLinks: MethodChannel? = null
 
@@ -29,6 +30,8 @@ class MainActivity : FlutterActivity() {
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "mubangumi/gallery")
+            .setMethodCallHandler(gallerySaver::handle)
         FlutterEngineCache.getInstance().put(BanjianService.ENGINE, flutterEngine)
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, BanjianService.CHANNEL)
             .setMethodCallHandler { call, result ->
@@ -67,6 +70,11 @@ class MainActivity : FlutterActivity() {
         setIntent(intent)
         receiveShare(intent)
         sharedLinks?.invokeMethod("available", null)
+    }
+
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        gallerySaver.permissionResult(requestCode, grantResults)
     }
 
     private fun receiveShare(source: Intent?) {

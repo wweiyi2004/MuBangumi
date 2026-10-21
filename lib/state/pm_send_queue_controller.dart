@@ -24,6 +24,8 @@ final pmSendQueueProvider =
             : null,
         service: service,
         currentUser: () => ref.read(sessionProvider).user,
+        resolveRecipient: (name) async =>
+            (await ref.read(bangumiApiProvider).getUser(name)).id,
       );
       ref.listen(
         sessionProvider.select((state) => state.user?.id),
@@ -53,14 +55,34 @@ class PmSendQueueController extends ChangeNotifier {
     required this.repository,
     required this.service,
     required this.currentUser,
+    this.resolveRecipient,
   });
   final PmOutboxRepository? repository;
   final PmService service;
   final BangumiUser? Function() currentUser;
+  final Future<int> Function(String name)? resolveRecipient;
   List<PmSendCommand> entries = const [];
   String? error;
   bool get supported => repository != null;
   int get pendingCount => entries.where((e) => !e.finished).length;
+  int get activeCount => entries
+      .where(
+        (e) => const {
+          PmSendStatus.queued,
+          PmSendStatus.preparing,
+          PmSendStatus.sending,
+        }.contains(e.status),
+      )
+      .length;
+  int get attentionCount => entries
+      .where(
+        (e) => const {
+          PmSendStatus.failed,
+          PmSendStatus.uncertain,
+          PmSendStatus.waiting,
+        }.contains(e.status),
+      )
+      .length;
   bool _disposed = false, _working = false, _rerun = false;
   int? _owner;
   int _epoch = 0;
@@ -139,6 +161,19 @@ class PmSendQueueController extends ChangeNotifier {
     accountChanged();
     await _ready;
     if (currentUser()?.id != draft.data.ownerId) throw const PmAuthException();
+    final epoch = _epoch;
+    if (int.tryParse(receiver.trim()) == null) {
+      final resolve = resolveRecipient;
+      if (resolve == null) throw const PmException('请先联网核对收件人，再加入发送队列');
+      final id = await resolve(receiver.trim());
+      if (id <= 0) throw const PmException('无法识别收件人，请重新选择');
+      if (_disposed ||
+          epoch != _epoch ||
+          currentUser()?.id != draft.data.ownerId) {
+        throw const PmAuthException('账号已变化，消息尚未加入发送队列');
+      }
+      receiver = '$id';
+    }
     final command = await draft.enqueue(receiver: receiver, related: related);
     if (command != null) {
       // The transaction is the acknowledgement. A later list refresh must not
@@ -175,6 +210,28 @@ class PmSendQueueController extends ChangeNotifier {
         final user = currentUser();
         if (user == null || user.id != _owner) break;
         final epoch = _epoch;
+        // An uncertain legacy compose must block replies to the same UID too.
+        // This only resolves public identity; it never retries a private POST.
+        final bindings = repository;
+        if (bindings is PmRecipientBindings) {
+          for (final old in await repository!.outboxFor(user.id)) {
+            if (old.finished || int.tryParse(old.targetKey) != null) continue;
+            final resolve = resolveRecipient;
+            if (resolve == null) throw const PmException('请联网核对旧发送任务的收件人');
+            final id = await resolve(old.receiver);
+            if (_disposed || epoch != _epoch || currentUser()?.id != user.id) {
+              return;
+            }
+            await (bindings as PmRecipientBindings).bindRecipient(
+              user.id,
+              old.id,
+              id,
+            );
+          }
+        }
+        if (_disposed || epoch != _epoch || currentUser()?.id != user.id) {
+          return;
+        }
         final command = await repository!.claimNext(user.id);
         if (command == null) break;
         var submitted = false;
@@ -185,8 +242,17 @@ class PmSendQueueController extends ChangeNotifier {
           PmComposeParams? compose;
           var baseline = -1;
           if (command.compose) {
-            compose = await service.loadComposeParams(command.receiver);
-            if (compose.msgReceivers.trim() != command.receiver) {
+            var receiver = command.receiver;
+            if (int.tryParse(receiver) == null) {
+              final resolve = resolveRecipient;
+              if (resolve == null) throw const PmException('无法核对收件人，请重新选择');
+              receiver = '${await resolve(receiver)}';
+            }
+            if (_disposed || epoch != _epoch || currentUser()?.id != user.id) {
+              throw const PmPreflightAuthException('账号已变化，发送尚未提交');
+            }
+            compose = await service.loadComposeParams(receiver);
+            if (compose.msgReceivers.trim() != receiver) {
               throw const _TargetChanged('收件人校验不一致，请取消任务并重新选择收件人');
             }
           } else {

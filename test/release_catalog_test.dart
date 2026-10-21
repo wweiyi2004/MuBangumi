@@ -62,6 +62,27 @@ Dio api({Map<String, dynamic>? github, Map<String, dynamic>? gitee}) {
 
 void main() {
   test(
+    'asset build must match an explicit tag build while legacy tags remain readable',
+    () {
+      final mismatched = GithubRelease.fromJson(original(tag: 'v2.3.1+4030'));
+      expect(selectReleaseAsset(mismatched, platform: 'windows'), isNull);
+      expect(
+        selectReleaseAsset(
+          GithubRelease.fromJson(original()),
+          platform: 'windows',
+        ),
+        isNotNull,
+      );
+      expect(
+        selectReleaseAsset(
+          GithubRelease.fromJson(original(tag: 'v2.3.1')),
+          platform: 'windows',
+        ),
+        isNotNull,
+      );
+    },
+  );
+  test(
     'partial mirror preserves Android GitHub fallback and Windows mirror',
     () async {
       final manifest = original()

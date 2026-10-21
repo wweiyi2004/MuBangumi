@@ -3,6 +3,13 @@ param(
     [ValidatePattern('^\d+\.\d+\.\d+$')]
     [string]$Version,
 
+    [Parameter(Mandatory = $true)]
+    [ValidateRange(1, 2100000000)]
+    [int]$BuildNumber,
+
+    [Parameter(Mandatory = $true)]
+    [string]$ProvenanceManifest,
+
     [string]$VisualCppRuntimePath,
 
     [string]$OutputDirectory,
@@ -13,11 +20,17 @@ param(
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'windows_package_safety.ps1')
 $repositoryRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
+$ProvenanceManifest = [IO.Path]::GetFullPath($ProvenanceManifest)
+$provenance = Get-Content -LiteralPath $ProvenanceManifest -Raw | ConvertFrom-Json
+if ($provenance.version -ne "$Version+$BuildNumber" -or $provenance.target -ne 'windows' -or
+    $provenance.source.dirty -or $provenance.status -notin @('built','published','receipt-recorded') -or -not $provenance.verification) {
+    throw 'Packaging requires clean, verified Windows build provenance for the exact version and build.'
+}
 $releasePath = Join-Path $repositoryRoot 'build\windows\x64\runner\Release'
 if ([string]::IsNullOrWhiteSpace($OutputDirectory)) {
     $OutputDirectory = Join-Path $repositoryRoot 'dist'
 }
-$archivePath = Join-Path ([IO.Path]::GetFullPath($OutputDirectory)) "MuBangumi-$Version-windows-x64.zip"
+$archivePath = Join-Path ([IO.Path]::GetFullPath($OutputDirectory)) "MuBangumi-$Version-build$BuildNumber-windows-x64.zip"
 if (Test-Path -LiteralPath $archivePath) {
     throw "Archive already exists: $archivePath"
 }
@@ -27,8 +40,8 @@ foreach ($relative in @('mubangumi.exe', 'flutter_windows.dll', 'data\app.so', '
     }
 }
 $actualVersion = (Get-Item -LiteralPath (Join-Path $releasePath 'mubangumi.exe')).VersionInfo.ProductVersion
-if ($actualVersion -notmatch ('^' + [regex]::Escape($Version) + '(?:[.+]|$)')) {
-    throw "Executable version $actualVersion does not match $Version"
+if ($actualVersion -cne "$Version+$BuildNumber") {
+    throw "Executable version $actualVersion does not match $Version+$BuildNumber"
 }
 
 # Running the app in Release can create databases and WebView profiles beside
@@ -92,6 +105,12 @@ try {
     }
 }
 Write-Host "Packaged runtime files: $archivePath"
+$finishArguments = @((Join-Path $PSScriptRoot 'release_provenance.py'),'finish','--root',$repositoryRoot,'--manifest',$ProvenanceManifest)
+foreach ($record in $provenance.artifacts) { $finishArguments += @('--artifact',(Join-Path $repositoryRoot $record.path)) }
+$finishArguments += @('--artifact',$archivePath)
+foreach ($record in $provenance.symbols) { $finishArguments += @('--symbol',(Join-Path $repositoryRoot $record.path)) }
+& python @finishArguments
+if ($LASTEXITCODE) { throw 'ZIP created but provenance validation failed; do not publish this package.' }
 if (-not $KeepStaging) {
     try {
         $stagingRoot = [IO.Path]::GetFullPath((Join-Path $repositoryRoot '.dart_tool')).TrimEnd('\', '/')

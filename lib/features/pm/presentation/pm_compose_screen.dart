@@ -151,16 +151,9 @@ class _PmComposeScreenState extends ConsumerState<PmComposeScreen> {
     try {
       if (!await editing!.flush()) return;
       if (!mounted || _sessionChanged) return;
-      if (_params == null || _preparedRecipient != user) await _prepare();
-      if (!mounted || _sessionChanged || _recipient != user) return;
-      final params = _params;
-      if (params == null || _preparedRecipient != user) return;
       final queue = ref.read(pmSendQueueProvider(_service));
       if (queue.supported) {
-        final command = await queue.enqueue(
-          draft,
-          receiver: params.msgReceivers,
-        );
+        final command = await queue.enqueue(draft, receiver: user);
         if (command == null || !mounted || _sessionChanged) return;
         editing.allowPop();
         ScaffoldMessenger.of(
@@ -171,6 +164,10 @@ class _PmComposeScreenState extends ConsumerState<PmComposeScreen> {
         });
         return;
       }
+      if (_params == null || _preparedRecipient != user) await _prepare();
+      if (!mounted || _sessionChanged || _recipient != user) return;
+      final params = _params;
+      if (params == null || _preparedRecipient != user) return;
       await _service.compose(params: params, title: title, body: body);
       final cleared = await draft.markSent();
       if (!mounted || _sessionChanged || !cleared) return;
@@ -238,7 +235,10 @@ class _PmComposeScreenState extends ConsumerState<PmComposeScreen> {
         if (mounted && _sessionChanged) setState(() => _sessionChanged = false);
       },
       onRestored: () {
-        if (_to.text.trim().isNotEmpty) unawaited(_prepare());
+        if (_to.text.trim().isNotEmpty &&
+            !ref.read(pmSendQueueProvider(_service)).supported) {
+          unawaited(_prepare());
+        }
       },
       builder: (context, editing) {
         _draftEditing = editing;

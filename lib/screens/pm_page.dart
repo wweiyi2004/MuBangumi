@@ -1,3 +1,5 @@
+import '../features/pm/presentation/pm_send_queue_view.dart';
+import '../features/pm/presentation/pm_queue_action.dart';
 import '../core/theme/anime_icon.dart';
 import '../state/service_providers.dart';
 import 'dart:async';
@@ -11,7 +13,6 @@ import '../models/bangumi_models.dart';
 import '../state/pm_contacts_controller.dart';
 import '../state/pm_send_queue_controller.dart';
 import '../models/pm_send_command.dart';
-import '../features/pm/presentation/pm_send_queue_view.dart';
 import '../core/layout/app_layout.dart';
 import '../core/network/pm_service.dart';
 import '../state/website_session_controller.dart';
@@ -162,7 +163,7 @@ class _PmPageState extends ConsumerState<PmPage> {
 
   Future<void> _bootstrap() async {
     unawaited(_contacts.attachAccount(ref.read(sessionProvider).user?.id));
-    unawaited(_contacts.syncHistory());
+    unawaited(_contacts.syncHistory(foreground: true));
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) unawaited(_resumePendingCompose());
     });
@@ -181,8 +182,11 @@ class _PmPageState extends ConsumerState<PmPage> {
     }
   }
 
-  Future<void> _refreshMailboxes() =>
-      _contacts.refresh(includeFriends: false, supersede: true);
+  Future<void> _refreshMailboxes() => _contacts.refresh(
+    includeFriends: false,
+    supersede: true,
+    foreground: false,
+  );
 
   Future<void> _openContact(PmContact person) async {
     if (_openingContactKey != null || _switching) return;
@@ -310,7 +314,7 @@ class _PmPageState extends ConsumerState<PmPage> {
     final website = ref.watch(websiteSessionProvider);
     final phone = AppLayout.isPhone(context);
     final contacts = _contacts;
-    final sendQueue = ref.watch(pmSendQueueProvider(_service));
+    final queue = ref.watch(pmSendQueueProvider(_service));
     final unread = _inbox.items.where((e) => e.isUnread).length;
 
     return LayoutBuilder(
@@ -344,26 +348,18 @@ class _PmPageState extends ConsumerState<PmPage> {
                 ),
               ),
             ),
-            if (sendQueue.supported)
-              Align(
-                alignment: Alignment.centerLeft,
-                child: TextButton.icon(
-                  onPressed: () => Navigator.of(context).push(
-                    MaterialPageRoute<void>(
-                      builder: (_) => PmSendQueueScreen(service: _service),
-                    ),
-                  ),
-                  icon: const AnimeIcon(Icons.outbox_outlined, size: 18),
-                  label: Text(
-                    sendQueue.pendingCount > 0
-                        ? '发送队列 · ${sendQueue.pendingCount}'
-                        : '发送队列',
-                  ),
-                ),
-              ),
             Expanded(
               child: PmContactsView(
                 contacts: contacts,
+                pending: queue.entries
+                    .where((entry) => entry.compose && !entry.finished)
+                    .toList(),
+                onOpenQueue: () => Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => PmSendQueueScreen(service: _service),
+                  ),
+                ),
+                onOpenWebsite: _openWebFallback,
                 authMessage: website.isSynced
                     ? null
                     : website.message ?? website.statusLabel,
@@ -424,6 +420,7 @@ class _PmPageState extends ConsumerState<PmPage> {
                     ],
                   ),
                   actions: [
+                    PmQueueAction(service: _service),
                     IconButton(
                       tooltip: '刷新',
                       onPressed: contacts.busy
@@ -535,6 +532,7 @@ class _PmPageState extends ConsumerState<PmPage> {
                             Expanded(
                               child: PmConversationScreen(
                                 key: _chatKey,
+                                showQueueAction: !widget.embedded,
                                 service: _service,
                                 conversationId: selection.id,
                                 title: selection.title,
@@ -542,6 +540,11 @@ class _PmPageState extends ConsumerState<PmPage> {
                                 peerAvatar: selection.avatarUrl,
                                 onClose: _closeConversation,
                                 onMessagesChanged: _refreshMailboxes,
+                                onRead: () {
+                                  if (_selected?.id == selection.id) {
+                                    _inbox.markRead(selection.id);
+                                  }
+                                },
                               ),
                             ),
                           ],

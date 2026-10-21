@@ -310,14 +310,20 @@ class CommunityPostCard extends StatelessWidget {
                           ),
                       ],
                     ),
-                    if (post.rawBody.isNotEmpty || post.body.isNotEmpty) ...[
+                    if (post.htmlBody.isNotEmpty ||
+                        post.rawBody.isNotEmpty ||
+                        post.body.isNotEmpty) ...[
                       const SizedBox(height: 9),
-                      if (post.rawBody.isNotEmpty)
+                      if (post.htmlBody.isNotEmpty)
+                        CommunityRichContent.html(post.htmlBody)
+                      else if (post.rawBody.isNotEmpty)
                         CommunityRichContent(post.rawBody)
                       else
                         CollapsibleCommunityText(post.body),
                     ],
-                    if (post.rawBody.isEmpty && post.images.isNotEmpty) ...[
+                    if (post.htmlBody.isEmpty &&
+                        post.rawBody.isEmpty &&
+                        post.images.isNotEmpty) ...[
                       const SizedBox(height: 10),
                       CommunityImageStrip(urls: post.images),
                     ],
@@ -459,11 +465,15 @@ class CommunityPostCard extends StatelessWidget {
                       children: [
                         DefaultTextStyle.merge(
                           style: const TextStyle(fontSize: 15, height: 1.6),
-                          child: post.rawBody.isNotEmpty
+                          child: post.htmlBody.isNotEmpty
+                              ? CommunityRichContent.html(post.htmlBody)
+                              : post.rawBody.isNotEmpty
                               ? CommunityRichContent(post.rawBody)
                               : CollapsibleCommunityText(post.body),
                         ),
-                        if (post.rawBody.isEmpty && post.images.isNotEmpty) ...[
+                        if (post.htmlBody.isEmpty &&
+                            post.rawBody.isEmpty &&
+                            post.images.isNotEmpty) ...[
                           const SizedBox(height: 10),
                           CommunityImageStrip(urls: post.images),
                         ],

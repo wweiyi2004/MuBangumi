@@ -116,7 +116,11 @@ class CollectionLoader {
         SubjectType.anime,
         anime,
       );
-      merged = await _editor.overlayPendingCollections(username, merged);
+      merged = await _editor.overlayPendingCollections(
+        username,
+        merged,
+        sort: false,
+      );
       if (!_current(load)) return;
       merged = _editor.preserveCollectionsChangedAfter(merged, revision);
       CollectionReconciler.sortCollections(merged);
@@ -174,7 +178,11 @@ class CollectionLoader {
           type,
           items,
         );
-        merged = await _editor.overlayPendingCollections(username, merged);
+        merged = await _editor.overlayPendingCollections(
+          username,
+          merged,
+          sort: false,
+        );
         if (!_current(load)) return;
         merged = _editor.preserveCollectionsChangedAfter(merged, revision);
         CollectionReconciler.sortCollections(merged);
@@ -226,6 +234,7 @@ class CollectionLoader {
     var merged = await _editor.overlayPendingCollections(
       load.account.username,
       byId.values.toList(),
+      sort: false,
     );
     if (!_current(load)) return false;
     merged = _editor.preserveCollectionsChangedAfter(merged, revision);
@@ -260,9 +269,11 @@ class CollectionLoader {
       var merged = await _editor.overlayPendingCollections(
         load.account.username,
         [for (final page in pages) ...page],
+        sort: false,
       );
       if (!_current(load)) return null;
       merged = _editor.preserveCollectionsChangedAfter(merged, revision);
+      CollectionReconciler.sortCollections(merged);
       onProgress(
         CollectionLoadProgress(
           collections: merged,

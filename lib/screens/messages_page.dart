@@ -1,3 +1,4 @@
+import '../features/pm/presentation/pm_queue_action.dart';
 import '../core/theme/anime_icon.dart';
 import 'package:flutter/material.dart';
 import '../widgets/retained_tab_stack.dart';
@@ -32,6 +33,7 @@ class _MessagesPageState extends ConsumerState<MessagesPage> {
     );
     return MessageHubLayout(
       selectedTab: _tab,
+      queueAction: const PmQueueAction(),
       unreadCount: unread,
       onScan: () async {
         final added = await scanAndAddFriend(
@@ -80,11 +82,13 @@ class MessageHubLayout extends StatelessWidget {
     required this.onFriends,
     required this.content,
     this.onScan,
+    this.queueAction,
   });
   final int selectedTab, unreadCount;
   final ValueChanged<int> onSelectTab;
   final VoidCallback onFriends;
   final Widget content;
+  final Widget? queueAction;
   final VoidCallback? onScan;
   @override
   Widget build(BuildContext context) {
@@ -129,6 +133,7 @@ class MessageHubLayout extends StatelessWidget {
                               size: 23,
                             ),
                           ),
+                        ?queueAction,
                         TextButton.icon(
                           onPressed: onFriends,
                           icon: const AnimeIcon(

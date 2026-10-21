@@ -7,6 +7,7 @@ import 'navigation/app_destination.dart';
 import 'navigation/app_router.dart';
 export 'widgets/brand_mark.dart';
 import 'screens/auth_screen.dart';
+import 'screens/first_login_check_screen.dart';
 import 'screens/home_shell.dart';
 import 'screens/login_preparation_screen.dart';
 import 'state/background_controller.dart';
@@ -41,6 +42,9 @@ class MuBangumiApp extends ConsumerWidget {
     );
     final preparing = ref.watch(
       sessionProvider.select((state) => state.isPreparingHome),
+    );
+    final checkingAccess = ref.watch(
+      sessionProvider.select((state) => state.requiresAccessCheck),
     );
     final themeMode = ref.watch(themeModeProvider);
     final font = ref.watch(fontProvider.select((state) => state.selected));
@@ -89,6 +93,8 @@ class MuBangumiApp extends ConsumerWidget {
                 key: ValueKey('restore-login'),
               ),
               SessionPhase.signedOut => const AuthScreen(),
+              SessionPhase.signedIn when checkingAccess =>
+                const FirstLoginCheckScreen(key: ValueKey('first-login-check')),
               SessionPhase.signedIn =>
                 preparing
                     ? LoginPreparationScreen(

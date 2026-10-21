@@ -328,23 +328,25 @@ class ContentShareCard extends StatelessWidget {
       ),
       const SizedBox(height: 20),
       Expanded(
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            if (content.imageUrl.isNotEmpty) ...[
-              _cover(160, 220),
-              const SizedBox(width: 24),
-            ],
-            Expanded(
-              child: Text(
-                content.excerpt,
-                maxLines: 8,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(fontSize: 22, height: 1.6),
-              ),
-            ),
-          ],
-        ),
+        child: content.progressCard == null
+            ? Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  if (content.imageUrl.isNotEmpty) ...[
+                    _cover(160, 220),
+                    const SizedBox(width: 24),
+                  ],
+                  Expanded(
+                    child: Text(
+                      content.excerpt,
+                      maxLines: 8,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(fontSize: 22, height: 1.6),
+                    ),
+                  ),
+                ],
+              )
+            : _progressCard(content.progressCard!),
       ),
       Text(
         content.detail,
@@ -354,6 +356,111 @@ class ContentShareCard extends StatelessWidget {
       ),
       const SizedBox(height: 14),
       _metrics(),
+    ],
+  );
+
+  Widget _progressCard(ShareProgressCard progress) => Column(
+    crossAxisAlignment: CrossAxisAlignment.stretch,
+    children: [
+      Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: const Color(0xFFF7F4F8),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: const Color(0xFFE3E7EF)),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _cover(108, 144),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        progress.title,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontSize: 22,
+                          height: 1.3,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        progress.subtitle,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(fontSize: 15, color: muted),
+                      ),
+                      if (progress.score.isNotEmpty) ...[
+                        const SizedBox(height: 4),
+                        Text(
+                          progress.score,
+                          style: const TextStyle(
+                            fontSize: 14,
+                            color: accent,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            if (progress.marks.isNotEmpty) ...[
+              const SizedBox(height: 14),
+              Wrap(
+                spacing: 6,
+                runSpacing: 6,
+                children: [
+                  for (final mark in progress.marks)
+                    Container(
+                      constraints: const BoxConstraints(minWidth: 52),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 7,
+                      ),
+                      decoration: BoxDecoration(
+                        color: mark.active ? accent : Colors.white,
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(
+                          color: mark.active ? accent : const Color(0xFFE3E7EF),
+                        ),
+                      ),
+                      child: Text(
+                        mark.label,
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: mark.active
+                              ? FontWeight.w800
+                              : FontWeight.w500,
+                          color: mark.active ? Colors.white : ink,
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            ],
+          ],
+        ),
+      ),
+      if (content.excerpt.isNotEmpty) ...[
+        const SizedBox(height: 16),
+        Text(
+          content.excerpt,
+          maxLines: 3,
+          overflow: TextOverflow.ellipsis,
+          style: const TextStyle(fontSize: 18, height: 1.6),
+        ),
+      ],
     ],
   );
 

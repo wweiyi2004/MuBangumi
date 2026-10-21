@@ -1,10 +1,70 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mubangumi/core/auth/website_session.dart';
 import 'package:mubangumi/state/website_session_controller.dart';
 
 void main() {
+  for (final attribute in [
+    'Max-Age=3600',
+    'Expires=Thu, 01 Jan 2099 00:00:00 GMT',
+  ]) {
+    test(
+      'same-value authentication cookie renews $attribute without rebinding',
+      () async {
+        final oldExpiry = DateTime.now().add(const Duration(minutes: 1));
+        final initial = WebsiteSessionSnapshot(
+          cookies: [
+            WebsiteCookie(
+              name: 'chii_auth',
+              value: 'synthetic',
+              expiresAt: oldExpiry,
+              isHttpOnly: true,
+            ),
+          ],
+          syncedAt: DateTime.now(),
+        ).withVerifiedUser(42);
+        final store = _CountingWebsiteStore()..snapshot = initial;
+        final controller = WebsiteSessionController(store);
+        addTearDown(controller.dispose);
+        await _waitFor(() => controller.state.ready);
+
+        final renewed = await controller.absorbResponseCookies(
+          initial.requestKey,
+          [
+            Cookie.fromSetCookieValue(
+              'chii_auth=synthetic; Domain=bgm.tv; Path=/; $attribute; Secure; HttpOnly',
+            ),
+          ],
+        );
+
+        expect(renewed, isNotNull);
+        expect(renewed!.cookies.single.expiresAt!.isAfter(oldExpiry), isTrue);
+        expect(
+          renewed.isVerifiedFor(42, oldExpiry.add(const Duration(seconds: 1))),
+          isTrue,
+        );
+        expect(renewed.authenticationKey, initial.authenticationKey);
+        expect(renewed.verificationId, initial.verificationId);
+        expect(renewed.requestKey, isNot(initial.requestKey));
+        expect(store.snapshot!.requestKey, renewed.requestKey);
+        expect(store.writes, 1);
+
+        // Identical attributes still avoid a redundant durable write.
+        await controller.absorbResponseCookies(renewed.requestKey, [
+          Cookie('chii_auth', 'synthetic')
+            ..domain = 'bgm.tv'
+            ..path = '/'
+            ..expires = renewed.cookies.single.expiresAt
+            ..secure = true
+            ..httpOnly = true,
+        ]);
+        expect(store.writes, 1);
+      },
+    );
+  }
+
   test(
     'owner verification survives a challenge refresh but not a new auth cookie',
     () async {

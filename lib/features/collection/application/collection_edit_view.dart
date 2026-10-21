@@ -9,12 +9,14 @@ class CollectionEditView {
     this.updatingSubjects = const {},
     this.episodeUndo,
     this.lastEpisodeEdit,
+    this.activityRevision = 0,
   });
 
   final List<UserCollection> collections;
   final Set<int> updatingSubjects;
   final EpisodeUndo? episodeUndo;
   final EpisodeEdit? lastEpisodeEdit;
+  final int activityRevision;
 
   UserCollection? collectionFor(int subjectId) =>
       collections.where((item) => item.subjectId == subjectId).firstOrNull;
@@ -25,10 +27,12 @@ class CollectionEditView {
     EpisodeUndo? episodeUndo,
     bool clearEpisodeUndo = false,
     EpisodeEdit? lastEpisodeEdit,
+    int? activityRevision,
   }) => CollectionEditView(
     collections: collections ?? this.collections,
     updatingSubjects: updatingSubjects ?? this.updatingSubjects,
     episodeUndo: clearEpisodeUndo ? null : episodeUndo ?? this.episodeUndo,
     lastEpisodeEdit: lastEpisodeEdit ?? this.lastEpisodeEdit,
+    activityRevision: activityRevision ?? this.activityRevision,
   );
 }

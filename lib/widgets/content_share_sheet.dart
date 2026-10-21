@@ -2,7 +2,7 @@ import '../core/theme/anime_icon.dart';
 import 'dart:async';
 
 import 'package:cached_network_image/cached_network_image.dart';
-import 'package:file_picker/file_picker.dart';
+import '../core/sharing/image_export.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:share_plus/share_plus.dart';
@@ -131,18 +131,11 @@ class _ContentShareSheetState extends State<ContentShareSheet> {
         if (!mounted) return;
         final filename = 'MuBangumi-${widget.content.fileKey}.png';
         if (action == 'save') {
-          final destination = await FilePicker.platform.saveFile(
-            dialogTitle: '保存分享卡片',
-            fileName: filename,
-            type: FileType.custom,
-            allowedExtensions: ['png'],
-            bytes: bytes,
-            lockParentWindow: true,
-          );
-          if (mounted && destination != null) {
+          final message = await ImageExport.save(bytes, filename);
+          if (mounted && message != null) {
             ScaffoldMessenger.of(
               context,
-            ).showSnackBar(const SnackBar(content: Text('分享卡片已保存到所选位置')));
+            ).showSnackBar(SnackBar(content: Text(message)));
           }
         } else {
           await Share.shareXFiles(
@@ -167,8 +160,15 @@ class _ContentShareSheetState extends State<ContentShareSheet> {
   }
 
   Future<void> _chooseImageAction() async {
-    final action = await showDialog<String>(
+    final action = await showModalBottomSheet<String>(
       context: context,
+      showDragHandle: true,
+      useSafeArea: true,
+      constraints: const BoxConstraints(maxWidth: 640),
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(32)),
+      ),
       builder: (_) =>
           ContentImageActions(content: widget.content, image: _image),
     );
@@ -301,91 +301,79 @@ class ContentImageActions extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    return Dialog(
-      insetPadding: const EdgeInsets.all(20),
-      clipBehavior: Clip.antiAlias,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(28)),
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 400),
-        child: SingleChildScrollView(
-          child: Container(
-            padding: const EdgeInsets.all(20),
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-                colors: [
-                  scheme.primaryContainer.withValues(alpha: .55),
-                  scheme.surface,
-                  scheme.secondaryContainer.withValues(alpha: .35),
+    return SafeArea(
+      child: SingleChildScrollView(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(24, 0, 24, 24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      '分享图片',
+                      style: Theme.of(context).textTheme.headlineSmall
+                          ?.copyWith(fontWeight: FontWeight.w700),
+                    ),
+                  ),
+                  IconButton(
+                    tooltip: '关闭图片分享',
+                    onPressed: () => Navigator.pop(context),
+                    icon: const AnimeIcon(Icons.close_rounded),
+                  ),
                 ],
               ),
-            ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Row(
-                  children: [
-                    AnimeIcon(
-                      Icons.favorite_rounded,
-                      color: scheme.primary,
-                      size: 22,
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        '把喜欢分享出去',
-                        style: Theme.of(context).textTheme.titleMedium,
-                      ),
-                    ),
-                    IconButton(
-                      tooltip: '关闭图片分享',
-                      onPressed: () => Navigator.pop(context),
-                      icon: const AnimeIcon(Icons.close_rounded),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                SizedBox(
-                  height: 180,
-                  child: FittedBox(
-                    child: ClipRRect(
-                      borderRadius: BorderRadius.circular(24),
-                      child: ContentShareCard(content: content, image: image),
-                    ),
+              const SizedBox(height: 16),
+              Container(
+                height: 190,
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: scheme.primaryContainer.withValues(alpha: .25),
+                  borderRadius: BorderRadius.circular(24),
+                  border: Border.all(
+                    color: scheme.outlineVariant.withValues(alpha: .5),
                   ),
                 ),
-                const SizedBox(height: 16),
-                Text(
-                  content.title,
-                  textAlign: TextAlign.center,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: Theme.of(context).textTheme.titleSmall,
+                child: FittedBox(
+                  child: ContentShareCard(content: content, image: image),
                 ),
-                const SizedBox(height: 16),
-                FilledButton.icon(
-                  onPressed: () => Navigator.pop(context, 'image'),
-                  icon: const AnimeIcon(Icons.ios_share_rounded, size: 20),
-                  label: const Text('发送到其他应用'),
-                ),
-                const SizedBox(height: 8),
-                OutlinedButton.icon(
-                  onPressed: () => Navigator.pop(context, 'save'),
-                  icon: const AnimeIcon(Icons.download_rounded, size: 20),
-                  label: const Text('保存这张卡片'),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  '让今天的小小心动，被更多人看见',
-                  textAlign: TextAlign.center,
-                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: scheme.onSurfaceVariant,
-                  ),
-                ),
-              ],
-            ),
+              ),
+              const SizedBox(height: 18),
+              Text(
+                content.title,
+                textAlign: TextAlign.center,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: Theme.of(context).textTheme.titleMedium,
+              ),
+              const SizedBox(height: 8),
+              Text(
+                '通过系统分享面板选择 QQ、微信等应用',
+                textAlign: TextAlign.center,
+                style: Theme.of(
+                  context,
+                ).textTheme.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
+              ),
+              const SizedBox(height: 20),
+              FilledButton.icon(
+                onPressed: () => Navigator.pop(context, 'image'),
+                icon: const AnimeIcon(Icons.ios_share_rounded),
+                label: const Text('发送到其他应用'),
+              ),
+              const SizedBox(height: 10),
+              OutlinedButton.icon(
+                onPressed: () => Navigator.pop(context, 'save'),
+                icon: const AnimeIcon(Icons.save_alt_rounded),
+                label: const Text('保存这张卡片'),
+              ),
+              const SizedBox(height: 6),
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('取消'),
+              ),
+            ],
           ),
         ),
       ),

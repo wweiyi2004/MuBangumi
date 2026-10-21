@@ -39,10 +39,16 @@ bool _isTransientTransportFailure(DioException error) => switch (error.type) {
 /// That included the `/me` call which completes an OAuth sign-in, so a brief
 /// network hiccup could cost the user a whole browser authorization.
 ///
-/// Writes are never retried here — a lost response may still have been applied
-/// server-side, so resending is the caller's decision, not a transport detail.
+/// Search POSTs are read-only. All other POSTs and writes remain excluded.
 bool shouldRetryBangumiReadRequest(DioException error) {
-  if (error.requestOptions.method.toUpperCase() != 'GET') return false;
+  final request = error.requestOptions;
+  final method = request.method.toUpperCase();
+  final searchRead =
+      method == 'POST' &&
+      RegExp(
+        r'^/(?:v0/)?search/(?:subjects|characters|persons)$',
+      ).hasMatch(request.uri.path);
+  if (method != 'GET' && !searchRead) return false;
   if (_isTransientTransportFailure(error)) return true;
   return const {502, 503, 504}.contains(error.response?.statusCode);
 }
@@ -353,7 +359,11 @@ class BangumiApi {
       () => _dio.post<Map<String, dynamic>>(
         '/search/subjects',
         queryParameters: BangumiSupport.pageQuery(limit: limit, offset: offset),
-        data: {'keyword': keyword, 'sort': sort, 'filter': filter},
+        data: {
+          'keyword': keyword.trim(),
+          'sort': keyword.trim().isEmpty && sort == 'match' ? 'rank' : sort,
+          'filter': filter,
+        },
       ),
     );
     return _subjectsFromPage(response.data);

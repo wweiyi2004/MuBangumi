@@ -1,6 +1,8 @@
 import '../core/theme/anime_icon.dart';
 import '../navigation/app_destination.dart';
-import 'dart:convert';
+import 'dart:async';
+import '../core/insights/collection_summary.dart';
+import '../widgets/content_loading.dart';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -38,6 +40,7 @@ class CollectionStatsPage extends StatefulWidget {
     this.isLoading = false,
     this.isCached = false,
     this.coverage,
+    this.computeSummary,
   });
 
   final String username;
@@ -46,14 +49,16 @@ class CollectionStatsPage extends StatefulWidget {
   final bool isLoading;
   final bool isCached;
   final CollectionCoverage? coverage;
+  final Future<CollectionSummary> Function(CollectionSummaryInput)?
+  computeSummary;
 
   @override
   State<CollectionStatsPage> createState() => _CollectionStatsPageState();
 }
 
 class _CollectionStatsPageState extends State<CollectionStatsPage> {
-  late CollectionStatistics _statistics;
-  late List<UserCollection> _filtered;
+  CollectionStatistics _statistics = CollectionStatistics([]);
+  List<UserCollection> _filtered = const [];
   CollectionYearReview? _review;
   SubjectType? _subjectType;
   bool _annual = false;
@@ -61,10 +66,15 @@ class _CollectionStatsPageState extends State<CollectionStatsPage> {
   int _annualSection = 0;
   int? _month;
   int? _year;
+  int? _selectedYear;
   CollectionMemoryOrder _order = CollectionMemoryOrder.highest;
   bool _exporting = false;
   bool _choosingExport = false;
   final _exportButtonKey = GlobalKey();
+  bool _workerBusy = false, _recomputing = false, _hasSummary = false;
+  int _summaryRevision = 0;
+  ({int revision, CollectionSummaryInput input})? _pendingSummary;
+  String? _summaryError;
 
   @override
   void initState() {
@@ -75,19 +85,73 @@ class _CollectionStatsPageState extends State<CollectionStatsPage> {
   @override
   void didUpdateWidget(covariant CollectionStatsPage oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.collections != widget.collections) _recompute();
+    if (oldWidget.username != widget.username) {
+      _hasSummary = false;
+      _filtered = const [];
+      _statistics = CollectionStatistics([]);
+      _year = null;
+      _selectedYear = null;
+      _review = null;
+    }
+    if (oldWidget.collections != widget.collections ||
+        oldWidget.username != widget.username) {
+      _recompute();
+    }
   }
 
   void _recompute() {
-    _filtered = [
-      for (final item in widget.collections)
-        if (_subjectType == null || item.subject.type == _subjectType) item,
-    ];
-    _statistics = CollectionStatistics(_filtered);
-    _year ??= _statistics.years.contains(DateTime.now().year)
-        ? DateTime.now().year
-        : _statistics.years.firstOrNull ?? DateTime.now().year;
-    _review = CollectionYearReview(_filtered, _year!);
+    final revision = ++_summaryRevision;
+    final input = (
+      collections: widget.collections,
+      type: _subjectType,
+      year: _selectedYear,
+      currentYear: DateTime.now().year,
+    );
+    _summaryError = null;
+    if (widget.collections.length < 500) {
+      _pendingSummary = null;
+      _applySummary(summarizeCollections(input));
+      return;
+    }
+    _recomputing = true;
+    _pendingSummary = (revision: revision, input: input);
+    if (!_workerBusy) unawaited(_drainSummaries());
+  }
+
+  void _applySummary(CollectionSummary summary) {
+    _filtered = summary.items;
+    _statistics = summary.statistics;
+    _review = summary.review;
+    _year = summary.review.year;
+    _hasSummary = true;
+    _recomputing = false;
+  }
+
+  Future<void> _drainSummaries() async {
+    _workerBusy = true;
+    try {
+      while (mounted && _pendingSummary != null) {
+        final request = _pendingSummary!;
+        _pendingSummary = null;
+        try {
+          final summary =
+              await (widget.computeSummary?.call(request.input) ??
+                  compute(summarizeCollections, request.input));
+          if (mounted && request.revision == _summaryRevision) {
+            setState(() => _applySummary(summary));
+          }
+        } catch (_) {
+          if (mounted && request.revision == _summaryRevision) {
+            setState(() {
+              _recomputing = false;
+              _summaryError = '统计暂时未能完成，请重试';
+            });
+          }
+        }
+      }
+    } finally {
+      _workerBusy = false;
+    }
   }
 
   void _selectType(SubjectType? type) {
@@ -119,6 +183,7 @@ class _CollectionStatsPageState extends State<CollectionStatsPage> {
 
   Future<void> _exportJson() async {
     if (_exporting || _choosingExport) return;
+    final owner = widget.username;
     setState(() => _choosingExport = true);
     try {
       final box =
@@ -158,7 +223,7 @@ class _CollectionStatsPageState extends State<CollectionStatsPage> {
           ),
         ),
       );
-      if (action == null || !mounted) return;
+      if (action == null || !mounted || owner != widget.username) return;
       setState(() {
         _choosingExport = false;
         _exporting = true;
@@ -170,33 +235,13 @@ class _CollectionStatsPageState extends State<CollectionStatsPage> {
         '_',
       );
       final filename = 'MuBangumi_${safeUsername}_$stamp.json';
-      final payload = <String, Object?>{
-        'schema_version': 1,
-        'exported_at': now.toIso8601String(),
-        'username': widget.username,
-        'count': widget.collections.length,
-        if (widget.coverage != null) 'coverage': widget.coverage!.toJson(),
-        'collections': [
-          for (final item in widget.collections)
-            {
-              'subject_id': item.subjectId,
-              'subject_type': item.subject.type.value,
-              'subject_name': item.subject.name,
-              'subject_name_cn': item.subject.nameCn,
-              'collection_type': item.type.value,
-              'rate': item.rate,
-              'episode_status': item.episodeStatus,
-              'volume_status': item.volumeStatus,
-              'updated_at': item.updatedAt?.toIso8601String(),
-              'comment': item.comment,
-              'tags': item.tags,
-              'private': item.private,
-            },
-        ],
-      };
-      final encoded = await compute(_encodeCollectionExport, payload);
-      if (!mounted) return;
-      final bytes = Uint8List.fromList(utf8.encode(encoded));
+      final bytes = await compute(encodeCollectionExport, (
+        at: now,
+        username: owner,
+        items: widget.collections,
+        coverage: widget.coverage,
+      ));
+      if (!mounted || owner != widget.username) return;
       if (action == _ExportAction.share) {
         await Share.shareXFiles(
           [XFile.fromData(bytes, mimeType: 'application/json')],
@@ -235,7 +280,7 @@ class _CollectionStatsPageState extends State<CollectionStatsPage> {
 
   @override
   Widget build(BuildContext context) {
-    final years = {DateTime.now().year, _year!, ..._statistics.years}.toList()
+    final years = {DateTime.now().year, ?_year, ..._statistics.years}.toList()
       ..sort((a, b) => b.compareTo(a));
     return Scaffold(
       appBar: AppBar(
@@ -281,6 +326,15 @@ class _CollectionStatsPageState extends State<CollectionStatsPage> {
               key: PageStorageKey('stats:$_annual'),
               padding: const EdgeInsets.fromLTRB(18, 12, 18, 40),
               children: [
+                LoadingStatus(
+                  active: _recomputing,
+                  message: _hasSummary ? '正在更新统计，暂时显示上一结果' : '正在整理收藏统计',
+                ),
+                if (_summaryError != null)
+                  TextButton(
+                    onPressed: () => setState(_recompute),
+                    child: Text(_summaryError!),
+                  ),
                 if (widget.coverage?.isComplete == false &&
                     !widget.isLoading) ...[
                   Text(
@@ -357,7 +411,7 @@ class _CollectionStatsPageState extends State<CollectionStatsPage> {
                       DropdownButton<int>(
                         borderRadius: BorderRadius.circular(16),
                         dropdownColor: Theme.of(context).colorScheme.surface,
-                        value: _year,
+                        value: _year ?? DateTime.now().year,
                         underline: const SizedBox.shrink(),
                         items: [
                           for (final year in years)
@@ -370,17 +424,23 @@ class _CollectionStatsPageState extends State<CollectionStatsPage> {
                           if (year == null) return;
                           setState(() {
                             _year = year;
+                            _selectedYear = year;
                             _month = null;
-                            _review = CollectionYearReview(_filtered, year);
+                            _recompute();
                           });
                         },
                       ),
                     ],
                   ),
                   const SizedBox(height: 8),
-                  ..._annualContent(context),
-                ] else
-                  ..._overviewContent(context),
+                  if (_hasSummary)
+                    ..._annualContent(context)
+                  else
+                    const ContentSkeleton(),
+                ] else if (_hasSummary)
+                  ..._overviewContent(context)
+                else
+                  const ContentSkeleton(),
               ],
             ),
           ),
@@ -843,9 +903,6 @@ class _CollectionStatsPageState extends State<CollectionStatsPage> {
     ),
   );
 }
-
-String _encodeCollectionExport(Map<String, Object?> payload) =>
-    const JsonEncoder.withIndent('  ').convert(payload);
 
 class _LedgerHeading extends StatelessWidget {
   const _LedgerHeading({

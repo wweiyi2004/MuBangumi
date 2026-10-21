@@ -37,6 +37,8 @@
 	</dict>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>用于从相册中选择二维码图片识别</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>用于将新番表、评分图和分享卡片保存到系统相册</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

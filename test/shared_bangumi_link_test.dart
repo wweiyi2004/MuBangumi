@@ -3,6 +3,41 @@ import 'package:mubangumi/core/shortcuts/shared_bangumi_link.dart';
 import 'package:mubangumi/state/shared_link_controller.dart';
 
 void main() {
+  test(
+    'discussion anchors survive aliases, QR round trips and share deduplication',
+    () {
+      for (final path in [
+        'group/topic/9',
+        'rakuen/topic/group/9',
+        'rakuen/topic/grp/9',
+        'subject/topic/9',
+        'rakuen/topic/subject/9',
+        'rakuen/topic/sbj/9',
+        'ep/9',
+        'person/9',
+        'character/9',
+        'rakuen/topic/prsn/9',
+        'rakuen/topic/crt/9',
+      ]) {
+        final link = SharedBangumiLink.parse('https://bgm.tv/$path#post_80')!;
+        expect(link.postId, 80);
+        expect(link.url, endsWith('#post_80'));
+        final decoded = SharedBangumiLink.parse(link.qrUrl)!;
+        expect(decoded.url, link.url);
+        expect(decoded.postId, 80);
+      }
+      expect(
+        SharedBangumiLink.fromText(
+          'https://bgm.tv/group/topic/9#post_80 https://bgm.tv/group/topic/9#post_81',
+        ),
+        hasLength(2),
+      );
+      expect(
+        SharedBangumiLink.parse('https://bgm.tv/group/topic/9#post_0')!.postId,
+        isNull,
+      );
+    },
+  );
   test('accepts supported Bangumi aliases and canonicalizes shared text', () {
     final links = SharedBangumiLink.fromText(
       '推荐 https://bangumi.tv/subject/42?from=chat 。'

@@ -7,6 +7,11 @@ class PmEnqueuedDraft {
   final int revision;
 }
 
+/// Optional migration capability for old queues that stored website usernames.
+abstract interface class PmRecipientBindings {
+  Future<void> bindRecipient(int ownerId, String commandId, int recipientId);
+}
+
 /// Implemented with the draft store so enqueue + clearing the exact draft
 /// revision commit together. No credentials or CSRF forms are persisted here.
 abstract interface class PmOutboxRepository {

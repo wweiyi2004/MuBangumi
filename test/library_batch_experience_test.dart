@@ -1,6 +1,7 @@
 import 'package:mubangumi/navigation/app_destination.dart';
 import 'package:mubangumi/navigation/app_router.dart';
 import 'dart:async';
+import 'dart:collection';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -19,6 +20,40 @@ import 'support/ux_visuals.dart';
 final _boundary = GlobalKey();
 
 void main() {
+  testWidgets(
+    'selection changes reuse filtered collections without rescanning the source',
+    (tester) async {
+      final env = _Environment();
+      final source = _CountingCollections([
+        for (var id = 1; id <= 1000; id++) batchFixtureCollection(id),
+      ]);
+      env.api.server = source;
+      await _show(tester, env);
+      await tester.tap(find.byKey(const ValueKey('library-selection-toggle')));
+      await tester.pumpAndSettle();
+      final visible = find
+          .byWidgetPredicate(
+            (widget) =>
+                widget.key is ValueKey<String> &&
+                (widget.key as ValueKey<String>).value.startsWith(
+                  'library-select-',
+                ),
+          )
+          .hitTestable()
+          .evaluate()
+          .take(2)
+          .map((element) => element.widget.key!)
+          .toList();
+      expect(visible, hasLength(2));
+      await tester.tap(find.byKey(visible.first));
+      await tester.pumpAndSettle();
+      source.reads = 0;
+      await tester.tap(find.byKey(visible.last));
+      await tester.pumpAndSettle();
+      expect(source.reads, 0);
+      expect(find.text('已选 2 部'), findsOneWidget);
+    },
+  );
   testWidgets(
     'phone collection covers appear early and status menu filters directly',
     (tester) async {
@@ -355,4 +390,23 @@ Future<void> _show(
     ),
   );
   await tester.pumpAndSettle();
+}
+
+class _CountingCollections extends ListBase<UserCollection> {
+  _CountingCollections(this.values);
+  final List<UserCollection> values;
+  int reads = 0;
+  @override
+  int get length => values.length;
+  @override
+  set length(int value) => throw UnsupportedError('immutable fixture');
+  @override
+  UserCollection operator [](int index) {
+    reads++;
+    return values[index];
+  }
+
+  @override
+  void operator []=(int index, UserCollection value) =>
+      throw UnsupportedError('immutable fixture');
 }

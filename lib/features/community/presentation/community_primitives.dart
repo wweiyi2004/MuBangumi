@@ -105,6 +105,12 @@ class CollapsibleCommunityText extends StatefulWidget {
 class _CollapsibleCommunityTextState extends State<CollapsibleCommunityText> {
   bool _expanded = false;
 
+  @override
+  void didUpdateWidget(covariant CollapsibleCommunityText oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.text != widget.text) _expanded = false;
+  }
+
   bool get _isLong =>
       widget.text.length > widget.collapseAfter ||
       '\n'.allMatches(widget.text).length >= 14;

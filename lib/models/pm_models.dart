@@ -20,6 +20,17 @@ class PmConversation {
   final String avatarUrl;
   final String timeText;
   final bool isUnread;
+
+  PmConversation copyWith({bool? isUnread}) => PmConversation(
+    id: id,
+    title: title,
+    preview: preview,
+    peerName: peerName,
+    peerUserId: peerUserId,
+    avatarUrl: avatarUrl,
+    timeText: timeText,
+    isUnread: isUnread ?? this.isUnread,
+  );
 }
 
 class PmMessage {

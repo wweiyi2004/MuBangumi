@@ -108,7 +108,7 @@ void main() {
     }
 
     final first = cache.get('a', load);
-    final second = cache.get('a', load, refresh: true);
+    final second = cache.get('a', load);
     now = now.add(const Duration(minutes: 3));
     response.complete(1);
     expect(await first, 1);
@@ -119,6 +119,38 @@ void main() {
     await cache.get('a', load);
     expect(calls, 2);
   });
+
+  test(
+    'refresh supersedes an earlier ordinary read but joins a refresh',
+    () async {
+      final cache = AsyncCache<int>(
+        maxAge: const Duration(minutes: 2),
+        maxEntries: 2,
+      );
+      final older = Completer<int>();
+      final newer = Completer<int>();
+      var calls = 0;
+      final ordinary = cache.get('a', () {
+        calls++;
+        return older.future;
+      });
+      final refreshed = cache.get('a', () {
+        calls++;
+        return newer.future;
+      }, refresh: true);
+      final joined = cache.get('a', () async => -1, refresh: true);
+      final reader = cache.get('a', () async => -1);
+      expect(calls, 2);
+      newer.complete(2);
+      older.complete(1);
+      expect(await ordinary, 1);
+      expect(await refreshed, 2);
+      expect(await joined, 2);
+      expect(await reader, 2);
+      // The superseded ordinary read must not overwrite the refreshed value.
+      expect(await cache.get('a', () async => -1), 2);
+    },
+  );
 
   test('failure is retryable and refresh bypasses completed cache', () async {
     final cache = AsyncCache<int>(

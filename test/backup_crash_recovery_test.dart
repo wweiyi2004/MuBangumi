@@ -19,6 +19,13 @@ void main() {
       final stores = BackupTestStores(dir);
       addTearDown(() async {
         await stores.close();
+        if (!path.isWithin(
+              Directory.systemTemp.resolveSymbolicLinksSync(),
+              dir.resolveSymbolicLinksSync(),
+            ) ||
+            !path.basename(dir.path).startsWith('mubangumi-backup-crash-')) {
+          throw StateError('Unexpected crash-test cleanup path');
+        }
         await dir.delete(recursive: true);
       });
       await stores.seed();
@@ -122,7 +129,7 @@ void main() {
       ]) {
         await File(relative).copy(path.join(runner.path, relative));
       }
-      final process = await Process.run(
+      final child = await Process.start(
         executable,
         [
           'test',
@@ -136,6 +143,38 @@ void main() {
         workingDirectory: runner.path,
         runInShell: Platform.isWindows,
       );
+      var finished = false;
+      final exited = child.exitCode.whenComplete(() => finished = true);
+      final stdout = child.stdout
+          .transform(const Utf8Decoder(allowMalformed: true))
+          .join();
+      final stderr = child.stderr
+          .transform(const Utf8Decoder(allowMalformed: true))
+          .join();
+      Future<void> terminateChild() async {
+        if (finished) return;
+        if (Platform.isWindows) {
+          // Only this test's owned process tree; no global dart/flutter kills.
+          await Process.run('taskkill', [
+            '/PID',
+            '${child.pid}',
+            '/T',
+            '/F',
+          ]).timeout(const Duration(seconds: 10));
+        } else {
+          child.kill(ProcessSignal.sigkill);
+        }
+        await exited.timeout(const Duration(seconds: 10));
+      }
+
+      addTearDown(terminateChild);
+      late ({int exitCode, String stdout, String stderr}) process;
+      try {
+        final code = await exited.timeout(const Duration(minutes: 3));
+        process = (exitCode: code, stdout: await stdout, stderr: await stderr);
+      } finally {
+        await terminateChild();
+      }
       final marker = File(path.join(dir.path, 'crashed.json'));
       expect(
         marker.existsSync(),
@@ -176,6 +215,6 @@ void main() {
         true,
       );
     },
-    timeout: const Timeout(Duration(minutes: 2)),
+    timeout: const Timeout(Duration(minutes: 5)),
   );
 }

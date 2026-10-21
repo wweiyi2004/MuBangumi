@@ -29,6 +29,16 @@ npm run test:browser
 
 `check` 依次运行 lint、类型检查、Workers 环境下的 SSR 检查和静态导出测试。浏览器测试在桌面和手机视口验证进度、筛选、贴贴、话题预览和横向溢出；只访问本地静态文件。
 
+## 依赖安全修复
+
+`overrides` 将 `sharp` 固定到 0.35.5、`source-map-js` 固定到 1.2.2，分别修复 [librsvg 漏洞](https://github.com/advisories/GHSA-wq5f-xc86-pv6w)和[索引 source map 拒绝服务漏洞](https://github.com/advisories/GHSA-68fv-2mgg-jv7q)。
+
+`braces` 的[递归栈溢出漏洞](https://github.com/advisories/GHSA-vfj7-8cjw-p6xm)尚无正式修复版。当前临时采用上游待合并的 [PR #78](https://github.com/micromatch/braces/pull/78)，固定提交 `97308a01d091b211cf015314a2d0696da28a5392` 的 HTTPS 源码包与完整性校验值；它限制字符串解析及调用方提供 AST 的递归深度。此补丁保留原来的 `3.0.3` 版本号，原始 npm 审计仍会列出该告警及其依赖链。
+
+`audit:security` 先验证安装代码的 SHA-256、锁文件来源和完整性，再运行深层嵌套字符串/AST、普通 glob、source map 与 SVG 转换回归。审计日志保留完整的原始 npm 报告；仅该漏洞及完全由它导致的告警可标记为已缓解。补丁不匹配、同一依赖的新漏洞及其他 high/critical 告警都会失败。`security/braces-patch.json` 记录了补丁来源与校验值。
+
+上游发布正式修复版后，应改用正式 npm 包，并一并移除这个临时补丁清单和专用审计判断，保留攻击回归。补丁没有覆盖库的所有资源耗尽风险，不能据此认定任意 glob 或 AST 输入均安全。
+
 GitHub Pages 静态版本使用：
 
 ```powershell

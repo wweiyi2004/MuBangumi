@@ -1,4 +1,6 @@
 import 'brand_qr.dart';
+import '../core/sharing/image_export.dart';
+import 'package:path/path.dart' as path;
 import '../core/theme/anime_icon.dart';
 import 'dart:io';
 import 'package:flutter/material.dart';
@@ -129,6 +131,26 @@ class _GroupQrSheetState extends State<_GroupQrSheet> {
                     : () async {
                         final file = await _export();
                         if (file != null && context.mounted) {
+                          if (Platform.isAndroid || Platform.isIOS) {
+                            try {
+                              final message = await ImageExport.save(
+                                await file.readAsBytes(),
+                                path.basename(file.path),
+                              );
+                              if (context.mounted && message != null) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(content: Text(message)),
+                                );
+                              }
+                            } catch (_) {
+                              if (context.mounted) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(content: Text('保存到相册失败，请重试')),
+                                );
+                              }
+                            }
+                            return;
+                          }
                           ScaffoldMessenger.of(context).showSnackBar(
                             SnackBar(content: Text('已保存：${file.path}')),
                           );
@@ -143,9 +165,14 @@ class _GroupQrSheetState extends State<_GroupQrSheet> {
                     : () async {
                         final file = await _export();
                         if (file != null && context.mounted) {
-                          await Share.shareXFiles([
-                            XFile(file.path, mimeType: 'image/png'),
-                          ], text: '${widget.group.name} · $_url');
+                          final box = context.findRenderObject() as RenderBox?;
+                          await Share.shareXFiles(
+                            [XFile(file.path, mimeType: 'image/png')],
+                            text: '${widget.group.name} · $_url',
+                            sharePositionOrigin: box == null
+                                ? null
+                                : box.localToGlobal(Offset.zero) & box.size,
+                          );
                         }
                       },
                 icon: const AnimeIcon(Icons.share_outlined),

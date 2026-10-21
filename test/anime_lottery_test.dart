@@ -31,6 +31,35 @@ UserCollection _collection(
 
 void main() {
   test(
+    'warm draws reuse public pages, avoid repeats, and honor new exclusions',
+    () async {
+      var calls = 0;
+      var now = DateTime(2026);
+      final lottery = AnimeLottery(random: _ZeroRandom(), clock: () => now);
+      final excluded = <int>{};
+      Future<Subject?> draw() => lottery.draw(
+        prize: AnimePrize.good,
+        fetch: (_, _) async {
+          calls++;
+          return AnimeLotteryPage(
+            total: 3,
+            subjects: [for (var i = 1; i <= 3; i++) _subject(i, 8)],
+          );
+        },
+        excludedIds: () => excluded,
+        isCurrent: () => true,
+      );
+      expect((await draw())?.id, 1);
+      excluded.add(2);
+      expect((await draw())?.id, 3);
+      expect(calls, 1);
+      now = now.add(const Duration(minutes: 6));
+      lottery.resetHistory();
+      expect((await draw())?.id, 1);
+      expect(calls, 2);
+    },
+  );
+  test(
     'prizes include boundary ratings and reject unscored, wrong type and NSFW',
     () {
       expect(AnimePrize.good.permits(_subject(1, 8)), true);

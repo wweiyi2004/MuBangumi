@@ -35,9 +35,20 @@ class FriendQr {
   }
 
   static String? decodePayloadFromImageBytes(Uint8List bytes) {
-    final image = img.decodeImage(bytes);
-    if (image == null) return null;
     try {
+      if (bytes.length > 20 * 1024 * 1024) return null;
+      final decoder = img.findDecoderForData(bytes);
+      final info = decoder?.startDecode(bytes);
+      if (info == null ||
+          info.width <= 0 ||
+          info.height <= 0 ||
+          info.width > 8192 ||
+          info.height > 8192 ||
+          info.width * info.height > 16 * 1024 * 1024) {
+        return null;
+      }
+      final image = decoder!.decodeFrame(0);
+      if (image == null) return null;
       final pixels = image
           .convert(numChannels: 4)
           .getBytes(order: img.ChannelOrder.abgr)

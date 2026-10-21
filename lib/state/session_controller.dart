@@ -1,4 +1,5 @@
 import 'dart:async';
+import '../core/auth/auth_cleanup_marker.dart';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -96,6 +97,9 @@ class SessionController extends StateNotifier<SessionState>
           pendingSyncCount: progress.pendingCount,
           blockedSyncCount: progress.blockedCount,
           isSyncing: progress.isSyncing,
+          episodeActivityRevision: progress.activityChanged
+              ? state.episodeActivityRevision + 1
+              : null,
         );
       },
       messageFor: _messageFor,
@@ -110,6 +114,7 @@ class SessionController extends StateNotifier<SessionState>
         updatingSubjects: state.updatingSubjects,
         episodeUndo: state.episodeUndo,
         lastEpisodeEdit: state.lastEpisodeEdit,
+        activityRevision: state.episodeActivityRevision,
       ),
       writeView: (view) {
         state = state.copyWith(
@@ -118,6 +123,7 @@ class SessionController extends StateNotifier<SessionState>
           episodeUndo: view.episodeUndo,
           clearEpisodeUndo: view.episodeUndo == null,
           lastEpisodeEdit: view.lastEpisodeEdit,
+          episodeActivityRevision: view.activityRevision,
         );
       },
       isAlive: () => mounted,
@@ -220,6 +226,17 @@ class SessionController extends StateNotifier<SessionState>
       networkRoute: _networkRoute,
     );
     try {
+      if ((await AuthCleanupMarker.current()).apiPending) {
+        if (_isCurrentAuth(generation)) {
+          state = SessionState(
+            phase: SessionPhase.signedOut,
+            networkRoute: _networkRoute,
+            canRetrySignOut: true,
+            message: '上次退出尚未完成，请重试清理本机登录数据',
+          );
+        }
+        return;
+      }
       final saved = await _credentials.readStored(generation);
       if (saved == null || !_isCurrentAuth(generation)) return;
       _networkRoute = saved.route;
@@ -318,6 +335,7 @@ class SessionController extends StateNotifier<SessionState>
         lastUser.username,
         snapshot ?? const [],
       );
+      final requiresAccessCheck = await _readAccessCheckPending(lastUser.id);
       if (!_isCurrentAuth(generation)) return false;
       _credentials.setAccessToken(token);
       _community.setCurrentUsername(
@@ -328,6 +346,7 @@ class SessionController extends StateNotifier<SessionState>
       state = SessionState(
         phase: SessionPhase.signedIn,
         user: lastUser,
+        requiresAccessCheck: requiresAccessCheck,
         collections: cached,
         collectionCoverage: snapshot is CollectionSnapshot
             ? snapshot.coverage.withCount(cached.length)
@@ -512,13 +531,26 @@ class SessionController extends StateNotifier<SessionState>
       List<UserCollection>? snapshot;
       try {
         if (!_isCurrentAuth(generation)) return false;
-        if (previousUser != null && previousUser.id != user.id) {
-          final previousUsername = previousUser.username;
+        final savedWebsite = await _websiteSessionStore.read();
+        if ((previousUser != null && previousUser.id != user.id) ||
+            (previousUser == null &&
+                persist &&
+                savedWebsite?.verifiedUserId != user.id) ||
+            (savedWebsite?.verifiedUserId != null &&
+                savedWebsite!.verifiedUserId != user.id)) {
+          final previousUsername = previousUser?.username;
           if (!await _credentials.writeCurrent(generation, () async {
+            final nonce = await AuthCleanupMarker.beginWebsiteCleanup(
+              includeStoredSession: true,
+            );
             await _websiteSessionStore.clear();
+            await AuthCleanupMarker.completeWebsiteStore(nonce);
             await onWebsiteSessionCleared?.call();
+            await WebsiteCookieBridge.clearBgmCookies();
             await _community.clearAccountCache();
-            await _snapshotCache.clearUserScope(previousUsername);
+            if (previousUsername != null) {
+              await _snapshotCache.clearUserScope(previousUsername);
+            }
           })) {
             return false;
           }
@@ -570,6 +602,22 @@ class SessionController extends StateNotifier<SessionState>
         snapshot ?? const [],
       );
       if (!_isCurrentAuth(generation)) return false;
+      // Only an interactive login starts the access check; restores resume an
+      // unfinished one, so quitting the app cannot skip it.
+      final requiresAccessCheck = persist && !alreadyRestored
+          ? true
+          : await _readAccessCheckPending(user.id);
+      if (persist && !alreadyRestored) {
+        try {
+          await _credentials.writeCurrent(
+            generation,
+            () => _snapshotCache.writeAccessCheckPending(user.id),
+          );
+        } catch (_) {
+          // The check still runs for this login; only restart resumption fails.
+        }
+      }
+      if (!_isCurrentAuth(generation)) return false;
       _community.setCurrentUsername(
         user.username,
         nickname: user.nickname,
@@ -583,6 +631,7 @@ class SessionController extends StateNotifier<SessionState>
         isLoadingCollections: true,
         isRefreshing: cached.isEmpty,
         isPreparingHome: !alreadyRestored && cached.isEmpty,
+        requiresAccessCheck: requiresAccessCheck,
         isUsingCachedCollections: cached.isNotEmpty,
         collectionsSavedAt: alreadyRestored
             ? state.collectionsSavedAt
@@ -641,6 +690,30 @@ class SessionController extends StateNotifier<SessionState>
       }
       return false;
     }
+  }
+
+  Future<bool> _readAccessCheckPending(int userId) async {
+    try {
+      return await _snapshotCache.readAccessCheckPending(userId);
+    } catch (_) {
+      // An unreadable marker must not lock a restored account out of home.
+      return false;
+    }
+  }
+
+  /// The first-login access check passed; later launches go straight home.
+  Future<void> completeAccessCheck() async {
+    final user = state.user;
+    if (!mounted ||
+        state.phase != SessionPhase.signedIn ||
+        !state.requiresAccessCheck ||
+        user == null) {
+      return;
+    }
+    state = state.copyWith(requiresAccessCheck: false);
+    try {
+      await _snapshotCache.writeAccessCheckPending(null);
+    } catch (_) {}
   }
 
   /// Leave the bounded first-screen wait; collection loading continues.
@@ -779,6 +852,7 @@ class SessionController extends StateNotifier<SessionState>
     Subject subject,
     CollectionType type, {
     bool completeEpisodesWhenDone = true,
+    int? watchedThrough,
     int? rate,
     String? comment,
     List<String>? tags,
@@ -796,6 +870,7 @@ class SessionController extends StateNotifier<SessionState>
     subject,
     type,
     completeEpisodesWhenDone: completeEpisodesWhenDone,
+    watchedThrough: watchedThrough,
     rate: rate,
     comment: comment,
     tags: tags,
@@ -830,6 +905,22 @@ class SessionController extends StateNotifier<SessionState>
       networkRoute: _networkRoute,
       message: message,
     );
+    final String cleanupNonce;
+    try {
+      cleanupNonce = await AuthCleanupMarker.beginLogout();
+    } catch (_) {
+      WebsiteCookieBridge.requireCleanup();
+      if (_isCurrentAuth(generation)) {
+        state = SessionState(
+          phase: SessionPhase.signedOut,
+          networkRoute: _networkRoute,
+          canRetrySignOut: true,
+          message: '退出记录写入失败，尚未完成退出，请重试清理后再关闭应用',
+        );
+      }
+      return;
+    }
+    if (!_isCurrentAuth(generation)) return;
     try {
       await onWebsiteSessionCleared?.call();
     } catch (_) {}
@@ -841,8 +932,12 @@ class SessionController extends StateNotifier<SessionState>
       // Each cleanup runs even if another backend is unavailable.
       for (final cleanup in <Future<void> Function()>[
         _tokenStore.clear,
-        _websiteSessionStore.clear,
+        () async {
+          await _websiteSessionStore.clear();
+          await AuthCleanupMarker.completeWebsiteStore(cleanupNonce);
+        },
         _snapshotCache.clearLastUser,
+        () => _snapshotCache.writeAccessCheckPending(null),
         if (previousUsername != null)
           () => _snapshotCache.clearUserScope(previousUsername),
         _community.clearAccountCache,
@@ -855,14 +950,41 @@ class SessionController extends StateNotifier<SessionState>
       }
     });
     if (!_isCurrentAuth(generation)) return;
-    await WebsiteCookieBridge.clearBgmCookies();
+    try {
+      await WebsiteCookieBridge.clearBgmCookies();
+    } catch (_) {
+      cleanupError ??= '网页登录清理未完成，请重试退出';
+    }
     if (!_isCurrentAuth(generation)) return;
+    if (cleanupError == null) {
+      try {
+        await AuthCleanupMarker.completeApi(cleanupNonce);
+      } catch (_) {
+        cleanupError = '退出状态保存失败，请重试清理';
+      }
+    }
     state = SessionState(
       phase: SessionPhase.signedOut,
       networkRoute: _networkRoute,
       message: cleanupError ?? message,
       canRetrySignOut: cleanupError != null,
     );
+    final pendingCleanup = WebsiteCookieBridge.pendingCleanup;
+    if (pendingCleanup != null) {
+      unawaited(
+        pendingCleanup.then<void>(
+          (_) {},
+          onError: (Object _, StackTrace _) {
+            if (_isCurrentAuth(generation)) {
+              state = state.copyWith(
+                message: '本机登录清理未完成，请重试退出',
+                canRetrySignOut: true,
+              );
+            }
+          },
+        ),
+      );
+    }
   }
 
   void clearMessage() => state = state.copyWith(clearMessage: true);

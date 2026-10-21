@@ -57,16 +57,18 @@ class UserBiography extends ConsumerWidget {
     if (bio.isEmpty) return const SizedBox.shrink();
     final preview = plainShareText(
       bio
-          .replaceAll(
-            RegExp(
-              r'\[(?:mask|spoiler)[^\]]*\].*?\[/(?:mask|spoiler)\]',
-              caseSensitive: false,
-              dotAll: true,
-            ),
-            '[折叠内容]',
-          )
-          .split(RegExp(r'\r?\n'))
-          .first,
+              .replaceAll(
+                RegExp(
+                  r'\[(?:mask|spoiler)[^\]]*\].*?\[/(?:mask|spoiler)\]',
+                  caseSensitive: false,
+                  dotAll: true,
+                ),
+                '[折叠内容]',
+              )
+              .split(RegExp(r'\r?\n'))
+              .where((line) => line.trim().isNotEmpty)
+              .firstOrNull ??
+          '',
     );
     return Padding(
       padding: const EdgeInsets.only(top: 12),

@@ -413,6 +413,16 @@ class _MemorySnapshotCache extends SnapshotCache {
 }
 
 class _MemorySyncStore extends BangumiSyncStore {
+  @override
+  Future<Map<String, int>> episodeActivityDays(String username) async =>
+      const {};
+
+  @override
+  Future<bool> recordBulkActivity(
+    PendingBangumiMutation mutation,
+    List<Map<String, int>> episodes,
+  ) async => false;
+
   final List<PendingBangumiMutation> mutations = [];
   var _nextId = 1;
 

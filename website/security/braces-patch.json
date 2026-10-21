@@ -1,0 +1,16 @@
+{
+  "advisory": "https://github.com/advisories/GHSA-vfj7-8cjw-p6xm",
+  "upstreamPullRequest": "https://github.com/micromatch/braces/pull/78",
+  "commit": "97308a01d091b211cf015314a2d0696da28a5392",
+  "resolved": "https://codeload.github.com/micromatch/braces/tar.gz/97308a01d091b211cf015314a2d0696da28a5392",
+  "integrity": "sha512-RlzQpWvi6X3cRylmRoFUD3gLCPBReW/fYLTays+YmHxyHUZN0miu55/rOa8J5xKtjI/r104ta+WneSZ7t9qAVQ==",
+  "files": {
+    "index.js": "332ea07c7b006361aad12aa994ca75dc1db8e8382b884909e2f38f10b85c88a4",
+    "lib/compile.js": "88cf20f18b59c9b2741c2d9b0f0ac6b2967d8e174667edf817133ca57d76809e",
+    "lib/constants.js": "8d0bfdb50bb1e5267facef720ba09179634761165e3d6e13ad512ed10d6c180c",
+    "lib/expand.js": "46a259d3f23c0cd441fa370f16d5d48fa71060dfe918eeba84f6e95d3a94d368",
+    "lib/parse.js": "9153cf5fd5e2789333e8a42c802d02963093926a3f8a5504ab970329f536215e",
+    "lib/stringify.js": "a3b8b5e7567ff9bfdbe155479fbdd92d5a924c3919adf05316f8f0c4f6330332",
+    "lib/utils.js": "bbdfdad69da36c1994a19006af254659586a20d2c00b2a936926b7905cfb3aaf"
+  }
+}

@@ -17,9 +17,17 @@
 
 完整维护入口见 [CONTRIBUTING.md](../CONTRIBUTING.md)。`build_release.ps1 -AllowDirty` 只允许本地普通构建；Shorebird 上传必须使用干净源码，并提供最近 7 天内、匹配源码指纹的完整验证与人工验收记录。`-DryRun` 可以验证未提交改动，但不构成正式发布验收。
 
+Windows 的 `Invoke-MuNpm` 为本次调用临时生成 npm/npx 入口，保证嵌套脚本也使用固定 Node，避免全局 `npm.cmd` 改用其旁边的 `node.exe`。调用结束恢复环境并清除入口；统一验证包含嵌套运行、失败退出码、环境恢复和验证码桥接回归。
+
 Windows 本地可运行 `./tool/verify_all.ps1 -Mode Full -WindowsSmoke`，追加独立入口的安全存储、SQLite 和 WebView 冒烟。未运行的移动设备/iOS 构建及人工验收仍单独列出，不因本地冒烟通过而消失。
 
 普通 Flutter 通用 APK 使用 `./tool/build_release.ps1 -Target apk -UniversalApk -VerificationReport <results.json>`。该选项保留 pubspec 的原始 versionCode，避免 ABI 分包为构建号增加偏移；不改变 Shorebird 基线。省略该选项仍保留原来的分架构构建行为。
+
+Windows 打包必须提供 `-Version`、`-BuildNumber` 和 `-ProvenanceManifest`，例如 `./tool/package_windows_release.ps1 -Version 2.5.0 -BuildNumber 4034 -ProvenanceManifest <Windows构建的provenance.json>`。脚本精确核对 exe 构建号，输出带 build 号的 ZIP，并把最终 ZIP 追加到来源记录；不接受脏源码或缺少完整验证的构建来源。
+
+`verify_all.ps1 -Areas` 会记录跳过的区域；正式来源门禁要求五个区域均执行，不能把局部 Full 当成整仓证据。平台 build 检查为 debug，Release 构建和签名另行验证。Python 必需套件统一通过 `run_unittests.py` 执行，0 测试返回失败。
+
+正式 Shorebird release 的 CLI 成功之后，来源状态为 `awaiting-release-receipt`；核对真实远端 release ID 后，执行 `release_provenance.py release-receipt --manifest <记录> --release-id <真实ID> --version <完整版本>` 保存回执。补丁仍使用单独的 patch-receipt；测试夹具中的模拟记录不构成发布验收。
 
 普通 Release 构建先校验锁文件并按 Release 模式刷新插件注册代码，再用 `--no-pub` 编译，避免之前的 Debug/集成测试注册器引用仅在开发环境可用的插件。准备过程中锁文件变化会阻止编译。
 

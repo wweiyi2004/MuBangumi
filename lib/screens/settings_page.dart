@@ -23,6 +23,7 @@ import 'background_settings_sheet.dart';
 import 'account_status_screen.dart';
 import 'backup_page.dart';
 import 'config_transfer_page.dart';
+import 'watched_intake_page.dart';
 import '../features/anime_appreciation/room_pages.dart';
 
 class SettingsPage extends ConsumerWidget {
@@ -111,7 +112,11 @@ class SettingsPage extends ConsumerWidget {
                   title: const Text('加密配置迁移'),
                   subtitle: const Text('扫码同步外观、好友分组、新番表与 RSS'),
                   trailing: const AnimeIcon(Icons.chevron_right_rounded),
-                  onTap: () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const ConfigTransferPage())),
+                  onTap: () => Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => const ConfigTransferPage(),
+                    ),
+                  ),
                 ),
                 ListTile(
                   leading: const AnimeIcon(Icons.backup_outlined),
@@ -120,6 +125,17 @@ class SettingsPage extends ConsumerWidget {
                   trailing: const AnimeIcon(Icons.chevron_right_rounded),
                   onTap: () => Navigator.of(context).push(
                     MaterialPageRoute<void>(builder: (_) => const BackupPage()),
+                  ),
+                ),
+                ListTile(
+                  leading: const AnimeIcon(Icons.style_rounded),
+                  title: const Text('搬进看过的番'),
+                  subtitle: const Text('一张张猜你看过，收下后再同步'),
+                  trailing: const AnimeIcon(Icons.chevron_right_rounded),
+                  onTap: () => Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => const WatchedIntakePage(),
+                    ),
                   ),
                 ),
               ],

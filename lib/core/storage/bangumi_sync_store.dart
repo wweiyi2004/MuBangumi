@@ -1,14 +1,13 @@
 import 'dart:convert';
-import 'dart:io';
 
-import 'package:path/path.dart' as path;
 import 'package:sqflite/sqflite.dart';
-import 'package:sqflite_common_ffi/sqflite_ffi.dart' as ffi;
+import 'episode_activity_ledger.dart';
 
 import '../../features/sync/domain/pending_mutation.dart';
 
 // Keep existing callers source-compatible while the model lives with sync.
 export '../../features/sync/domain/pending_mutation.dart';
+import 'sqlite_support.dart';
 
 typedef _SubjectVersions = ({int anyId, int collectionId, int completionId});
 
@@ -19,10 +18,8 @@ class BangumiSyncStore {
 
   static final shared = BangumiSyncStore();
 
-  Database? _database;
-  Future<Database>? _opening;
+  final _connection = SqliteConnection();
   final String? databasePath;
-  static bool _ffiReady = false;
 
   Future<void> enqueue({
     required String username,
@@ -49,11 +46,12 @@ class BangumiSyncStore {
         'blocked': 0,
         'last_error': null,
       };
+      int? replacing;
       if (existing.isNotEmpty) {
         final prior = jsonDecode(existing.first['payload'] as String) as Map;
         if (mutationKey.startsWith('collection:') &&
             existing.first['kind'] == BangumiMutationKind.collection.name &&
-            prior['complete_episodes'] == true) {
+            _carriesChapterWork(prior)) {
           // A previous completion also carries chapter work. Keep its original
           // position so a later status/metadata change cannot erase or reorder it.
           await transaction.update(
@@ -63,6 +61,7 @@ class BangumiSyncStore {
             whereArgs: [existing.first['id']],
           );
         } else {
+          replacing = existing.first['id'] as int;
           await transaction.delete(
             'bangumi_sync_queue',
             where: 'id = ?',
@@ -81,9 +80,16 @@ class BangumiSyncStore {
             : (existing.first['revision'] as num).toInt() + 1,
         ...values,
       });
-      if (kind == BangumiMutationKind.episode &&
-          payload.containsKey('activity_before')) {
-        await _recordActivity(transaction, username, payload, moment);
+      await EpisodeActivityLedger.record(
+        transaction,
+        username,
+        insertedId,
+        payload,
+        moment,
+        replacing: replacing,
+      );
+      if (replacing != null) {
+        await EpisodeActivityLedger.discard(transaction, replacing);
       }
       final subjectId = (payload['subject_id'] as num?)?.toInt();
       if (subjectId != null && subjectId > 0) {
@@ -97,7 +103,7 @@ class BangumiSyncStore {
               : old?.collectionId ?? 0,
           'completion_id':
               kind == BangumiMutationKind.collection &&
-                  payload['complete_episodes'] == true
+                  _carriesChapterWork(payload)
               ? insertedId
               : old?.completionId ?? 0,
         }, conflictAlgorithm: ConflictAlgorithm.replace);
@@ -153,12 +159,15 @@ class BangumiSyncStore {
 
   Future<bool> removeIfUnchanged(PendingBangumiMutation mutation) async {
     final database = await _open();
-    final removed = await database.delete(
-      'bangumi_sync_queue',
-      where: 'id = ? AND revision = ?',
-      whereArgs: [mutation.id, mutation.revision],
-    );
-    return removed > 0;
+    return database.transaction((txn) async {
+      final removed = await txn.delete(
+        'bangumi_sync_queue',
+        where: 'id = ? AND revision = ?',
+        whereArgs: [mutation.id, mutation.revision],
+      );
+      if (removed > 0) await EpisodeActivityLedger.confirmed(txn, mutation.id);
+      return removed > 0;
+    });
   }
 
   Future<bool> markFailure(
@@ -235,133 +244,153 @@ class BangumiSyncStore {
 
   Future<bool> discardIfUnchanged(PendingBangumiMutation mutation) async {
     final database = await _open();
-    final removed = await database.delete(
-      'bangumi_sync_queue',
-      where: 'id = ? AND username = ? AND revision = ? AND blocked = 1',
-      whereArgs: [mutation.id, mutation.username, mutation.revision],
-    );
-    return removed > 0;
+    return database.transaction((txn) async {
+      final removed = await txn.delete(
+        'bangumi_sync_queue',
+        where: 'id = ? AND username = ? AND revision = ? AND blocked = 1',
+        whereArgs: [mutation.id, mutation.username, mutation.revision],
+      );
+      if (removed > 0) await EpisodeActivityLedger.discard(txn, mutation.id);
+      return removed > 0;
+    });
   }
 
   Future<void> close() async {
-    final database = _database;
-    _database = null;
-    if (database != null) await database.close();
+    await _connection.close();
   }
 
-  Future<Database> _open() async {
-    final current = _database;
-    if (current != null) return current;
-    final opening = _opening;
-    if (opening != null) return opening;
-    final future = _createDatabase();
-    _opening = future;
-    try {
-      final database = await future;
-      _database = database;
-      return database;
-    } finally {
-      _opening = null;
-    }
+  /// Offline bulk edits may not yet know chapter IDs. Record their original
+  /// local day once the guarded replay reads chapters, before writing progress.
+  Future<bool> recordBulkActivity(
+    PendingBangumiMutation mutation,
+    List<Map<String, int>> episodes,
+  ) async {
+    final database = await _open();
+    return database.transaction((txn) async {
+      final rows = await txn.query(
+        'bangumi_sync_queue',
+        where: 'id = ? AND username = ? AND revision = ?',
+        whereArgs: [mutation.id, mutation.username, mutation.revision],
+      );
+      if (rows.isEmpty) return false;
+      final payload = Map<String, dynamic>.from(
+        jsonDecode(rows.single['payload'] as String) as Map,
+      );
+      if (payload.containsKey('activity_episodes')) return false;
+      payload['activity_episodes'] = episodes;
+      await txn.update(
+        'bangumi_sync_queue',
+        {'payload': jsonEncode(payload)},
+        where: 'id = ? AND revision = ?',
+        whereArgs: [mutation.id, mutation.revision],
+      );
+      final moment =
+          DateTime.tryParse(payload['local_updated_at']?.toString() ?? '') ??
+          mutation.createdAt;
+      await EpisodeActivityLedger.record(
+        txn,
+        mutation.username,
+        mutation.id,
+        payload,
+        moment,
+      );
+      return true;
+    });
   }
+
+  Future<Database> _open() => _connection.open(_createDatabase);
 
   Future<Database> _createDatabase() async {
-    if (Platform.isWindows || Platform.isLinux) {
-      if (!_ffiReady) {
-        ffi.sqfliteFfiInit();
-        databaseFactory = ffi.databaseFactoryFfi;
-        _ffiReady = true;
-      }
-    }
-    final root = await getDatabasesPath();
+    final factory = sqliteFactory;
     final resolvedPath =
-        databasePath ?? path.join(root, 'mubangumi_sync.sqlite');
-    return openDatabase(
+        databasePath ??
+        await PersonalDatabasePaths.resolve('mubangumi_sync.sqlite');
+    return factory.openDatabase(
       resolvedPath,
-      version: 3,
-      // Additive history table keeps the existing queue readable by older builds.
-      onOpen: _createActivity,
-      onDowngrade: (database, oldVersion, newVersion) async {
-        // A development build briefly used v4 for this additive table.
-        // Retain every row and only accept its otherwise identical queue schema.
-        if (oldVersion != 4 || newVersion != 3) {
-          throw StateError('Unsupported sync database version');
-        }
-        final columns = (await database.rawQuery(
-          'PRAGMA table_info(bangumi_sync_queue)',
-        )).map((row) => row['name']).toSet();
-        if (!columns.containsAll([
-          'id',
-          'username',
-          'mutation_key',
-          'kind',
-          'payload',
-          'created_at',
-          'updated_at',
-          'revision',
-          'blocked',
-        ])) {
-          throw StateError('Incompatible sync queue schema');
-        }
-      },
-      onUpgrade: (database, oldVersion, _) async {
-        if (oldVersion < 2) {
-          final rows = await database.query(
-            'bangumi_sync_queue',
-            columns: ['id'],
-            orderBy: 'updated_at ASC, id ASC',
-          );
-          var nextId = rows.fold<int>(
-            0,
-            (largest, row) =>
-                (row['id'] as int) > largest ? row['id'] as int : largest,
-          );
-          for (final row in rows) {
-            await database.update(
+      options: OpenDatabaseOptions(
+        version: 3,
+        // Additive history table keeps the existing queue readable by older builds.
+        onOpen: _createActivity,
+        onDowngrade: (database, oldVersion, newVersion) async {
+          // A development build briefly used v4 for this additive table.
+          // Retain every row and only accept its otherwise identical queue schema.
+          if (oldVersion != 4 || newVersion != 3) {
+            throw StateError('Unsupported sync database version');
+          }
+          final columns = (await database.rawQuery(
+            'PRAGMA table_info(bangumi_sync_queue)',
+          )).map((row) => row['name']).toSet();
+          if (!columns.containsAll([
+            'id',
+            'username',
+            'mutation_key',
+            'kind',
+            'payload',
+            'created_at',
+            'updated_at',
+            'revision',
+            'blocked',
+          ])) {
+            throw StateError('Incompatible sync queue schema');
+          }
+        },
+        onUpgrade: (database, oldVersion, _) async {
+          if (oldVersion < 2) {
+            final rows = await database.query(
               'bangumi_sync_queue',
-              {'id': ++nextId},
-              where: 'id = ?',
-              whereArgs: [row['id']],
+              columns: ['id'],
+              orderBy: 'updated_at ASC, id ASC',
             );
+            var nextId = rows.fold<int>(
+              0,
+              (largest, row) =>
+                  (row['id'] as int) > largest ? row['id'] as int : largest,
+            );
+            for (final row in rows) {
+              await database.update(
+                'bangumi_sync_queue',
+                {'id': ++nextId},
+                where: 'id = ?',
+                whereArgs: [row['id']],
+              );
+            }
           }
-        }
-        if (oldVersion < 3) {
+          if (oldVersion < 3) {
+            await _createVersions(database);
+            final rows = await database.query(
+              'bangumi_sync_queue',
+              orderBy: 'id ASC',
+            );
+            for (final row in rows) {
+              final payload = jsonDecode(row['payload'] as String) as Map;
+              final subjectId = (payload['subject_id'] as num?)?.toInt();
+              if (subjectId == null || subjectId <= 0) continue;
+              final username = row['username'] as String;
+              final old = await _versionFor(database, username, subjectId);
+              final collection =
+                  row['kind'] == BangumiMutationKind.collection.name;
+              await database.insert(
+                'bangumi_sync_versions',
+                {
+                  'username': username,
+                  'subject_id': subjectId,
+                  'any_id': row['id'],
+                  'collection_id': collection
+                      ? row['id']
+                      : old?.collectionId ?? 0,
+                  'completion_id': collection && _carriesChapterWork(payload)
+                      ? row['id']
+                      : old?.completionId ?? 0,
+                },
+                conflictAlgorithm: ConflictAlgorithm.replace,
+              );
+            }
+          }
+        },
+        onCreate: (database, _) async {
+          await _createActivity(database);
           await _createVersions(database);
-          final rows = await database.query(
-            'bangumi_sync_queue',
-            orderBy: 'id ASC',
-          );
-          for (final row in rows) {
-            final payload = jsonDecode(row['payload'] as String) as Map;
-            final subjectId = (payload['subject_id'] as num?)?.toInt();
-            if (subjectId == null || subjectId <= 0) continue;
-            final username = row['username'] as String;
-            final old = await _versionFor(database, username, subjectId);
-            final collection =
-                row['kind'] == BangumiMutationKind.collection.name;
-            await database.insert(
-              'bangumi_sync_versions',
-              {
-                'username': username,
-                'subject_id': subjectId,
-                'any_id': row['id'],
-                'collection_id': collection
-                    ? row['id']
-                    : old?.collectionId ?? 0,
-                'completion_id':
-                    collection && payload['complete_episodes'] == true
-                    ? row['id']
-                    : old?.completionId ?? 0,
-              },
-              conflictAlgorithm: ConflictAlgorithm.replace,
-            );
-          }
-        }
-      },
-      onCreate: (database, _) async {
-        await _createActivity(database);
-        await _createVersions(database);
-        await database.execute('''
+          await database.execute('''
           CREATE TABLE bangumi_sync_queue (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             username TEXT NOT NULL,
@@ -376,11 +405,12 @@ class BangumiSyncStore {
             last_error TEXT
           )
         ''');
-        await database.execute('''
+          await database.execute('''
           CREATE UNIQUE INDEX bangumi_sync_queue_account_key
           ON bangumi_sync_queue(username, mutation_key)
         ''');
-      },
+        },
+      ),
     );
   }
 
@@ -388,58 +418,8 @@ class BangumiSyncStore {
     'CREATE TABLE bangumi_sync_versions (username TEXT NOT NULL, subject_id INTEGER NOT NULL, any_id INTEGER NOT NULL, collection_id INTEGER NOT NULL, completion_id INTEGER NOT NULL, PRIMARY KEY(username, subject_id))',
   );
 
-  Future<void> _createActivity(Database db) async {
-    await db.execute(
-      'CREATE TABLE IF NOT EXISTS episode_activity (username TEXT NOT NULL, episode_id INTEGER NOT NULL, subject_id INTEGER NOT NULL, day TEXT NOT NULL, active INTEGER NOT NULL, PRIMARY KEY(username, episode_id))',
-    );
-    await db.execute(
-      'CREATE INDEX IF NOT EXISTS episode_activity_days ON episode_activity(username, active, day)',
-    );
-  }
-
-  Future<void> _recordActivity(
-    Transaction txn,
-    String username,
-    Map<String, dynamic> payload,
-    DateTime moment,
-  ) async {
-    final owner = username.trim().toLowerCase();
-    final episode = payload['episode_id'];
-    final type = payload['type'];
-    final before = payload['activity_before'];
-    if (episode is! int || episode <= 0 || before == null) return;
-    final existing = await txn.query(
-      'episode_activity',
-      where: 'username = ? AND episode_id = ?',
-      whereArgs: [owner, episode],
-      limit: 1,
-    );
-    if (type != 2) {
-      await txn.update(
-        'episode_activity',
-        {'active': 0},
-        where: 'username = ? AND episode_id = ?',
-        whereArgs: [owner, episode],
-      );
-      return;
-    }
-    if (before == 2) return;
-    final restoring = payload['activity_undo'] == true;
-    if (restoring && existing.isEmpty) {
-      return; // Never invent pre-feature history.
-    }
-    final local = moment.toLocal();
-    final day = restoring
-        ? existing.single['day'] as String
-        : '${local.year}-${local.month.toString().padLeft(2, '0')}-${local.day.toString().padLeft(2, '0')}';
-    await txn.insert('episode_activity', {
-      'username': owner,
-      'episode_id': episode,
-      'subject_id': payload['subject_id'],
-      'day': day,
-      'active': 1,
-    }, conflictAlgorithm: ConflictAlgorithm.replace);
-  }
+  Future<void> _createActivity(Database db) =>
+      EpisodeActivityLedger.configure(db);
 
   Future<Map<String, int>> episodeActivityDays(String username) async {
     final db = await _open();
@@ -504,7 +484,7 @@ class BangumiSyncStore {
     final latest = kind == BangumiMutationKind.episode
         ? version?.completionId ?? 0
         : kind == BangumiMutationKind.collection &&
-              decoded['complete_episodes'] != true
+              !_carriesChapterWork(decoded)
         ? version?.collectionId ?? 0
         : version?.anyId ?? 0;
     return PendingBangumiMutation(
@@ -526,4 +506,8 @@ class BangumiSyncStore {
       superseded: row['blocked'] != 0 && latest > (row['id'] as int),
     );
   }
+
+  static bool _carriesChapterWork(Map payload) =>
+      payload['complete_episodes'] == true ||
+      ((payload['watched_through'] as num?)?.toInt() ?? 0) > 0;
 }

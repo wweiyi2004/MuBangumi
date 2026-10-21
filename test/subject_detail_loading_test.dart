@@ -6,6 +6,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:mubangumi/widgets/mobile_subject_actions.dart';
+import 'package:mubangumi/widgets/community_widgets.dart';
 import 'support/ux_visuals.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -23,6 +24,58 @@ import 'package:mubangumi/screens/subject_detail_screen.dart';
 import 'package:mubangumi/state/session_controller.dart';
 
 void main() {
+  testWidgets('multiple comments without server IDs remain readable', (
+    tester,
+  ) async {
+    final api = _Api()..episodes.complete([_episode]);
+    api.comments = [
+      for (final text in ['无编号评论一', '无编号评论二'])
+        SubjectComment(
+          id: 0,
+          userName: '',
+          avatarUrl: '',
+          rate: 0,
+          comment: text,
+        ),
+    ];
+    await _show(tester, api, _Cache());
+    await tester.tap(
+      find.descendant(of: find.byType(TabBar), matching: find.text('吐槽')),
+    );
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+    expect(find.textContaining('无编号评论一', findRichText: true), findsWidgets);
+    expect(find.textContaining('无编号评论二', findRichText: true), findsWidgets);
+  });
+  testWidgets(
+    'long subject comments expand in place without leaving the subject',
+    (tester) async {
+      final api = _Api()..episodes.complete([_episode]);
+      api.comments = [
+        SubjectComment(
+          id: 1,
+          userName: '读者',
+          username: 'reader',
+          avatarUrl: '',
+          rate: 8,
+          comment: '${'正文' * 180}原生页全文结尾',
+        ),
+      ];
+      await _show(tester, api, _Cache());
+      final tabs = find.byType(TabBar);
+      await tester.tap(find.descendant(of: tabs, matching: find.text('吐槽')));
+      await tester.pumpAndSettle();
+      final content = find.byType(CollapsibleCommunityText);
+      expect(content, findsOneWidget);
+      expect(find.textContaining('原生页全文结尾', findRichText: true), findsNothing);
+      await tester.ensureVisible(find.text('展开全文'));
+      await tester.tap(find.text('展开全文'));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('原生页全文结尾', findRichText: true), findsWidgets);
+      expect(find.byType(SubjectDetailScreen), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    },
+  );
   testWidgets(
     'discussion and comments open from pinned tabs without scrolling details',
     (tester) async {
@@ -267,6 +320,7 @@ const _episode = UserEpisodeCollection(
 );
 
 class _Api extends BangumiApi {
+  List<SubjectComment> comments = [];
   var episodes = Completer<List<UserEpisodeCollection>>();
   int episodeCalls = 0, metaCalls = 0, commentCalls = 0;
   @override
@@ -305,7 +359,7 @@ class _Api extends BangumiApi {
     int page = 1,
   }) async {
     commentCalls++;
-    return [];
+    return comments;
   }
 }
 
@@ -381,6 +435,16 @@ class _Session extends SessionController {
 // Inject the storage boundary instead of overriding the session's internal
 // method dispatch, so detail tests exercise the real collection editor.
 class _EmptyQueue extends BangumiSyncStore {
+  @override
+  Future<Map<String, int>> episodeActivityDays(String username) async =>
+      const {};
+
+  @override
+  Future<bool> recordBulkActivity(
+    PendingBangumiMutation mutation,
+    List<Map<String, int>> episodes,
+  ) async => false;
+
   @override
   Future<List<PendingBangumiMutation>> pendingFor(
     String username, {

@@ -20,3 +20,4 @@ const played=(title,mean,count,mine)=>({id:title,subject:{title},myScore:mine,st
 const ranked=protocol.summary({rounds:[played('甲',7.5,2,7),played('乙',9,1),played('丙',7.5,1),played('丁',null,0),{id:'戊',subject:{title:'戊'}}]});
 assert.deepEqual(ranked.map(({rank,r})=>`${rank} ${r.subject.title}`),['1 乙','2 甲','2 丙']);
 console.log('Browser protocol shared-fixture checks passed.');
+require('./room_client_lifecycle_test.cjs');

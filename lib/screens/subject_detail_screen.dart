@@ -27,6 +27,7 @@ import '../features/subject_detail/presentation/subject_meta_sections.dart';
 
 import '../widgets/episode_undo_message.dart';
 import '../widgets/community_composer.dart';
+import '../models/community_topic_submission.dart';
 import '../widgets/offline_status_banner.dart';
 import '../state/session_controller.dart';
 import '../widgets/collection_editor_sheet.dart';
@@ -35,6 +36,7 @@ import '../widgets/mobile_subject_actions.dart';
 import '../widgets/score_history_chart.dart';
 import '../widgets/subject_widgets.dart';
 import '../widgets/content_share_sheet.dart';
+import '../widgets/community_widgets.dart' show CollapsibleCommunityText;
 import '../core/sharing/share_content.dart';
 import 'moegirl_detail_screen.dart';
 
@@ -54,10 +56,25 @@ class _SubjectDetailScreenState extends ConsumerState<SubjectDetailScreen> {
     final service = communityServiceFor(context);
     final account = service.currentUsername;
     if (!service.isAuthenticated) return;
+    final submission = CommunityTopicDraft(kind: 'subject-topic');
     final sent = await showCommunityComposer(
       context,
       heading: '发表条目讨论',
       requireTitle: true,
+      topicDraft: submission,
+      confirmSubmission: (title, content, attemptedAt) async {
+        submission.confirmedId = await service.findSubmittedSubjectTopic(
+          subjectId: widget.subject.id,
+          title: title,
+          content: content,
+          attemptedAt: attemptedAt,
+        );
+        return submission.confirmedId != null;
+      },
+      inspectSubmission: () => launchUrl(
+        Uri.parse('https://bgm.tv/subject/${widget.subject.id}/board'),
+        mode: LaunchMode.externalApplication,
+      ),
       draftKey: communityDraftKey(account, [
         'subject',
         widget.subject.id,
@@ -210,7 +227,9 @@ class _SubjectDetailScreenState extends ConsumerState<SubjectDetailScreen> {
     final subject = widget.subject.merge(_content.details.value);
     final collection = session.collectionFor(subject.id);
     final busy = session.updatingSubjects.contains(subject.id);
-    final watchedCount = _episodeTypes.values.where((type) => type == 2).length;
+    final watchedCount = _visibleEpisodes
+        .where((episode) => _episodeTypes[episode.id] == 2)
+        .length;
     final narrow = AppLayout.isPhone(context);
     final pagePadding = AppLayout.pageInsets(context, top: 12, bottom: 40);
     final sectionGap = AppLayout.sectionGap(context);
@@ -306,6 +325,7 @@ class _SubjectDetailScreenState extends ConsumerState<SubjectDetailScreen> {
                         error: _content.history.error,
                         history: _content.history.value,
                         subjectId: subject.id,
+                        subjectTitle: subject.displayName,
                         compact: narrow,
                         initiallyExpanded: !narrow,
                         onRetry: () => unawaited(_content.history.load()),
@@ -635,6 +655,9 @@ class _SubjectDetailScreenState extends ConsumerState<SubjectDetailScreen> {
                           children: [
                             for (final c in _comments.items)
                               ListTile(
+                                key: c.id > 0
+                                    ? ValueKey('subject-comment-${c.id}')
+                                    : null,
                                 dense: narrow,
                                 contentPadding: EdgeInsets.zero,
                                 title: Text(
@@ -642,10 +665,9 @@ class _SubjectDetailScreenState extends ConsumerState<SubjectDetailScreen> {
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
                                 ),
-                                subtitle: Text(
+                                subtitle: CollapsibleCommunityText(
                                   c.comment,
-                                  maxLines: narrow ? 4 : 8,
-                                  overflow: TextOverflow.ellipsis,
+                                  collapseAfter: 240,
                                 ),
                                 trailing: c.rate > 0
                                     ? Text(

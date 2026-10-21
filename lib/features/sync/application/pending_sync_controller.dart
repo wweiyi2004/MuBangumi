@@ -10,11 +10,17 @@ import '../../../models/bangumi_models.dart';
 typedef SyncAccount = ({int generation, String username});
 
 class SyncProgress {
-  const SyncProgress({this.pendingCount, this.blockedCount, this.isSyncing});
+  const SyncProgress({
+    this.pendingCount,
+    this.blockedCount,
+    this.isSyncing,
+    this.activityChanged = false,
+  });
 
   final int? pendingCount;
   final int? blockedCount;
   final bool? isSyncing;
+  final bool activityChanged;
 }
 
 /// Owns queue draining, request guards and retry timing. It reports progress
@@ -147,17 +153,37 @@ class PendingSyncController {
         () async {
           _requireAccount(account);
           await _api.replayPendingMutation(mutation.kind, mutation.payload);
-          if (mutation.kind != BangumiMutationKind.collection ||
-              mutation.payload['complete_episodes'] != true ||
-              mutation.payload['collection_type'] !=
-                  CollectionType.done.value) {
-            return;
-          }
+          if (mutation.kind != BangumiMutationKind.collection) return;
+          final completeAll =
+              mutation.payload['complete_episodes'] == true &&
+              mutation.payload['collection_type'] == CollectionType.done.value;
+          final watchedThrough =
+              (mutation.payload['watched_through'] as num?)?.toInt() ?? 0;
+          if (!completeAll && watchedThrough <= 0) return;
           final subjectId = (mutation.payload['subject_id'] as num).toInt();
           _requireAccount(account);
           final episodes = await _api.getEpisodeCollections(subjectId);
           _requireAccount(account);
-          final unfinished = BangumiSupport.unfinishedMainEpisodeIds(episodes);
+          final targets = completeAll
+              ? BangumiSupport.mainEpisodeCollections(episodes)
+              : BangumiSupport.mainEpisodeCollections(
+                  episodes,
+                ).take(watchedThrough);
+          final recorded = await _store.recordBulkActivity(mutation, [
+            for (final item in targets)
+              {'episode_id': item.episode.id, 'before': item.type},
+          ]);
+          _requireAccount(account);
+          if (recorded) {
+            onProgress(account, const SyncProgress(activityChanged: true));
+          }
+          final unfinished = completeAll
+              ? BangumiSupport.unfinishedMainEpisodeIds(episodes)
+              : BangumiSupport.mainEpisodeCollections(episodes)
+                    .take(watchedThrough)
+                    .where((item) => item.type != 2)
+                    .map((item) => item.episode.id)
+                    .toList();
           if (unfinished.isNotEmpty) {
             await _api.updateEpisodesBatch(
               subjectId,

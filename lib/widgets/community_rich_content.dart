@@ -3,15 +3,35 @@ import '../core/theme/anime_icon.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:html/dom.dart' as dom;
+import 'package:html/parser.dart' as html;
 import 'package:url_launcher/url_launcher.dart';
 
 import '../core/network/bangumi_endpoints.dart';
 import '../core/network/bangumi_smiles.dart';
 
+/// Resolve website-relative links and enforce the same rules for every renderer.
+Uri? communityContentUri(String raw, {bool image = false}) {
+  final value = raw.trim().replaceAll(RegExp(r'''^["']|["']$'''), '');
+  final parsed = Uri.tryParse(value);
+  if (parsed == null || value.isEmpty) return null;
+  final uri = Uri.parse('https://bgm.tv/').resolveUri(parsed);
+  if (!['http', 'https'].contains(uri.scheme) ||
+      uri.host.isEmpty ||
+      uri.userInfo.isNotEmpty) {
+    return null;
+  }
+  return image ? Uri.tryParse(BangumiEndpoints.imageUrl(uri.toString())) : uri;
+}
+
 /// Render the original BBCode so inline images and spoiler boundaries survive.
 class CommunityRichContent extends StatefulWidget {
-  const CommunityRichContent(this.source, {super.key, this.onOpenLink});
+  const CommunityRichContent(this.source, {super.key, this.onOpenLink})
+    : isHtml = false;
+  const CommunityRichContent.html(this.source, {super.key, this.onOpenLink})
+    : isHtml = true;
   final String source;
+  final bool isHtml;
   final ValueChanged<Uri>? onOpenLink;
 
   @override
@@ -21,6 +41,17 @@ class CommunityRichContent extends StatefulWidget {
 class _CommunityRichContentState extends State<CommunityRichContent> {
   final _recognizers = <TapGestureRecognizer>[];
   bool _expanded = false;
+  late List<_BbNode> _nodes;
+
+  List<_BbNode> _parseSource() => widget.isHtml
+      ? _parseWebsiteHtml(widget.source)
+      : _parseBbCode(widget.source);
+
+  @override
+  void initState() {
+    super.initState();
+    _nodes = _parseSource();
+  }
 
   void _clearRecognizers() {
     for (final recognizer in _recognizers) {
@@ -32,26 +63,17 @@ class _CommunityRichContentState extends State<CommunityRichContent> {
   @override
   void didUpdateWidget(covariant CommunityRichContent oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.source != widget.source) _expanded = false;
+    if (oldWidget.source != widget.source ||
+        oldWidget.isHtml != widget.isHtml) {
+      _expanded = false;
+      _nodes = _parseSource();
+    }
   }
 
   @override
   void dispose() {
     _clearRecognizers();
     super.dispose();
-  }
-
-  Uri? _safeUri(String raw) {
-    final value = raw.trim().replaceAll(RegExp(r'''^["']|["']$'''), '');
-    final uri = Uri.tryParse(
-      value.startsWith('/') ? 'https://bgm.tv$value' : value,
-    );
-    if (uri == null ||
-        !['http', 'https'].contains(uri.scheme) ||
-        uri.host.isEmpty) {
-      return null;
-    }
-    return uri;
   }
 
   Future<void> _open(Uri uri) async {
@@ -74,6 +96,45 @@ class _CommunityRichContentState extends State<CommunityRichContent> {
     final recognizer = TapGestureRecognizer()..onTap = () => _open(uri);
     _recognizers.add(recognizer);
     return recognizer;
+  }
+
+  List<InlineSpan> _plainSpans(String text, TextStyle style, Uri? link) {
+    if (link != null) {
+      return [
+        TextSpan(text: text, style: style, recognizer: _linkRecognizer(link)),
+      ];
+    }
+    final result = <InlineSpan>[];
+    var cursor = 0;
+    for (final match in RegExp(
+      r'''https?://[^\s<>\[\]"'，。！？；]+''',
+      caseSensitive: false,
+    ).allMatches(text)) {
+      if (match.start > cursor) {
+        result.add(
+          TextSpan(text: text.substring(cursor, match.start), style: style),
+        );
+      }
+      final value = match.group(0)!.replaceFirst(RegExp(r'[.,;!?)]+$'), '');
+      final uri = communityContentUri(value);
+      result.add(
+        TextSpan(
+          text: value,
+          style: uri == null
+              ? style
+              : style.copyWith(
+                  color: Theme.of(context).colorScheme.primary,
+                  decoration: TextDecoration.underline,
+                ),
+          recognizer: _linkRecognizer(uri),
+        ),
+      );
+      cursor = match.start + value.length;
+    }
+    if (cursor < text.length) {
+      result.add(TextSpan(text: text.substring(cursor), style: style));
+    }
+    return result;
   }
 
   InlineSpan _span(_BbNode node, TextStyle style, double width, {Uri? link}) {
@@ -99,23 +160,28 @@ class _CommunityRichContentState extends State<CommunityRichContent> {
                 ),
               )
             else
-              TextSpan(
-                text: part.text,
-                style: style,
-                recognizer: _linkRecognizer(link),
-              ),
+              ..._plainSpans(part.text, style, link),
         ],
       );
     }
     if (node.tag == 'img') {
-      final uri = _safeUri(text.startsWith('//') ? 'https:$text' : text);
+      final smile = node.value == 'smile';
+      final uri = communityContentUri(text, image: true);
       return WidgetSpan(
+        alignment: smile
+            ? PlaceholderAlignment.middle
+            : PlaceholderAlignment.bottom,
         child: uri == null
             ? const Text('（无效图片链接）')
             : ConstrainedBox(
-                constraints: BoxConstraints(maxWidth: width, maxHeight: 360),
+                constraints: BoxConstraints(
+                  maxWidth: width,
+                  maxHeight: smile ? 22 : 360,
+                ),
                 child: BoundedNetworkImage(
-                  imageUrl: BangumiEndpoints.imageUrl(uri.toString()),
+                  imageUrl: uri.toString(),
+                  width: smile ? 44 : null,
+                  height: smile ? 22 : null,
                   fit: BoxFit.contain,
                   errorWidget: (_, _, _) => const Text('（图片加载失败）'),
                 ),
@@ -123,7 +189,7 @@ class _CommunityRichContentState extends State<CommunityRichContent> {
       );
     }
     if (node.tag == 'url') {
-      final uri = _safeUri(node.value.isEmpty ? text : node.value);
+      final uri = communityContentUri(node.value.isEmpty ? text : node.value);
       final linkStyle = uri == null
           ? style
           : style.copyWith(
@@ -195,8 +261,10 @@ class _CommunityRichContentState extends State<CommunityRichContent> {
         ),
       );
     }
-    if (node.tag == 'align') {
-      final alignment = switch (node.value.toLowerCase()) {
+    if (['align', 'center', 'left', 'right'].contains(node.tag)) {
+      final alignment = switch (node.tag == 'align'
+          ? node.value.toLowerCase()
+          : node.tag) {
         'center' => TextAlign.center,
         'right' => TextAlign.right,
         'justify' => TextAlign.justify,
@@ -247,10 +315,7 @@ class _CommunityRichContentState extends State<CommunityRichContent> {
           SelectableText.rich(
             TextSpan(
               style: style,
-              children: [
-                for (final node in _parseBbCode(widget.source))
-                  _span(node, style, width),
-              ],
+              children: [for (final node in _nodes) _span(node, style, width)],
             ),
             maxLines: long && !_expanded ? 14 : null,
             scrollPhysics: const NeverScrollableScrollPhysics(),
@@ -300,6 +365,100 @@ class _BbNode {
       tag.isEmpty ? text : children.map((child) => child.plain).join();
 }
 
+/// Map website markup into the same inert presentation tree as BBCode. Text
+/// nodes stay literal: a quoted "[/mask]" cannot close an HTML spoiler.
+List<_BbNode> _parseWebsiteHtml(String source) {
+  var offset = 0;
+  List<_BbNode> convert(dom.Node node, [int depth = 0]) {
+    if (depth >= 32) return [_BbNode(text: '（内容嵌套过深，已省略）')];
+    if (node is dom.Text) return [_BbNode(text: node.data)];
+    if (node is! dom.Element) return [];
+    final tag = node.localName;
+    if (const {
+      'script',
+      'style',
+      'iframe',
+      'object',
+      'input',
+      'button',
+    }.contains(tag)) {
+      return [];
+    }
+    if (tag == 'br') return [_BbNode(text: '\n')];
+    final children = node.nodes
+        .expand((child) => convert(child, depth + 1))
+        .toList();
+    _BbNode wrap(String tag, {String value = '', List<_BbNode>? content}) =>
+        _BbNode(tag: tag, value: value, offset: offset++)
+          ..children.addAll(content ?? children);
+    if (tag == 'img') {
+      return [
+        wrap(
+          'img',
+          value: node.classes.contains('smile') ? 'smile' : '',
+          content: [_BbNode(text: node.attributes['src'] ?? '')],
+        ),
+      ];
+    }
+    if (tag == 'a') return [wrap('url', value: node.attributes['href'] ?? '')];
+    if (tag == 'pre' || tag == 'code') {
+      return [
+        wrap('code', content: [_BbNode(text: node.text)]),
+      ];
+    }
+    if (tag == 'blockquote' || node.classes.contains('quote')) {
+      return [wrap('quote')];
+    }
+    final styles = <String, String>{};
+    for (final declaration in (node.attributes['style'] ?? '').split(';')) {
+      final colon = declaration.indexOf(':');
+      if (colon > 0) {
+        styles[declaration.substring(0, colon).trim().toLowerCase()] =
+            declaration.substring(colon + 1).trim().toLowerCase();
+      }
+    }
+    var result = children;
+    void style(String tag, [String value = '']) {
+      result = [wrap(tag, value: value, content: result)];
+    }
+
+    if (tag == 'b' ||
+        tag == 'strong' ||
+        styles['font-weight'] == 'bold' ||
+        styles['font-weight'] == '700') {
+      style('b');
+    }
+    if (tag == 'i' || tag == 'em' || styles['font-style'] == 'italic') {
+      style('i');
+    }
+    if (tag == 'u' || styles['text-decoration'] == 'underline') style('u');
+    if (tag == 's' ||
+        tag == 'del' ||
+        styles['text-decoration'] == 'line-through') {
+      style('s');
+    }
+    if (styles['color'] case final String color) style('color', color);
+    if (styles['text-align'] case final String align) style('align', align);
+    // Bangumi's classic [mask] output uses identical foreground/background
+    // colors rather than a named spoiler class.
+    final background = styles['background-color'] ?? styles['background'];
+    if (node.classes.any(const {'mask', 'spoiler'}.contains) ||
+        (background != null && background == styles['color'])) {
+      style('mask');
+    }
+    if (const {'p', 'div', 'li', 'h1', 'h2', 'h3', 'hr'}.contains(tag)) {
+      return [_BbNode(text: '\n'), ...result, _BbNode(text: '\n')];
+    }
+    return result;
+  }
+
+  return html
+      .parseFragment(source)
+      .nodes
+      .expand((node) => convert(node))
+      .toList();
+}
+
 Color? _bbColor(String raw) {
   final value = raw.trim().toLowerCase();
   const names = <String, int>{
@@ -331,10 +490,11 @@ Color? _bbColor(String raw) {
 }
 
 List<_BbNode> _parseBbCode(String source) {
+  source = source.replaceAll('\r\n', '\n').replaceAll('\r', '\n');
   final root = _BbNode(tag: 'root');
   final stack = [root];
   final pattern = RegExp(
-    r'\[(/?)(b|i|u|s|del|quote|code|mask|url|img|size|color|align)(?:=([^\]]*))?\]',
+    r'\[(/?)(b|i|u|s|del|quote|code|mask|spoiler|url|img|size|color|align|center|left|right)(?:=([^\]]*))?\]',
     caseSensitive: false,
   );
   final lower = source.toLowerCase();
@@ -346,12 +506,14 @@ List<_BbNode> _parseBbCode(String source) {
         _BbNode(text: source.substring(cursor, match.start)),
       );
     }
-    final tag = match.group(2)!.toLowerCase();
+    final rawTag = match.group(2)!.toLowerCase();
+    final tag = rawTag == 'spoiler' ? 'mask' : rawTag;
     if (match.group(1) == '/') {
-      if (stack.length > 1 && stack.last.tag == tag) {
-        stack.removeLast();
-      } else {
-        stack.last.children.add(_BbNode(text: match.group(0)!));
+      final index = stack.lastIndexWhere((node) => node.tag == tag);
+      // Crossing a style boundary must never implicitly reveal a spoiler.
+      if (index > 0 &&
+          !stack.skip(index + 1).any((node) => node.tag == 'mask')) {
+        stack.removeRange(index, stack.length);
       }
       cursor = match.end;
       continue;

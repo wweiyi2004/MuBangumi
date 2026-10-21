@@ -35,11 +35,12 @@ class PmContactsController extends ChangeNotifier {
       requireAuth: requireAuth || _accountId != null || userId == null,
     );
     _accountId = userId;
-    return userId == null ? Future.value() : refreshFriends();
+    return userId == null ? Future.value() : refreshFriends(foreground: true);
   }
 
   List<BangumiUser> friends = const [];
   bool friendsLoading = false, syncingHistory = false;
+  bool friendsForeground = false, historyForeground = false;
   String? friendsError;
   int _friendsGeneration = 0, _historyGeneration = 0;
   bool _disposed = false;
@@ -75,27 +76,44 @@ class PmContactsController extends ChangeNotifier {
     bool includeFriends = true,
     bool forceFriends = false,
     bool supersede = false,
+    bool foreground = true,
   }) async {
     await Future.wait([
-      if (includeFriends) refreshFriends(refresh: forceFriends),
-      syncHistory(supersede: supersede),
+      if (includeFriends)
+        refreshFriends(refresh: forceFriends, foreground: foreground),
+      syncHistory(supersede: supersede, foreground: foreground),
     ]);
   }
 
-  Future<void> refreshFriends({bool refresh = false}) {
+  Future<void> refreshFriends({
+    bool refresh = false,
+    bool foreground = false,
+    bool supersede = false,
+  }) {
     if (_disposed) return Future.value();
-    if (_friendsRequest != null) return _friendsRequest!;
+    if (_friendsRequest != null && !supersede) {
+      if (foreground) {
+        friendsForeground = true;
+        _changed();
+      }
+      return _friendsRequest!;
+    }
     late final Future<void> future;
-    future = _refreshFriends(refresh: refresh).whenComplete(() {
-      if (identical(_friendsRequest, future)) _friendsRequest = null;
-    });
+    future = _refreshFriends(refresh: refresh, foreground: foreground)
+        .whenComplete(() {
+          if (identical(_friendsRequest, future)) _friendsRequest = null;
+        });
     _friendsRequest = future;
     return future;
   }
 
-  Future<void> _refreshFriends({required bool refresh}) async {
+  Future<void> _refreshFriends({
+    required bool refresh,
+    required bool foreground,
+  }) async {
     final generation = ++_friendsGeneration;
     friendsLoading = true;
+    friendsForeground = foreground;
     friendsError = null;
     _changed();
     try {
@@ -128,16 +146,28 @@ class PmContactsController extends ChangeNotifier {
     } finally {
       if (!_disposed && generation == _friendsGeneration) {
         friendsLoading = false;
+        friendsForeground = false;
         _changed();
       }
     }
   }
 
-  Future<void> syncHistory({bool more = false, bool supersede = false}) {
+  Future<void> syncHistory({
+    bool more = false,
+    bool supersede = false,
+    bool foreground = false,
+  }) {
     if (_disposed) return Future.value();
-    if (_history != null && !supersede) return _history!;
+    if (_history != null && !supersede) {
+      if (foreground) {
+        historyForeground = true;
+        _changed();
+      }
+      return _history!;
+    }
     final generation = ++_historyGeneration;
     syncingHistory = true;
+    historyForeground = foreground;
     late final Future<void> future;
     future =
         (() async {
@@ -148,6 +178,7 @@ class PmContactsController extends ChangeNotifier {
         })().whenComplete(() {
           if (!_disposed && generation == _historyGeneration) {
             syncingHistory = false;
+            historyForeground = false;
             if (identical(_history, future)) _history = null;
             _changed();
           }

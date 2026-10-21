@@ -317,9 +317,19 @@ void main() {
       tester.view.devicePixelRatio = 1;
       addTearDown(tester.view.reset);
       final repo = MemoryPmOutboxRepository();
-      final service = _Service()..gate = Completer<void>();
+      final service = _Service()
+        ..gate = Completer<void>()
+        ..prepareGate = Completer<PmComposeParams>();
       final container = ProviderContainer(
         overrides: [
+          pmSendQueueProvider(service).overrideWith(
+            (ref) => PmSendQueueController(
+              repository: repo,
+              service: service,
+              currentUser: () => ref.read(sessionProvider).user,
+              resolveRecipient: (_) async => 42,
+            ),
+          ),
           pmFriendsCacheProvider.overrideWithValue(PmTestFriendsCache()),
           sessionProvider.overrideWith((ref) => PmTestSession()),
           websiteSessionStoreProvider.overrideWithValue(PmTestWebsiteStore()),
@@ -369,6 +379,12 @@ void main() {
       expect(accepted, isTrue);
       await tester.pumpAndSettle();
       expect(find.byType(PmComposeScreen), findsNothing);
+      expect(service.calls, isEmpty);
+      expect(repo.commands.values.single.status, PmSendStatus.preparing);
+      service.prepareGate!.complete(
+        const PmComposeParams(formhash: 'fresh', msgReceivers: '42'),
+      );
+      await tester.pumpAndSettle();
       expect(service.calls, ['新私信正文']);
       expect(repo.commands.values.single.status, PmSendStatus.sending);
       service.gate!.complete();
@@ -441,6 +457,7 @@ class _Service extends PmService {
   bool blockedBeforePost = false;
   String? receiverOverride;
   Completer<void>? gate, verifyGate;
+  Completer<PmComposeParams>? prepareGate;
   bool uncertain = false;
   int verifications = 0;
   final calls = <String>[];
@@ -469,6 +486,7 @@ class _Service extends PmService {
   Future<List<PmConversation>> loadOutbox({int page = 1}) async => [];
   @override
   Future<PmComposeParams> loadComposeParams(String receiver) async =>
+      prepareGate?.future ??
       const PmComposeParams(formhash: 'fresh', msgReceivers: '42');
   @override
   Future<void> compose({

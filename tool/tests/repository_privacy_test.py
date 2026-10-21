@@ -1,6 +1,7 @@
 """Exercise pre-commit privacy checks with synthetic, isolated repositories."""
 from pathlib import Path
 import shutil
+import json
 import subprocess
 import tempfile
 import unittest
@@ -62,6 +63,18 @@ class RepositoryPrivacyTest(unittest.TestCase):
         result = self.check()
         self.assertNotEqual(result.returncode, 0)
         self.assertNotIn(value, result.stdout + result.stderr)
+
+    def test_rejects_account_session_files_and_contextual_secrets(self):
+        for name in ('session.json','bangumi_credentials_backup.json','website_session.json'):
+            with self.subTest(name=name):
+                self.write(name,'synthetic')
+                self.assertNotEqual(self.check().returncode,0)
+                (self.root/name).unlink()
+        secret = 'A' * 40
+        self.write('settings.json',json.dumps({'client_secret':secret}))
+        result = self.check()
+        self.assertNotEqual(result.returncode,0)
+        self.assertNotIn(secret,result.stdout+result.stderr)
 
 
 if __name__ == '__main__':

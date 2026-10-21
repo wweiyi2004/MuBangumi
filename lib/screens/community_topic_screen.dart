@@ -1,3 +1,8 @@
+import 'dart:convert';
+import '../state/community_submission_controller.dart';
+import '../widgets/community_submission_card.dart';
+import '../widgets/content_loading.dart';
+import '../models/community_topic_submission.dart';
 import '../core/theme/anime_icon.dart';
 import '../state/service_providers.dart';
 import '../navigation/app_destination.dart';
@@ -54,6 +59,15 @@ class _CommunityTopicScreenState extends ConsumerState<CommunityTopicScreen> {
   String _filter = 'all';
   bool _friendsLoading = false;
   bool _friendsFailed = false;
+  bool _targetNavigationHandled = false;
+  int? get _targetPostId =>
+      widget.topic.targetPostId ??
+      int.tryParse(
+        RegExp(r'^post_(\d+)$')
+                .firstMatch(Uri.tryParse(widget.topic.webUrl)?.fragment ?? '')
+                ?.group(1) ??
+            '',
+      );
   String get _topicKey =>
       '${widget.topic.kind.name}:${_service.resolveTopicId(widget.topic) ?? widget.topic.url}';
   bool get _sameReadingAccount =>
@@ -83,6 +97,7 @@ class _CommunityTopicScreenState extends ConsumerState<CommunityTopicScreen> {
           _filter = 'all';
           _friendUsernames = const {};
           _detail = null;
+          _targetNavigationHandled = false;
         });
         unawaited(_loadReadingPosition());
         unawaited(_load());
@@ -252,6 +267,7 @@ class _CommunityTopicScreenState extends ConsumerState<CommunityTopicScreen> {
         _detail = detail;
         _loading = false;
       });
+      _locateTargetPost(activeRequest);
     } catch (error) {
       if (!mounted ||
           activeRequest != _requestId ||
@@ -267,6 +283,26 @@ class _CommunityTopicScreenState extends ConsumerState<CommunityTopicScreen> {
             error is WebsiteAccessException && error.status.requiresLogin;
       });
     }
+  }
+
+  void _locateTargetPost(int requestId) {
+    final target = _targetPostId;
+    if (_targetNavigationHandled || target == null || target <= 0) return;
+    final index = _detail!.posts.indexWhere(
+      (post) => CommunityService.parseReplyId(post.id) == target,
+    );
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || requestId != _requestId || !_sameReadingAccount) return;
+      if (index < 0) {
+        _targetNavigationHandled = true;
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('未找到目标回复，可能已被删除或暂时不可见')));
+      } else if (_itemScroll.isAttached) {
+        _itemScroll.jumpTo(index: index + 1);
+        _targetNavigationHandled = true;
+      }
+    });
   }
 
   Future<void> _reply({CommunityPost? post}) async {
@@ -293,11 +329,72 @@ class _CommunityTopicScreenState extends ConsumerState<CommunityTopicScreen> {
         ? null
         : CommunityService.parseReplyId(post.id);
     final draftAccount = _service.currentUsername;
+    final identity = _service.identityRevision;
+    final submission = CommunityTopicDraft(kind: 'reply')
+      ..baselineIds = {
+        for (final row in _detail?.posts ?? <CommunityPost>[]) row.id,
+      };
+    final registry = ref.read(communitySubmissionsProvider(_service));
+    final key = communityDraftKey(draftAccount, [
+      'topic',
+      widget.topic.kind.name,
+      topicId,
+      post?.id ?? 'topic',
+    ]);
+    if (registry
+        .forScope(_topicKey)
+        .any(
+          (entry) =>
+              entry.draftKey == key &&
+              entry.status == CommunitySubmissionStatus.publishing,
+        )) {
+      return;
+    }
+    var accepted = false;
     final sent = await showCommunityComposer(
       context,
       heading: post == null ? '回复话题' : '回复 ${post.author}',
       isAccountCurrent: () =>
-          _service.isAuthenticated && _service.currentUsername == draftAccount,
+          _service.isAuthenticated &&
+          _service.currentUsername == draftAccount &&
+          _service.identityRevision == identity,
+      topicDraft: submission,
+      onAccepted: (entry) {
+        accepted = true;
+        registry.add(_topicKey, entry);
+        unawaited(
+          entry.completion.then((_) {
+            if (mounted &&
+                entry.isAccountCurrent() &&
+                entry.status == CommunitySubmissionStatus.sent) {
+              unawaited(_load(refresh: true));
+            }
+          }),
+        );
+      },
+      inspectSubmission: _openWeb,
+      confirmSubmission: (_, content, attemptedAt) async {
+        final detail = await _service.loadTopic(widget.topic, refresh: true);
+        if (identity != _service.identityRevision) return false;
+        final matches = detail.posts
+            .where(
+              (row) =>
+                  !submission.baselineIds.contains(row.id) &&
+                  _usernameFromUserUrl(row.userUrl)?.toLowerCase() ==
+                      draftAccount?.toLowerCase() &&
+                  (row.rawBody.isEmpty ? row.body : row.rawBody)
+                          .replaceAll('\r\n', '\n')
+                          .trim() ==
+                      content.replaceAll('\r\n', '\n').trim() &&
+                  row.createdAt != null &&
+                  attemptedAt != null &&
+                  !row.createdAt!.isBefore(
+                    attemptedAt.subtract(const Duration(seconds: 5)),
+                  ),
+            )
+            .toList();
+        return matches.length == 1;
+      },
       draftKey: communityDraftKey(draftAccount, [
         'topic',
         widget.topic.kind.name,
@@ -313,10 +410,13 @@ class _CommunityTopicScreenState extends ConsumerState<CommunityTopicScreen> {
         replyTo: replyTo,
       ),
     );
-    if (!sent || !mounted) return;
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(const SnackBar(content: Text('回复已发送')));
+    if (!sent ||
+        !mounted ||
+        identity != _service.identityRevision ||
+        accepted) {
+      return;
+    }
+    registry.removeDraft(_topicKey, key);
     await _load(refresh: true);
   }
 
@@ -357,6 +457,7 @@ class _CommunityTopicScreenState extends ConsumerState<CommunityTopicScreen> {
       initialTitle: _detail?.title ?? widget.topic.title,
       initialContent: post.rawBody,
       requireVerification: false,
+      protectSubmission: false,
       submitLabel: '保存',
       isAccountCurrent: () =>
           _service.currentUsername == account && _service.isAuthenticated,
@@ -438,7 +539,11 @@ class _CommunityTopicScreenState extends ConsumerState<CommunityTopicScreen> {
   Future<void> _openWeb() async {
     await openSeededCommunityWeb(
       context,
-      initialUrl: widget.topic.webUrl,
+      initialUrl: _targetPostId == null
+          ? widget.topic.webUrl
+          : Uri.parse(
+              widget.topic.webUrl,
+            ).replace(fragment: 'post_$_targetPostId').toString(),
       title: widget.topic.title,
       showSectionSwitcher: false,
     );
@@ -576,7 +681,7 @@ class _CommunityTopicScreenState extends ConsumerState<CommunityTopicScreen> {
                   ],
                 ),
               ),
-            Expanded(child: _buildBody()),
+            Expanded(child: ContentTransition(child: _buildBody())),
           ],
         ),
       ),
@@ -586,13 +691,47 @@ class _CommunityTopicScreenState extends ConsumerState<CommunityTopicScreen> {
   Widget _buildBody() {
     final detail = _detail;
     final preferences = ref.watch(userPreferencesProvider);
+    final pending = ref
+        .watch(communitySubmissionsProvider(_service))
+        .forScope(_topicKey)
+        .where(
+          (entry) =>
+              entry.status != CommunitySubmissionStatus.sent ||
+              !(detail?.posts.any(
+                    (post) =>
+                        _usernameFromUserUrl(post.userUrl)?.toLowerCase() ==
+                            _service.currentUsername?.toLowerCase() &&
+                        (post.rawBody.isEmpty ? post.body : post.rawBody)
+                                .replaceAll('\r\n', '\n')
+                                .trim() ==
+                            entry.content.replaceAll('\r\n', '\n').trim() &&
+                        post.createdAt != null &&
+                        !post.createdAt!.isBefore(
+                          entry.attemptedAt.subtract(
+                            const Duration(seconds: 1),
+                          ),
+                        ),
+                  ) ??
+                  false),
+        )
+        .toList();
     if (_loading && detail == null) {
-      return const Center(child: CircularProgressIndicator());
+      return Column(
+        children: [
+          LoadingStatus(
+            active: true,
+            operation: _requestId,
+            message: '正在加载讨论',
+            onRetry: () => _load(refresh: true),
+          ),
+          const ContentSkeleton(),
+        ],
+      );
     }
     if (_error != null && detail == null) {
       return CommunityErrorView(
         message: _error!,
-        onRetry: _load,
+        onRetry: () => _load(refresh: true),
         onWebsiteRecovery: _needsWebsiteRecovery ? _recoverWebsite : null,
       );
     }
@@ -633,7 +772,7 @@ class _CommunityTopicScreenState extends ConsumerState<CommunityTopicScreen> {
           itemPositionsListener: _positions,
           physics: const AlwaysScrollableScrollPhysics(),
           padding: EdgeInsets.fromLTRB(wide ? 80 : 14, 16, wide ? 80 : 14, 96),
-          itemCount: posts.length + 1,
+          itemCount: posts.length + 1 + pending.length,
           itemBuilder: (context, index) {
             if (index == 0) {
               return Center(
@@ -676,6 +815,29 @@ class _CommunityTopicScreenState extends ConsumerState<CommunityTopicScreen> {
                     ],
                   ),
                 ),
+              );
+            }
+            if (index > posts.length) {
+              return CommunitySubmissionCard(
+                entry: pending[index - posts.length - 1],
+                onInspect: () {
+                  final entry = pending[index - posts.length - 1];
+                  final target = entry.draftKey == null
+                      ? 'topic'
+                      : (jsonDecode(entry.draftKey!) as List).last;
+                  if (target == 'topic') {
+                    unawaited(_reply());
+                    return;
+                  }
+                  final original = detail.posts
+                      .where((row) => row.id == target)
+                      .firstOrNull;
+                  if (original != null) {
+                    unawaited(_reply(post: original));
+                  } else {
+                    unawaited(_openWeb());
+                  }
+                },
               );
             }
             final post = posts[index - 1];

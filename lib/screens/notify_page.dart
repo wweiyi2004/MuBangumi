@@ -1,3 +1,4 @@
+import '../widgets/content_loading.dart';
 import '../widgets/bounded_image.dart';
 import '../core/theme/anime_icon.dart';
 import '../state/service_providers.dart';
@@ -252,6 +253,13 @@ class _NotifyPageState extends ConsumerState<NotifyPage> {
     final contents = await _service.loadNoticeContents(
       notices,
       refresh: refresh,
+      onProgress: (contents, completedIds) {
+        if (!mounted || generation != _loadGeneration) return;
+        setState(() {
+          _noticeContents = contents;
+          _loadingContentIds = {..._loadingContentIds}..removeAll(completedIds);
+        });
+      },
     );
     if (!mounted || generation != _loadGeneration) return;
     setState(() {
@@ -395,15 +403,20 @@ class _NotifyPageState extends ConsumerState<NotifyPage> {
       ),
       body: RefreshIndicator(
         onRefresh: () => _load(refresh: true),
-        child: _loading
+        child: _loading && _items.isEmpty
             ? ListView(
                 physics: const AlwaysScrollableScrollPhysics(),
-                children: const [
-                  SizedBox(height: 120),
-                  Center(child: CircularProgressIndicator()),
+                children: [
+                  LoadingStatus(
+                    active: true,
+                    operation: _loadGeneration,
+                    message: '正在加载通知',
+                    onRetry: () => _load(refresh: true),
+                  ),
+                  const ContentSkeleton(),
                 ],
               )
-            : _error != null
+            : _error != null && _items.isEmpty
             ? ListView(
                 physics: const AlwaysScrollableScrollPhysics(),
                 padding: const EdgeInsets.all(24),
@@ -450,13 +463,34 @@ class _NotifyPageState extends ConsumerState<NotifyPage> {
                   if (index == 0) {
                     return Padding(
                       padding: const EdgeInsets.fromLTRB(8, 4, 8, 8),
-                      child: Text(
-                        _unreadOnly
-                            ? '未读 $_total 条'
-                            : '共 $_total 条 · 显示 ${_items.length} 条',
-                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color: scheme.onSurfaceVariant,
-                        ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          LoadingStatus(
+                            active: _loading || _loadingContentIds.isNotEmpty,
+                            operation: _loadGeneration,
+                            message: _loading
+                                ? '显示已有通知，正在更新'
+                                : '正在读取 ${_loadingContentIds.length} 条回复…',
+                            onRetry: () => _load(refresh: true),
+                            onOpenWebsite: () => launchUrl(
+                              Uri.parse('https://bgm.tv/notify/all'),
+                              mode: LaunchMode.externalApplication,
+                            ),
+                          ),
+                          if (_error != null)
+                            TextButton(
+                              onPressed: () => _load(refresh: true),
+                              child: const Text('更新失败，点击重试'),
+                            ),
+                          Text(
+                            _unreadOnly
+                                ? '未读 $_total 条'
+                                : '共 $_total 条 · 显示 ${_items.length} 条',
+                            style: Theme.of(context).textTheme.bodySmall
+                                ?.copyWith(color: scheme.onSurfaceVariant),
+                          ),
+                        ],
                       ),
                     );
                   }

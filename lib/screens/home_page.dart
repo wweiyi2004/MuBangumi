@@ -22,6 +22,7 @@ import 'calendar_page.dart';
 import 'fan_recommend_page.dart';
 import 'notify_page.dart';
 import 'library_page.dart';
+import 'watched_intake_page.dart';
 import '../core/theme/app_tokens.dart';
 
 class HomePage extends ConsumerWidget {
@@ -191,11 +192,24 @@ class HomePage extends ConsumerWidget {
                             : EmptyState(
                                 icon: Icons.playlist_add_rounded,
                                 title: '还没有进行中的收藏',
-                                message: '去发现页搜索喜欢的作品，把它加入“在看 / 在读 / 在玩”。',
-                                action: FilledButton.icon(
-                                  onPressed: onDiscover,
-                                  icon: const AnimeIcon(Icons.explore_rounded),
-                                  label: const Text('去发现'),
+                                message:
+                                    user != null &&
+                                        !collections.any(
+                                          (item) =>
+                                              item.subject.type ==
+                                              SubjectType.anime,
+                                        )
+                                    ? '点一批你可能看过的，或去发现页一部部加入。'
+                                    : '去发现页搜索喜欢的作品，把它加入“在看 / 在读 / 在玩”。',
+                                action: _HomeEmptyActions(
+                                  offerIntake:
+                                      user != null &&
+                                      !collections.any(
+                                        (item) =>
+                                            item.subject.type ==
+                                            SubjectType.anime,
+                                      ),
+                                  onDiscover: onDiscover,
                                 ),
                               )
                       else
@@ -402,6 +416,44 @@ class HomePage extends ConsumerWidget {
       ],
     );
   }
+}
+
+class _HomeEmptyActions extends StatelessWidget {
+  const _HomeEmptyActions({
+    required this.offerIntake,
+    required this.onDiscover,
+  });
+
+  final bool offerIntake;
+  final VoidCallback onDiscover;
+
+  @override
+  Widget build(BuildContext context) => Column(
+    mainAxisSize: MainAxisSize.min,
+    children: [
+      if (offerIntake) ...[
+        FilledButton.icon(
+          onPressed: () => Navigator.of(context).push(
+            MaterialPageRoute<void>(builder: (_) => const WatchedIntakePage()),
+          ),
+          icon: const AnimeIcon(Icons.auto_awesome_rounded),
+          label: const Text('我看过很多'),
+        ),
+        const SizedBox(height: 8),
+      ],
+      offerIntake
+          ? OutlinedButton.icon(
+              onPressed: onDiscover,
+              icon: const AnimeIcon(Icons.explore_rounded),
+              label: const Text('去发现'),
+            )
+          : FilledButton.icon(
+              onPressed: onDiscover,
+              icon: const AnimeIcon(Icons.explore_rounded),
+              label: const Text('去发现'),
+            ),
+    ],
+  );
 }
 
 class _HomeCollectionSkeleton extends StatelessWidget {
