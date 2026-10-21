@@ -336,7 +336,11 @@ class RssController extends StateNotifier<RssState> {
       var publish = Future<void>.value();
       Future<void> worker() async {
         while (_valid(epoch) && nextSource < sources.length) {
-          final source = sources[nextSource++];
+          final sourceId = sources[nextSource++].id;
+          final source = state.sources
+              .where((item) => item.id == sourceId && item.enabled)
+              .firstOrNull;
+          if (source == null) continue;
           try {
             // Await before incrementing: += across await can lose another worker's count.
             final added = await _refreshSource(
@@ -390,8 +394,9 @@ class RssController extends StateNotifier<RssState> {
         .toList();
     if (bindings.isEmpty) {
       // Still touch last_fetch so UI shows activity; no items without bindings.
-      await _store.upsertSource(
+      await _store.updateSourceAfterFetch(
         source.copyWith(lastFetchAt: DateTime.now(), clearError: true),
+        bindings: bindings,
       );
       return 0;
     }
@@ -405,8 +410,9 @@ class RssController extends StateNotifier<RssState> {
 
       if (!_valid(epoch)) return 0;
       if (result.notModified) {
-        await _store.upsertSource(
+        await _store.updateSourceAfterFetch(
           source.copyWith(lastFetchAt: DateTime.now(), clearError: true),
+          bindings: bindings,
         );
         return 0;
       }
@@ -443,22 +449,24 @@ class RssController extends StateNotifier<RssState> {
         validateBindings: true,
       );
       if (!_valid(epoch)) return 0;
-      await _store.upsertSource(
+      await _store.updateSourceAfterFetch(
         source.copyWith(
           etag: result.etag,
           lastModified: result.lastModified,
           lastFetchAt: now,
           clearError: true,
         ),
+        bindings: bindings,
       );
       return added;
     } catch (error) {
       if (!_valid(epoch)) return 0;
-      await _store.upsertSource(
+      await _store.updateSourceAfterFetch(
         source.copyWith(
           lastFetchAt: DateTime.now(),
           lastError: error.toString().replaceFirst('Exception: ', ''),
         ),
+        bindings: bindings,
       );
       rethrow;
     }

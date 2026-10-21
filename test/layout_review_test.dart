@@ -1,3 +1,4 @@
+import 'support/api_timeline_fixture.dart';
 import 'package:mubangumi/state/pm_contacts_controller.dart';
 import 'package:mubangumi/navigation/app_destination.dart';
 import 'package:mubangumi/navigation/app_router.dart';
@@ -43,6 +44,8 @@ void main() {
     'desktop-chat',
     'phone-chat',
     'phone-groups',
+    'phone-large-groups',
+    'phone-large-discovery',
     'phone-discussion',
     'phone-thread',
     'desktop-discovery',
@@ -206,7 +209,7 @@ void main() {
               builder: (context, child) => MediaQuery(
                 data: MediaQuery.of(context).copyWith(
                   textScaler: TextScaler.linear(
-                    variant == 'phone-large' ? 1.6 : 1,
+                    variant.contains('large') ? 1.8 : 1,
                   ),
                 ),
                 child: RepaintBoundary(key: boundary, child: child!),
@@ -342,7 +345,7 @@ void main() {
   }
 }
 
-class _Community extends CommunityService {
+class _Community extends CommunityService with ApiTimelineFixture {
   _Community() : super.test() {
     setAccessToken('review-only');
     setCurrentUsername('demo');

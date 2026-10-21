@@ -1,3 +1,4 @@
+import '../../../core/theme/anime_icon.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import '../../../core/network/bangumi_support.dart';
@@ -113,7 +114,7 @@ class _HorizontalCardRailState extends State<_HorizontalCardRail> {
               child: IconButton.filledTonal(
                 tooltip: '向前浏览',
                 onPressed: () => _move(-.8),
-                icon: const Icon(Icons.chevron_left_rounded),
+                icon: const AnimeIcon(Icons.chevron_left_rounded),
               ),
             ),
           if (showArrows && _canGoForward)
@@ -122,7 +123,7 @@ class _HorizontalCardRailState extends State<_HorizontalCardRail> {
               child: IconButton.filledTonal(
                 tooltip: '继续浏览',
                 onPressed: () => _move(.8),
-                icon: const Icon(Icons.chevron_right_rounded),
+                icon: const AnimeIcon(Icons.chevron_right_rounded),
               ),
             ),
         ],
@@ -274,7 +275,7 @@ class _StaffRoleGroupsState extends State<SubjectStaffRoleGroups> {
           Center(
             child: TextButton.icon(
               onPressed: () => setState(() => _expanded = !_expanded),
-              icon: Icon(
+              icon: AnimeIcon(
                 _expanded
                     ? Icons.expand_less_rounded
                     : Icons.expand_more_rounded,
@@ -388,7 +389,7 @@ class _StaffPersonCard extends StatelessWidget {
                   ],
                 ),
               ),
-              Icon(
+              AnimeIcon(
                 Icons.chevron_right_rounded,
                 size: 18,
                 color: scheme.onSurfaceVariant,
@@ -459,7 +460,7 @@ class _MetaImage extends StatelessWidget {
         child: url.isEmpty
             ? ColoredBox(
                 color: scheme.surfaceContainerHighest,
-                child: Icon(icon, color: scheme.onSurfaceVariant),
+                child: AnimeIcon(icon, color: scheme.onSurfaceVariant),
               )
             : CachedNetworkImage(
                 imageUrl: BangumiEndpoints.imageUrl(url),
@@ -468,7 +469,7 @@ class _MetaImage extends StatelessWidget {
                 memCacheHeight: (height * 2).round(),
                 errorWidget: (_, _, _) => ColoredBox(
                   color: scheme.surfaceContainerHighest,
-                  child: Icon(icon, color: scheme.onSurfaceVariant),
+                  child: AnimeIcon(icon, color: scheme.onSurfaceVariant),
                 ),
               ),
       ),
@@ -542,7 +543,10 @@ class SubjectMetaSection extends StatelessWidget {
                       if (onRetry != null)
                         TextButton.icon(
                           onPressed: onRetry,
-                          icon: const Icon(Icons.refresh_rounded, size: 16),
+                          icon: const AnimeIcon(
+                            Icons.refresh_rounded,
+                            size: 16,
+                          ),
                           label: const Text('重试'),
                         ),
                     ],

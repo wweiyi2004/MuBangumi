@@ -1,3 +1,4 @@
+import '../../../core/theme/anime_icon.dart';
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -95,7 +96,7 @@ class _ScheduleSearchSheetState extends ConsumerState<ScheduleSearchSheet> {
                 hintText: _search.type == SubjectType.anime
                     ? '搜索动画名，例如：迷宫饭'
                     : '搜索${_search.type.label}',
-                prefixIcon: const Icon(Icons.search_rounded),
+                prefixIcon: const AnimeIcon(Icons.search_rounded),
                 suffixIcon: _controller.text.isEmpty
                     ? null
                     : IconButton(
@@ -103,7 +104,7 @@ class _ScheduleSearchSheetState extends ConsumerState<ScheduleSearchSheet> {
                           _controller.clear();
                           _search.changeQuery('');
                         },
-                        icon: const Icon(Icons.close_rounded),
+                        icon: const AnimeIcon(Icons.close_rounded),
                       ),
               ),
             ),
@@ -248,7 +249,10 @@ class _ScheduleSearchSheetState extends ConsumerState<ScheduleSearchSheet> {
                                 onPressed: waiting
                                     ? null
                                     : () => unawaited(_add(subject)),
-                                icon: const Icon(Icons.add_rounded, size: 18),
+                                icon: const AnimeIcon(
+                                  Icons.add_rounded,
+                                  size: 18,
+                                ),
                                 label: Text(
                                   waiting
                                       ? '查询中'

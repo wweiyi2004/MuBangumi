@@ -1,3 +1,4 @@
+import '../core/theme/anime_icon.dart';
 import '../navigation/app_destination.dart';
 import '../widgets/season_anime_picker.dart';
 import 'dart:async';
@@ -81,13 +82,13 @@ class SchedulePage extends ConsumerWidget {
       floatingActionButton: isWide
           ? FloatingActionButton.extended(
               onPressed: () => showScheduleSearchSheet(context),
-              icon: const Icon(Icons.search_rounded),
+              icon: const AnimeIcon(Icons.search_rounded),
               label: const Text('搜索加入'),
             )
           : FloatingActionButton(
               onPressed: () => showScheduleSearchSheet(context),
               tooltip: '搜索加入',
-              child: const Icon(Icons.search_rounded),
+              child: const AnimeIcon(Icons.search_rounded),
             ),
       body: state.readFailed
           ? Center(
@@ -102,7 +103,7 @@ class SchedulePage extends ConsumerWidget {
                       onPressed: () => ref
                           .read(scheduleProvider.notifier)
                           .load(state.season),
-                      icon: const Icon(Icons.refresh),
+                      icon: const AnimeIcon(Icons.refresh),
                       label: const Text('重试读取'),
                     ),
                   ],
@@ -213,7 +214,9 @@ class SchedulePage extends ConsumerWidget {
                                           context,
                                           season: state.season,
                                         ),
-                                  icon: const Icon(Icons.playlist_add_rounded),
+                                  icon: const AnimeIcon(
+                                    Icons.playlist_add_rounded,
+                                  ),
                                   label: const Text('挑选本季新番'),
                                 ),
                               Text(

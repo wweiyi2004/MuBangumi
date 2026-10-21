@@ -1,3 +1,5 @@
+import '../../widgets/bounded_image.dart';
+import '../../core/theme/anime_icon.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'room_connection.dart';
@@ -65,7 +67,7 @@ class ParticipantWorkspace extends StatelessWidget {
                       children: [
                         Row(
                           children: [
-                            Icon(
+                            AnimeIcon(
                               Icons.circle,
                               size: 8,
                               color: c.online ? Colors.green : colors.error,
@@ -110,11 +112,17 @@ class ParticipantWorkspace extends StatelessWidget {
                                               .toString(),
                                           width: 54,
                                           height: 76,
+                                          cacheWidth: imageDecodeExtent(
+                                            54,
+                                            MediaQuery.devicePixelRatioOf(
+                                              context,
+                                            ),
+                                          ),
                                           fit: BoxFit.cover,
                                           errorBuilder: (_, _, _) => SizedBox(
                                             width: 54,
                                             height: 76,
-                                            child: Icon(
+                                            child: AnimeIcon(
                                               Icons.movie_outlined,
                                               color: colors.primary,
                                             ),
@@ -124,7 +132,7 @@ class ParticipantWorkspace extends StatelessWidget {
                                           width: 54,
                                           height: 76,
                                           color: colors.primaryContainer,
-                                          child: const Icon(
+                                          child: const AnimeIcon(
                                             Icons.movie_outlined,
                                           ),
                                         ),
@@ -227,7 +235,9 @@ class ParticipantWorkspace extends StatelessWidget {
                               child: FilledButton.tonalIcon(
                                 onPressed: () =>
                                     showParticipantDetails(context, tab: 3),
-                                icon: const Icon(Icons.leaderboard_outlined),
+                                icon: const AnimeIcon(
+                                  Icons.leaderboard_outlined,
+                                ),
                                 label: const Text('查看整场汇总'),
                               ),
                             ),
@@ -304,19 +314,22 @@ class ParticipantWorkspace extends StatelessWidget {
                           TextButton.icon(
                             onPressed: () =>
                                 showParticipantDetails(context, tab: 0),
-                            icon: const Icon(Icons.forum_outlined, size: 18),
+                            icon: const AnimeIcon(
+                              Icons.forum_outlined,
+                              size: 18,
+                            ),
                             label: const Text('评论墙'),
                           ),
                           TextButton.icon(
                             onPressed: () =>
                                 showParticipantDetails(context, tab: 1),
-                            icon: const Icon(Icons.bar_chart, size: 18),
+                            icon: const AnimeIcon(Icons.bar_chart, size: 18),
                             label: const Text('统计'),
                           ),
                           TextButton.icon(
                             onPressed: () =>
                                 showParticipantDetails(context, tab: 2),
-                            icon: const Icon(
+                            icon: const AnimeIcon(
                               Icons.view_list_outlined,
                               size: 18,
                             ),
@@ -377,7 +390,7 @@ Future<void> showParticipantDetails(
                         ),
                         IconButton(
                           onPressed: () => Navigator.pop(context),
-                          icon: const Icon(Icons.close),
+                          icon: const AnimeIcon(Icons.close),
                           tooltip: '关闭',
                         ),
                       ],
@@ -415,7 +428,7 @@ Future<void> showParticipantDetails(
                               ListTile(
                                 title: Text(item['subject']['title']),
                                 subtitle: Text(roomRoundStatus(item['status'])),
-                                trailing: const Icon(Icons.chevron_right),
+                                trailing: const AnimeIcon(Icons.chevron_right),
                                 onTap: () => setState(() {
                                   selected = item['id'];
                                   tab = 1;
@@ -425,7 +438,7 @@ Future<void> showParticipantDetails(
                           if (tab == 0) ...[
                             if (r?['commentsMore'] == true && c.api != null)
                               TextButton.icon(
-                                icon: const Icon(Icons.forum_outlined),
+                                icon: const AnimeIcon(Icons.forum_outlined),
                                 label: Text('查看全部 ${r!['commentsTotal']} 条短评'),
                                 onPressed: () => showRoomComments(
                                   context,
@@ -452,7 +465,7 @@ Future<void> showParticipantDetails(
                               ListTile(
                                 contentPadding: EdgeInsets.zero,
                                 leading: const CircleAvatar(
-                                  child: Icon(Icons.person_outline),
+                                  child: AnimeIcon(Icons.person_outline),
                                 ),
                                 title: Text(
                                   entry['mine'] == true ? '我 · 匿名短评' : '匿名短评',

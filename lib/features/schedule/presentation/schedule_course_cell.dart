@@ -1,3 +1,4 @@
+import '../../../core/theme/anime_icon.dart';
 import 'package:flutter/material.dart';
 import '../../../models/bangumi_models.dart';
 import '../../../models/schedule_models.dart';
@@ -100,7 +101,7 @@ class ScheduleCourseCell extends StatelessWidget {
                 padding: EdgeInsets.zero,
                 constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
                 tooltip: '更多',
-                icon: const Icon(Icons.more_vert_rounded, size: 16),
+                icon: const AnimeIcon(Icons.more_vert_rounded, size: 16),
                 onPressed: onActions,
               ),
             ),
@@ -146,7 +147,7 @@ class ScheduleCourseCell extends StatelessWidget {
               padding: EdgeInsets.zero,
               constraints: const BoxConstraints(minWidth: 26, minHeight: 26),
               tooltip: '删除/改期',
-              icon: Icon(
+              icon: AnimeIcon(
                 Icons.more_horiz_rounded,
                 size: 16,
                 color: scheme.onSurface.withValues(alpha: .75),
@@ -194,7 +195,7 @@ class ScheduleCourseCell extends StatelessWidget {
                         minHeight: 26,
                       ),
                       tooltip: '删除/改期',
-                      icon: const Icon(Icons.more_horiz_rounded, size: 16),
+                      icon: const AnimeIcon(Icons.more_horiz_rounded, size: 16),
                       onPressed: onActions,
                     ),
                   ),
@@ -253,7 +254,10 @@ class ScheduleCourseCell extends StatelessWidget {
                             minHeight: 28,
                           ),
                           tooltip: '更多',
-                          icon: const Icon(Icons.more_vert_rounded, size: 18),
+                          icon: const AnimeIcon(
+                            Icons.more_vert_rounded,
+                            size: 18,
+                          ),
                           onPressed: onActions,
                         ),
                     ],
@@ -312,7 +316,7 @@ class ScheduleCourseCell extends StatelessWidget {
                   ),
                   child: Padding(
                     padding: const EdgeInsets.all(3),
-                    child: Icon(
+                    child: AnimeIcon(
                       Icons.notifications_active_rounded,
                       size: 12,
                       color: scheme.onPrimaryContainer,

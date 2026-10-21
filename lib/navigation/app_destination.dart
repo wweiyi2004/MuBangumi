@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import '../core/network/community_service.dart';
 import '../models/bangumi_models.dart';
+import '../core/network/bangumi_support.dart';
 import '../models/community_models.dart';
+import '../core/shortcuts/shared_bangumi_link.dart';
 import '../widgets/community_composer.dart' show CommunityTokenProvider;
 
 /// Cross-feature navigation describes a destination; only the composition root
@@ -33,6 +35,31 @@ sealed class AppDestination extends StatelessWidget {
 class SubjectRoute extends AppDestination {
   const SubjectRoute({super.key, required this.subject});
   final Subject subject;
+}
+
+class SubjectStaffRoute extends AppDestination {
+  const SubjectStaffRoute({
+    super.key,
+    required this.subject,
+    this.seed = const [],
+  });
+  final Subject subject;
+  final List<SubjectPerson> seed;
+}
+
+class SharedLinkRoute extends AppDestination {
+  const SharedLinkRoute({super.key, required this.link});
+  final SharedBangumiLink link;
+}
+
+class TimelineRoute extends AppDestination {
+  const TimelineRoute({
+    super.key,
+    required this.username,
+    required this.timelineId,
+  });
+  final String username;
+  final int timelineId;
 }
 
 class CharacterRoute extends AppDestination {
@@ -137,6 +164,22 @@ class DiscoverRoute extends AppDestination {
 
 class ScoreTrendsRoute extends AppDestination {
   const ScoreTrendsRoute({super.key});
+}
+
+class IndexListRoute extends AppDestination {
+  const IndexListRoute({
+    super.key,
+    this.username,
+    this.embedded = false,
+    this.usePrimaryScrollController = false,
+  });
+  final String? username;
+  final bool embedded, usePrimaryScrollController;
+}
+
+class IndexDetailRoute extends AppDestination {
+  const IndexDetailRoute({super.key, required this.indexId});
+  final int indexId;
 }
 
 void openUserProfile(

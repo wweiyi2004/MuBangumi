@@ -1,14 +1,14 @@
 import 'dart:convert';
-import 'dart:io';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path/path.dart' as path;
 import 'package:sqflite/sqflite.dart';
-import 'package:sqflite_common_ffi/sqflite_ffi.dart' as ffi;
 import '../../models/pm_send_command.dart';
 import '../../models/pm_draft.dart';
 export '../../models/pm_draft.dart';
 import 'pm_outbox_repository.dart';
+import 'serial_task_queue.dart';
+import 'sqlite_support.dart';
 
 final pmDraftRepositoryProvider = Provider<PmDraftRepository>(
   (ref) => PmDraftStore.shared,
@@ -18,18 +18,15 @@ class PmDraftStore implements PmDraftRepository, PmOutboxRepository {
   PmDraftStore({this.databasePath});
   static final shared = PmDraftStore();
   final String? databasePath;
-  Future<Database>? _database;
-  Future<void> _writes = Future.value();
+  final _connection = SqliteConnection();
+  final _writes = SerialTaskQueue();
 
-  Future<T> _write<T>(Future<T> Function(Database db) action) {
-    final next = _writes.then((_) async => action(await _open()));
-    _writes = next.then<void>((_) {}, onError: (Object _, StackTrace _) {});
-    return next;
-  }
+  Future<T> _write<T>(Future<T> Function(Database db) action) =>
+      _writes.run(() async => action(await _open()));
 
   @override
   Future<PmDraftSlot> read(int ownerId, String id) async {
-    await _writes;
+    await _writes.done;
     final rows = await (await _open()).query(
       'pm_draft',
       where: 'owner_id = ? AND draft_id = ?',
@@ -40,7 +37,7 @@ class PmDraftStore implements PmDraftRepository, PmOutboxRepository {
 
   @override
   Future<PmDraftSlot?> findCompose(int ownerId, {String? recipient}) async {
-    await _writes;
+    await _writes.done;
     final target = recipient?.trim().toLowerCase() ?? '';
     final rows = await (await _open()).query(
       'pm_draft',
@@ -59,7 +56,7 @@ class PmDraftStore implements PmDraftRepository, PmOutboxRepository {
 
   @override
   Future<List<PmDraft>> listCompose(int ownerId) async {
-    await _writes;
+    await _writes.done;
     final rows = await (await _open()).query(
       'pm_draft',
       where: 'owner_id = ? AND kind = ? AND deleted = 0',
@@ -161,7 +158,7 @@ class PmDraftStore implements PmDraftRepository, PmOutboxRepository {
   }
 
   Future<String> databaseForBackup() async {
-    await _writes;
+    await _writes.done;
     return (await _open()).path;
   }
 
@@ -250,7 +247,7 @@ class PmDraftStore implements PmDraftRepository, PmOutboxRepository {
 
   @override
   Future<List<PmSendCommand>> outboxFor(int ownerId) async {
-    await _writes;
+    await _writes.done;
     final rows = await (await _open()).query(
       'pm_send_queue',
       where: 'owner_id = ?',
@@ -349,19 +346,10 @@ class PmDraftStore implements PmDraftRepository, PmOutboxRepository {
     );
   }
 
-  Future<Database> _open() =>
-      _database ??= _create().catchError((Object error) {
-        _database = null;
-        throw error;
-      });
+  Future<Database> _open() => _connection.open(_create);
+
   Future<Database> _create() async {
-    final DatabaseFactory factory;
-    if (Platform.isWindows || Platform.isLinux) {
-      ffi.sqfliteFfiInit();
-      factory = ffi.databaseFactoryFfi;
-    } else {
-      factory = databaseFactory;
-    }
+    final factory = sqliteFactory;
     return factory.openDatabase(
       databasePath ??
           path.join(
@@ -369,9 +357,7 @@ class PmDraftStore implements PmDraftRepository, PmOutboxRepository {
             'mubangumi_pm_drafts.sqlite',
           ),
       options: OpenDatabaseOptions(
-        onConfigure: (db) async {
-          await db.rawQuery('PRAGMA journal_mode=DELETE');
-        },
+        onConfigure: configurePersonalDatabase,
         version: 2,
         onUpgrade: (db, oldVersion, newVersion) async {
           if (oldVersion < 2) await _createOutbox(db);
@@ -390,8 +376,7 @@ class PmDraftStore implements PmDraftRepository, PmOutboxRepository {
   }
 
   Future<void> close() async {
-    await _writes;
-    await (await _database)?.close();
-    _database = null;
+    await _writes.done;
+    await _connection.close();
   }
 }

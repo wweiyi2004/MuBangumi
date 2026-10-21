@@ -1,3 +1,4 @@
+import '../core/theme/anime_icon.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import '../core/theme/app_tokens.dart';
@@ -57,7 +58,7 @@ class SocialSectionTabs extends StatelessWidget {
                         Badge(
                           isLabelVisible: index == 2 && unread > 0,
                           label: Text(unread > 99 ? '99+' : '$unread'),
-                          child: Icon(
+                          child: AnimeIcon(
                             icon,
                             size: 21,
                             color: index == selected

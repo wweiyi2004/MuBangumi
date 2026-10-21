@@ -19,6 +19,7 @@ import '../widgets/friend_qr_actions.dart';
 import 'messages_page.dart';
 import 'discovery_hub_page.dart';
 import '../widgets/app_navigation_layout.dart';
+import '../widgets/swipe_tab_stack.dart';
 import 'home_page.dart';
 import 'library_page.dart';
 import 'profile_page.dart';
@@ -38,6 +39,20 @@ class _HomeShellState extends ConsumerState<HomeShell> {
   bool _communityOpened = false;
   bool _profileOpened = false;
   bool _handlingSharedLinks = false;
+  void _preparePage(int index) {
+    if ((index == 1 && !_libraryOpened) ||
+        (index == 2 && !_discoverOpened) ||
+        (index == 3 && !_communityOpened) ||
+        (index == 4 && !_profileOpened)) {
+      setState(() {
+        if (index == 1) _libraryOpened = true;
+        if (index == 2) _discoverOpened = true;
+        if (index == 3) _communityOpened = true;
+        if (index == 4) _profileOpened = true;
+      });
+    }
+  }
+
   late final AppLifecycleListener _lifecycleListener;
   late final RssController _rssController;
   late final StreamSubscription<ScheduleReminderTarget> _reminderSubscription;
@@ -224,7 +239,12 @@ class _HomeShellState extends ConsumerState<HomeShell> {
           children: [
             const ParticipationReturnTile(),
             Expanded(
-              child: IndexedStack(index: _index, children: pages),
+              child: SwipeTabStack(
+                index: _index,
+                onChanged: _selectPage,
+                onPreview: _preparePage,
+                children: pages,
+              ),
             ),
           ],
         ),

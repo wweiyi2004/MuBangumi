@@ -4,6 +4,31 @@ import 'package:mubangumi/core/network/netaba_api.dart';
 
 void main() {
   test(
+    'large history is returned but is not retained beyond the byte budget',
+    () async {
+      var requests = 0;
+      final dio = Dio()
+        ..interceptors.add(
+          InterceptorsWrapper(
+            onRequest: (options, handler) {
+              requests++;
+              handler.resolve(
+                Response(
+                  requestOptions: options,
+                  data: {'history': List.filled(16000, <String, dynamic>{})},
+                ),
+              );
+            },
+          ),
+        );
+      addTearDown(() => dio.close(force: true));
+      final api = NetabaApi(dio: dio);
+      expect((await api.getSubjectHistory(7)).history.length, 16000);
+      expect((await api.getSubjectHistory(7)).history.length, 16000);
+      expect(requests, 2);
+    },
+  );
+  test(
     'history, trends and reputation share in-flight requests and cache results',
     () async {
       var requests = 0;

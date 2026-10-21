@@ -8,6 +8,7 @@ import '../models/community_models.dart';
 import '../state/session_controller.dart';
 import '../state/background_controller.dart';
 import '../widgets/profile_home_layout.dart';
+import '../widgets/user_biography.dart';
 import 'community_timeline_page.dart';
 import 'friends_page.dart';
 import 'library_page.dart';
@@ -32,8 +33,10 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
   final _opened = <int>{0};
   @override
   Widget build(BuildContext context) {
-    final session = ref.watch(sessionProvider);
-    final user = session.user;
+    final user = ref.watch(sessionProvider.select((state) => state.user));
+    final collections = ref.watch(
+      sessionProvider.select((state) => state.collections),
+    );
     if (user == null) return const Center(child: Text('尚未登录'));
     final friends = ref.watch(_friendCountProvider(user.username)).valueOrNull;
     final background = ref.watch(effectiveBackgroundProvider);
@@ -44,9 +47,10 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
       nickname: user.displayName,
       username: user.username,
       sign: user.sign,
+      biography: UserBiography(username: user.username),
       avatarUrl: user.avatarUrl,
-      total: session.collections.length,
-      doing: session.collections
+      total: collections.length,
+      doing: collections
           .where((entry) => entry.type == CollectionType.doing)
           .length,
       friends: friends,

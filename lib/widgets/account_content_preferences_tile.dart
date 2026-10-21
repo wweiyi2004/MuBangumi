@@ -1,3 +1,4 @@
+import '../core/theme/anime_icon.dart';
 import '../state/service_providers.dart';
 import 'dart:async';
 import 'package:flutter/material.dart';
@@ -176,7 +177,7 @@ class _AccountContentPreferencesTileState
             alignment: Alignment.centerLeft,
             child: OutlinedButton.icon(
               onPressed: _busy ? null : _openWebsite,
-              icon: const Icon(Icons.open_in_new, size: 18),
+              icon: const AnimeIcon(Icons.open_in_new, size: 18),
               label: const Text('在官网设置受限内容'),
             ),
           ),
@@ -184,7 +185,7 @@ class _AccountContentPreferencesTileState
           alignment: Alignment.centerLeft,
           child: TextButton.icon(
             onPressed: _busy ? null : _load,
-            icon: const Icon(Icons.refresh, size: 18),
+            icon: const AnimeIcon(Icons.refresh, size: 18),
             label: Text(_error == null ? '重新读取内容偏好' : '重新读取设置'),
           ),
         ),

@@ -1,7 +1,8 @@
+import '../../widgets/brand_qr.dart';
+import '../../core/theme/anime_icon.dart';
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:qr_flutter/qr_flutter.dart';
 import 'room_storage.dart';
 
 final roomWifiVaultProvider = Provider<RoomSecretVault>(
@@ -108,7 +109,7 @@ class _RoomWifiJoinCardState extends ConsumerState<RoomWifiJoinCard> {
               children: [
                 OutlinedButton.icon(
                   onPressed: _edit,
-                  icon: const Icon(Icons.wifi),
+                  icon: const AnimeIcon(Icons.wifi),
                   label: const Text('添加 Wi-Fi 二维码'),
                 ),
                 const SizedBox(height: 8),
@@ -124,7 +125,7 @@ class _RoomWifiJoinCardState extends ConsumerState<RoomWifiJoinCard> {
           Container(
             color: Colors.white,
             padding: const EdgeInsets.all(12),
-            child: QrImageView(
+            child: BrandQr(
               key: ValueKey(network.payload),
               data: network.payload,
               size: widget.qrSize,
@@ -134,7 +135,7 @@ class _RoomWifiJoinCardState extends ConsumerState<RoomWifiJoinCard> {
           Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Icon(Icons.wifi, size: 16),
+              const AnimeIcon(Icons.wifi, size: 16),
               const SizedBox(width: 4),
               Flexible(
                 child: Text(network.ssid, overflow: TextOverflow.ellipsis),
@@ -207,7 +208,9 @@ class _RoomWifiDialogState extends State<_RoomWifiDialog> {
             errorText: _tried ? _passwordError : null,
             suffixIcon: IconButton(
               onPressed: () => setState(() => _hidden = !_hidden),
-              icon: Icon(_hidden ? Icons.visibility : Icons.visibility_off),
+              icon: AnimeIcon(
+                _hidden ? Icons.visibility : Icons.visibility_off,
+              ),
               tooltip: _hidden ? '显示密码' : '隐藏密码',
             ),
           ),

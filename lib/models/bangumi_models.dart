@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 enum SubjectType {
   book(1, '书籍', '读'),
   anime(2, '动画', '看'),
@@ -167,7 +169,7 @@ class Subject {
       variance += delta * delta * count;
     });
     variance /= ratingTotal;
-    return variance <= 0 ? 0 : _sqrt(variance);
+    return variance <= 0 ? 0 : math.sqrt(variance);
   }
 
   /// Human-readable controversy from stddev (garage #31 style).
@@ -205,7 +207,9 @@ class Subject {
       id: _int(json['id']),
       type: SubjectType.fromValue(typeValue),
       name: _string(json['name']),
-      nameCn: _string(json['name_cn']),
+      nameCn: _string(json['name_cn']).trim().isNotEmpty
+          ? _string(json['name_cn'])
+          : _chineseNameFromInfobox(json['infobox']),
       imageUrl: _string(
         images['large'],
         fallback: _string(
@@ -353,15 +357,6 @@ class FriendSubjectStatus {
   final String comment;
 }
 
-double _sqrt(double value) {
-  if (value <= 0) return 0;
-  var x = value;
-  for (var i = 0; i < 12; i++) {
-    x = 0.5 * (x + value / x);
-  }
-  return x;
-}
-
 class UserCollection {
   const UserCollection({
     required this.subjectId,
@@ -482,8 +477,46 @@ class Episode {
   String get displayName {
     if (nameCn.isNotEmpty) return nameCn;
     if (name.isNotEmpty) return name;
-    return '第 ${number.toStringAsFixed(number % 1 == 0 ? 0 : 1)} 话';
+    return label;
   }
+
+  /// V0 often leaves `ep` at zero for specials; `sort` is their real ordinal.
+  double? get displayOrdinal => number.isFinite && number > 0
+      ? number
+      : sort.isFinite && sort > 0
+      ? sort
+      : null;
+  String get ordinalLabel {
+    final value = displayOrdinal;
+    if (value == null) return '—';
+    return value == value.roundToDouble()
+        ? value.toInt().toString()
+        : value.toString().replaceFirst(RegExp(r'\.0$'), '');
+  }
+
+  String get typeLabel => switch (type) {
+    0 => '正篇',
+    1 => '特别篇',
+    2 => 'OP',
+    3 => 'ED',
+    4 => '预告',
+    5 => 'MAD',
+    6 => '其他',
+    _ => '其他',
+  };
+  String get gridLabel => type == 0
+      ? ordinalLabel
+      : '${switch (type) {
+          1 => 'SP',
+          2 => 'OP',
+          3 => 'ED',
+          4 => 'PV',
+          5 => 'MAD',
+          _ => 'EX',
+        }}${displayOrdinal == null ? '' : ordinalLabel}';
+  String get label => type == 0
+      ? (displayOrdinal == null ? '正篇' : '第 $ordinalLabel 话')
+      : '$typeLabel${displayOrdinal == null ? '' : ' $ordinalLabel'}';
 
   factory Episode.fromJson(Map<String, dynamic> json) => Episode(
     id: _int(json['id']),
@@ -547,6 +580,22 @@ Map<String, dynamic> _map(dynamic value) {
     return value.map((key, item) => MapEntry(key.toString(), item));
   }
   return <String, dynamic>{};
+}
+
+String _chineseNameFromInfobox(dynamic infobox) {
+  if (infobox is! List) return '';
+  for (final item in infobox) {
+    if (item is! Map || !const ['简体中文名', '中文名'].contains(item['key'])) continue;
+    final value = item['value'];
+    if (value is String && value.trim().isNotEmpty) return value.trim();
+    if (value is List) {
+      for (final entry in value) {
+        final name = entry is Map ? entry['v'] : entry;
+        if (name is String && name.trim().isNotEmpty) return name.trim();
+      }
+    }
+  }
+  return '';
 }
 
 String _officialSiteFromInfobox(dynamic infobox) {

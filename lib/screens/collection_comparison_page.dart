@@ -1,3 +1,4 @@
+import '../core/theme/anime_icon.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -79,7 +80,7 @@ class _CollectionComparisonPageState
               const SizedBox(height: 12),
               FilledButton.icon(
                 onPressed: _load,
-                icon: const Icon(Icons.refresh_rounded),
+                icon: const AnimeIcon(Icons.refresh_rounded),
                 label: const Text('重试'),
               ),
             ],
@@ -224,7 +225,7 @@ class _ComparedSection extends StatelessWidget {
                 '我 ${item.mine.rate} 分 · 对方 ${item.theirs.rate} 分',
               ),
               trailing: item.ratingDifference == 0
-                  ? const Icon(Icons.handshake_outlined)
+                  ? const AnimeIcon(Icons.handshake_outlined)
                   : Text('相差 ${item.ratingDifference}'),
             ),
           ),

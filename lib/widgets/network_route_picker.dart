@@ -1,3 +1,4 @@
+import '../core/theme/anime_icon.dart';
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -29,7 +30,7 @@ Future<void> showNetworkRoutePicker(
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        icon: const Icon(Icons.security_rounded),
+        icon: const AnimeIcon(Icons.security_rounded),
         title: const Text('启用第三方线路？'),
         content: const Text(
           '收藏、进度和图片将通过 bgmapi.anibt.net 与 bgmimg.anibt.net。'
@@ -42,7 +43,7 @@ Future<void> showNetworkRoutePicker(
               Uri.parse(_proxyGuideUrl),
               mode: LaunchMode.externalApplication,
             ),
-            icon: const Icon(Icons.open_in_new_rounded, size: 17),
+            icon: const AnimeIcon(Icons.open_in_new_rounded, size: 17),
             label: const Text('查看说明'),
           ),
           TextButton(
@@ -113,7 +114,7 @@ class _NetworkRouteDialogState extends State<_NetworkRouteDialog> {
     children: [
       for (final route in BangumiNetworkRoute.values)
         ListTile(
-          leading: Icon(
+          leading: AnimeIcon(
             route == BangumiNetworkRoute.official
                 ? Icons.public_rounded
                 : Icons.alt_route_rounded,
@@ -124,7 +125,7 @@ class _NetworkRouteDialogState extends State<_NetworkRouteDialog> {
           ),
           isThreeLine: true,
           trailing: route == widget.current
-              ? Icon(
+              ? AnimeIcon(
                   Icons.check_circle_rounded,
                   color: Theme.of(context).colorScheme.primary,
                 )
@@ -142,7 +143,7 @@ class _NetworkRouteDialogState extends State<_NetworkRouteDialog> {
                     dimension: 16,
                     child: CircularProgressIndicator(strokeWidth: 2),
                   )
-                : const Icon(Icons.speed_rounded),
+                : const AnimeIcon(Icons.speed_rounded),
             label: Text(_probing ? '正在测速' : '重新测速'),
           ),
         ),

@@ -1,3 +1,6 @@
+import '../widgets/profile_home_layout.dart';
+import '../widgets/user_biography.dart';
+import '../core/theme/anime_icon.dart';
 import '../state/service_providers.dart';
 import '../navigation/app_destination.dart';
 export '../navigation/app_destination.dart'
@@ -5,12 +8,10 @@ export '../navigation/app_destination.dart'
         openUserProfile,
         openUserProfileFromCommunity,
         openUserProfileFromBangumi;
-import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:url_launcher/url_launcher.dart';
 
-import '../core/network/bangumi_endpoints.dart';
 import '../models/bangumi_models.dart';
 import '../models/community_models.dart';
 import '../state/session_controller.dart';
@@ -76,14 +77,34 @@ class _UserProfilePageState extends ConsumerState<UserProfilePage> {
   Future<void> _loadTimeline() async {
     setState(() => _loadingTimeline = true);
     try {
-      final items = await _community.loadUserTimeline(
-        widget.username,
-        limit: 8,
+      // P1 user timelines can lag days behind the website.
+      final page = await _community.loadFreshTimelinePage(
+        CommunityTimelineMode.all,
+        username: widget.username,
         refresh: true,
-        fallbackNickname: _user?.nickname ?? widget.seed?.nickname,
-        fallbackAvatarUrl: _user?.avatarUrl ?? widget.seed?.avatarUrl,
       );
       if (!mounted) return;
+      final nickname = _user?.nickname ?? widget.seed?.nickname ?? '';
+      final avatarUrl = _user?.avatarUrl ?? widget.seed?.avatarUrl ?? '';
+      final owner = widget.username.trim().toLowerCase();
+      final items = [
+        for (final item in page.items.take(8))
+          if (item.user.username.toLowerCase() == owner)
+            // Profile timeline rows carry neither nickname nor avatar.
+            item.copyWith(
+              user: CommunityUser(
+                id: item.user.id,
+                username: item.user.username,
+                nickname: nickname.isNotEmpty ? nickname : item.user.nickname,
+                avatarUrl: item.user.avatarUrl.isNotEmpty
+                    ? item.user.avatarUrl
+                    : avatarUrl,
+                joinedAt: item.user.joinedAt,
+              ),
+            )
+          else
+            item,
+      ];
       setState(() {
         _timeline = items;
         _loadingTimeline = false;
@@ -199,8 +220,9 @@ class _UserProfilePageState extends ConsumerState<UserProfilePage> {
         // Doing lists stay moderate; full browse caps for responsiveness.
         maxItems: status == null ? 80 : 60,
       );
-      final counts = await countsFuture;
-      final items = await itemsFuture;
+      final results = await Future.wait<Object>([countsFuture, itemsFuture]);
+      final counts = results[0] as Map<CollectionType, int>;
+      final items = results[1] as List<UserCollection>;
       if (!mounted || requestId != _requestId) return;
       setState(() {
         _counts = counts;
@@ -331,7 +353,7 @@ class _UserProfilePageState extends ConsumerState<UserProfilePage> {
         .preferenceFor(widget.username);
     return Scaffold(
       appBar: AppBar(
-        title: Text(user?.displayName ?? widget.username),
+        title: Text(_isSelf ? '我的空间' : '好友空间'),
         actions: [
           if (!_isSelf)
             IconButton(
@@ -344,7 +366,7 @@ class _UserProfilePageState extends ConsumerState<UserProfilePage> {
                       dimension: 18,
                       child: CircularProgressIndicator(strokeWidth: 2),
                     )
-                  : Icon(
+                  : AnimeIcon(
                       _isFriend == true
                           ? Icons.person_remove_alt_1_outlined
                           : Icons.person_add_alt_1_outlined,
@@ -357,12 +379,12 @@ class _UserProfilePageState extends ConsumerState<UserProfilePage> {
                 : () => _isSelf
                       ? showMyFriendQr(context, user)
                       : showFriendQr(context, user),
-            icon: const Icon(Icons.qr_code_2_rounded),
+            icon: const AnimeIcon(Icons.qr_code_2_rounded),
           ),
           IconButton(
             tooltip: '发短信',
             onPressed: () => openPmPage(context, composeTo: widget.username),
-            icon: const Icon(Icons.mail_outline_rounded),
+            icon: const AnimeIcon(Icons.mail_outline_rounded),
           ),
           IconButton(
             tooltip: '在 Bangumi 打开',
@@ -372,7 +394,7 @@ class _UserProfilePageState extends ConsumerState<UserProfilePage> {
               ),
               mode: LaunchMode.externalApplication,
             ),
-            icon: const Icon(Icons.open_in_new_rounded),
+            icon: const AnimeIcon(Icons.open_in_new_rounded),
           ),
         ],
       ),
@@ -387,62 +409,27 @@ class _UserProfilePageState extends ConsumerState<UserProfilePage> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Card(
-                      child: Padding(
-                        padding: const EdgeInsets.all(16),
-                        child: Row(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            CircleAvatar(
-                              radius: 34,
-                              backgroundColor: scheme.primaryContainer,
-                              backgroundImage:
-                                  user == null || user.avatarUrl.isEmpty
-                                  ? null
-                                  : CachedNetworkImageProvider(
-                                      BangumiEndpoints.imageUrl(user.avatarUrl),
-                                    ),
-                              child: user == null || user.avatarUrl.isEmpty
-                                  ? Text(
-                                      (user?.displayName ?? widget.username)
-                                          .characters
-                                          .first
-                                          .toUpperCase(),
-                                      style: Theme.of(
-                                        context,
-                                      ).textTheme.headlineSmall,
-                                    )
-                                  : null,
-                            ),
-                            const SizedBox(width: 14),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    user?.displayName ?? widget.username,
-                                    style: Theme.of(
-                                      context,
-                                    ).textTheme.headlineSmall,
-                                  ),
-                                  Text(
-                                    '@${user?.username ?? widget.username}',
-                                    style: TextStyle(
-                                      color: scheme.onSurfaceVariant,
-                                    ),
-                                  ),
-                                  if ((user?.sign ?? '').isNotEmpty) ...[
-                                    const SizedBox(height: 8),
-                                    Text(user!.sign),
-                                  ],
-                                  if (_loadingProfile) ...[
-                                    const SizedBox(height: 10),
-                                    const LinearProgressIndicator(minHeight: 2),
-                                  ],
-                                ],
+                    PublicSpaceHeader(
+                      nickname: user?.displayName ?? widget.username,
+                      username: user?.username ?? widget.username,
+                      avatarUrl: user?.avatarUrl ?? '',
+                      sign: user?.sign ?? '',
+                      biography: UserBiography(
+                        username: user?.username ?? widget.username,
+                      ),
+                      loading: _loadingProfile,
+                      footer: Align(
+                        alignment: Alignment.centerLeft,
+                        child: TextButton.icon(
+                          onPressed: () => Navigator.of(context).push(
+                            MaterialPageRoute<void>(
+                              builder: (_) => IndexListRoute(
+                                username: user?.username ?? widget.username,
                               ),
                             ),
-                          ],
+                          ),
+                          icon: const AnimeIcon(Icons.list_alt_rounded),
+                          label: const Text('TA 的番剧单'),
                         ),
                       ),
                     ),
@@ -458,7 +445,7 @@ class _UserProfilePageState extends ConsumerState<UserProfilePage> {
                                 ListTile(
                                   dense: true,
                                   contentPadding: EdgeInsets.zero,
-                                  leading: const Icon(
+                                  leading: const AnimeIcon(
                                     Icons.sticky_note_2_outlined,
                                   ),
                                   title: const Text('本地备注'),
@@ -472,14 +459,16 @@ class _UserProfilePageState extends ConsumerState<UserProfilePage> {
                                 children: [
                                   FilledButton.tonalIcon(
                                     onPressed: _openComparison,
-                                    icon: const Icon(
+                                    icon: const AnimeIcon(
                                       Icons.compare_arrows_rounded,
                                     ),
                                     label: const Text('口味对比'),
                                   ),
                                   OutlinedButton.icon(
                                     onPressed: _openCommonFriends,
-                                    icon: const Icon(Icons.people_alt_outlined),
+                                    icon: const AnimeIcon(
+                                      Icons.people_alt_outlined,
+                                    ),
                                     label: const Text('共同好友'),
                                   ),
                                   OutlinedButton.icon(
@@ -490,13 +479,17 @@ class _UserProfilePageState extends ConsumerState<UserProfilePage> {
                                         ),
                                       ),
                                     ),
-                                    icon: const Icon(Icons.article_outlined),
+                                    icon: const AnimeIcon(
+                                      Icons.article_outlined,
+                                    ),
                                     label: const Text('日志'),
                                   ),
                                   OutlinedButton.icon(
                                     onPressed: () =>
                                         _editLocalNote(preference.note),
-                                    icon: const Icon(Icons.edit_note_rounded),
+                                    icon: const AnimeIcon(
+                                      Icons.edit_note_rounded,
+                                    ),
                                     label: Text(
                                       preference.note.isEmpty ? '添加备注' : '修改备注',
                                     ),
@@ -504,7 +497,7 @@ class _UserProfilePageState extends ConsumerState<UserProfilePage> {
                                   OutlinedButton.icon(
                                     onPressed: () =>
                                         _toggleLocalBlock(preference.blocked),
-                                    icon: Icon(
+                                    icon: AnimeIcon(
                                       preference.blocked
                                           ? Icons.visibility_outlined
                                           : Icons.block_rounded,
@@ -587,7 +580,10 @@ class _UserProfilePageState extends ConsumerState<UserProfilePage> {
                         children: [
                           for (final type in SubjectType.values) ...[
                             ChoiceChip(
-                              avatar: Icon(subjectTypeIcon(type), size: 16),
+                              avatar: AnimeIcon(
+                                subjectTypeIcon(type),
+                                size: 16,
+                              ),
                               label: Text(type.label),
                               selected: _subjectType == type,
                               onSelected: (_) {
@@ -707,7 +703,7 @@ class _UserProfilePageState extends ConsumerState<UserProfilePage> {
                     message: _error!,
                     action: FilledButton.tonalIcon(
                       onPressed: _loadCollections,
-                      icon: const Icon(Icons.refresh_rounded),
+                      icon: const AnimeIcon(Icons.refresh_rounded),
                       label: const Text('重试'),
                     ),
                   ),

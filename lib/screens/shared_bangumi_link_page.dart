@@ -15,8 +15,17 @@ class SharedBangumiLinkPage extends ConsumerWidget {
   final SharedBangumiLink link;
   @override
   Widget build(BuildContext context, WidgetRef ref) => switch (link.kind) {
-    SharedBangumiKind.person => PersonRoute(personId: link.id),
-    SharedBangumiKind.character => CharacterRoute(characterId: link.id),
+    SharedBangumiKind.directory => IndexDetailRoute(indexId: link.id),
+    SharedBangumiKind.timeline => TimelineRoute(
+      username: link.username!,
+      timelineId: link.id,
+    ),
+    SharedBangumiKind.person when link.postId == null => PersonRoute(
+      personId: link.id,
+    ),
+    SharedBangumiKind.character when link.postId == null => CharacterRoute(
+      characterId: link.id,
+    ),
     SharedBangumiKind.subject =>
       ref
           .watch(sharedSubjectProvider(link.id))
@@ -53,11 +62,14 @@ class SharedBangumiLinkPage extends ConsumerWidget {
         kind: switch (link.kind) {
           SharedBangumiKind.groupTopic => CommunityTopicKind.group,
           SharedBangumiKind.subjectTopic => CommunityTopicKind.subject,
+          SharedBangumiKind.person => CommunityTopicKind.person,
+          SharedBangumiKind.character => CommunityTopicKind.character,
           _ => CommunityTopicKind.episode,
         },
         title: link.label,
         url: link.url,
         webUrl: link.url,
+        targetPostId: link.postId,
       ),
     ),
   };

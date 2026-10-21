@@ -75,7 +75,22 @@ void main() {
           ),
         );
         await tester.pump();
-        expect(tester.getTopLeft(find.text('继续追')).dy, lessThan(300 * scale));
+        expect(
+          tester
+              .getTopLeft(find.byKey(const ValueKey('home-episode-heatmap')))
+              .dy,
+          lessThan(300 * scale),
+        );
+        expect(
+          tester.getTopLeft(find.text('继续追')).dy,
+          greaterThan(
+            tester
+                .getBottomLeft(
+                  find.byKey(const ValueKey('home-episode-heatmap')),
+                )
+                .dy,
+          ),
+        );
         expect(
           tester
               .getTopLeft(

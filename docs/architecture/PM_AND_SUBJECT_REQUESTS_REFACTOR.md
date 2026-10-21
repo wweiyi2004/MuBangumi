@@ -8,7 +8,7 @@
 
 | 文件 | 职责 |
 | --- | --- |
-| `pm_mailbox_view.dart` | 收件/已发送切换、已加载会话搜索、列表、未读、空状态和加载状态 |
+| `pm_mailbox_view.dart`（历史模块） | 原收件/已发送切换与列表；现已由 `pm_contacts_view.dart` 联系人视图替代，2026-10-14 清理时移除无引用的旧模块 |
 | `pm_conversation_screen.dart` | 单个聊天的主题切换、请求生命周期、滚动位置、发送和回复草稿协调 |
 | `pm_compose_screen.dart` | 收件人准备、写信、草稿选择和发送后的返回 |
 | `pm_chat_widgets.dart` | 消息气泡、头像位置、输入框、发送按钮和键盘快捷键 |

@@ -1,3 +1,4 @@
+import '../core/theme/anime_icon.dart';
 import 'dart:async';
 import 'dart:convert';
 
@@ -12,6 +13,8 @@ export '../core/storage/community_draft_store.dart' show communityDraftKey;
 import 'turnstile_dialog.dart';
 import 'community_rich_content.dart';
 import 'draft_status.dart';
+import 'blog_composer_page.dart';
+import '../state/community_submission_controller.dart';
 
 typedef CommunitySubmit =
     Future<void> Function(String title, String content, String token);
@@ -80,37 +83,45 @@ Future<bool> showCommunityComposer(
   CommunityTopicDraft? topicDraft,
   CommunityConfirmSubmission? confirmSubmission,
   Future<void> Function()? inspectSubmission,
-}) async =>
-    await showDialog<bool>(
-      context: context,
-      barrierDismissible: false,
-      builder: (context) => _CommunityComposerDialog(
-        heading: heading,
-        onSubmit: onSubmit,
-        requireTitle: requireTitle,
-        contentLabel: contentLabel,
-        warning: warning,
-        replyContext: replyContext,
-        maxLength: maxLength,
-        tokenProvider: tokenProvider ?? showTurnstileDialog,
-        websiteRecovery:
-            websiteRecovery ??
-            (context) async => await openWebsiteLoginScreen(context) == true,
-        initialTitle: initialTitle,
-        initialContent: initialContent,
-        requireVerification: requireVerification,
-        submitLabel: submitLabel,
-        blogDraft: blogDraft,
-        topicDraft: topicDraft,
-        confirmSubmission: confirmSubmission,
-        inspectSubmission: inspectSubmission,
-        draft: draft,
-        draftKey: draftKey,
-        draftStore: draftStore ?? CommunityDraftStore.shared,
-        isAccountCurrent: isAccountCurrent,
-      ),
-    ) ??
-    false;
+  ValueChanged<CommunityPendingSubmission>? onAccepted,
+}) async {
+  Widget editor(BuildContext context) => _CommunityComposerDialog(
+    heading: heading,
+    onSubmit: onSubmit,
+    requireTitle: requireTitle,
+    contentLabel: contentLabel,
+    warning: warning,
+    replyContext: replyContext,
+    maxLength: maxLength,
+    tokenProvider: tokenProvider ?? showTurnstileDialog,
+    websiteRecovery:
+        websiteRecovery ??
+        (context) async => await openWebsiteLoginScreen(context) == true,
+    initialTitle: initialTitle,
+    initialContent: initialContent,
+    requireVerification: requireVerification,
+    submitLabel: submitLabel,
+    blogDraft: blogDraft,
+    topicDraft: topicDraft,
+    confirmSubmission: confirmSubmission,
+    inspectSubmission: inspectSubmission,
+    onAccepted: onAccepted,
+    draft: draft,
+    draftKey: draftKey,
+    draftStore: draftStore ?? CommunityDraftStore.shared,
+    isAccountCurrent: isAccountCurrent,
+  );
+  return await (blogDraft != null
+          ? Navigator.of(context, rootNavigator: true).push<bool>(
+              MaterialPageRoute(builder: editor, fullscreenDialog: true),
+            )
+          : showDialog<bool>(
+              context: context,
+              barrierDismissible: false,
+              builder: editor,
+            )) ??
+      false;
+}
 
 class _CommunityComposerDialog extends StatefulWidget {
   const _CommunityComposerDialog({
@@ -135,6 +146,7 @@ class _CommunityComposerDialog extends StatefulWidget {
     this.topicDraft,
     this.confirmSubmission,
     this.inspectSubmission,
+    this.onAccepted,
   });
 
   final String heading;
@@ -147,6 +159,7 @@ class _CommunityComposerDialog extends StatefulWidget {
   final CommunityTopicDraft? topicDraft;
   final CommunityConfirmSubmission? confirmSubmission;
   final Future<void> Function()? inspectSubmission;
+  final ValueChanged<CommunityPendingSubmission>? onAccepted;
   final bool requireTitle;
   final String contentLabel;
   final CommunityTokenProvider tokenProvider;
@@ -170,9 +183,6 @@ class _CommunityComposerDialogState extends State<_CommunityComposerDialog> {
   );
   late final _contentController = TextEditingController(
     text: widget.draft?.content ?? widget.initialContent,
-  );
-  late final _tagsController = TextEditingController(
-    text: widget.blogDraft?.tags.join(' '),
   );
   String _lastBlogMetadata = '';
   bool _sent = false;
@@ -201,10 +211,10 @@ class _CommunityComposerDialogState extends State<_CommunityComposerDialog> {
   bool get _pending => widget.topicDraft?.pending == true;
   bool get _editable =>
       !_locked && !_pending && (widget.draftKey == null || _loadedDraft);
-  String _encodeContent(String value) =>
-      widget.topicDraft?.encode(value) ??
-      widget.blogDraft?.encode(value) ??
-      value;
+  String _encodeContent(String value) {
+    final body = widget.blogDraft?.encode(value) ?? value;
+    return widget.topicDraft?.encode(body) ?? body;
+  }
 
   String _message(Object error) => error is FormatException
       ? error.message
@@ -234,13 +244,11 @@ class _CommunityComposerDialogState extends State<_CommunityComposerDialog> {
       if (!mounted) return;
       _storedRevision = slot.revision;
       if (draft != null) {
-        final body =
-            widget.topicDraft?.restore(draft.content) ??
-            widget.blogDraft?.restore(draft.content) ??
-            draft.content;
+        final encoded =
+            widget.topicDraft?.restore(draft.content) ?? draft.content;
+        final body = widget.blogDraft?.restore(encoded) ?? encoded;
         _titleController.text = draft.title;
         _contentController.text = body;
-        _tagsController.text = widget.blogDraft?.tags.join(' ') ?? '';
         _draftSaved = true;
       }
       _loadedDraft = true;
@@ -392,6 +400,10 @@ class _CommunityComposerDialogState extends State<_CommunityComposerDialog> {
         }
         _checkAccount();
       }
+      if (widget.onAccepted != null && widget.topicDraft != null) {
+        _handoff(token?.trim() ?? '');
+        return;
+      }
       await widget.onSubmit(
         _titleController.text.trim(),
         _contentController.text.trim(),
@@ -416,6 +428,59 @@ class _CommunityComposerDialogState extends State<_CommunityComposerDialog> {
         _error = _pending ? '发帖结果待确认，请核对发布结果；内容已保留，请勿重复提交。' : _message(error);
       });
     }
+  }
+
+  void _handoff(String token) {
+    final title = _titleController.text.trim();
+    final content = _contentController.text.trim();
+    final submission = widget.topicDraft!;
+    final blog = widget.blogDraft;
+    final store = widget.draftStore;
+    final key = widget.draftKey;
+    var revision = _storedRevision;
+    final submit = widget.onSubmit;
+    final current = widget.isAccountCurrent ?? () => true;
+    final draft = widget.draft;
+    final entry = CommunityPendingSubmission(
+      draftKey: key,
+      title: title,
+      content: content,
+      isAccountCurrent: current,
+      send: () => submit(title, content, token),
+      finishDraft: (rejected) async {
+        if (key == null) {
+          if (!rejected) draft?.clear();
+          return;
+        }
+        if (rejected) {
+          submission.clearAttempt();
+          await store.saveVersioned(key, (
+            title: title,
+            content: submission.encode(blog?.encode(content) ?? content),
+          ), expectedRevision: revision);
+        } else {
+          // Save a known receipt before clearing; newer drafts cannot be erased.
+          if (submission.confirmedId != null) {
+            revision = await store.saveVersioned(key, (
+              title: title,
+              content: submission.encode(blog?.encode(content) ?? content),
+            ), expectedRevision: revision);
+          }
+          await store.saveVersioned(key, (
+            title: '',
+            content: '',
+          ), expectedRevision: revision);
+          draft?.clear();
+        }
+      },
+    );
+    _sent = true; // Ownership of the durable draft now belongs to this attempt.
+    _saveTimer?.cancel();
+    widget.onAccepted!(entry);
+    setState(() => _allowPop = true);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) Navigator.of(context).pop(true);
+    });
   }
 
   Future<void> _finishSent() async {
@@ -556,7 +621,6 @@ class _CommunityComposerDialogState extends State<_CommunityComposerDialog> {
 
   @override
   void dispose() {
-    _tagsController.dispose();
     _saveTimer?.cancel();
     _lifecycle.dispose();
     if (!_sent && _dirty && _loadedDraft && widget.draftKey != null) {
@@ -576,257 +640,289 @@ class _CommunityComposerDialogState extends State<_CommunityComposerDialog> {
     super.dispose();
   }
 
+  void _discardAndClose() {
+    _dirty = false;
+    _saveTimer?.cancel();
+    setState(() => _allowPop = true);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) Navigator.of(context).pop(false);
+    });
+  }
+
+  List<Widget> _feedback() => [
+    if (widget.draftKey != null) ...[
+      const SizedBox(height: 8),
+      if (_draftError != null)
+        Wrap(
+          crossAxisAlignment: WrapCrossAlignment.center,
+          children: [
+            Text(
+              _draftError!,
+              style: TextStyle(color: Theme.of(context).colorScheme.error),
+            ),
+            TextButton(
+              onPressed: _locked
+                  ? null
+                  : () async {
+                      if (_dirty) {
+                        await _saveDraft();
+                      } else {
+                        setState(() => _restoring = true);
+                        await _restoreDraft();
+                      }
+                    },
+              child: const Text('重试'),
+            ),
+          ],
+        )
+      else
+        Text(
+          _restoring
+              ? '正在读取草稿…'
+              : draftAutosaveLabel(
+                  saving: _savingDraft || _dirty,
+                  saved: _draftSaved,
+                ),
+          style: Theme.of(context).textTheme.bodySmall,
+        ),
+    ],
+    if (_error != null) ...[
+      const SizedBox(height: 8),
+      Text(
+        _error!,
+        style: TextStyle(color: Theme.of(context).colorScheme.error),
+      ),
+    ],
+    if (_pending) ...[
+      const SizedBox(height: 8),
+      const Text('上次提交结果待确认。核对只读取已发布内容，不会重新发送。'),
+      if (widget.blogDraft != null && widget.confirmSubmission != null)
+        TextButton(
+          onPressed: _locked ? null : _confirmSubmission,
+          child: const Text('核对发布结果'),
+        ),
+      TextButton(
+        onPressed: _locked ? null : _resetSubmission,
+        child: const Text('确认未发出后恢复编辑'),
+      ),
+    ],
+    if (widget.inspectSubmission != null)
+      TextButton(
+        onPressed: _locked ? null : widget.inspectSubmission,
+        child: const Text('在官网核对'),
+      ),
+    if (_needsWebsiteAccess)
+      TextButton.icon(
+        onPressed: _locked ? null : _recoverWebsiteAccess,
+        icon: const AnimeIcon(Icons.verified_user_outlined),
+        label: const Text('补充账号验证'),
+      ),
+  ];
+
+  Widget _blogPage() => BlogComposerPage(
+    heading: widget.heading,
+    submitLabel: _pending ? '核对发布结果' : widget.submitLabel,
+    titleController: _titleController,
+    contentController: _contentController,
+    tags: widget.blogDraft!.tags,
+    isPublic: widget.blogDraft!.isPublic,
+    editable: _editable,
+    submitting: _submitting,
+    maxLength: widget.maxLength,
+    onClose: _locked ? null : _close,
+    onSubmit: _locked
+        ? null
+        : _pending
+        ? (widget.confirmSubmission == null ? null : _confirmSubmission)
+        : _canSubmit
+        ? _submit
+        : null,
+    onChanged: () => setState(() {}),
+    onTagsChanged: (tags) {
+      setState(() {
+        widget.blogDraft!.tags = tags;
+      });
+      _onEdit();
+    },
+    onPublicChanged: (value) {
+      setState(() => widget.blogDraft!.isPublic = value);
+      _onEdit();
+    },
+    toolbar: BbCodeToolbar(
+      controller: _contentController,
+      enabled: _editable,
+      onChanged: () => setState(() {}),
+    ),
+    feedback: Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        ..._feedback(),
+        if (_draftError != null && !_locked)
+          TextButton(onPressed: _discardAndClose, child: const Text('不保存并关闭')),
+      ],
+    ),
+  );
+
   @override
   Widget build(BuildContext context) => PopScope(
     canPop: _allowPop || (widget.draftKey == null && !_submitting),
     onPopInvokedWithResult: (didPop, _) {
       if (!didPop) unawaited(_close());
     },
-    child: AlertDialog(
-      title: Text(widget.heading),
-      content: SizedBox(
-        width: 560,
-        child: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              if (_restoring) const LinearProgressIndicator(),
-              if (!_pending && widget.confirmSubmission != null)
-                TextButton(
-                  onPressed: !_locked && _canSubmit ? _confirmSubmission : null,
-                  child: const Text('核对是否已发布（最近 24 小时）'),
-                ),
-              if (widget.replyContext case final excerpt?) ...[
-                Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: Theme.of(context).colorScheme.surfaceContainerHigh,
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Text(
-                    excerpt,
-                    maxLines: 4,
-                    overflow: TextOverflow.ellipsis,
-                    style: Theme.of(context).textTheme.bodySmall,
-                  ),
-                ),
-                const SizedBox(height: 12),
-              ],
-              if (widget.requireTitle) ...[
-                TextField(
-                  controller: _titleController,
-                  enabled: _editable,
-                  autofocus: true,
-                  decoration: const InputDecoration(
-                    labelText: '标题',
-                    border: OutlineInputBorder(),
-                  ),
-                  onChanged: (_) => setState(() {}),
-                ),
-                const SizedBox(height: 12),
-              ],
-              if (widget.warning case final warning?) ...[
-                Container(
-                  padding: const EdgeInsets.all(10),
-                  decoration: BoxDecoration(
-                    color: Theme.of(context).colorScheme.errorContainer,
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Icon(Icons.history_rounded, size: 19),
-                      const SizedBox(width: 8),
-                      Expanded(child: Text(warning)),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 10),
-              ],
-              if (widget.blogDraft case final blog?) ...[
-                TextField(
-                  controller: _tagsController,
-                  enabled: _editable,
-                  decoration: const InputDecoration(
-                    labelText: '标签',
-                    helperText: '空格分隔，最多 10 个',
-                  ),
-                  onChanged: (value) {
-                    blog.tags = value
-                        .split(RegExp(r'\s+'))
-                        .where((tag) => tag.isNotEmpty)
-                        .toList();
-                    _onEdit();
-                  },
-                ),
-                SwitchListTile(
-                  contentPadding: EdgeInsets.zero,
-                  title: const Text('公开日志'),
-                  subtitle: Text(blog.isPublic ? '所有人可见' : '仅好友可见'),
-                  value: blog.isPublic,
-                  onChanged: !_editable
-                      ? null
-                      : (value) {
-                          setState(() => blog.isPublic = value);
-                          _onEdit();
-                        },
-                ),
-              ],
-              BbCodeToolbar(
-                controller: _contentController,
-                enabled: _editable,
-                onChanged: () => setState(() {}),
-              ),
-              Align(
-                alignment: Alignment.centerRight,
-                child: TextButton.icon(
-                  onPressed: () => setState(() => _preview = !_preview),
-                  icon: Icon(
-                    _preview ? Icons.edit_outlined : Icons.preview_outlined,
-                  ),
-                  label: Text(_preview ? '继续编辑' : '预览正文'),
-                ),
-              ),
-              const SizedBox(height: 8),
-              if (_preview)
-                CommunityRichContent(_contentController.text)
-              else
-                TextField(
-                  controller: _contentController,
-                  enabled: _editable,
-                  autofocus: !widget.requireTitle,
-                  minLines: 5,
-                  maxLines: 12,
-                  maxLength: widget.maxLength,
-                  decoration: InputDecoration(
-                    labelText: widget.contentLabel,
-                    alignLabelWithHint: true,
-                    border: const OutlineInputBorder(),
-                    helperText: '支持 Bangumi BBCode',
-                  ),
-                  onChanged: (_) => setState(() {}),
-                ),
-              if (widget.draftKey != null) ...[
-                const SizedBox(height: 8),
-                if (_draftError != null)
-                  Wrap(
-                    crossAxisAlignment: WrapCrossAlignment.center,
-                    children: [
-                      Text(
-                        _draftError!,
-                        style: TextStyle(
-                          color: Theme.of(context).colorScheme.error,
+    child: widget.blogDraft != null
+        ? _blogPage()
+        : AlertDialog(
+            title: Text(widget.heading),
+            content: SizedBox(
+              width: 560,
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    if (_restoring) const LinearProgressIndicator(),
+                    if (!_pending && widget.confirmSubmission != null)
+                      TextButton(
+                        onPressed: !_locked && _canSubmit
+                            ? _confirmSubmission
+                            : null,
+                        child: const Text('核对是否已发布（最近 24 小时）'),
+                      ),
+                    if (widget.replyContext case final excerpt?) ...[
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: Theme.of(
+                            context,
+                          ).colorScheme.surfaceContainerHigh,
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Text(
+                          excerpt,
+                          maxLines: 4,
+                          overflow: TextOverflow.ellipsis,
+                          style: Theme.of(context).textTheme.bodySmall,
                         ),
                       ),
-                      TextButton(
-                        onPressed: _locked
-                            ? null
-                            : () async {
-                                if (_dirty) {
-                                  await _saveDraft();
-                                } else {
-                                  setState(() => _restoring = true);
-                                  await _restoreDraft();
-                                }
-                              },
-                        child: const Text('重试'),
-                      ),
+                      const SizedBox(height: 12),
                     ],
-                  )
-                else
-                  Text(
-                    _restoring
-                        ? '正在读取草稿…'
-                        : draftAutosaveLabel(
-                            saving: _savingDraft || _dirty,
-                            saved: _draftSaved,
-                          ),
-                    style: Theme.of(context).textTheme.bodySmall,
-                  ),
-              ],
-              if (_error != null) ...[
-                const SizedBox(height: 8),
-                Text(
-                  _error!,
-                  style: TextStyle(color: Theme.of(context).colorScheme.error),
+                    if (widget.requireTitle) ...[
+                      TextField(
+                        controller: _titleController,
+                        enabled: _editable,
+                        autofocus: true,
+                        decoration: const InputDecoration(
+                          labelText: '标题',
+                          border: OutlineInputBorder(),
+                        ),
+                        onChanged: (_) => setState(() {}),
+                      ),
+                      const SizedBox(height: 12),
+                    ],
+                    if (widget.warning case final warning?) ...[
+                      Container(
+                        padding: const EdgeInsets.all(10),
+                        decoration: BoxDecoration(
+                          color: Theme.of(context).colorScheme.errorContainer,
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const AnimeIcon(Icons.history_rounded, size: 19),
+                            const SizedBox(width: 8),
+                            Expanded(child: Text(warning)),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                    ],
+                    BbCodeToolbar(
+                      controller: _contentController,
+                      enabled: _editable,
+                      onChanged: () => setState(() {}),
+                    ),
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: TextButton.icon(
+                        onPressed: () => setState(() => _preview = !_preview),
+                        icon: AnimeIcon(
+                          _preview
+                              ? Icons.edit_outlined
+                              : Icons.preview_outlined,
+                        ),
+                        label: Text(_preview ? '继续编辑' : '预览正文'),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    if (_preview)
+                      CommunityRichContent(_contentController.text)
+                    else
+                      TextField(
+                        controller: _contentController,
+                        enabled: _editable,
+                        autofocus: !widget.requireTitle,
+                        minLines: 5,
+                        maxLines: 12,
+                        maxLength: widget.maxLength,
+                        decoration: InputDecoration(
+                          labelText: widget.contentLabel,
+                          alignLabelWithHint: true,
+                          border: const OutlineInputBorder(),
+                          helperText: '支持 Bangumi BBCode',
+                        ),
+                        onChanged: (_) => setState(() {}),
+                      ),
+                    ..._feedback(),
+                  ],
                 ),
-              ],
-              if (_pending) ...[
-                const SizedBox(height: 8),
-                const Text('上次提交结果待确认。核对只读取已发表话题，不会重新发送。'),
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: _locked ? null : _close,
+                child: Text(
+                  _pending
+                      ? '保留并关闭'
+                      : (widget.draft != null || widget.draftKey != null) &&
+                            (_titleController.text.isNotEmpty ||
+                                _contentController.text.isNotEmpty)
+                      ? '稍后再写'
+                      : '取消',
+                ),
+              ),
+              if (_draftError != null && !_locked)
                 TextButton(
-                  onPressed: _locked ? null : _resetSubmission,
-                  child: const Text('确认未发出后恢复编辑'),
+                  onPressed: _discardAndClose,
+                  child: const Text('不保存并关闭'),
                 ),
-              ],
-              if (widget.inspectSubmission != null)
-                TextButton(
-                  onPressed: _locked ? null : widget.inspectSubmission,
-                  child: const Text('查看小组官网'),
+              FilledButton.icon(
+                onPressed: _locked
+                    ? null
+                    : _pending
+                    ? _confirmSubmission
+                    : _canSubmit
+                    ? _submit
+                    : null,
+                icon: _submitting
+                    ? const SizedBox.square(
+                        dimension: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const AnimeIcon(Icons.send_rounded),
+                label: Text(
+                  _confirming
+                      ? '正在核对…'
+                      : _pending
+                      ? (_submitting ? '正在核对…' : '核对发布结果')
+                      : _submitting
+                      ? '${widget.submitLabel}中'
+                      : widget.submitLabel,
                 ),
-              if (_needsWebsiteAccess)
-                TextButton.icon(
-                  onPressed: _locked ? null : _recoverWebsiteAccess,
-                  icon: const Icon(Icons.verified_user_outlined),
-                  label: const Text('补充账号验证'),
-                ),
+              ),
             ],
           ),
-        ),
-      ),
-      actions: [
-        TextButton(
-          onPressed: _locked ? null : _close,
-          child: Text(
-            _pending
-                ? '保留并关闭'
-                : (widget.draft != null || widget.draftKey != null) &&
-                      (_titleController.text.isNotEmpty ||
-                          _contentController.text.isNotEmpty)
-                ? '稍后再写'
-                : '取消',
-          ),
-        ),
-        if (_draftError != null && !_locked)
-          TextButton(
-            onPressed: () {
-              _dirty = false;
-              _saveTimer?.cancel();
-              setState(() => _allowPop = true);
-              WidgetsBinding.instance.addPostFrameCallback((_) {
-                if (mounted) Navigator.of(context).pop(false);
-              });
-            },
-            child: const Text('不保存并关闭'),
-          ),
-        FilledButton.icon(
-          onPressed: _locked
-              ? null
-              : _pending
-              ? _confirmSubmission
-              : _canSubmit
-              ? _submit
-              : null,
-          icon: _submitting
-              ? const SizedBox.square(
-                  dimension: 16,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                )
-              : const Icon(Icons.send_rounded),
-          label: Text(
-            _confirming
-                ? '正在核对…'
-                : _pending
-                ? (_submitting ? '正在核对…' : '核对发布结果')
-                : _submitting
-                ? '${widget.submitLabel}中'
-                : widget.submitLabel,
-          ),
-        ),
-      ],
-    ),
   );
 }
 

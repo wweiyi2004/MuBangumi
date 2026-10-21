@@ -17,6 +17,8 @@
 
 完整维护入口见 [CONTRIBUTING.md](../CONTRIBUTING.md)。`build_release.ps1 -AllowDirty` 只允许本地普通构建；Shorebird 上传必须使用干净源码，并提供最近 7 天内、匹配源码指纹的完整验证与人工验收记录。`-DryRun` 可以验证未提交改动，但不构成正式发布验收。
 
+Windows 的 `Invoke-MuNpm` 为本次调用临时生成 npm/npx 入口，保证嵌套脚本也使用固定 Node，避免全局 `npm.cmd` 改用其旁边的 `node.exe`。调用结束恢复环境并清除入口；统一验证包含嵌套运行、失败退出码、环境恢复和验证码桥接回归。
+
 Windows 本地可运行 `./tool/verify_all.ps1 -Mode Full -WindowsSmoke`，追加独立入口的安全存储、SQLite 和 WebView 冒烟。未运行的移动设备/iOS 构建及人工验收仍单独列出，不因本地冒烟通过而消失。
 
 普通 Flutter 通用 APK 使用 `./tool/build_release.ps1 -Target apk -UniversalApk -VerificationReport <results.json>`。该选项保留 pubspec 的原始 versionCode，避免 ABI 分包为构建号增加偏移；不改变 Shorebird 基线。省略该选项仍保留原来的分架构构建行为。

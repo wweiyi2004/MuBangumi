@@ -1,10 +1,11 @@
+import '../../widgets/brand_qr.dart';
+import '../../core/theme/anime_icon.dart';
 import 'dart:async';
 import 'dart:io';
 import 'package:banjian_server/banjian_server.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:qr_flutter/qr_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../models/bangumi_models.dart';
 import '../../state/session_controller.dart';
@@ -43,10 +44,10 @@ class ExperimentalFeaturesPage extends StatelessWidget {
         Card(
           child: ListTile(
             contentPadding: const EdgeInsets.all(18),
-            leading: const Icon(Icons.content_cut),
+            leading: const AnimeIcon(Icons.content_cut),
             title: const Text('从夯到拉 · 打印工坊'),
             subtitle: const Text('季度 / 全年封面裁剪页与同尺寸排行榜底板'),
-            trailing: const Icon(Icons.chevron_right),
+            trailing: const AnimeIcon(Icons.chevron_right),
             onTap: () => Navigator.of(context).push(
               MaterialPageRoute<void>(builder: (_) => const TierPrintPage()),
             ),
@@ -55,10 +56,10 @@ class ExperimentalFeaturesPage extends StatelessWidget {
         Card(
           child: ListTile(
             contentPadding: const EdgeInsets.all(18),
-            leading: const Icon(Icons.movie_filter_outlined),
+            leading: const AnimeIcon(Icons.movie_filter_outlined),
             title: const Text('番剧鉴赏 · 番键会'),
             subtitle: const Text('选番、扫码入场、匿名评分和短评'),
-            trailing: const Icon(Icons.chevron_right),
+            trailing: const AnimeIcon(Icons.chevron_right),
             onTap: () => Navigator.of(context).push(
               MaterialPageRoute<void>(builder: (_) => const RoomHostPage()),
             ),
@@ -182,7 +183,7 @@ class _RoomHostPageState extends ConsumerState<RoomHostPage> {
         Container(
           color: Colors.white,
           padding: const EdgeInsets.all(12),
-          child: QrImageView(data: invite.url, size: size),
+          child: BrandQr(data: invite.url, size: size),
         ),
       ],
     );
@@ -262,7 +263,7 @@ class _RoomHostPageState extends ConsumerState<RoomHostPage> {
                           );
                           if (context.mounted) roomMessage(context, '已复制参与链接');
                         },
-                        icon: const Icon(Icons.copy),
+                        icon: const AnimeIcon(Icons.copy),
                         label: const Text('复制链接'),
                       ),
                       OutlinedButton(
@@ -338,7 +339,7 @@ class _RoomHostPageState extends ConsumerState<RoomHostPage> {
                     await host.refresh();
                   }, animate: true)
                 : null,
-            icon: const Icon(Icons.refresh),
+            icon: const AnimeIcon(Icons.refresh),
             tooltip: '刷新地址和活动',
           ),
         ],
@@ -362,7 +363,7 @@ class _RoomHostPageState extends ConsumerState<RoomHostPage> {
               children: [
                 Row(
                   children: [
-                    Icon(
+                    AnimeIcon(
                       Icons.science_outlined,
                       color: Theme.of(context).colorScheme.primary,
                     ),
@@ -383,12 +384,12 @@ class _RoomHostPageState extends ConsumerState<RoomHostPage> {
                     ButtonSegment(
                       value: false,
                       label: Text('本机局域网'),
-                      icon: Icon(Icons.wifi),
+                      icon: AnimeIcon(Icons.wifi),
                     ),
                     ButtonSegment(
                       value: true,
                       label: Text('连接服务器'),
-                      icon: Icon(Icons.cloud_outlined),
+                      icon: AnimeIcon(Icons.cloud_outlined),
                     ),
                   ],
                   selected: {host.running ? host.remote : _remote},
@@ -430,8 +431,8 @@ class _RoomHostPageState extends ConsumerState<RoomHostPage> {
                             }
                           }, animate: true),
                     icon: disabled
-                        ? const Icon(Icons.movie_outlined, size: 18)
-                        : Icon(
+                        ? const AnimeIcon(Icons.movie_outlined, size: 18)
+                        : AnimeIcon(
                             _remote
                                 ? Icons.cloud_sync_outlined
                                 : Icons.play_arrow,
@@ -499,7 +500,7 @@ class _RoomHostPageState extends ConsumerState<RoomHostPage> {
                         children: [
                           Row(
                             children: [
-                              const Icon(
+                              const AnimeIcon(
                                 Icons.circle,
                                 color: Colors.green,
                                 size: 10,
@@ -542,6 +543,10 @@ class _RoomHostPageState extends ConsumerState<RoomHostPage> {
                               title: const Text('连接问题 / 切换网络'),
                               children: [
                                 DropdownButtonFormField<String>(
+                                  borderRadius: BorderRadius.circular(16),
+                                  dropdownColor: Theme.of(
+                                    context,
+                                  ).colorScheme.surface,
                                   key: ValueKey(shareAddress),
                                   isExpanded: true,
                                   initialValue: shareAddress,
@@ -576,7 +581,7 @@ class _RoomHostPageState extends ConsumerState<RoomHostPage> {
                             children: [
                               FilledButton.icon(
                                 onPressed: () => _openAdmin(host),
-                                icon: const Icon(Icons.dashboard_outlined),
+                                icon: const AnimeIcon(Icons.dashboard_outlined),
                                 label: const Text('进入管理'),
                               ),
                               OutlinedButton.icon(
@@ -587,7 +592,7 @@ class _RoomHostPageState extends ConsumerState<RoomHostPage> {
                                         (e?['ended'] == true && hasActive)
                                     ? null
                                     : () => _invite(host),
-                                icon: const Icon(Icons.qr_code),
+                                icon: const AnimeIcon(Icons.qr_code),
                                 label: const Text('邀请参与'),
                               ),
                             ],
@@ -676,7 +681,7 @@ class _RoomHostPageState extends ConsumerState<RoomHostPage> {
                                                   const RoomSubjectPicker(),
                                             ),
                                           ),
-                                    icon: const Icon(Icons.playlist_add),
+                                    icon: const AnimeIcon(Icons.playlist_add),
                                     label: const Text('添加番剧 / 导入收藏'),
                                   ),
                                   OutlinedButton(
@@ -731,7 +736,7 @@ class _RoomHostPageState extends ConsumerState<RoomHostPage> {
                                           );
                                         }
                                       }),
-                                icon: const Icon(Icons.image_outlined),
+                                icon: const AnimeIcon(Icons.image_outlined),
                                 label: const Text('重试补全封面'),
                               ),
                           ],
@@ -751,7 +756,7 @@ class _RoomHostPageState extends ConsumerState<RoomHostPage> {
                                 await host.command('create', {'title': name});
                               }
                             }),
-                      icon: const Icon(Icons.add),
+                      icon: const AnimeIcon(Icons.add),
                       label: const Text('创建新活动'),
                     ),
                   const SizedBox(height: 24),
@@ -762,7 +767,7 @@ class _RoomHostPageState extends ConsumerState<RoomHostPage> {
                       subtitle: Text(
                         '${item['ended'] == true ? '已结束' : '进行中'} · ${item['rounds']} 部番剧',
                       ),
-                      trailing: const Icon(Icons.chevron_right),
+                      trailing: const AnimeIcon(Icons.chevron_right),
                       onTap: () =>
                           _run(() => host.refresh(eventId: item['id'])),
                     ),
@@ -779,7 +784,7 @@ class _RoomHostPageState extends ConsumerState<RoomHostPage> {
                     }
                     await openRoomInvite(context, target);
                   },
-                  icon: const Icon(Icons.link),
+                  icon: const AnimeIcon(Icons.link),
                   label: const Text('通过邀请链接参与'),
                 ),
                 const ParticipationReturnTile(),
@@ -927,7 +932,7 @@ class _RoomSubjectPickerState extends ConsumerState<RoomSubjectPicker> {
                           hintText: _local ? '筛选本机收藏' : '番剧名称或条目 ID',
                           suffixIcon: IconButton(
                             onPressed: _busy ? null : _requestSearch,
-                            icon: const Icon(Icons.search),
+                            icon: const AnimeIcon(Icons.search),
                           ),
                         ),
                       ),
@@ -1016,10 +1021,10 @@ class ParticipationReturnTile extends ConsumerWidget {
       color: Theme.of(context).colorScheme.primaryContainer,
       child: ListTile(
         dense: true,
-        leading: const Icon(Icons.movie_filter_outlined),
+        leading: const AnimeIcon(Icons.movie_filter_outlined),
         title: Text(c.event?['title'] ?? '番键会进行中'),
         subtitle: Text(c.online ? '返回活动 · ${c.name}' : '连接中断 · 点击返回活动'),
-        trailing: const Icon(Icons.chevron_right),
+        trailing: const AnimeIcon(Icons.chevron_right),
         onTap: () => openRoomInvite(context, c.invite!),
       ),
     );
@@ -1144,7 +1149,7 @@ class _RoomParticipationPageState extends ConsumerState<RoomParticipationPage> {
             IconButton(
               tooltip: '刷新活动',
               onPressed: () => _loadingIndicator.currentState?.refresh(),
-              icon: const Icon(Icons.refresh),
+              icon: const AnimeIcon(Icons.refresh),
             ),
           if (joined)
             TextButton(
@@ -1246,7 +1251,7 @@ class _RoomParticipationPageState extends ConsumerState<RoomParticipationPage> {
                     children: [
                       if (!joined) ...[
                         const SizedBox(height: 28),
-                        Icon(
+                        AnimeIcon(
                           Icons.movie_filter_rounded,
                           size: 56,
                           color: Theme.of(context).colorScheme.primary,

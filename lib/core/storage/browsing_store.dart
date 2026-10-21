@@ -1,15 +1,15 @@
 import 'dart:convert';
-import 'dart:io';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path/path.dart' as path;
 import 'package:sqflite/sqflite.dart';
-import 'package:sqflite_common_ffi/sqflite_ffi.dart' as ffi;
 
 import '../../models/bangumi_models.dart';
 import '../../models/schedule_view.dart';
 import '../../models/recommendation_feedback.dart';
 import '../../models/topic_reading_position.dart';
+import 'serial_task_queue.dart';
+import 'sqlite_support.dart';
 
 class RecentSearch {
   const RecentSearch({
@@ -93,20 +93,17 @@ class BrowsingStore
   static final shared = BrowsingStore();
   static const historyLimit = 12;
   final String? databasePath;
-  Future<Database>? _database;
-  Future<void> _writes = Future<void>.value();
+  final _connection = SqliteConnection();
+  final _writes = SerialTaskQueue();
   String _account(String value) => value.trim().toLowerCase();
 
-  Future<void> _write(Future<void> Function(Database db) action) {
-    final future = _writes.then((_) async => action(await _open()));
-    _writes = future.then<void>((_) {}, onError: (Object _, StackTrace _) {});
-    return future;
-  }
+  Future<void> _write(Future<void> Function(Database db) action) =>
+      _writes.run(() async => action(await _open()));
 
   @override
   Future<Map<String, dynamic>?> readLibrary(String account) async {
     if (_account(account).isEmpty) return null;
-    await _writes;
+    await _writes.done;
     final rows = await (await _open()).query(
       'library_preferences',
       where: 'account = ?',
@@ -137,7 +134,7 @@ class BrowsingStore
   @override
   Future<List<RecentSearch>> readSearches(String account) async {
     if (_account(account).isEmpty) return const [];
-    await _writes;
+    await _writes.done;
     final rows = await (await _open()).query(
       'recent_search',
       where: 'account = ?',
@@ -196,7 +193,7 @@ class BrowsingStore
   @override
   Future<List<int>> readHomePins(int ownerId) async {
     if (ownerId <= 0) return const [];
-    await _writes;
+    await _writes.done;
     final rows = await (await _open()).query(
       'home_pins',
       where: 'owner_id = ?',
@@ -230,7 +227,7 @@ class BrowsingStore
 
   @override
   Future<ScheduleView?> readScheduleView(int ownerId) async {
-    await _writes;
+    await _writes.done;
     final rows = await (await _open()).query(
       'schedule_view',
       where: 'owner_id = ?',
@@ -258,7 +255,7 @@ class BrowsingStore
   Future<List<HiddenRecommendation>> readHiddenRecommendations(
     int ownerId,
   ) async {
-    await _writes;
+    await _writes.done;
     final rows = await (await _open()).query(
       'recommendation_hidden',
       where: 'owner_id = ?',
@@ -310,7 +307,7 @@ class BrowsingStore
   );
 
   Future<String> databaseForBackup() async {
-    await _writes;
+    await _writes.done;
     return (await _open()).path;
   }
 
@@ -320,7 +317,7 @@ class BrowsingStore
     String topic,
   ) async {
     if (_account(account).isEmpty) return null;
-    await _writes;
+    await _writes.done;
     final rows = await (await _open()).query(
       'topic_reading',
       where: 'account = ? AND topic = ?',
@@ -369,20 +366,10 @@ class BrowsingStore
     post_index INTEGER NOT NULL, updated_at INTEGER NOT NULL, PRIMARY KEY(account, topic))''',
   );
 
-  Future<Database> _open() =>
-      _database ??= _create().catchError((Object error) {
-        _database = null;
-        throw error;
-      });
+  Future<Database> _open() => _connection.open(_create);
 
   Future<Database> _create() async {
-    final DatabaseFactory factory;
-    if (Platform.isWindows || Platform.isLinux) {
-      ffi.sqfliteFfiInit();
-      factory = ffi.databaseFactoryFfi;
-    } else {
-      factory = databaseFactory;
-    }
+    final factory = sqliteFactory;
     return factory.openDatabase(
       databasePath ??
           path.join(
@@ -390,9 +377,7 @@ class BrowsingStore
             'mubangumi_browsing.sqlite',
           ),
       options: OpenDatabaseOptions(
-        onConfigure: (db) async {
-          await db.rawQuery('PRAGMA journal_mode=DELETE');
-        },
+        onConfigure: configurePersonalDatabase,
         version: 5,
         onUpgrade: (db, oldVersion, _) async {
           if (oldVersion < 2) await _createHomePins(db);
@@ -419,8 +404,7 @@ class BrowsingStore
   }
 
   Future<void> close() async {
-    await _writes;
-    await (await _database)?.close();
-    _database = null;
+    await _writes.done;
+    await _connection.close();
   }
 }

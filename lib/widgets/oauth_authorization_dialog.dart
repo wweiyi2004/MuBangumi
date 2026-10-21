@@ -1,3 +1,4 @@
+import '../core/theme/anime_icon.dart';
 import 'dart:async';
 import 'dart:io';
 import 'dart:math' as math;
@@ -379,7 +380,10 @@ class _OAuthAuthorizationDialogState extends State<_OAuthAuthorizationDialog> {
               padding: const EdgeInsets.fromLTRB(18, 10, 8, 10),
               child: Row(
                 children: [
-                  Icon(Icons.verified_user_outlined, color: colors.primary),
+                  AnimeIcon(
+                    Icons.verified_user_outlined,
+                    color: colors.primary,
+                  ),
                   const SizedBox(width: 10),
                   const Expanded(
                     child: Column(
@@ -399,12 +403,12 @@ class _OAuthAuthorizationDialogState extends State<_OAuthAuthorizationDialog> {
                   IconButton(
                     tooltip: '在系统浏览器中打开',
                     onPressed: _openExternally,
-                    icon: const Icon(Icons.open_in_new_rounded),
+                    icon: const AnimeIcon(Icons.open_in_new_rounded),
                   ),
                   IconButton(
                     tooltip: '取消登录',
                     onPressed: _cancel,
-                    icon: const Icon(Icons.close_rounded),
+                    icon: const AnimeIcon(Icons.close_rounded),
                   ),
                 ],
               ),
@@ -431,7 +435,7 @@ class _OAuthAuthorizationDialogState extends State<_OAuthAuthorizationDialog> {
                         child: Column(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            Icon(
+                            AnimeIcon(
                               Icons.public_off_rounded,
                               size: 46,
                               color: colors.error,
@@ -444,12 +448,14 @@ class _OAuthAuthorizationDialogState extends State<_OAuthAuthorizationDialog> {
                               children: [
                                 FilledButton.icon(
                                   onPressed: _retry,
-                                  icon: const Icon(Icons.refresh_rounded),
+                                  icon: const AnimeIcon(Icons.refresh_rounded),
                                   label: const Text('重试'),
                                 ),
                                 OutlinedButton.icon(
                                   onPressed: _openExternally,
-                                  icon: const Icon(Icons.open_in_new_rounded),
+                                  icon: const AnimeIcon(
+                                    Icons.open_in_new_rounded,
+                                  ),
                                   label: const Text('改用系统浏览器'),
                                 ),
                               ],

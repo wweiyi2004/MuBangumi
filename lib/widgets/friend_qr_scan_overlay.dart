@@ -53,6 +53,7 @@ class _FriendQrScanOverlayState extends State<FriendQrScanOverlay>
               ),
               Center(
                 child: SizedBox(
+                  key: const ValueKey('friend-qr-scan-window'),
                   width: frame,
                   height: frame,
                   child: Align(

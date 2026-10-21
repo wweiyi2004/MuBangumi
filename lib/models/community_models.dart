@@ -144,6 +144,7 @@ class CommunityTopic {
     this.replyCount = 0,
     this.updatedText = '',
     this.updatedAt,
+    this.targetPostId,
   });
 
   final int id;
@@ -158,6 +159,7 @@ class CommunityTopic {
   final int replyCount;
   final String updatedText;
   final DateTime? updatedAt;
+  final int? targetPostId;
 }
 
 class CommunityGroup {
@@ -186,13 +188,6 @@ class CommunityGroup {
   final bool nsfw;
 }
 
-class CommunityLanding {
-  const CommunityLanding({this.topics = const [], this.groups = const []});
-
-  final List<CommunityTopic> topics;
-  final List<CommunityGroup> groups;
-}
-
 class CommunityPost {
   const CommunityPost({
     required this.id,
@@ -203,10 +198,12 @@ class CommunityPost {
     this.meta = '',
     this.images = const [],
     this.rawBody = '',
+    this.htmlBody = '',
     this.isOriginal = false,
     this.isNested = false,
     this.reactions = const [],
     this.canEdit = false,
+    this.createdAt,
   });
 
   final String id;
@@ -215,8 +212,12 @@ class CommunityPost {
   final String userUrl;
   final String avatarUrl;
   final String meta;
+  final DateTime? createdAt;
   final List<String> images;
   final String rawBody;
+
+  /// Read-only classic website markup; never an editable BBCode source.
+  final String htmlBody;
   final bool isOriginal;
   final bool isNested;
   final List<CommunityReaction> reactions;
@@ -432,6 +433,7 @@ class BangumiNotice {
       title: title,
       url: 'https://bgm.tv/rakuen/topic/$rakuenKind/$mainId',
       webUrl: 'https://bgm.tv$webPath',
+      targetPostId: relatedId > 0 ? relatedId : null,
     );
   }
 
@@ -476,6 +478,38 @@ class BangumiNotice {
   }
 }
 
+/// Website pagination and P1 ID cursors must never be interchanged.
+class CommunityTimelinePageResult {
+  const CommunityTimelinePageResult({
+    required this.items,
+    this.nextPage,
+    this.nextUntil,
+    this.notice,
+    this.websiteLoginRequired = false,
+  });
+
+  factory CommunityTimelinePageResult.api(
+    List<CommunityTimelineItem> items, {
+    String? notice,
+    bool websiteLoginRequired = false,
+  }) => CommunityTimelinePageResult(
+    items: items,
+    nextUntil: items.lastOrNull?.id,
+    notice: notice,
+    websiteLoginRequired: websiteLoginRequired,
+  );
+
+  final List<CommunityTimelineItem> items;
+  final int? nextPage;
+  final int? nextUntil;
+  final String? notice;
+
+  /// The fallback is stale because the website session needs the user's
+  /// action, not because of a transient read failure.
+  final bool websiteLoginRequired;
+  bool get hasMore => nextPage != null || nextUntil != null;
+}
+
 class CommunityTimelineItem {
   const CommunityTimelineItem({
     required this.id,
@@ -510,11 +544,12 @@ class CommunityTimelineItem {
   final List<CommunityReaction> reactions;
 
   CommunityTimelineItem copyWith({
+    CommunityUser? user,
     int? replyCount,
     List<CommunityReaction>? reactions,
   }) => CommunityTimelineItem(
     id: id,
-    user: user,
+    user: user ?? this.user,
     description: description,
     createdAt: createdAt,
     content: content,

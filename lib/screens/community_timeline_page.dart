@@ -1,3 +1,4 @@
+import '../core/theme/anime_icon.dart';
 import '../state/service_providers.dart';
 import '../navigation/app_destination.dart';
 import 'dart:async';
@@ -14,6 +15,7 @@ import '../widgets/community_widgets.dart';
 import '../widgets/community_loading.dart';
 import '../widgets/community_paging.dart';
 import 'community_target_navigation.dart';
+import 'website_login_screen.dart';
 
 class CommunityTimelinePage extends ConsumerStatefulWidget {
   const CommunityTimelinePage({
@@ -51,6 +53,9 @@ class _CommunityTimelinePageState extends ConsumerState<CommunityTimelinePage> {
   int _requestId = 0;
   int _lastSuccessfulRequest = -1;
   int? _nextUntil;
+  int? _nextWebsitePage;
+  String? _sourceNotice;
+  bool _websiteLoginRequired = false;
   final Map<int, List<CommunityTimelineReply>> _replies = {};
   final Set<int> _expandedReplies = {};
   final Set<int> _loadingReplies = {};
@@ -62,6 +67,10 @@ class _CommunityTimelinePageState extends ConsumerState<CommunityTimelinePage> {
   final _mutationBusy = <int>{};
   final _deletedIds = <int>{};
   final _reactionOverrides = <int, List<CommunityReaction>>{};
+  Timer? _refreshTimer;
+  late final AppLifecycleListener _lifecycleListener;
+  bool? _visible;
+  bool _foreground = true;
 
   List<CommunityTimelineItem> _visibleItems(
     List<CommunityTimelineItem> items,
@@ -93,7 +102,71 @@ class _CommunityTimelinePageState extends ConsumerState<CommunityTimelinePage> {
     _service.accountChanges.addListener(_resetAccount);
     _service.contentPreferencesChanges.addListener(_resetAccount);
     _scrollController.addListener(_onScroll);
+    _foreground =
+        WidgetsBinding.instance.lifecycleState == null ||
+        WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed;
+    _lifecycleListener = AppLifecycleListener(
+      onStateChange: (state) {
+        final resumed = state == AppLifecycleState.resumed;
+        final becameForeground = resumed && !_foreground;
+        _foreground = resumed;
+        _updateRefreshTimer();
+        if (becameForeground) _scheduleVisibleRefresh();
+      },
+    );
     unawaited(_loadCacheThenRefresh());
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // Retained profile, community and shell tabs all propagate TickerMode.
+    final visible = TickerMode.valuesOf(context).enabled;
+    final becameVisible = _visible == false && visible;
+    _visible = visible;
+    _updateRefreshTimer();
+    if (becameVisible) _scheduleVisibleRefresh();
+  }
+
+  void _updateRefreshTimer() {
+    _refreshTimer?.cancel();
+    _refreshTimer = null;
+    if (_visible == true && _foreground) {
+      _refreshTimer = Timer.periodic(
+        const Duration(seconds: 60),
+        (_) => _refreshVisibleTimeline(),
+      );
+    }
+  }
+
+  void _scheduleVisibleRefresh() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _refreshVisibleTimeline();
+    });
+  }
+
+  void _refreshVisibleTimeline() {
+    if (!mounted ||
+        _visible != true ||
+        !_foreground ||
+        _paging.loading ||
+        _paging.loadingMore ||
+        widget.initialTimelineId != null) {
+      return;
+    }
+    final controller = widget.usePrimaryScrollController
+        ? PrimaryScrollController.maybeOf(context)
+        : _scrollController;
+    // Do not replace paginated history or move the reader while scrolling.
+    if (controller != null &&
+        controller.positions.any(
+          (position) =>
+              position.pixels > position.minScrollExtent + 8 ||
+              position.isScrollingNotifier.value,
+        )) {
+      return;
+    }
+    unawaited(_load(refresh: true));
   }
 
   void _onScroll() {
@@ -118,6 +191,9 @@ class _CommunityTimelinePageState extends ConsumerState<CommunityTimelinePage> {
         _replyErrors.clear();
         _replyRequestIds.clear();
         _nextUntil = null;
+        _nextWebsitePage = null;
+        _sourceNotice = null;
+        _websiteLoginRequired = false;
         _paging.hasMore = true;
       });
       unawaited(_load(refresh: true));
@@ -233,7 +309,7 @@ class _CommunityTimelinePageState extends ConsumerState<CommunityTimelinePage> {
     final mode = _mode;
     final requestId = ++_requestId;
     final restoreAllowed = !_isUserTimeline && _anchorUntil == null;
-    final network = _load(requestId: requestId);
+    final network = _load(requestId: requestId, refresh: true);
     Future<void> restore() async {
       if (!restoreAllowed) return;
       try {
@@ -257,22 +333,18 @@ class _CommunityTimelinePageState extends ConsumerState<CommunityTimelinePage> {
     await network;
   }
 
-  Future<List<CommunityTimelineItem>> _fetchTimeline({
+  Future<CommunityTimelinePageResult> _fetchTimeline({
     required CommunityTimelineMode mode,
     int? until,
+    int? websitePage,
     bool refresh = false,
-  }) {
-    final username = widget.username?.trim() ?? '';
-    if (username.isNotEmpty) {
-      return _service.loadUserTimeline(
-        username,
-        limit: 20,
-        until: until,
-        refresh: refresh,
-      );
-    }
-    return _service.loadTimeline(mode, until: until, refresh: refresh);
-  }
+  }) => _service.loadFreshTimelinePage(
+    mode,
+    username: widget.username,
+    until: until,
+    websitePage: websitePage,
+    refresh: refresh,
+  );
 
   Future<void> _load({bool refresh = false, int? requestId}) async {
     final mode = _mode;
@@ -284,19 +356,42 @@ class _CommunityTimelinePageState extends ConsumerState<CommunityTimelinePage> {
       _error = null;
     });
     try {
-      final items = await _fetchTimeline(
-        mode: mode,
-        until: _anchorUntil,
-        refresh: refresh,
-      );
+      final anchor = _anchorUntil;
+      CommunityTimelinePageResult? result;
+      try {
+        // Notification targets are usually recent, which P1 may not list yet.
+        result = await _fetchTimeline(mode: mode, refresh: refresh);
+      } catch (_) {
+        if (anchor == null) rethrow;
+      }
       if (!mounted || activeRequest != _requestId || mode != _mode) return;
+      if (anchor != null &&
+          result?.items.any((item) => item.id == widget.initialTimelineId) !=
+              true) {
+        // Older targets are beyond the website's first page: use the ID cursor.
+        result = await _fetchTimeline(
+          mode: mode,
+          until: anchor,
+          refresh: refresh,
+        );
+        if (!mounted || activeRequest != _requestId || mode != _mode) return;
+      }
+      final page = result!;
+      final items = page.items;
       setState(() {
-        _items = _visibleItems(items);
+        final keepCurrent =
+            page.notice != null &&
+            _items.isNotEmpty &&
+            _lastSuccessfulRequest >= 0;
+        if (!keepCurrent) {
+          _items = _visibleItems(items);
+          _nextUntil = page.nextUntil;
+          _nextWebsitePage = page.nextPage;
+          _paging.hasMore = page.hasMore;
+        }
         _lastSuccessfulRequest = activeRequest;
-        _nextUntil = items.lastOrNull?.id;
-        // Deleted/inaccessible rows can make a P1 page shorter than the
-        // requested limit. Only an empty page establishes the end.
-        _paging.hasMore = items.isNotEmpty;
+        _sourceNotice = page.notice;
+        _websiteLoginRequired = page.websiteLoginRequired;
         _paging.loading = false;
       });
       _revealInitialTarget();
@@ -306,6 +401,12 @@ class _CommunityTimelinePageState extends ConsumerState<CommunityTimelinePage> {
         _paging.loading = false;
         _error = error.toString().replaceFirst('Exception: ', '');
       });
+    }
+  }
+
+  Future<void> _verifyWebsiteLogin() async {
+    if (await openWebsiteLoginScreen(context) == true && mounted) {
+      await _load(refresh: true);
     }
   }
 
@@ -356,15 +457,50 @@ class _CommunityTimelinePageState extends ConsumerState<CommunityTimelinePage> {
     setState(_paging.beginLoadMore);
     try {
       final cursor = _nextUntil;
-      final next = await _fetchTimeline(mode: mode, until: cursor);
+      final websitePage = _nextWebsitePage;
+      final result = await _fetchTimeline(
+        mode: mode,
+        until: cursor,
+        websitePage: websitePage,
+      );
+      final next = result.items;
       if (!mounted || mode != _mode || requestId != _requestId) return;
       final known = _items.map((item) => item.id).toSet();
+      // A page can start mid-run of one user's events, without the avatar.
+      final avatars = {
+        for (final item in _items)
+          if (item.user.avatarUrl.isNotEmpty)
+            item.user.username.toLowerCase(): item.user,
+      };
       setState(() {
-        final added = next.where((item) => known.add(item.id)).toList();
+        final added = [
+          for (final item in next)
+            if (known.add(item.id))
+              item.user.avatarUrl.isEmpty &&
+                      avatars[item.user.username.toLowerCase()] != null
+                  ? item.copyWith(
+                      user: CommunityUser(
+                        id: item.user.id,
+                        username: item.user.username,
+                        nickname: item.user.nickname,
+                        avatarUrl: avatars[item.user.username.toLowerCase()]!
+                            .avatarUrl,
+                        joinedAt: item.user.joinedAt,
+                      ),
+                    )
+                  : item,
+        ];
         _items = _visibleItems([..._items, ...added]);
-        _nextUntil = next.lastOrNull?.id;
+        _nextUntil = result.nextUntil;
+        _nextWebsitePage = result.nextPage;
         _paging.hasMore =
-            added.isNotEmpty && _nextUntil != null && _nextUntil! < cursor!;
+            result.hasMore &&
+            (websitePage != null
+                ? result.nextPage != null && result.nextPage! > websitePage
+                : added.isNotEmpty &&
+                      _nextUntil != null &&
+                      cursor != null &&
+                      _nextUntil! < cursor);
       });
     } catch (error) {
       if (!mounted || mode != _mode || requestId != _requestId) return;
@@ -388,6 +524,9 @@ class _CommunityTimelinePageState extends ConsumerState<CommunityTimelinePage> {
       _items = const [];
       _paging.reset();
       _nextUntil = null;
+      _nextWebsitePage = null;
+      _sourceNotice = null;
+      _websiteLoginRequired = false;
       _error = null;
       _initialTargetFailed = true;
       _replies.clear();
@@ -537,6 +676,8 @@ class _CommunityTimelinePageState extends ConsumerState<CommunityTimelinePage> {
 
   @override
   void dispose() {
+    _refreshTimer?.cancel();
+    _lifecycleListener.dispose();
     _service.accountChanges.removeListener(_resetAccount);
     _service.contentPreferencesChanges.removeListener(_resetAccount);
     _scrollController
@@ -570,17 +711,39 @@ class _CommunityTimelinePageState extends ConsumerState<CommunityTimelinePage> {
             IconButton(
               tooltip: '刷新动态',
               onPressed: _paging.loading ? null : () => _load(refresh: true),
-              icon: const Icon(Icons.refresh_rounded),
+              icon: const AnimeIcon(Icons.refresh_rounded),
             ),
           ],
         ),
         const SizedBox(height: 12),
       ],
+      if (_isUserTimeline || !widget.showModeSelector)
+        Align(
+          alignment: Alignment.centerRight,
+          child: IconButton(
+            tooltip: '刷新动态',
+            onPressed: _paging.loading ? null : () => _load(refresh: true),
+            icon: const AnimeIcon(Icons.refresh_rounded),
+          ),
+        ),
       if (_items.isNotEmpty)
         CommunityRefreshStatus(
           loading: _paging.loading,
           error: _error,
           onRetry: () => _load(refresh: true),
+        ),
+      if (_sourceNotice != null && _websiteLoginRequired)
+        _WebsiteLoginNotice(
+          message: _sourceNotice!,
+          onVerify: _verifyWebsiteLogin,
+        )
+      else if (_sourceNotice != null)
+        Padding(
+          padding: const EdgeInsets.symmetric(vertical: 6),
+          child: Text(
+            _sourceNotice!,
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
         ),
       Expanded(
         child: Stack(
@@ -608,7 +771,7 @@ class _CommunityTimelinePageState extends ConsumerState<CommunityTimelinePage> {
                   heroTag: 'compose-timeline-${_mode.name}',
                   tooltip: '发动态',
                   onPressed: _post,
-                  child: const Icon(Icons.edit_outlined),
+                  child: const AnimeIcon(Icons.edit_outlined),
                 ),
               ),
           ],
@@ -709,6 +872,45 @@ class _CommunityTimelinePageState extends ConsumerState<CommunityTimelinePage> {
             ),
           );
         },
+      ),
+    );
+  }
+}
+
+/// Shown when only verifying web login can bring the friends feed up to date.
+class _WebsiteLoginNotice extends StatelessWidget {
+  const _WebsiteLoginNotice({required this.message, required this.onVerify});
+  final String message;
+  final VoidCallback onVerify;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Card(
+      margin: const EdgeInsets.only(bottom: 10),
+      color: scheme.tertiaryContainer,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(14, 12, 10, 12),
+        child: Row(
+          children: [
+            AnimeIcon(
+              Icons.history_toggle_off_rounded,
+              color: scheme.onTertiaryContainer,
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                message,
+                style: TextStyle(color: scheme.onTertiaryContainer),
+              ),
+            ),
+            const SizedBox(width: 8),
+            FilledButton.tonal(
+              onPressed: onVerify,
+              child: const Text('验证网页登录'),
+            ),
+          ],
+        ),
       ),
     );
   }

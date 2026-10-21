@@ -1,3 +1,4 @@
+import '../core/theme/anime_icon.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -496,7 +497,7 @@ class _DiscoverFiltersSheetState extends State<DiscoverFiltersSheet> {
             TextButton(onPressed: _reset, child: const Text('重置')),
             FilledButton.icon(
               onPressed: _valid ? _apply : null,
-              icon: const Icon(Icons.check_rounded),
+              icon: const AnimeIcon(Icons.check_rounded),
               label: const Text('应用筛选'),
             ),
           ],

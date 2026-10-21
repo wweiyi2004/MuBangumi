@@ -400,7 +400,13 @@ class WebsiteSessionController extends StateNotifier<WebsiteSessionState> {
         }
         continue;
       }
-      if (index >= 0 && merged[index].value == cookie.value) continue;
+      if (index >= 0 &&
+          merged[index].value == cookie.value &&
+          merged[index].expiresAt == expires &&
+          merged[index].isSecure == cookie.secure &&
+          merged[index].isHttpOnly == cookie.httpOnly) {
+        continue;
+      }
       final next = WebsiteCookie(
         name: cookie.name,
         value: cookie.value,

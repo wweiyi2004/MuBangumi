@@ -1,3 +1,4 @@
+import 'support/api_timeline_fixture.dart';
 import 'package:mubangumi/navigation/app_destination.dart';
 import 'package:mubangumi/navigation/app_router.dart';
 import 'dart:async';
@@ -5,6 +6,7 @@ import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:mubangumi/core/auth/website_session.dart';
 import 'package:mubangumi/core/network/community_p1_parser.dart';
 import 'package:mubangumi/core/network/community_service.dart';
 import 'package:mubangumi/core/storage/community_draft_store.dart';
@@ -36,7 +38,10 @@ CommunityTimelineItem status({
   isStatus: isStatus,
 );
 
-CommunityService serviceWith(Object Function(RequestOptions) respond) {
+CommunityService serviceWith(
+  Object Function(RequestOptions) respond, {
+  WebsiteSessionStore? sessionStore,
+}) {
   final dio = Dio(BaseOptions(baseUrl: 'https://next.bgm.tv'));
   dio.interceptors.add(
     InterceptorsWrapper(
@@ -55,7 +60,7 @@ CommunityService serviceWith(Object Function(RequestOptions) respond) {
       },
     ),
   );
-  return CommunityService.test(p1Dio: dio)
+  return CommunityService.test(p1Dio: dio, sessionStore: sessionStore)
     ..setAccessToken('test')
     ..setCurrentUsername('alice');
 }
@@ -71,6 +76,7 @@ void main() {
         AppRouteScope(
           resolve: AppRouter.resolve,
           child: MaterialApp(
+            builder: (_, child) => ProviderScope(child: child!),
             home: Scaffold(
               body: MonoCollectionButton(
                 kind: CommunityTimelineTargetKind.person,
@@ -104,6 +110,7 @@ void main() {
           child: AppRouteScope(
             resolve: AppRouter.resolve,
             child: MaterialApp(
+              builder: (_, child) => ProviderScope(child: child!),
               home: Scaffold(body: CommunityTimelinePage(service: service)),
             ),
           ),
@@ -294,6 +301,94 @@ void main() {
   );
 
   test(
+    'blog create 500 is success when the same entry was just stored',
+    () async {
+      final requests = <RequestOptions>[];
+      final created = DateTime.now().toUtc().millisecondsSinceEpoch ~/ 1000;
+      final service = serviceWith((options) {
+        requests.add(options);
+        if (options.method == 'POST') {
+          throw DioException(
+            requestOptions: options,
+            type: DioExceptionType.badResponse,
+            response: Response(
+              requestOptions: options,
+              statusCode: 500,
+              data: const {
+                'message': 'internal error, please contact admin',
+                'statusCode': 500,
+              },
+            ),
+          );
+        }
+        if (options.path.contains('/users/alice/blogs')) {
+          return {
+            'data': [
+              {
+                'id': 9,
+                'title': '新日志',
+                'createdAt': created,
+                'public': true,
+                'user': {'id': 1, 'username': 'alice'},
+              },
+            ],
+            'total': 1,
+          };
+        }
+        return {
+          'id': 9,
+          'title': '新日志',
+          'content': '正文',
+          'createdAt': created,
+          'public': true,
+          'user': {'id': 1, 'username': 'alice'},
+        };
+      });
+      await service.saveBlog(
+        title: '新日志',
+        content: '正文',
+        tags: [],
+        isPublic: true,
+        turnstileToken: 'verified-token-value-0123456789',
+      );
+      expect(
+        requests.where((request) => request.method == 'POST'),
+        hasLength(1),
+      );
+    },
+  );
+
+  test('blog create 500 stays an error when nothing was stored', () async {
+    var posts = 0;
+    final service = serviceWith((options) {
+      if (options.method == 'POST') {
+        posts++;
+        throw DioException(
+          requestOptions: options,
+          type: DioExceptionType.badResponse,
+          response: Response(
+            requestOptions: options,
+            statusCode: 500,
+            data: const {'message': 'internal error, please contact admin'},
+          ),
+        );
+      }
+      return {'data': <Object>[], 'total': 0};
+    }, sessionStore: _EmptyWebsiteSessions());
+    await expectLater(
+      service.saveBlog(
+        title: '新日志',
+        content: '正文',
+        tags: [],
+        isPublic: true,
+        turnstileToken: 'verified-token-value-0123456789',
+      ),
+      throwsA(predicate((error) => error.toString().contains('不会自动重发'))),
+    );
+    expect(posts, 1);
+  });
+
+  test(
     'credential refresh cannot resubmit a write under a different account',
     () async {
       var calls = 0;
@@ -431,6 +526,7 @@ void main() {
       AppRouteScope(
         resolve: AppRouter.resolve,
         child: MaterialApp(
+          builder: (_, child) => ProviderScope(child: child!),
           home: Scaffold(
             body: MonoCollectionButton(
               kind: CommunityTimelineTargetKind.character,
@@ -473,6 +569,7 @@ void main() {
         AppRouteScope(
           resolve: AppRouter.resolve,
           child: MaterialApp(
+            builder: (_, child) => ProviderScope(child: child!),
             home: Scaffold(
               body: SingleChildScrollView(
                 child: CommunityTimelineCard(
@@ -511,6 +608,7 @@ void main() {
           child: AppRouteScope(
             resolve: AppRouter.resolve,
             child: MaterialApp(
+              builder: (_, child) => ProviderScope(child: child!),
               home: Scaffold(body: CommunityTimelinePage(service: service)),
             ),
           ),
@@ -545,7 +643,10 @@ void main() {
       await tester.pumpWidget(
         AppRouteScope(
           resolve: AppRouter.resolve,
-          child: MaterialApp(home: CommunityBlogListScreen(service: service)),
+          child: MaterialApp(
+            builder: (_, child) => ProviderScope(child: child!),
+            home: CommunityBlogListScreen(service: service),
+          ),
         ),
       );
       await tester.pumpAndSettle();
@@ -571,6 +672,7 @@ void main() {
       AppRouteScope(
         resolve: AppRouter.resolve,
         child: MaterialApp(
+          builder: (_, child) => ProviderScope(child: child!),
           home: Builder(
             builder: (context) => Scaffold(
               body: TextButton(
@@ -595,14 +697,20 @@ void main() {
     );
     await tester.tap(find.text('打开'));
     await tester.pumpAndSettle();
-    await tester.enterText(find.widgetWithText(TextField, '标题'), '私密草稿');
-    await tester.enterText(find.widgetWithText(TextField, '内容'), '[b]正文[/b]');
-    await tester.enterText(find.widgetWithText(TextField, '标签'), '测试 日志');
-    await tester.ensureVisible(find.byType(Switch));
+    await tester.enterText(find.byKey(const Key('blog-title')), '私密草稿');
+    await tester.enterText(find.byKey(const Key('blog-body')), '[b]正文[/b]');
+    await tester.ensureVisible(find.text('添加标签'));
+    await tester.tap(find.text('添加标签'));
     await tester.pumpAndSettle();
-    await tester.tap(find.byType(Switch));
-    await tester.pump();
-    await tester.tap(find.text('稍后再写'));
+    await tester.enterText(find.widgetWithText(TextField, '标签'), '测试 日志');
+    await tester.tap(find.text('完成'));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.text('权限设置'));
+    await tester.tap(find.text('权限设置'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('仅好友可见'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('取消'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('打开'));
     await tester.pumpAndSettle();
@@ -611,17 +719,17 @@ void main() {
     expect(find.text('仅好友可见'), findsOneWidget);
     expect(
       tester
-          .widget<TextField>(find.widgetWithText(TextField, '内容'))
+          .widget<TextField>(find.byKey(const Key('blog-body')))
           .controller!
           .text,
       '[b]正文[/b]',
     );
-    await tester.tap(find.text('稍后再写'));
+    await tester.tap(find.text('取消'));
     await tester.pumpAndSettle();
   });
 }
 
-class _UiService extends CommunityService {
+class _UiService extends CommunityService with ApiTimelineFixture {
   _UiService() : super.test();
   int collectionWrites = 0, timelineDeletes = 0;
   bool collected = false;
@@ -684,6 +792,17 @@ class _UiService extends CommunityService {
       rawCount: offset == 0 ? 1 : 0,
     );
   }
+}
+
+class _EmptyWebsiteSessions extends WebsiteSessionStore {
+  @override
+  Future<WebsiteSessionSnapshot?> read() async => null;
+
+  @override
+  Future<void> write(WebsiteSessionSnapshot snapshot) async {}
+
+  @override
+  Future<void> clear() async {}
 }
 
 class _DraftStore extends CommunityDraftRepository {

@@ -1,3 +1,4 @@
+import '../core/theme/anime_icon.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -44,7 +45,7 @@ class _RecentSearchesState extends ConsumerState<RecentSearches> {
         error: (_, _) => TextButton.icon(
           onPressed: () =>
               ref.invalidate(recentSearchesProvider(widget.account)),
-          icon: const Icon(Icons.refresh_rounded, size: 16),
+          icon: const AnimeIcon(Icons.refresh_rounded, size: 16),
           label: const Text('重新读取最近搜索'),
         ),
         data: (items) {

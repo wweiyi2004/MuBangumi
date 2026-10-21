@@ -1,3 +1,4 @@
+import '../core/theme/anime_icon.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -114,7 +115,7 @@ class _RssSourcesSheetState extends ConsumerState<_RssSourcesSheet> {
               children: [
                 FilledButton.icon(
                   onPressed: _add,
-                  icon: const Icon(Icons.add_rounded),
+                  icon: const AnimeIcon(Icons.add_rounded),
                   label: const Text('添加'),
                 ),
                 const SizedBox(width: 10),
@@ -130,7 +131,7 @@ class _RssSourcesSheetState extends ConsumerState<_RssSourcesSheet> {
                           height: 16,
                           child: CircularProgressIndicator(strokeWidth: 2),
                         )
-                      : const Icon(Icons.refresh_rounded),
+                      : const AnimeIcon(Icons.refresh_rounded),
                   label: Text(state.refreshing ? '检查中…' : '检查更新'),
                 ),
               ],
@@ -155,7 +156,7 @@ class _RssSourcesSheetState extends ConsumerState<_RssSourcesSheet> {
                 Card(
                   margin: const EdgeInsets.only(bottom: 8),
                   child: ListTile(
-                    leading: Icon(
+                    leading: AnimeIcon(
                       source.enabled
                           ? Icons.rss_feed_rounded
                           : Icons.rss_feed_outlined,
@@ -175,7 +176,7 @@ class _RssSourcesSheetState extends ConsumerState<_RssSourcesSheet> {
                     isThreeLine: true,
                     trailing: IconButton(
                       tooltip: '删除',
-                      icon: Icon(
+                      icon: AnimeIcon(
                         Icons.delete_outline_rounded,
                         color: Theme.of(context).colorScheme.error,
                       ),
@@ -283,6 +284,8 @@ class _RssBindSheetState extends ConsumerState<_RssBindSheet> {
               )
             else ...[
               DropdownButtonFormField<int>(
+                borderRadius: BorderRadius.circular(16),
+                dropdownColor: Theme.of(context).colorScheme.surface,
                 initialValue: effectiveSourceId,
                 decoration: const InputDecoration(labelText: '更新源'),
                 items: [
@@ -344,7 +347,7 @@ class _RssBindSheetState extends ConsumerState<_RssBindSheet> {
                   ),
                   subtitle: Text('关键词：${binding.matchKeywords}'),
                   trailing: IconButton(
-                    icon: const Icon(Icons.link_off_rounded),
+                    icon: const AnimeIcon(Icons.link_off_rounded),
                     tooltip: '解除',
                     onPressed: () =>
                         ref.read(rssProvider.notifier).unbind(binding.id),
@@ -451,7 +454,7 @@ class _RssUpdatesSheetState extends ConsumerState<_RssUpdatesSheet> {
                             ? null
                             : Theme.of(context).colorScheme.primaryContainer
                                   .withValues(alpha: .35),
-                        leading: Icon(
+                        leading: AnimeIcon(
                           item.read
                               ? Icons.article_outlined
                               : Icons.fiber_new_rounded,
@@ -468,7 +471,7 @@ class _RssUpdatesSheetState extends ConsumerState<_RssUpdatesSheet> {
                             if (!item.read) '未读',
                           ].join(' · '),
                         ),
-                        trailing: const Icon(Icons.open_in_new_rounded),
+                        trailing: const AnimeIcon(Icons.open_in_new_rounded),
                         onTap: () async {
                           await ref
                               .read(rssProvider.notifier)

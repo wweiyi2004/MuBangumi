@@ -111,7 +111,9 @@ void main() {
       expect(find.text('按标题'), findsOneWidget);
       await tester.tap(find.widgetWithText(ChoiceChip, '全部类型'));
       await tester.pumpAndSettle();
-      await tester.tap(find.widgetWithText(ChoiceChip, '全部状态'));
+      await tester.tap(find.byTooltip('收藏状态'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('全部状态'));
       await tester.pumpAndSettle();
       expect(repo.settings['alice']!['subject_type'], isNull);
       expect(repo.settings['alice']!['collection_type'], isNull);
@@ -284,8 +286,22 @@ void main() {
   );
 }
 
-bool _selected(WidgetTester tester, String label) =>
-    tester.widget<ChoiceChip>(find.widgetWithText(ChoiceChip, label)).selected;
+bool _selected(WidgetTester tester, String label) {
+  final chip = find.widgetWithText(ChoiceChip, label);
+  if (chip.evaluate().isNotEmpty) {
+    return tester.widget<ChoiceChip>(chip).selected;
+  }
+  final menu = tester.widget<PopupMenuButton<int>>(
+    find.byKey(const ValueKey('library-status-menu')),
+  );
+  return menu.initialValue ==
+      (label == '全部状态'
+          ? 0
+          : label == '进行中'
+          ? 3
+          : 2);
+}
+
 Set<int> _visibleIds(WidgetTester tester) => tester
     .widgetList<SubjectTile>(find.byType(SubjectTile))
     .map((tile) => tile.subject.id)

@@ -24,6 +24,8 @@ class NetabaApi {
     : _cache = AsyncCache<Object>(
         maxAge: const Duration(minutes: 10),
         maxEntries: 64,
+        maxWeight: 8 * 1024 * 1024,
+        weightOf: _cacheWeight,
         now: now,
       ),
       _dio =
@@ -80,6 +82,41 @@ class NetabaApi {
   final AsyncCache<Object> _cache;
 
   void clearCache() => _cache.clear();
+
+  void releaseMemory() => _cache.clearCompleted();
+
+  static int _cacheWeight(Object value) {
+    int historyWeight(List<NetabaHistoryPoint> history) =>
+        32 +
+        history.fold<int>(
+          0,
+          (bytes, point) => bytes + 128 + point.ratingCount.length * 48,
+        );
+    int itemWeight(NetabaTrendingItem item) =>
+        128 +
+        (item.name.length + item.nameCn.length) * 2 +
+        historyWeight(item.history);
+    int itemsWeight(List<NetabaTrendingItem> items) =>
+        32 + items.fold<int>(0, (bytes, item) => bytes + itemWeight(item));
+    if (value is NetabaSubjectHistory) {
+      final subject = value.subject;
+      return 256 +
+          (subject.name.length +
+                  subject.nameCn.length +
+                  subject.airDate.length +
+                  subject.imageUrl.length) *
+              2 +
+          historyWeight(value.history);
+    }
+    if (value is NetabaTrending) {
+      return 64 +
+          itemsWeight(value.up) +
+          itemsWeight(value.down) +
+          itemsWeight(value.done);
+    }
+    if (value is List<NetabaTrendingItem>) return itemsWeight(value);
+    return 64;
+  }
 
   Future<NetabaSubjectHistory> getSubjectHistory(int subjectId) async =>
       await _cache.get(

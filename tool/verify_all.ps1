@@ -96,7 +96,8 @@ try {
     }
     if ($Areas -contains 'tools') {
         Check 'architecture' { python tool/verify_architecture.py --self-test }
-        foreach ($name in @('windows_package_safety','release_build','workspace_cleanup')) {
+        Check 'turnstile-bridge' { & (Get-MuNode) tool/tests/turnstile_bridge_test.cjs }
+        foreach ($name in @('toolchain_npm','windows_package_safety','release_build','workspace_cleanup')) {
             if (-not $IsWindows -and $name -eq 'workspace_cleanup') { continue }
             Check $name { & pwsh -NoProfile -File "tool/tests/${name}_test.ps1" }
         }

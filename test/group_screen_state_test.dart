@@ -21,6 +21,7 @@ CommunityGroup group(String name) => CommunityGroup(
 class Service extends CommunityService {
   Service() : super.test();
   Completer<CommunityPageResult<CommunityGroup>>? alicePending;
+  Completer<CommunityPageResult<CommunityGroup>>? filterPending;
   bool invalidFirstPage = false;
   final offsets = <int>[];
   final owners = <String?>[];
@@ -48,6 +49,9 @@ class Service extends CommunityService {
   }) async {
     offsets.add(offset);
     owners.add(currentUsername);
+    if (mode == CommunityGroupMode.joined && filterPending != null) {
+      return filterPending!.future;
+    }
     if (currentUsername == 'alice' && alicePending != null) {
       return alicePending!.future;
     }
@@ -78,13 +82,45 @@ Future<void> show(WidgetTester tester, Widget child) async {
   await tester.pumpWidget(
     AppRouteScope(
       resolve: AppRouter.resolve,
-      child: MaterialApp(home: Scaffold(body: child)),
+      child: MaterialApp(
+        builder: (_, child) => ProviderScope(child: child!),
+        home: Scaffold(body: child),
+      ),
     ),
   );
   await tester.pump();
 }
 
 void main() {
+  testWidgets(
+    'changing group category keeps old content and never appends into it after failure',
+    (tester) async {
+      final service = Service()
+        ..setAccessToken('fixture')
+        ..setCurrentUsername('alice');
+      addTearDown(service.dispose);
+      await show(tester, CommunityGroupBrowser(service: service));
+      await tester.pumpAndSettle();
+      expect(find.text('alice的小组'), findsOneWidget);
+      service.filterPending = Completer<CommunityPageResult<CommunityGroup>>();
+      await tester.tap(find.text('我的小组'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 310));
+      expect(find.text('alice的小组'), findsOneWidget);
+      expect(find.text('正在切换分类，暂时显示上一列表'), findsOneWidget);
+      service.filterPending!.completeError(StateError('offline'));
+      await tester.pumpAndSettle();
+      expect(find.text('alice的小组'), findsOneWidget);
+      expect(find.text('切换分类失败，仍显示上一列表'), findsOneWidget);
+      final before = service.offsets.length;
+      if (find.text('加载更多').evaluate().isNotEmpty) {
+        await tester.tap(find.text('加载更多'));
+        await tester.pumpAndSettle();
+      }
+      expect(service.offsets.length, before);
+      await tester.pumpWidget(const SizedBox());
+    },
+  );
   for (final role in [
     CommunityGroupRole.creator,
     CommunityGroupRole.moderator,

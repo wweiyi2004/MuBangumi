@@ -1,4 +1,7 @@
+import '../features/pm/presentation/pm_queue_action.dart';
+import '../core/theme/anime_icon.dart';
 import 'package:flutter/material.dart';
+import '../widgets/retained_tab_stack.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../core/network/community_service.dart';
 import '../state/notify_controller.dart';
@@ -30,6 +33,7 @@ class _MessagesPageState extends ConsumerState<MessagesPage> {
     );
     return MessageHubLayout(
       selectedTab: _tab,
+      queueAction: const PmQueueAction(),
       unreadCount: unread,
       onScan: () async {
         final added = await scanAndAddFriend(
@@ -48,7 +52,7 @@ class _MessagesPageState extends ConsumerState<MessagesPage> {
         );
         if (changed == true && mounted) setState(() => _friendsRevision++);
       },
-      content: IndexedStack(
+      content: RetainedTabStack(
         index: _tab,
         children: [
           _opened.contains(0)
@@ -78,11 +82,13 @@ class MessageHubLayout extends StatelessWidget {
     required this.onFriends,
     required this.content,
     this.onScan,
+    this.queueAction,
   });
   final int selectedTab, unreadCount;
   final ValueChanged<int> onSelectTab;
   final VoidCallback onFriends;
   final Widget content;
+  final Widget? queueAction;
   final VoidCallback? onScan;
   @override
   Widget build(BuildContext context) {
@@ -122,14 +128,18 @@ class MessageHubLayout extends StatelessWidget {
                           IconButton(
                             tooltip: '扫一扫',
                             onPressed: onScan,
-                            icon: const Icon(
+                            icon: const AnimeIcon(
                               CupertinoIcons.qrcode_viewfinder,
                               size: 23,
                             ),
                           ),
+                        ?queueAction,
                         TextButton.icon(
                           onPressed: onFriends,
-                          icon: const Icon(CupertinoIcons.person_2, size: 22),
+                          icon: const AnimeIcon(
+                            CupertinoIcons.person_2,
+                            size: 22,
+                          ),
                           label: const Text('好友'),
                           style: TextButton.styleFrom(
                             foregroundColor: Theme.of(

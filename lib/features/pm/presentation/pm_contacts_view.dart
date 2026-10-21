@@ -1,3 +1,6 @@
+import '../../../widgets/content_loading.dart';
+import '../../../models/pm_send_command.dart';
+import '../../../core/theme/anime_icon.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import '../../../models/pm_contact.dart';
@@ -16,6 +19,9 @@ class PmContactsView extends StatelessWidget {
     this.query = '',
     this.openingKey,
     this.authMessage,
+    this.pending = const [],
+    this.onOpenQueue,
+    this.onOpenWebsite,
   });
   final PmContactsController contacts;
   final ValueChanged<PmContact> onOpen;
@@ -23,6 +29,8 @@ class PmContactsView extends StatelessWidget {
   final String? selectedId, openingKey;
   final String? authMessage;
   final String query;
+  final List<PmSendCommand> pending;
+  final VoidCallback? onOpenQueue, onOpenWebsite;
 
   @override
   Widget build(BuildContext context) {
@@ -55,17 +63,34 @@ class PmContactsView extends StatelessWidget {
                 onPressed: contacts.busy
                     ? null
                     : () => contacts.refresh(forceFriends: true),
-                icon: const Icon(CupertinoIcons.arrow_clockwise, size: 18),
+                icon: const AnimeIcon(CupertinoIcons.arrow_clockwise, size: 18),
               ),
             ],
           ),
         ),
-        if (contacts.busy) const LinearProgressIndicator(minHeight: 2),
+        LoadingStatus(
+          active: contacts.friendsLoading && contacts.friendsForeground,
+          message: '正在加载好友（已载入 ${contacts.friends.length} 位）',
+          onRetry: () => contacts.refreshFriends(
+            refresh: true,
+            foreground: true,
+            supersede: true,
+          ),
+          onOpenWebsite: onOpenWebsite,
+        ),
+        LoadingStatus(
+          active: contacts.syncingHistory && contacts.historyForeground,
+          message: '正在同步私信',
+          onRetry: () =>
+              contacts.syncHistory(supersede: true, foreground: true),
+          onOpenWebsite: onOpenWebsite,
+        ),
         if (contacts.friendsError != null)
           _Notice(
             message: contacts.friendsError!,
             action: '重试好友加载',
-            onTap: () => contacts.refreshFriends(refresh: true),
+            onTap: () =>
+                contacts.refreshFriends(refresh: true, foreground: true),
           ),
         if (contacts.needAuth)
           _Notice(
@@ -79,7 +104,7 @@ class PmContactsView extends StatelessWidget {
             message: '私信记录加载失败，已保留当前列表',
             details: contacts.historyError,
             action: '重试私信同步',
-            onTap: () => contacts.syncHistory(more: true),
+            onTap: () => contacts.syncHistory(more: true, foreground: true),
           ),
         Expanded(
           child: RefreshIndicator(
@@ -87,11 +112,27 @@ class PmContactsView extends StatelessWidget {
             child: ListView.builder(
               physics: const AlwaysScrollableScrollPhysics(),
               padding: const EdgeInsets.fromLTRB(8, 0, 8, 80),
-              itemCount: items.length + 1,
+              itemCount: items.length + 1 + pending.length,
               itemBuilder: (context, index) {
+                if (index < pending.length) {
+                  final entry = pending[index];
+                  return ListTile(
+                    leading: const Icon(Icons.outbox_outlined),
+                    title: Text(
+                      entry.title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    subtitle: Text('${entry.receiver} · ${entry.label}'),
+                    onTap: onOpenQueue,
+                  );
+                }
+                index -= pending.length;
                 if (index == items.length) {
                   return Column(
                     children: [
+                      if (items.isEmpty && pending.isEmpty && contacts.busy)
+                        const ContentSkeleton(rows: 3),
                       if (items.isEmpty && !contacts.busy)
                         Padding(
                           padding: const EdgeInsets.symmetric(
@@ -118,7 +159,10 @@ class PmContactsView extends StatelessWidget {
                           !contacts.syncingHistory &&
                           contacts.historyError == null)
                         TextButton(
-                          onPressed: () => contacts.syncHistory(more: true),
+                          onPressed: () => contacts.syncHistory(
+                            more: true,
+                            foreground: true,
+                          ),
                           child: const Text('继续同步历史会话'),
                         ),
                     ],

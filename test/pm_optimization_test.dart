@@ -349,7 +349,9 @@ void main() {
         await _show(tester, community: community, cache: cache);
         expect(find.text('缓存好友'), findsOneWidget);
         expect(find.text('正在加载完整好友列表…'), findsNothing);
-        expect(find.byType(LinearProgressIndicator), findsOneWidget);
+        await tester.pump(const Duration(milliseconds: 310));
+        expect(find.text('正在加载好友（已载入 1 位）'), findsOneWidget);
+        expect(find.byType(LinearProgressIndicator), findsNothing);
         expect(community.refreshes, [false]);
         if (fail) {
           pending.completeError(Exception('offline'));
@@ -481,7 +483,11 @@ void main() {
       await controller.absorbResponseCookies(updated.requestKey, [
         Cookie.fromSetCookieValue('chii_sid=new; Domain=bgm.tv'),
       ]);
-      expect(store.writes, writes);
+      // The value is unchanged, but the new cookie is session-scoped and no
+      // longer HttpOnly. Its attributes must replace the earlier cookie too.
+      expect(store.writes, writes + 1);
+      expect(store.value!.cookies.last.expiresAt, isNull);
+      expect(store.value!.cookies.last.isHttpOnly, isFalse);
       store.value = WebsiteSessionSnapshot(
         cookies: const [
           WebsiteCookie(name: 'chii_auth', value: 'second-account'),

@@ -1,3 +1,4 @@
+import '../core/theme/anime_icon.dart';
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -26,7 +27,7 @@ class MoegirlDetailScreen extends StatelessWidget {
           IconButton(
             tooltip: '在萌娘百科打开',
             onPressed: () => unawaited(_openOriginal()),
-            icon: const Icon(Icons.open_in_new_rounded),
+            icon: const AnimeIcon(Icons.open_in_new_rounded),
           ),
           const SizedBox(width: 6),
         ],
@@ -49,7 +50,7 @@ class MoegirlDetailScreen extends StatelessWidget {
                         child: Row(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Icon(
+                            AnimeIcon(
                               Icons.auto_stories_rounded,
                               color: scheme.onSecondaryContainer,
                             ),
@@ -126,7 +127,7 @@ class MoegirlDetailScreen extends StatelessWidget {
                             ),
                             FilledButton.tonalIcon(
                               onPressed: () => unawaited(_openOriginal()),
-                              icon: const Icon(Icons.open_in_new_rounded),
+                              icon: const AnimeIcon(Icons.open_in_new_rounded),
                               label: const Text('查看原文与完整版权信息'),
                             ),
                           ],
@@ -165,7 +166,7 @@ class _NativeSectionCard extends StatelessWidget {
         child: ExpansionTile(
           initiallyExpanded: initiallyExpanded,
           maintainState: true,
-          leading: Icon(
+          leading: AnimeIcon(
             nested
                 ? Icons.subdirectory_arrow_right_rounded
                 : Icons.notes_rounded,

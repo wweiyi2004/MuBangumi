@@ -119,7 +119,7 @@ void main() {
     },
   );
 
-  testWidgets('annual review can search records beyond the ten-item preview', (
+  testWidgets('annual review can search records beyond the compact preview', (
     tester,
   ) async {
     await _show(
@@ -133,6 +133,9 @@ void main() {
       ),
     );
     await tester.tap(find.text('年度回顾'));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.text('收藏片段'));
+    await tester.tap(find.text('收藏片段'));
     await tester.pumpAndSettle();
     await tester.scrollUntilVisible(
       find.text('查看全部 35 条'),
@@ -169,6 +172,9 @@ void main() {
   ) async {
     await _show(tester, _stats());
     await tester.tap(find.widgetWithText(ChoiceChip, '书籍'));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.text('评分习惯'));
+    await tester.tap(find.text('评分习惯'));
     await tester.pumpAndSettle();
     final bar = find.byTooltip('8 分 · 1 条收藏');
     await tester.scrollUntilVisible(

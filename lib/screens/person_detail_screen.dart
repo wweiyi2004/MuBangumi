@@ -1,3 +1,4 @@
+import '../core/theme/anime_icon.dart';
 import '../navigation/app_destination.dart';
 import 'dart:async';
 
@@ -370,7 +371,7 @@ class _PersonDetailScreenState extends ConsumerState<PersonDetailScreen> {
               if (subject.staff.isNotEmpty) subject.staff,
             ].join(' · '),
           ),
-          trailing: const Icon(Icons.chevron_right_rounded),
+          trailing: const AnimeIcon(Icons.chevron_right_rounded),
           onTap: () => _openCompanyWork(CompanyWorkCredit(link: subject)),
         ),
     const SizedBox(height: 18),
@@ -398,7 +399,7 @@ class _PersonDetailScreenState extends ConsumerState<PersonDetailScreen> {
               if (character.subjectName.isNotEmpty) character.subjectName,
             ].join(' · '),
           ),
-          trailing: const Icon(Icons.chevron_right_rounded),
+          trailing: const AnimeIcon(Icons.chevron_right_rounded),
           onTap: () => Navigator.of(context).push(
             MaterialPageRoute<void>(
               builder: (_) => CharacterRoute(
@@ -439,7 +440,7 @@ class _PersonDetailScreenState extends ConsumerState<PersonDetailScreen> {
           ),
           IconButton(
             tooltip: '人物讨论',
-            icon: const Icon(Icons.forum_outlined),
+            icon: const AnimeIcon(Icons.forum_outlined),
             onPressed: () => Navigator.of(context).push(
               MaterialPageRoute<void>(
                 builder: (_) => TopicRoute(
@@ -460,7 +461,7 @@ class _PersonDetailScreenState extends ConsumerState<PersonDetailScreen> {
               Uri.parse('https://bgm.tv/person/${widget.personId}'),
               mode: LaunchMode.externalApplication,
             ),
-            icon: const Icon(Icons.open_in_new_rounded),
+            icon: const AnimeIcon(Icons.open_in_new_rounded),
           ),
         ],
       ),
@@ -564,7 +565,7 @@ class _CompanyMetrics extends StatelessWidget {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Icon(item.$3, size: 20, color: scheme.primary),
+                        AnimeIcon(item.$3, size: 20, color: scheme.primary),
                         const SizedBox(height: 12),
                         Text(
                           item.$2,
@@ -627,7 +628,7 @@ class _CompanySummaryState extends State<_CompanySummary> {
           const SizedBox(height: 6),
           TextButton.icon(
             onPressed: () => setState(() => _expanded = !_expanded),
-            icon: Icon(
+            icon: AnimeIcon(
               _expanded ? Icons.expand_less_rounded : Icons.expand_more_rounded,
             ),
             label: Text(_expanded ? '收起简介' : '展开全文'),
@@ -670,7 +671,7 @@ class _CompanyDataProgress extends StatelessWidget {
           children: [
             Row(
               children: [
-                Icon(Icons.fact_check_outlined, color: scheme.primary),
+                AnimeIcon(Icons.fact_check_outlined, color: scheme.primary),
                 const SizedBox(width: 10),
                 Expanded(
                   child: Text(
@@ -709,7 +710,7 @@ class _CompanyDataProgress extends StatelessWidget {
               const SizedBox(height: 12),
               FilledButton.tonalIcon(
                 onPressed: loading ? null : onContinue,
-                icon: Icon(
+                icon: AnimeIcon(
                   retrying ? Icons.refresh_rounded : Icons.add_rounded,
                 ),
                 label: Text(retrying ? '重试失败条目' : '继续补全年份'),
@@ -811,7 +812,11 @@ class _CompanySourceNote extends StatelessWidget {
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Icon(Icons.info_outline_rounded, size: 20, color: scheme.primary),
+            AnimeIcon(
+              Icons.info_outline_rounded,
+              size: 20,
+              color: scheme.primary,
+            ),
             const SizedBox(width: 10),
             Expanded(
               child: Text(

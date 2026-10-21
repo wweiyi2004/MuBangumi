@@ -1,27 +1,20 @@
+import 'qr_payload_reader.dart';
+export 'qr_payload_reader.dart';
 import '../state/service_providers.dart';
 import '../navigation/app_destination.dart';
-import 'dart:io';
 
-import 'package:file_picker/file_picker.dart';
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../core/network/community_service.dart';
-import '../core/social/friend_qr.dart';
 import '../core/social/community_qr.dart';
+import '../core/shortcuts/shared_bangumi_link.dart';
 import '../models/bangumi_models.dart';
-import '../screens/friend_qr_scan_page.dart';
+import '../screens/config_transfer_page.dart';
+import '../core/sharing/config_transfer.dart';
 import 'friend_qr_sheet.dart';
 import 'subject_widgets.dart';
 import 'package:banjian_server/banjian_server.dart';
 import '../features/anime_appreciation/room_pages.dart';
-
-bool friendQrSupportsCamera() {
-  if (kIsWeb) return false;
-  return defaultTargetPlatform == TargetPlatform.android ||
-      defaultTargetPlatform == TargetPlatform.iOS ||
-      defaultTargetPlatform == TargetPlatform.macOS;
-}
 
 Future<void> showMyFriendQr(BuildContext context, BangumiUser user) {
   return showFriendQrSheet(context, user, mine: true);
@@ -39,9 +32,33 @@ Future<bool> scanAndAddFriend(
 }) async {
   final backend = service ?? communityServiceFor(context);
   final revision = backend.identityRevision;
-  final raw = await (reader ?? _readQrPayload)(context);
+  final raw = await (reader ?? readBangumiQrPayload)(context);
   if (!context.mounted || raw == null || raw.isEmpty) return false;
   if (revision != backend.identityRevision) return false;
+
+  if (raw.trim().startsWith(configQrPrefix)) {
+    try {
+      ConfigInvitation.parse(raw.trim());
+      await Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          builder: (_) => ConfigTransferPage(invitation: raw.trim()),
+        ),
+      );
+    } catch (error) {
+      if (context.mounted) {
+        showAppMessage(context, '$error'.replaceFirst('FormatException: ', ''));
+      }
+    }
+    return false;
+  }
+
+  final shared = SharedBangumiLink.parse(raw.trim());
+  if (shared != null) {
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(builder: (_) => SharedLinkRoute(link: shared)),
+    );
+    return false;
+  }
 
   final room = RoomInvite.parse(raw);
   if (room != null) {
@@ -50,7 +67,7 @@ Future<bool> scanAndAddFriend(
   }
   final target = CommunityQr.decode(raw);
   if (target == null) {
-    showAppMessage(context, '未识别到好友、小组或番键会二维码');
+    showAppMessage(context, '未识别到条目、动态、好友、小组或番键会二维码');
     return false;
   }
   if (target.kind == CommunityQrKind.group) {
@@ -127,40 +144,4 @@ Future<bool> scanAndAddFriend(
     }
     return false;
   }
-}
-
-Future<String?> _readQrPayload(BuildContext context) async {
-  if (friendQrSupportsCamera()) {
-    final result = await Navigator.of(
-      context,
-    ).push<String>(MaterialPageRoute(builder: (_) => const FriendQrScanPage()));
-    if (result == null) return null;
-    if (result != '__pick_image__') return result;
-  }
-  if (!context.mounted) return null;
-  return _readQrFromPickedImage(context);
-}
-
-Future<String?> _readQrFromPickedImage(BuildContext context) async {
-  final picked = await FilePicker.platform.pickFiles(
-    type: FileType.image,
-    allowMultiple: false,
-    withData: true,
-  );
-  if (picked == null || picked.files.isEmpty) return null;
-  final file = picked.files.single;
-  var bytes = file.bytes;
-  if (bytes == null && file.path != null) {
-    bytes = await File(file.path!).readAsBytes();
-  }
-  if (bytes == null) {
-    if (context.mounted) showAppMessage(context, '无法读取所选图片');
-    return null;
-  }
-  final raw = await FriendQr.decodePayloadFromImageBytesAsync(bytes);
-  if (raw == null) {
-    if (context.mounted) showAppMessage(context, '没有识别到二维码');
-    return null;
-  }
-  return raw;
 }

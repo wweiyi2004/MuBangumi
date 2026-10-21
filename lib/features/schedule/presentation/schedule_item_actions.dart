@@ -1,3 +1,4 @@
+import '../../../core/theme/anime_icon.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../models/bangumi_models.dart';
@@ -56,20 +57,20 @@ Future<void> showScheduleItemActions(
             ),
             const Divider(height: 1),
             ListTile(
-              leading: const Icon(Icons.open_in_new_rounded),
+              leading: const AnimeIcon(Icons.open_in_new_rounded),
               title: const Text('打开条目'),
               onTap: () => Navigator.pop(context, 'open'),
             ),
             if (canProgress)
               ListTile(
-                leading: Icon(
+                leading: AnimeIcon(
                   collection == null ? Icons.add_rounded : Icons.check_rounded,
                 ),
                 title: Text(collection == null ? '加入在看' : '看完下一集'),
                 onTap: () => Navigator.pop(context, 'progress'),
               ),
             ListTile(
-              leading: Icon(
+              leading: AnimeIcon(
                 item.reminderEnabled
                     ? Icons.notifications_active_rounded
                     : Icons.notifications_none_rounded,
@@ -86,7 +87,7 @@ Future<void> showScheduleItemActions(
               onTap: () => Navigator.pop(context, 'reminder'),
             ),
             ListTile(
-              leading: const Icon(Icons.rss_feed_rounded),
+              leading: const AnimeIcon(Icons.rss_feed_rounded),
               title: const Text('绑定更新源'),
               subtitle: const Text('匹配订阅内容，显示未读更新'),
               onTap: () => Navigator.pop(context, 'rss_bind'),
@@ -94,13 +95,13 @@ Future<void> showScheduleItemActions(
             ListTile(
               leading: Badge(
                 isLabelVisible: unreadCount > 0,
-                child: const Icon(Icons.notifications_outlined),
+                child: const AnimeIcon(Icons.notifications_outlined),
               ),
               title: const Text('查看更新'),
               onTap: () => Navigator.pop(context, 'rss_updates'),
             ),
             ListTile(
-              leading: Icon(
+              leading: AnimeIcon(
                 Icons.delete_outline_rounded,
                 color: Theme.of(context).colorScheme.error,
               ),
@@ -112,13 +113,13 @@ Future<void> showScheduleItemActions(
               onTap: () => Navigator.pop(context, 'remove'),
             ),
             ListTile(
-              leading: const Icon(Icons.inbox_outlined),
+              leading: const AnimeIcon(Icons.inbox_outlined),
               title: const Text('移到待安排'),
               onTap: () => Navigator.pop(context, 'pool'),
             ),
             for (var day = DateTime.monday; day <= DateTime.sunday; day++)
               ListTile(
-                leading: const Icon(Icons.event_rounded),
+                leading: const AnimeIcon(Icons.event_rounded),
                 title: Text('安排到${weekdayLabel(day)}'),
                 onTap: () => Navigator.pop(context, '$day'),
               ),

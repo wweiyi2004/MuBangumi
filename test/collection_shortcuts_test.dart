@@ -61,7 +61,9 @@ void main() {
         // The compact profile now exposes all collections and doing. Completed
         // items remain available through the collection status filter.
         if (target.label == '已完成') {
-          await tester.tap(find.widgetWithText(ChoiceChip, '已完成'));
+          await tester.tap(find.byTooltip('收藏状态'));
+          await tester.pumpAndSettle();
+          await tester.tap(find.text('已完成'));
           await tester.pumpAndSettle();
         }
         expect(
@@ -79,11 +81,15 @@ void main() {
         );
         expect(
           tester
-              .widget<ChoiceChip>(
-                find.widgetWithText(ChoiceChip, target.filter),
+              .widget<PopupMenuButton<int>>(
+                find.byKey(const ValueKey('library-status-menu')),
               )
-              .selected,
-          isTrue,
+              .initialValue,
+          target.filter == '进行中'
+              ? 3
+              : target.filter == '已完成'
+              ? 2
+              : 0,
         );
         expect(find.text('我的收藏'), findsOneWidget);
         await tester.pageBack();

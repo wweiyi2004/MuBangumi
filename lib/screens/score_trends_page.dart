@@ -1,3 +1,6 @@
+import '../widgets/score_comparison_chart.dart';
+import '../widgets/image_share_sheet.dart';
+import '../core/theme/anime_icon.dart';
 import '../navigation/app_destination.dart';
 import 'dart:async';
 import 'package:flutter/material.dart';
@@ -10,6 +13,7 @@ import '../models/bangumi_models.dart';
 import '../models/netaba_models.dart';
 import '../state/session_controller.dart';
 import '../widgets/score_history_chart.dart';
+import 'score_comparison_page.dart';
 import '../widgets/subject_widgets.dart';
 import '../core/theme/app_tokens.dart';
 
@@ -47,7 +51,10 @@ class _ScoreTrendsPageState extends ConsumerState<ScoreTrendsPage>
   @override
   void initState() {
     super.initState();
-    _tabs = TabController(length: 4, vsync: this);
+    _tabs = TabController(length: 5, vsync: this)
+      ..addListener(() {
+        if (mounted) setState(() {});
+      });
     unawaited(Future<void>.microtask(_load));
   }
 
@@ -124,6 +131,54 @@ class _ScoreTrendsPageState extends ConsumerState<ScoreTrendsPage>
     );
   }
 
+  List<NetabaTrendingItem> _source(_TrendKind kind) => switch (kind) {
+    _TrendKind.up => _trending?.up ?? const [],
+    _TrendKind.down => _trending?.down ?? const [],
+    _TrendKind.done => _trending?.done ?? const [],
+    _TrendKind.reputation => _reputation,
+  };
+
+  Future<void> _share(_TrendKind kind, List<NetabaTrendingItem> items) {
+    const colors = [
+      Color(0xFFA64B58),
+      Color(0xFF377CC8),
+      Color(0xFF219B80),
+      Color(0xFFBD771D),
+      Color(0xFF8254CA),
+      Color(0xFFCD5C3D),
+    ];
+    final lines = [
+      for (var i = 0; i < items.length; i++)
+        ScoreComparisonLine(items[i].displayName, [
+          for (final p in items[i].history)
+            if (p.hasScore) NetabaChartPoint(p.recordedAt, p.score),
+        ], colors[i % colors.length]),
+    ];
+    return showImageShareSheet(
+      context,
+      title:
+          '${kind.label} · ${items.length == 1 ? items.single.displayName : '当前榜单前 ${items.length} 部'}',
+      filename: 'MuBangumi-trend-${kind.name}.png',
+      subtitle: '数据来源：netaba.re · 圆点标记起点、最新、最高和最低的实际记录',
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          for (final item in items)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: Text(
+                '${item.displayName}  ${item.latestScore.toStringAsFixed(2)} 分  ·  ${kind.period} ${item.scoreDelta > 0 ? '+' : ''}${item.scoreDelta.toStringAsFixed(2)}',
+                style: const TextStyle(fontWeight: FontWeight.w600),
+              ),
+            ),
+          ScoreComparisonChart(lines: lines, markKeyPoints: true),
+          ScoreChartKeyPoints(lines: lines),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final session = ref.watch(sessionProvider);
@@ -133,10 +188,23 @@ class _ScoreTrendsPageState extends ConsumerState<ScoreTrendsPage>
       appBar: AppBar(
         title: const Text('评分趋势'),
         actions: [
+          if (_tabs.index < 4)
+            IconButton(
+              tooltip: '分享趋势图',
+              onPressed: () {
+                final kind = _TrendKind.values[_tabs.index];
+                final source = _source(kind)
+                    .where((item) => !_onlyMine || mine.containsKey(item.bgmId))
+                    .take(6)
+                    .toList();
+                if (source.isNotEmpty) _share(kind, source);
+              },
+              icon: const AnimeIcon(Icons.ios_share_rounded),
+            ),
           IconButton(
             tooltip: '刷新榜单',
             onPressed: loading ? null : () => _load(refresh: true),
-            icon: const Icon(Icons.refresh_rounded),
+            icon: const AnimeIcon(Icons.refresh_rounded),
           ),
           IconButton(
             tooltip: '数据来源 · netaba.re',
@@ -144,50 +212,54 @@ class _ScoreTrendsPageState extends ConsumerState<ScoreTrendsPage>
               Uri.parse('https://netaba.re/trending'),
               mode: LaunchMode.externalApplication,
             ),
-            icon: const Icon(Icons.open_in_new_rounded),
+            icon: const AnimeIcon(Icons.open_in_new_rounded),
           ),
         ],
         bottom: TabBar(
           controller: _tabs,
           isScrollable: true,
           tabAlignment: TabAlignment.start,
-          tabs: [for (final kind in _TrendKind.values) Tab(text: kind.label)],
+          tabs: [
+            for (final kind in _TrendKind.values) Tab(text: kind.label),
+            const Tab(text: '历史对比'),
+          ],
         ),
       ),
       body: SafeArea(
         child: Column(
           children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(18, 12, 18, 8),
-              child: Align(
-                alignment: Alignment.center,
-                child: SizedBox(
-                  width: 1004,
-                  child: Wrap(
-                    spacing: 8,
-                    runSpacing: 6,
-                    crossAxisAlignment: WrapCrossAlignment.center,
-                    children: [
-                      ChoiceChip(
-                        label: const Text('全部作品'),
-                        selected: !_onlyMine,
-                        onSelected: (_) => setState(() => _onlyMine = false),
-                      ),
-                      ChoiceChip(
-                        avatar: const Icon(
-                          Icons.bookmark_border_rounded,
-                          size: 17,
+            if (_tabs.index < 4)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(18, 12, 18, 8),
+                child: Align(
+                  alignment: Alignment.center,
+                  child: SizedBox(
+                    width: 1004,
+                    child: Wrap(
+                      spacing: 8,
+                      runSpacing: 6,
+                      crossAxisAlignment: WrapCrossAlignment.center,
+                      children: [
+                        ChoiceChip(
+                          label: const Text('全部作品'),
+                          selected: !_onlyMine,
+                          onSelected: (_) => setState(() => _onlyMine = false),
                         ),
-                        label: const Text('我的收藏'),
-                        selected: _onlyMine,
-                        onSelected: (_) => setState(() => _onlyMine = true),
-                      ),
-                      if (session.isLoadingCollections) const Text('收藏同步中…'),
-                    ],
+                        ChoiceChip(
+                          avatar: const AnimeIcon(
+                            Icons.bookmark_border_rounded,
+                            size: 17,
+                          ),
+                          label: const Text('我的收藏'),
+                          selected: _onlyMine,
+                          onSelected: (_) => setState(() => _onlyMine = true),
+                        ),
+                        if (session.isLoadingCollections) const Text('收藏同步中…'),
+                      ],
+                    ),
                   ),
                 ),
               ),
-            ),
             Expanded(
               child: TabBarView(
                 controller: _tabs,
@@ -211,7 +283,16 @@ class _ScoreTrendsPageState extends ConsumerState<ScoreTrendsPage>
                       mine: mine,
                       onRefresh: () => _load(refresh: true),
                       onTap: (item) => _openSubject(item, mine[item.bgmId]),
+                      onShare: (item) => _share(kind, [item]),
                     ),
+                  ScoreComparisonPage(
+                    embedded: true,
+                    initial: session.collections
+                        .where((item) => item.subject.type == SubjectType.anime)
+                        .take(2)
+                        .map((item) => item.subject)
+                        .toList(),
+                  ),
                 ],
               ),
             ),
@@ -232,6 +313,7 @@ class _TrendList extends StatelessWidget {
     required this.mine,
     required this.onRefresh,
     required this.onTap,
+    required this.onShare,
   });
   final _TrendKind kind;
   final List<NetabaTrendingItem> source;
@@ -241,6 +323,7 @@ class _TrendList extends StatelessWidget {
   final Map<int, UserCollection> mine;
   final Future<void> Function() onRefresh;
   final ValueChanged<NetabaTrendingItem> onTap;
+  final ValueChanged<NetabaTrendingItem> onShare;
 
   @override
   Widget build(BuildContext context) {
@@ -348,6 +431,7 @@ class _TrendList extends StatelessWidget {
                 mine: mine[row.item.bgmId],
                 period: kind.period,
                 onTap: () => onTap(row.item),
+                onShare: () => onShare(row.item),
               );
             },
           ),
@@ -409,12 +493,14 @@ class _TrendTile extends StatelessWidget {
     required this.mine,
     required this.period,
     required this.onTap,
+    required this.onShare,
   });
   final int rank;
   final NetabaTrendingItem item;
   final UserCollection? mine;
   final String period;
   final VoidCallback onTap;
+  final VoidCallback onShare;
 
   @override
   Widget build(BuildContext context) {
@@ -440,7 +526,7 @@ class _TrendTile extends StatelessWidget {
     final change = Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Icon(
+        AnimeIcon(
           delta == 0
               ? Icons.trending_flat_rounded
               : positive
@@ -459,10 +545,21 @@ class _TrendTile extends StatelessWidget {
     final identity = Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        ReadableSubjectTitle(
-          item.displayName,
-          maxLines: 2,
-          style: theme.textTheme.titleSmall,
+        Row(
+          children: [
+            Expanded(
+              child: ReadableSubjectTitle(
+                item.displayName,
+                maxLines: 2,
+                style: theme.textTheme.titleSmall,
+              ),
+            ),
+            IconButton(
+              tooltip: '分享此作品趋势',
+              onPressed: onShare,
+              icon: const AnimeIcon(Icons.ios_share_rounded, size: 18),
+            ),
+          ],
         ),
         const SizedBox(height: 5),
         Wrap(

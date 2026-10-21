@@ -14,6 +14,7 @@ import 'package:mubangumi/screens/background_settings_sheet.dart';
 import 'package:mubangumi/state/background_controller.dart';
 import 'package:mubangumi/state/system_appearance_controller.dart';
 import 'package:mubangumi/widgets/app_background.dart';
+import 'package:mubangumi/widgets/bounded_image.dart';
 import 'support/background_fixtures.dart';
 
 const capture = bool.fromEnvironment('BACKGROUND_SCREENSHOTS');
@@ -335,15 +336,15 @@ Future<void> showSettings(
     );
     final context = tester.element(find.byType(MaterialApp));
     await tester.runAsync(() async {
-      for (final imageWidth in [
-        width.round(),
-        (width < 640 ? width : 640).round() - 40,
+      for (final display in [
+        Size(width, 1000),
+        Size((width < 640 ? width : 640) - 40, 196),
       ]) {
         await precacheImage(
-          ResizeImage(
+          boundedImageProvider(
             FileImage(File(controller.state.imagePath!)),
-            width: imageWidth,
-            allowUpscaling: false,
+            width: display.width,
+            height: display.height,
           ),
           context,
         );

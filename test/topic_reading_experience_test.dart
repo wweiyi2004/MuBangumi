@@ -25,6 +25,70 @@ const topic = CommunityTopic(
 );
 
 void main() {
+  testWidgets('the error retry bypasses the response cache', (tester) async {
+    final env = _Env();
+    env.service.requireRefresh = true;
+    await _show(tester, env);
+    expect(find.text('重试'), findsOneWidget);
+    await tester.tap(find.text('重试'));
+    await tester.pumpAndSettle();
+    expect(find.byType(CommunityErrorView), findsNothing);
+    expect(find.byType(CommunityPostCard), findsWidgets);
+  });
+  for (final fromFragment in [false, true]) {
+    testWidgets(
+      'an incoming reply anchor jumps to its floor and preserves saved reading ($fromFragment)',
+      (tester) async {
+        final env = _Env();
+        env.store.values['account1/group:7'] = const TopicReadingPosition(
+          postId: 'p20',
+          index: 19,
+        );
+        await _show(
+          tester,
+          env,
+          initialTopic: CommunityTopic(
+            id: 7,
+            kind: CommunityTopicKind.group,
+            title: '长话题',
+            url: topic.url,
+            webUrl: '${topic.webUrl}${fromFragment ? '#post_80' : ''}',
+            targetPostId: fromFragment ? null : 80,
+          ),
+        );
+        expect(
+          tester
+              .widgetList<CommunityPostCard>(find.byType(CommunityPostCard))
+              .any((card) => card.post.id == 'p80'),
+          isTrue,
+        );
+        expect(env.store.writes, 0);
+        expect(env.store.values['account1/group:7']!.postId, 'p20');
+        expect(tester.takeException(), isNull);
+      },
+    );
+  }
+
+  testWidgets('a removed incoming reply shows an explicit recovery message', (
+    tester,
+  ) async {
+    final env = _Env();
+    await _show(
+      tester,
+      env,
+      initialTopic: CommunityTopic(
+        id: 7,
+        kind: CommunityTopicKind.group,
+        title: '长话题',
+        url: topic.url,
+        webUrl: topic.webUrl,
+        targetPostId: 999,
+      ),
+    );
+    expect(find.text('未找到目标回复，可能已被删除或暂时不可见'), findsOneWidget);
+    expect(env.store.writes, 0);
+    expect(tester.takeException(), isNull);
+  });
   testWidgets(
     'reopening starts at the top without overwriting the saved floor; resume finds its ID',
     (tester) async {
@@ -135,6 +199,7 @@ Future<void> _show(
   _Env env, {
   double width = 390,
   double scale = 1,
+  CommunityTopic initialTopic = topic,
 }) async {
   tester.view.physicalSize = Size(width, 900);
   tester.view.devicePixelRatio = 1;
@@ -156,7 +221,7 @@ Future<void> _show(
             ).copyWith(textScaler: TextScaler.linear(scale)),
             child: RepaintBoundary(key: boundary, child: child!),
           ),
-          home: CommunityTopicScreen(topic: topic, service: env.service),
+          home: CommunityTopicScreen(topic: initialTopic, service: env.service),
         ),
       ),
     ),
@@ -187,6 +252,7 @@ class _ReadingStore implements TopicReadingRepository {
 
 class _TopicService extends CommunityService {
   _TopicService() : super.test();
+  bool requireRefresh = false;
   String account = 'account1';
   @override
   String? get currentUsername => account;
@@ -204,18 +270,23 @@ class _TopicService extends CommunityService {
   Future<CommunityTopicDetail> loadTopic(
     CommunityTopic topic, {
     bool refresh = false,
-  }) async => CommunityTopicDetail(
-    title: '值得慢慢读的长话题',
-    posts: [
-      for (var i = 1; i <= 100; i++)
-        CommunityPost(
-          id: 'p$i',
-          author: i % 5 == 0 ? '好友' : '楼主',
-          isOriginal: i == 1,
-          userUrl: 'https://bgm.tv/user/${i % 5 == 0 ? 'friend' : 'author'}',
-          body: '第 $i 条讨论。${'这是一段用来验证阅读位置与大字体布局的文字。' * 5}',
-          meta: '#$i',
-        ),
-    ],
-  );
+  }) async {
+    if (requireRefresh && !refresh) {
+      throw const FormatException('缓存页面暂时不可用');
+    }
+    return CommunityTopicDetail(
+      title: '值得慢慢读的长话题',
+      posts: [
+        for (var i = 1; i <= 100; i++)
+          CommunityPost(
+            id: 'p$i',
+            author: i % 5 == 0 ? '好友' : '楼主',
+            isOriginal: i == 1,
+            userUrl: 'https://bgm.tv/user/${i % 5 == 0 ? 'friend' : 'author'}',
+            body: '第 $i 条讨论。${'这是一段用来验证阅读位置与大字体布局的文字。' * 5}',
+            meta: '#$i',
+          ),
+      ],
+    );
+  }
 }

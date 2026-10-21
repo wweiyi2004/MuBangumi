@@ -1,3 +1,4 @@
+import '../core/theme/anime_icon.dart';
 import 'dart:async';
 import 'dart:io';
 
@@ -269,7 +270,7 @@ class _CommunityWebScreenState extends ConsumerState<CommunityWebScreen>
                             : VisualDensity.standard,
                         tooltip: '返回',
                         onPressed: () => Navigator.pop(context),
-                        icon: const Icon(Icons.arrow_back_rounded),
+                        icon: const AnimeIcon(Icons.arrow_back_rounded),
                       ),
                     Expanded(
                       child: Text(
@@ -322,7 +323,7 @@ class _CommunityWebScreenState extends ConsumerState<CommunityWebScreen>
                       for (final section in _CommunitySection.values)
                         ButtonSegment(
                           value: section,
-                          icon: Icon(section.icon, size: 19),
+                          icon: AnimeIcon(section.icon, size: 19),
                           label: Text(section.label),
                         ),
                     ],
@@ -368,7 +369,7 @@ class _CommunityWebScreenState extends ConsumerState<CommunityWebScreen>
                     padding: const EdgeInsets.fromLTRB(14, 9, 6, 9),
                     child: Row(
                       children: [
-                        Icon(
+                        AnimeIcon(
                           Icons.info_outline_rounded,
                           size: 20,
                           color: Theme.of(
@@ -387,7 +388,7 @@ class _CommunityWebScreenState extends ConsumerState<CommunityWebScreen>
                           visualDensity: VisualDensity.compact,
                           onPressed: () =>
                               setState(() => _showLoginHint = false),
-                          icon: const Icon(Icons.close_rounded, size: 19),
+                          icon: const AnimeIcon(Icons.close_rounded, size: 19),
                         ),
                       ],
                     ),
@@ -458,7 +459,7 @@ class _BrowserButton extends StatelessWidget {
     tooltip: tooltip,
     visualDensity: VisualDensity.compact,
     onPressed: enabled ? onPressed : null,
-    icon: Icon(icon),
+    icon: AnimeIcon(icon),
   );
 }
 
@@ -850,7 +851,7 @@ class _CommunityBrowserState extends ConsumerState<_CommunityBrowser> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(
+              AnimeIcon(
                 Icons.public_off_rounded,
                 size: 42,
                 color: Theme.of(context).colorScheme.error,
@@ -864,7 +865,7 @@ class _CommunityBrowserState extends ConsumerState<_CommunityBrowser> {
               const SizedBox(height: 16),
               OutlinedButton.icon(
                 onPressed: reload,
-                icon: const Icon(Icons.refresh_rounded),
+                icon: const AnimeIcon(Icons.refresh_rounded),
                 label: const Text('重试'),
               ),
             ],

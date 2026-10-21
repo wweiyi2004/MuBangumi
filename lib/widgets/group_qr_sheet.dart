@@ -1,7 +1,8 @@
+import 'brand_qr.dart';
+import '../core/theme/anime_icon.dart';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:qr_flutter/qr_flutter.dart';
 import 'package:share_plus/share_plus.dart';
 import '../core/social/community_qr.dart';
 import '../core/social/friend_qr_export.dart';
@@ -84,11 +85,7 @@ class _GroupQrSheetState extends State<_GroupQrSheet> {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  QrImageView(
-                    data: _url,
-                    size: 220,
-                    backgroundColor: Colors.white,
-                  ),
+                  BrandQr(data: _url, size: 220, backgroundColor: Colors.white),
                   const SizedBox(height: 12),
                   Text(
                     widget.group.name,
@@ -123,7 +120,7 @@ class _GroupQrSheetState extends State<_GroupQrSheet> {
                     ).showSnackBar(const SnackBar(content: Text('小组链接已复制')));
                   }
                 },
-                icon: const Icon(Icons.link),
+                icon: const AnimeIcon(Icons.link),
                 label: const Text('复制链接'),
               ),
               OutlinedButton.icon(
@@ -137,7 +134,7 @@ class _GroupQrSheetState extends State<_GroupQrSheet> {
                           );
                         }
                       },
-                icon: const Icon(Icons.download_outlined),
+                icon: const AnimeIcon(Icons.download_outlined),
                 label: const Text('保存图片'),
               ),
               FilledButton.icon(
@@ -151,7 +148,7 @@ class _GroupQrSheetState extends State<_GroupQrSheet> {
                           ], text: '${widget.group.name} · $_url');
                         }
                       },
-                icon: const Icon(Icons.share_outlined),
+                icon: const AnimeIcon(Icons.share_outlined),
                 label: const Text('分享'),
               ),
             ],

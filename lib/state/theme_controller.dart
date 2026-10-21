@@ -4,15 +4,20 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 class ThemeController extends StateNotifier<ThemeMode> {
   ThemeController(this._storage) : super(ThemeMode.system) {
-    _restore();
+    ready = _restore();
   }
 
   static const _key = 'app_theme_mode';
   final FlutterSecureStorage _storage;
+  late final Future<void> ready;
+  int _revision = 0;
+  Future<void> _writes = Future.value();
 
   Future<void> _restore() async {
+    final revision = _revision;
     try {
       final raw = await _storage.read(key: _key);
+      if (!mounted || revision != _revision) return;
       state = switch (raw) {
         'light' => ThemeMode.light,
         'dark' => ThemeMode.dark,
@@ -23,7 +28,8 @@ class ThemeController extends StateNotifier<ThemeMode> {
     }
   }
 
-  Future<void> setMode(ThemeMode mode) async {
+  Future<void> setMode(ThemeMode mode, {bool strict = false}) async {
+    ++_revision;
     state = mode;
     final value = switch (mode) {
       ThemeMode.light => 'light',
@@ -31,9 +37,14 @@ class ThemeController extends StateNotifier<ThemeMode> {
       ThemeMode.system => 'system',
     };
     try {
-      await _storage.write(key: _key, value: value);
+      final write = _writes.then(
+        (_) => _storage.write(key: _key, value: value),
+      );
+      _writes = write.then<void>((_) {}, onError: (Object _, StackTrace _) {});
+      await write;
     } catch (error) {
       debugPrint('ThemeController.setMode persist failed: $error');
+      if (strict) rethrow;
     }
   }
 }

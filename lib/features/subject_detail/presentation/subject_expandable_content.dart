@@ -1,3 +1,4 @@
+import '../../../core/theme/anime_icon.dart';
 import 'package:flutter/material.dart';
 
 class SubjectExpandableText extends StatefulWidget {
@@ -95,7 +96,7 @@ class _ExpandableItemListState extends State<SubjectExpandableItemList> {
             alignment: Alignment.center,
             child: TextButton.icon(
               onPressed: () => setState(() => _expanded = !_expanded),
-              icon: Icon(
+              icon: AnimeIcon(
                 _expanded
                     ? Icons.expand_less_rounded
                     : Icons.expand_more_rounded,

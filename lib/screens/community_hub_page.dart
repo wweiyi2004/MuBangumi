@@ -1,8 +1,11 @@
+import '../widgets/content_loading.dart';
+import '../core/theme/anime_icon.dart';
 import '../state/service_providers.dart';
 import '../navigation/app_destination.dart';
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import '../widgets/retained_tab_stack.dart';
 
 import '../core/layout/app_layout.dart';
 
@@ -81,20 +84,27 @@ class _CommunityPageState extends State<CommunityPage> {
                       : VisualDensity.standard,
                   tooltip: '在 Bangumi 网页查看',
                   onPressed: _openWeb,
-                  icon: const Icon(Icons.language_rounded),
+                  icon: const AnimeIcon(Icons.language_rounded),
                 ),
               ],
             ),
           SizedBox(height: phone ? 10 : 13),
-          SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
+          SizedBox(
+            width: double.infinity,
             child: SegmentedButton<_CommunityArea>(
+              expandedInsets: EdgeInsets.zero,
+              style: SegmentedButton.styleFrom(
+                padding: const EdgeInsets.symmetric(horizontal: 8),
+                textStyle: const TextStyle(fontSize: 14),
+              ),
               segments: [
                 for (final area in _CommunityArea.values)
                   ButtonSegment(
                     value: area,
-                    icon: Icon(area.icon, size: 19),
-                    label: Text(area.label),
+                    icon: MediaQuery.sizeOf(context).width >= 420
+                        ? AnimeIcon(area.icon, size: 19)
+                        : null,
+                    label: Text(area.label, textAlign: TextAlign.center),
                   ),
               ],
               selected: {_area},
@@ -104,7 +114,7 @@ class _CommunityPageState extends State<CommunityPage> {
           ),
           const SizedBox(height: 13),
           Expanded(
-            child: IndexedStack(
+            child: RetainedTabStack(
               index: _area.index,
               children: [
                 _RakuenPage(service: widget.service),
@@ -139,6 +149,7 @@ class _RakuenPageState extends State<_RakuenPage> {
   late final _service = widget.service ?? communityServiceFor(context);
   final _scrollController = ScrollController();
   RakuenMode _mode = RakuenMode.subjectTrending;
+  RakuenMode? _contentMode;
   List<CommunityTopic> _topics = const [];
   List<CommunityGroup> _hotGroups = const [];
   int _total = 0;
@@ -177,6 +188,7 @@ class _RakuenPageState extends State<_RakuenPage> {
         }
         setState(() {
           _topics = cached.data;
+          _contentMode = _mode;
           _total = cached.total;
           _nextOffset = cached.data.length;
           _paging.hasMore = _total > 0
@@ -205,6 +217,7 @@ class _RakuenPageState extends State<_RakuenPage> {
       if (!mounted || activeRequest != _requestId || mode != _mode) return;
       setState(() {
         _topics = page.data;
+        _contentMode = mode;
         _lastSuccessfulRequest = activeRequest;
         _nextOffset = page.data.length;
         _paging.hasMore =
@@ -225,7 +238,9 @@ class _RakuenPageState extends State<_RakuenPage> {
   }
 
   Future<void> _loadMore() async {
-    if (!_paging.canLoadMore || _topics.isEmpty) {
+    if (!_paging.canLoadMore ||
+        _topics.isEmpty ||
+        _lastSuccessfulRequest != _requestId) {
       return;
     }
     final mode = _mode;
@@ -287,8 +302,6 @@ class _RakuenPageState extends State<_RakuenPage> {
     if (_mode == mode) return;
     setState(() {
       _mode = mode;
-      _topics = const [];
-      _total = 0;
       _paging.reset();
       _nextOffset = 0;
       _error = null;
@@ -337,7 +350,7 @@ class _RakuenPageState extends State<_RakuenPage> {
           IconButton(
             tooltip: '刷新话题',
             onPressed: _paging.loading ? null : () => _load(refresh: true),
-            icon: const Icon(Icons.refresh_rounded),
+            icon: const AnimeIcon(Icons.refresh_rounded),
           ),
         ],
       ),
@@ -345,7 +358,12 @@ class _RakuenPageState extends State<_RakuenPage> {
       if (_topics.isNotEmpty)
         CommunityRefreshStatus(
           loading: _paging.loading,
+          operation: _requestId,
+          loadingMessage: _contentMode != _mode
+              ? '正在切换分类，暂时显示上一列表'
+              : '显示已有内容，正在更新',
           error: _error,
+          message: _contentMode != _mode ? '切换分类失败，仍显示上一列表' : '刷新失败，已保留当前内容',
           onRetry: () => _load(refresh: true),
         ),
       Expanded(child: _buildBody()),
@@ -354,7 +372,16 @@ class _RakuenPageState extends State<_RakuenPage> {
 
   Widget _buildBody() {
     if (_paging.loading && _topics.isEmpty) {
-      return const Center(child: CircularProgressIndicator());
+      return Column(
+        children: [
+          LoadingStatus(
+            active: true,
+            message: '正在加载',
+            onRetry: () => _load(refresh: true),
+          ),
+          const ContentSkeleton(),
+        ],
+      );
     }
     if (_error != null && _topics.isEmpty) {
       return CommunityErrorView(
@@ -457,7 +484,7 @@ class _RakuenModePicker extends StatelessWidget {
                 child: Row(
                   children: [
                     Expanded(child: Text(value.label)),
-                    if (value == mode) const Icon(Icons.check, size: 18),
+                    if (value == mode) const AnimeIcon(Icons.check, size: 18),
                   ],
                 ),
               ),
@@ -479,7 +506,7 @@ class _RakuenModePicker extends StatelessWidget {
                       : short,
                 ),
                 const SizedBox(width: 4),
-                const Icon(Icons.expand_more, size: 18),
+                const AnimeIcon(Icons.expand_more, size: 18),
               ],
             ),
           ),
@@ -554,6 +581,8 @@ class CommunityGroupBrowserState extends State<CommunityGroupBrowser> {
   late CommunityGroupSort _sort = widget.joinedOnly
       ? CommunityGroupSort.updated
       : CommunityGroupSort.members;
+  CommunityGroupMode? _contentMode;
+  CommunityGroupSort? _contentSort;
   List<CommunityGroup> _groups = const [];
   int _total = 0;
   final _paging = CommunityPaging(loading: true);
@@ -607,6 +636,8 @@ class CommunityGroupBrowserState extends State<CommunityGroupBrowser> {
         }
         setState(() {
           _groups = cached.data;
+          _contentMode = _mode;
+          _contentSort = _sort;
           _total = cached.total;
           _nextOffset = cached.rawCount ?? cached.data.length;
           _paging.hasMore = _total > 0
@@ -645,6 +676,8 @@ class CommunityGroupBrowserState extends State<CommunityGroupBrowser> {
       }
       setState(() {
         _groups = page.data;
+        _contentMode = mode;
+        _contentSort = sort;
         _lastSuccessfulRequest = activeRequest;
         _nextOffset = page.rawCount ?? page.data.length;
         _paging.hasMore =
@@ -663,7 +696,7 @@ class CommunityGroupBrowserState extends State<CommunityGroupBrowser> {
   }
 
   Future<void> _loadMore() async {
-    if (!_paging.canLoadMore) {
+    if (!_paging.canLoadMore || _lastSuccessfulRequest != _requestId) {
       return;
     }
     final mode = _mode;
@@ -719,8 +752,6 @@ class CommunityGroupBrowserState extends State<CommunityGroupBrowser> {
     setState(() {
       _mode = mode ?? _mode;
       _sort = sort ?? _sort;
-      _groups = const [];
-      _total = 0;
       _paging.reset();
       _nextOffset = 0;
       _error = null;
@@ -765,51 +796,46 @@ class CommunityGroupBrowserState extends State<CommunityGroupBrowser> {
         child: Row(
           children: [
             Expanded(
-              child: SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
-                child: Row(
-                  children: [
-                    for (final mode in CommunityGroupMode.values.where(
-                      (mode) =>
-                          !widget.joinedOnly || mode != CommunityGroupMode.all,
-                    )) ...[
-                      ChoiceChip(
-                        showCheckmark: false,
-                        selectedColor: SocialChatStyle.accent(
-                          context,
-                        ).withValues(alpha: .12),
-                        side: BorderSide.none,
-                        label: Text(mode.label),
-                        selected: _mode == mode,
-                        onSelected:
-                            !mode.requiresLogin || _service.isAuthenticated
-                            ? (_) => _changeFilter(mode: mode)
-                            : null,
-                      ),
-                      const SizedBox(width: 7),
-                    ],
+              child: Wrap(
+                spacing: 7,
+                runSpacing: 4,
+                children: [
+                  for (final mode in CommunityGroupMode.values.where(
+                    (mode) =>
+                        !widget.joinedOnly || mode != CommunityGroupMode.all,
+                  )) ...[
+                    ChoiceChip(
+                      showCheckmark: false,
+                      selectedColor: SocialChatStyle.accent(
+                        context,
+                      ).withValues(alpha: .12),
+                      side: BorderSide.none,
+                      label: Text(mode.label),
+                      selected: _mode == mode,
+                      onSelected:
+                          !mode.requiresLogin || _service.isAuthenticated
+                          ? (_) => _changeFilter(mode: mode)
+                          : null,
+                    ),
                   ],
-                ),
+                ],
               ),
             ),
             const SizedBox(width: 8),
             PopupMenuButton<CommunityGroupSort>(
-              tooltip: '排序',
+              tooltip: '排序：${_sort.label}',
               initialValue: _sort,
               onSelected: (sort) => _changeFilter(sort: sort),
               itemBuilder: (context) => [
                 for (final sort in CommunityGroupSort.values)
                   PopupMenuItem(value: sort, child: Text(sort.label)),
               ],
-              child: Chip(
-                avatar: const Icon(Icons.sort_rounded, size: 18),
-                label: Text(_sort.label),
-              ),
+              icon: const AnimeIcon(Icons.sort_rounded),
             ),
             IconButton(
               tooltip: '刷新小组',
               onPressed: _paging.loading ? null : () => _load(refresh: true),
-              icon: const Icon(Icons.refresh_rounded),
+              icon: const AnimeIcon(Icons.refresh_rounded),
             ),
           ],
         ),
@@ -818,7 +844,14 @@ class CommunityGroupBrowserState extends State<CommunityGroupBrowser> {
       if (_groups.isNotEmpty)
         CommunityRefreshStatus(
           loading: _paging.loading,
+          operation: _requestId,
+          loadingMessage: _contentMode != _mode || _contentSort != _sort
+              ? '正在切换分类，暂时显示上一列表'
+              : '显示已有内容，正在更新',
           error: _error,
+          message: _contentMode != _mode || _contentSort != _sort
+              ? '切换分类失败，仍显示上一列表'
+              : '刷新失败，已保留当前内容',
           onRetry: () => _load(refresh: true),
         ),
       Expanded(child: _buildBody()),
@@ -827,7 +860,16 @@ class CommunityGroupBrowserState extends State<CommunityGroupBrowser> {
 
   Widget _buildBody() {
     if (_paging.loading && _groups.isEmpty) {
-      return const Center(child: CircularProgressIndicator());
+      return Column(
+        children: [
+          LoadingStatus(
+            active: true,
+            message: '正在加载',
+            onRetry: () => _load(refresh: true),
+          ),
+          const ContentSkeleton(),
+        ],
+      );
     }
     if (_error != null && _groups.isEmpty) {
       return CommunityErrorView(

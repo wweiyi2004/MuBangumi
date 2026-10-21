@@ -1,3 +1,4 @@
+import '../core/theme/anime_icon.dart';
 import 'dart:async';
 import 'dart:io';
 
@@ -217,7 +218,7 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
                               const SnackBar(content: Text('已复制回调地址')),
                             );
                           },
-                          icon: const Icon(Icons.copy_rounded),
+                          icon: const AnimeIcon(Icons.copy_rounded),
                         ),
                       ],
                     ),
@@ -228,7 +229,7 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
                       Uri.parse('https://bgm.tv/dev/app'),
                       mode: LaunchMode.externalApplication,
                     ),
-                    icon: const Icon(Icons.open_in_new_rounded, size: 18),
+                    icon: const AnimeIcon(Icons.open_in_new_rounded, size: 18),
                     label: const Text('打开 Bangumi 开发者平台'),
                   ),
                   const SizedBox(height: 12),
@@ -237,7 +238,7 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
                     autocorrect: false,
                     decoration: const InputDecoration(
                       labelText: 'App ID',
-                      prefixIcon: Icon(Icons.badge_outlined),
+                      prefixIcon: AnimeIcon(Icons.badge_outlined),
                     ),
                   ),
                   const SizedBox(height: 12),
@@ -248,11 +249,11 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
                     enableSuggestions: false,
                     decoration: InputDecoration(
                       labelText: 'App Secret',
-                      prefixIcon: const Icon(Icons.password_rounded),
+                      prefixIcon: const AnimeIcon(Icons.password_rounded),
                       suffixIcon: IconButton(
                         onPressed: () =>
                             setDialogState(() => hideSecret = !hideSecret),
-                        icon: Icon(
+                        icon: AnimeIcon(
                           hideSecret
                               ? Icons.visibility_outlined
                               : Icons.visibility_off_outlined,
@@ -408,12 +409,12 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
                         onSubmitted: (_) => submitToken(),
                         decoration: InputDecoration(
                           labelText: 'Access Token',
-                          prefixIcon: const Icon(Icons.key_rounded),
+                          prefixIcon: const AnimeIcon(Icons.key_rounded),
                           suffixIcon: IconButton(
                             tooltip: hideToken ? '显示令牌' : '隐藏令牌',
                             onPressed: () =>
                                 setSheetState(() => hideToken = !hideToken),
-                            icon: Icon(
+                            icon: AnimeIcon(
                               hideToken
                                   ? Icons.visibility_outlined
                                   : Icons.visibility_off_outlined,
@@ -446,7 +447,7 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
                                         strokeWidth: 2,
                                       ),
                                     )
-                                  : const Icon(Icons.login_rounded),
+                                  : const AnimeIcon(Icons.login_rounded),
                               label: Text(
                                 isSubmittingToken ? '正在登录…' : '使用令牌登录',
                               ),
@@ -455,7 +456,7 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
                           const SizedBox(width: 8),
                           TextButton.icon(
                             onPressed: _openTokenPage,
-                            icon: const Icon(
+                            icon: const AnimeIcon(
                               Icons.open_in_new_rounded,
                               size: 17,
                             ),
@@ -580,7 +581,7 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
                                               strokeWidth: 2,
                                             ),
                                           )
-                                        : const Icon(
+                                        : const AnimeIcon(
                                             Icons.account_circle_rounded,
                                           ),
                                     label: Text(loginLabel),
@@ -611,7 +612,9 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
                                     width: double.infinity,
                                     child: OutlinedButton.icon(
                                       onPressed: _cancelOAuth,
-                                      icon: const Icon(Icons.close_rounded),
+                                      icon: const AnimeIcon(
+                                        Icons.close_rounded,
+                                      ),
                                       label: const Text('取消授权'),
                                     ),
                                   ),
@@ -639,7 +642,9 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
                                     onPressed: () => ref
                                         .read(sessionProvider.notifier)
                                         .retrySavedSignIn(),
-                                    icon: const Icon(Icons.refresh_rounded),
+                                    icon: const AnimeIcon(
+                                      Icons.refresh_rounded,
+                                    ),
                                     label: Text(
                                       session.hasPendingVerification
                                           ? '重试验证账号'
@@ -668,7 +673,7 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
                                       }
                                       if (mounted) setState(() {});
                                     },
-                                    icon: const Icon(Icons.delete_outline),
+                                    icon: const AnimeIcon(Icons.delete_outline),
                                     label: const Text('重试清理登录数据'),
                                   ),
                                 ],
@@ -689,7 +694,7 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
                                                 AuthActivity.signingOut
                                         ? null
                                         : _showLoginOptions,
-                                    icon: const Icon(Icons.tune_rounded),
+                                    icon: const AnimeIcon(Icons.tune_rounded),
                                     label: const Text('其他登录方式与设置'),
                                   ),
                                 ),
@@ -697,7 +702,7 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
                                 Row(
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
-                                    Icon(
+                                    AnimeIcon(
                                       Icons.shield_outlined,
                                       size: 17,
                                       color: Theme.of(
@@ -763,10 +768,10 @@ class _LoginOptionTile extends StatelessWidget {
       clipBehavior: Clip.antiAlias,
       child: ListTile(
         onTap: onTap,
-        leading: Icon(icon),
+        leading: AnimeIcon(icon),
         title: Text(title),
         subtitle: Text(subtitle),
-        trailing: const Icon(Icons.chevron_right_rounded),
+        trailing: const AnimeIcon(Icons.chevron_right_rounded),
       ),
     );
   }
@@ -790,7 +795,7 @@ class _AuthErrorBanner extends StatelessWidget {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.center,
         children: [
-          Icon(
+          AnimeIcon(
             Icons.error_outline_rounded,
             size: 20,
             color: colors.onErrorContainer,
@@ -805,7 +810,7 @@ class _AuthErrorBanner extends StatelessWidget {
           IconButton(
             tooltip: '关闭提示',
             onPressed: onDismiss,
-            icon: Icon(
+            icon: AnimeIcon(
               Icons.close_rounded,
               size: 18,
               color: colors.onErrorContainer,
@@ -904,7 +909,7 @@ class _MiniPosterStack extends StatelessWidget {
           Icons.water_drop_outlined,
         ),
         _poster(const Color(0xFFF3A646), 142, 26, .08, Icons.sunny_snowing),
-        _poster(const Color(0xFFE95383), 82, 70, 0, Icons.auto_awesome_rounded),
+        _poster(const Color(0xFFF09199), 82, 70, 0, Icons.auto_awesome_rounded),
       ],
     ),
   );
@@ -935,7 +940,7 @@ class _MiniPosterStack extends StatelessWidget {
             ),
           ],
         ),
-        child: Icon(icon, color: Colors.white70, size: 52),
+        child: AnimeIcon(icon, color: Colors.white70, size: 52),
       ),
     ),
   );
