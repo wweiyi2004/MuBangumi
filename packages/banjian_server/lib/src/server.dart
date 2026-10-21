@@ -620,7 +620,7 @@ class RoomServer {
         if (!s.admin) store.participant({'id': s.event}, s.token);
         entry.key.add(
           jsonEncode(
-            s.invalidate
+            s.invalidate && _socketVersions[entry.key] == info['version']
                 ? {
                     'type': 'invalidate',
                     'event': s.event,

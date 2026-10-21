@@ -13,8 +13,14 @@ void main() {
     final controller = PmDraftController(repo, initial);
     addTearDown(controller.dispose);
     await controller.restore(fresh: true);
+    final failed = Completer<void>();
+    controller.addListener(() {
+      if (controller.error != null && !failed.isCompleted) {
+        failed.complete();
+      }
+    });
     controller.edit(recipient: 'alice', title: '标题', body: 'draft');
-    await Future<void>.delayed(const Duration(milliseconds: 400));
+    await failed.future.timeout(const Duration(seconds: 5));
     expect(controller.dirty, isTrue);
     expect(controller.error, contains('保存失败'));
     expect(controller.data.body, 'draft');

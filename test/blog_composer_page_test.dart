@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mubangumi/core/storage/community_draft_store.dart';
 import 'package:mubangumi/widgets/community_composer.dart';
+import 'package:mubangumi/models/community_topic_submission.dart';
 
 import 'support/ux_visuals.dart';
 
@@ -106,7 +107,11 @@ void main() {
       expect(store.data!.title, '图片日志');
       final metadata = CommunityBlogDraft();
       expect(
-        metadata.restore(store.data!.content),
+        metadata.restore(
+          CommunityTopicDraft(
+            kind: 'community-write',
+          ).restore(store.data!.content),
+        ),
         contains('[img]https://example.invalid/image.png[/img]'),
       );
     },
@@ -221,7 +226,7 @@ void main() {
         initialContent: '保留正文',
         submit: (_, _, _) async {
           calls++;
-          throw const FormatException('暂时无法发布');
+          throw const CommunitySubmissionRejected('暂时无法发布');
         },
       );
       await tester.tap(find.byKey(const Key('blog-publish')));

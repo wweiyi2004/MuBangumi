@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mubangumi/core/storage/community_draft_store.dart';
 import 'package:mubangumi/widgets/community_composer.dart';
+import 'package:mubangumi/models/community_topic_submission.dart';
 
 void main() {
   testWidgets('failed restore disables editing until retry succeeds', (
@@ -83,7 +84,7 @@ void main() {
       expect(find.textContaining('登录账号已变化'), findsOneWidget);
       await tester.tap(find.text('稍后再写'));
       await tester.pumpAndSettle();
-      expect(store.drafts['alice/topic/1']?.content, '原账号回复');
+      expect(_draftBody(store), '原账号回复');
     },
   );
 
@@ -110,7 +111,7 @@ void main() {
     await tester.enterText(find.widgetWithText(TextField, '标题'), '标题');
     await tester.enterText(find.widgetWithText(TextField, '内容'), '长回复');
     await tester.pump(const Duration(milliseconds: 400));
-    expect(store.drafts['alice/topic/1']?.content, '长回复');
+    expect(_draftBody(store), '长回复');
     await tester.tap(find.text('稍后再写'));
     await tester.pumpAndSettle();
     await tester.pumpWidget(const SizedBox());
@@ -133,7 +134,7 @@ void main() {
     await tester.binding.handlePopRoute();
     await tester.pumpAndSettle();
     expect(find.text('写回复'), findsNothing);
-    expect(store.drafts['alice/topic/1']?.content, '刚输入');
+    expect(_draftBody(store), '刚输入');
   });
 
   testWidgets('failed save keeps the editor open and retry preserves content', (
@@ -150,7 +151,7 @@ void main() {
     store.failSave = false;
     await tester.tap(find.text('重试'));
     await tester.pumpAndSettle();
-    expect(store.drafts['alice/topic/1']?.content, '不能丢');
+    expect(_draftBody(store), '不能丢');
     await tester.tap(find.text('稍后再写'));
     await tester.pumpAndSettle();
     expect(find.text('写回复'), findsNothing);
@@ -180,8 +181,8 @@ void main() {
       await tester.tap(find.text('发送'));
       await tester.pumpAndSettle();
       expect(find.text('写回复'), findsOneWidget);
-      expect(store.drafts['alice/topic/1']?.content, '新回复');
-      await tester.tap(find.text('稍后再写'));
+      expect(_draftBody(store), '新回复');
+      await tester.tap(find.text('保留并关闭'));
       await tester.pumpAndSettle();
     },
   );
@@ -281,4 +282,11 @@ class _Store extends CommunityDraftRepository {
       drafts[key] = draft;
     }
   }
+}
+
+String? _draftBody(_Store store) {
+  final value = store.drafts['alice/topic/1']?.content;
+  return value == null
+      ? null
+      : CommunityTopicDraft(kind: 'community-write').restore(value);
 }
