@@ -20,7 +20,7 @@ void main() {
           TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
       final headers = <String>[];
       messenger.setMockMethodCallHandler(channel, (call) async {
-        if (call.method == 'readBgmCookies')
+        if (call.method == 'readBgmCookies') {
           return [
             {
               'name': 'chii_auth',
@@ -32,8 +32,10 @@ void main() {
               'expires_at': '2099-01-01T00:00:00Z',
             },
           ];
-        if (call.method == 'setBgmCookie')
+        }
+        if (call.method == 'setBgmCookie') {
           headers.add((call.arguments as Map)['header'] as String);
+        }
         return null;
       });
       addTearDown(() => messenger.setMockMethodCallHandler(channel, null));

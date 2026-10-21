@@ -24,8 +24,9 @@ void main() {
           Directory.systemTemp.resolveSymbolicLinksSync(),
           directory.resolveSymbolicLinksSync(),
         ) ||
-        !p.basename(directory.path).startsWith('mubangumi-auth-cleanup-'))
+        !p.basename(directory.path).startsWith('mubangumi-auth-cleanup-')) {
       throw StateError('Unexpected cleanup test path');
+    }
     await directory.delete(recursive: true);
   });
 

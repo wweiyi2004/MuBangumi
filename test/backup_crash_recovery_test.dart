@@ -1,5 +1,4 @@
 import 'dart:convert';
-import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -24,8 +23,9 @@ void main() {
               Directory.systemTemp.resolveSymbolicLinksSync(),
               dir.resolveSymbolicLinksSync(),
             ) ||
-            !path.basename(dir.path).startsWith('mubangumi-backup-crash-'))
+            !path.basename(dir.path).startsWith('mubangumi-backup-crash-')) {
           throw StateError('Unexpected crash-test cleanup path');
+        }
         await dir.delete(recursive: true);
       });
       await stores.seed();
