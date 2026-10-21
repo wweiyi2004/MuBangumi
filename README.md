@@ -8,7 +8,7 @@ MuBangumi 是一个使用 Flutter 编写的第三方 Bangumi 追番客户端，�
 
 > 本项目是非官方客户端，与 Bangumi 番组计划官方无隶属关系。条目、收藏和章节数据来自 [Bangumi API](https://github.com/bangumi/api)。
 
-当前版本：**v2.4.1+4031**
+当前版本：**v2.4.3+4033**
 
 开发与维护入口：[CONTRIBUTING.md](CONTRIBUTING.md)。固定工具版本、全仓校验、设备验收与发布来源记录均从这里进入。
 
@@ -151,6 +151,8 @@ OAuth 的 Token、刷新凭据与应用配置会在账号验证成功后整组�
 「我的 → 设置 → Bangumi 账号」可管理补充会话。使用个人 Token 或系统浏览器授权时，首次使用网页功能仍可能需要登录一次；之后会复用已保存会话。请使用与应用相同的 Bangumi 账号。Cookie 保存后仍需核验身份；旧版会话升级后会重新核验，不强制清除有效 Token。官网验证码和会话到期后的重登仍然保留。退出会清理网站会话，清理异常时可重试，并阻止下次网页登录直接复用未清理状态。
 
 ## 热更新（Shorebird）
+
+`2.4.3+4033` 已建立 Android / Windows Shorebird 新基线（发布记录 873908）。由于包含相对旧基线新增的资源与依赖，用户需先下载安装 [2.4.3 整包](https://github.com/wweiyi2004/MuBangumi/releases/tag/v2.4.3%2B4033)，之后才能接收该基线的热更新；旧 `2.3.1+4029` 基线继续保留。本版按维护者指令先行分发，真人账号及设备验收仍未执行；具体检查范围与产物标识见发行页和来源记录。
 
 应用使用 [Shorebird](https://shorebird.dev) 做 **Dart 代码热更新**（Android / Windows 等）。
 
