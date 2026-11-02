@@ -17,11 +17,15 @@
 
 完整维护入口见 [CONTRIBUTING.md](../CONTRIBUTING.md)。`build_release.ps1 -AllowDirty` 只允许本地普通构建；Shorebird 上传必须使用干净源码，并提供最近 7 天内、匹配源码指纹的完整验证与人工验收记录。`-DryRun` 可以验证未提交改动，但不构成正式发布验收。
 
+Windows 的 `Invoke-MuNpm` 为本次调用临时生成 npm/npx 入口，保证嵌套脚本也使用固定 Node，避免全局 `npm.cmd` 改用其旁边的 `node.exe`。调用结束恢复环境并清除入口；统一验证包含嵌套运行、失败退出码、环境恢复和验证码桥接回归。
+
 Windows 本地可运行 `./tool/verify_all.ps1 -Mode Full -WindowsSmoke`，追加独立入口的安全存储、SQLite 和 WebView 冒烟。未运行的移动设备/iOS 构建及人工验收仍单独列出，不因本地冒烟通过而消失。
 
 普通 Flutter 通用 APK 使用 `./tool/build_release.ps1 -Target apk -UniversalApk -VerificationReport <results.json>`。该选项保留 pubspec 的原始 versionCode，避免 ABI 分包为构建号增加偏移；不改变 Shorebird 基线。省略该选项仍保留原来的分架构构建行为。
 
 普通 Release 构建先校验锁文件并按 Release 模式刷新插件注册代码，再用 `--no-pub` 编译，避免之前的 Debug/集成测试注册器引用仅在开发环境可用的插件。准备过程中锁文件变化会阻止编译。
+
+普通 Flutter、Shorebird Release / Patch、原生 CI 和 Full 调试构建都会传入正式 `MUBANGUMI_FEEDBACK_URL`；直接使用其他 Flutter 构建命令时，需要按 `website/README.md` 的地址显式添加对应 `--dart-define`。
 
 分发构建使用独立、干净的已提交检出及通用临时构建盘符；保持验证过的源码文件内容与锁文件不变。Flutter 自动生成的 Dart 注册器也可能在二进制中保留构建路径，仅分离调试符号并不足以消除它。最终 Windows ZIP 必须通过内容扫描，凭据配置只在被忽略的本机构建目录使用。
 

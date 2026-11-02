@@ -24,6 +24,8 @@ final pmSendQueueProvider =
             : null,
         service: service,
         currentUser: () => ref.read(sessionProvider).user,
+        resolveRecipient: (name) async =>
+            (await ref.read(bangumiApiProvider).getUser(name)).id,
       );
       ref.listen(
         sessionProvider.select((state) => state.user?.id),
@@ -53,14 +55,34 @@ class PmSendQueueController extends ChangeNotifier {
     required this.repository,
     required this.service,
     required this.currentUser,
+    this.resolveRecipient,
   });
   final PmOutboxRepository? repository;
   final PmService service;
   final BangumiUser? Function() currentUser;
+  final Future<int> Function(String name)? resolveRecipient;
   List<PmSendCommand> entries = const [];
   String? error;
   bool get supported => repository != null;
   int get pendingCount => entries.where((e) => !e.finished).length;
+  int get activeCount => entries
+      .where(
+        (e) => const {
+          PmSendStatus.queued,
+          PmSendStatus.preparing,
+          PmSendStatus.sending,
+        }.contains(e.status),
+      )
+      .length;
+  int get attentionCount => entries
+      .where(
+        (e) => const {
+          PmSendStatus.failed,
+          PmSendStatus.uncertain,
+          PmSendStatus.waiting,
+        }.contains(e.status),
+      )
+      .length;
   bool _disposed = false, _working = false, _rerun = false;
   int? _owner;
   int _epoch = 0;
@@ -185,8 +207,17 @@ class PmSendQueueController extends ChangeNotifier {
           PmComposeParams? compose;
           var baseline = -1;
           if (command.compose) {
-            compose = await service.loadComposeParams(command.receiver);
-            if (compose.msgReceivers.trim() != command.receiver) {
+            var receiver = command.receiver;
+            if (int.tryParse(receiver) == null) {
+              final resolve = resolveRecipient;
+              if (resolve == null) throw const PmException('无法核对收件人，请重新选择');
+              receiver = '${await resolve(receiver)}';
+            }
+            if (_disposed || epoch != _epoch || currentUser()?.id != user.id) {
+              throw const PmPreflightAuthException('账号已变化，发送尚未提交');
+            }
+            compose = await service.loadComposeParams(receiver);
+            if (compose.msgReceivers.trim() != receiver) {
               throw const _TargetChanged('收件人校验不一致，请取消任务并重新选择收件人');
             }
           } else {

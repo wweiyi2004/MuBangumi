@@ -162,6 +162,14 @@ class _FakeRssStore extends RssStore {
   }
 
   @override
+  Future<void> updateSourceAfterFetch(
+    RssSource source, {
+    required List<RssBinding> bindings,
+  }) async {
+    await upsertSource(source);
+  }
+
+  @override
   Future<int> insertItemsIgnoreDup(
     List<RssItem> items, {
     bool validateBindings = false,

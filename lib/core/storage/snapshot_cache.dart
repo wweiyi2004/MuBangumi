@@ -3,6 +3,84 @@ import '../../models/collection_coverage.dart';
 import '../../models/snapshot_items.dart';
 export '../../models/snapshot_items.dart';
 import 'community_cache.dart';
+import 'dart:convert';
+import 'package:flutter/foundation.dart';
+
+CollectionSnapshot? _decodeCollections(String payload) {
+  final value = jsonDecode(payload);
+  if (value is! Map || value['items'] is! List) return null;
+  final savedAt = DateTime.tryParse(value['saved_at']?.toString() ?? '');
+  if (savedAt == null) return null;
+  final items = [
+    for (final item in value['items'] as List)
+      if (item is Map) UserCollection.fromJson(Map<String, dynamic>.from(item)),
+  ];
+  return CollectionSnapshot(
+    items,
+    coverage: CollectionCoverage.fromJson(
+      value['coverage'],
+      loadedCount: items.length,
+      savedAt: savedAt,
+    ),
+  );
+}
+
+typedef _CollectionWrite = ({
+  List<UserCollection> items,
+  int total,
+  CollectionCoverage? coverage,
+  String? previous,
+  DateTime at,
+});
+
+String _encodeCollections(_CollectionWrite request) {
+  CollectionCoverage? coverage = request.coverage;
+  if (coverage == null && request.previous != null) {
+    try {
+      final old = jsonDecode(request.previous!) as Map;
+      coverage = CollectionCoverage.fromJson(
+        old['coverage'],
+        loadedCount: (old['items'] as List?)?.length ?? 0,
+      );
+    } catch (_) {
+      /* A malformed disposable snapshot can be replaced. */
+    }
+  }
+  coverage ??= CollectionCoverage(loadedCount: request.total);
+  return jsonEncode({
+    'saved_at': request.at.toIso8601String(),
+    'coverage': coverage
+        .withCount(request.total)
+        .retained(request.items.length, request.at)
+        .toJson(),
+    'items': [for (final item in request.items) item.toJson()],
+  });
+}
+
+String? _invalidateCollection(({String payload, int subjectId}) request) {
+  final snapshot = _decodeCollections(request.payload);
+  final removed = snapshot
+      ?.where((item) => item.subjectId == request.subjectId)
+      .firstOrNull;
+  if (snapshot == null || removed == null) return request.payload;
+  final retained = snapshot
+      .where((item) => item.subjectId != request.subjectId)
+      .toList();
+  if (retained.isEmpty) return null;
+  return _encodeCollections((
+    items: retained,
+    total: retained.length,
+    previous: null,
+    at: DateTime.now(),
+    coverage: CollectionCoverage(
+      loadedCount: retained.length,
+      sourceTotal: snapshot.coverage.sourceTotal,
+      completeness: CollectionCompleteness.partial,
+      loadedTypes: {...snapshot.coverage.loadedTypes}
+        ..remove(removed.subject.type),
+    ),
+  ));
+}
 
 /// Timestamp travels with the exact read, including through concurrent reads.
 
@@ -21,6 +99,7 @@ class SnapshotCache {
   static const discoverMaxAge = Duration(days: 7);
 
   static const lastUserKey = 'session_last_user';
+  static const accessCheckKey = 'session_access_check_pending';
 
   static String collectionsKey(String username) =>
       'collections_snapshot:${username.trim().toLowerCase()}';
@@ -87,60 +166,70 @@ class SnapshotCache {
     await _cache.remove(lastUserKey);
   }
 
-  Future<List<UserCollection>?> readCollections(String username) async {
-    final json = await _cache.readJson(collectionsKey(username));
-    if (json == null) return null;
-    final savedAt = DateTime.tryParse(json['saved_at']?.toString() ?? '');
-    if (savedAt == null) return null;
-    final items = json['items'];
-    if (items is! List) return null;
-    try {
-      final parsed = [
-        for (final item in items)
-          if (item is Map)
-            UserCollection.fromJson(Map<String, dynamic>.from(item)),
-      ];
-      return CollectionSnapshot(
-        parsed,
-        coverage: CollectionCoverage.fromJson(
-          json['coverage'],
-          loadedCount: parsed.length,
-          savedAt: savedAt,
-        ),
-      );
-    } catch (_) {
-      return null;
-    }
+  /// The first-login access check must survive an app restart until passed.
+  Future<bool> readAccessCheckPending(int userId) async {
+    final json = await _cache.readJson(accessCheckKey);
+    return json?['userId'] == userId;
   }
+
+  Future<void> writeAccessCheckPending(int? userId) async {
+    if (userId == null) {
+      await _cache.remove(accessCheckKey);
+      return;
+    }
+    await _cache.writeJson(accessCheckKey, {
+      'userId': userId,
+    }, accountScoped: true);
+  }
+
+  Future<List<UserCollection>?> readCollections(String username) =>
+      _cache.readDecoded(collectionsKey(username), _decodeCollections);
 
   Future<void> writeCollections(
     String username,
     List<UserCollection> collections,
-  ) async {
-    if (username.trim().isEmpty) return;
+  ) {
+    if (username.trim().isEmpty) return Future.value();
     // Cap payload size roughly like Shaft's MAX_PAYLOAD guard.
-    final items = collections.length > 4000
-        ? collections.take(4000).toList()
-        : collections;
-    final old = collections is CollectionSnapshot
-        ? null
-        : await _cache.readJson(collectionsKey(username));
-    final previous = old == null
-        ? null
-        : CollectionCoverage.fromJson(
-            old['coverage'],
-            loadedCount: (old['items'] as List?)?.length ?? 0,
-          );
+    final items = collections.take(4000).toList(growable: false);
+    final total = collections.length;
     final coverage = collections is CollectionSnapshot
         ? collections.coverage
-        : (previous ?? CollectionCoverage(loadedCount: collections.length))
-              .withCount(collections.length);
+        : null;
     final savedAt = DateTime.now();
-    await _cache.writeJson(collectionsKey(username), {
-      'saved_at': savedAt.toIso8601String(),
-      'coverage': coverage.retained(items.length, savedAt).toJson(),
-      'items': [for (final item in items) item.toJson()],
-    }, accountScoped: true);
+    final large =
+        items.length >= 100 ||
+        items.fold<int>(
+              0,
+              (size, item) =>
+                  size +
+                  item.subject.summary.length +
+                  item.comment.length +
+                  item.subject.name.length +
+                  item.subject.nameCn.length,
+            ) >=
+            64 * 1024;
+    return _cache.updateEncoded(
+      collectionsKey(username),
+      (previous) async {
+        final request = (
+          items: items,
+          total: total,
+          coverage: coverage,
+          previous: previous,
+          at: savedAt,
+        );
+        return large || (previous?.length ?? 0) >= 64 * 1024
+            ? compute(
+                _encodeCollections,
+                request,
+                debugLabel: 'cache.collections.encode',
+              )
+            : _encodeCollections(request);
+      },
+      readExisting: coverage == null,
+      accountScoped: true,
+    );
   }
 
   Future<void> clearCollections(String username) async {
@@ -150,37 +239,19 @@ class SnapshotCache {
 
   /// Invalidate only the subject whose optimistic edit was discarded. Other
   /// collections must remain available if the following refresh is offline.
-  Future<void> invalidateCollection(String username, int subjectId) async {
-    final snapshot = await readCollections(username);
-    if (snapshot == null ||
-        !snapshot.any((item) => item.subjectId == subjectId)) {
-      return;
-    }
-    final retained = snapshot
-        .where((item) => item.subjectId != subjectId)
-        .toList();
-    if (retained.isEmpty) {
-      await clearCollections(username);
-      return;
-    }
-    final coverage = snapshot is CollectionSnapshot ? snapshot.coverage : null;
-    final removedType = snapshot
-        .firstWhere((item) => item.subjectId == subjectId)
-        .subject
-        .type;
-    await writeCollections(
-      username,
-      CollectionSnapshot(
-        retained,
-        coverage: CollectionCoverage(
-          loadedCount: retained.length,
-          sourceTotal: coverage?.sourceTotal,
-          completeness: CollectionCompleteness.partial,
-          loadedTypes: {...?coverage?.loadedTypes}..remove(removedType),
-        ),
-      ),
-    );
-  }
+  Future<void> invalidateCollection(String username, int subjectId) =>
+      _cache.updateEncoded(
+        collectionsKey(username),
+        (payload) async {
+          if (payload == null) return null;
+          final request = (payload: payload, subjectId: subjectId);
+          return payload.length >= 64 * 1024
+              ? compute(_invalidateCollection, request)
+              : _invalidateCollection(request);
+        },
+        readExisting: true,
+        accountScoped: true,
+      );
 
   Future<void> clearUserScope(String username) async {
     await clearCollections(username);

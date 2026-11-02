@@ -52,6 +52,70 @@ class CollectionEditor implements EpisodeCollectionReader {
   final _episodeChanges = <int, EpisodeEdit>{};
   final _confirmedEpisodeRevisions = <int, int>{};
   int _localMutationRevision = 0;
+  final _optimisticSubjects = <int>{};
+  final _episodeSnapshots = <int, List<UserEpisodeCollection>>{};
+  final _episodeSnapshotTimes = <int, DateTime>{};
+  final _snapshotWrites = <String, Future<void>>{};
+  Future<void> _cacheSnapshot(
+    int subjectId,
+    int generation,
+    String username,
+    Future<void> Function() work,
+  ) async {
+    final key = '$generation:$subjectId';
+    final future = (_snapshotWrites[key] ?? Future<void>.value()).then((
+      _,
+    ) async {
+      if (!_isCurrentAuth(generation) || _account?.username != username) return;
+      try {
+        await work();
+      } catch (_) {
+        /* The durable queue is authoritative. */
+      }
+    });
+    _snapshotWrites[key] = future;
+    unawaited(
+      future.then((_) {
+        if (identical(_snapshotWrites[key], future)) {
+          _snapshotWrites.remove(key);
+        }
+      }),
+    );
+    // Fast cache writes normally finish in this turn; slow disks must not keep
+    // the edit controls busy. Remaining writes retain their per-subject order.
+    await future.timeout(const Duration(milliseconds: 50), onTimeout: () {});
+  }
+
+  int _beginMutation(int subjectId) {
+    final revision = ++_localMutationRevision;
+    _subjectMutationRevisions[subjectId] = revision;
+    _optimisticSubjects.add(subjectId);
+    return revision;
+  }
+
+  void _rememberEpisodes(
+    int subjectId,
+    List<UserEpisodeCollection> episodes,
+    DateTime savedAt, {
+    bool replace = false,
+  }) {
+    final byId = {
+      if (!replace)
+        for (final item
+            in _episodeSnapshots[subjectId] ?? <UserEpisodeCollection>[])
+          item.episode.id: item,
+      for (final item in episodes) item.episode.id: item,
+    };
+    _episodeSnapshots.remove(subjectId);
+    _episodeSnapshots[subjectId] = byId.values.toList();
+    _episodeSnapshotTimes[subjectId] = savedAt;
+    while (_episodeSnapshots.length > 24) {
+      final oldest = _episodeSnapshots.keys.first;
+      _episodeSnapshots.remove(oldest);
+      _episodeSnapshotTimes.remove(oldest);
+    }
+  }
+
   final Map<int, int> _subjectMutationRevisions = {};
 
   List<UserCollection> get collections => _view.collections;
@@ -77,6 +141,9 @@ class CollectionEditor implements EpisodeCollectionReader {
   /// Reset account-local revisions, but keep old operation futures keyed by
   /// generation until they settle. They must still hit their account guards.
   void reset() {
+    _optimisticSubjects.clear();
+    _episodeSnapshots.clear();
+    _episodeSnapshotTimes.clear();
     _subjectMutationRevisions.clear();
     _episodeChanges.clear();
     _confirmedEpisodeRevisions.clear();
@@ -156,6 +223,13 @@ class CollectionEditor implements EpisodeCollectionReader {
       cached,
       afterRevision: _localMutationRevision,
     );
+    final savedAt = cached is SnapshotItems<UserEpisodeCollection>
+        ? cached.savedAt
+        : DateTime(1970);
+    final rememberedAt = _episodeSnapshotTimes[subjectId];
+    if (rememberedAt == null || !savedAt.isBefore(rememberedAt)) {
+      _rememberEpisodes(subjectId, merged, savedAt);
+    }
     return cached is SnapshotItems<UserEpisodeCollection>
         ? SnapshotItems(merged, savedAt: cached.savedAt)
         : merged;
@@ -191,6 +265,25 @@ class CollectionEditor implements EpisodeCollectionReader {
         afterRevision: revision,
       );
       _requireEditAccount(generation, username);
+      if (episodeType != null) {
+        if (episodeType == 0) {
+          _rememberEpisodes(
+            subjectId,
+            [
+              for (final item
+                  in _episodeSnapshots[subjectId] ?? <UserEpisodeCollection>[])
+                if (item.episode.type != 0) item,
+              ...merged,
+            ],
+            DateTime.now(),
+            replace: true,
+          );
+        }
+        // A filtered response must not replace the complete offline snapshot
+        // or mark unrelated main chapters as recently validated.
+        return merged;
+      }
+      _rememberEpisodes(subjectId, merged, DateTime.now(), replace: true);
       try {
         await _snapshotCache.writeEpisodeCollections(
           subjectId,
@@ -206,23 +299,37 @@ class CollectionEditor implements EpisodeCollectionReader {
   List<UserCollection> preserveCollectionsChangedAfter(
     List<UserCollection> source,
     int requestMutationRevision,
-  ) => CollectionReconciler.preserveChangedAfter(
-    source,
-    requestMutationRevision,
-    current: _view.collections,
-    subjectRevisions: _subjectMutationRevisions,
-  );
+  ) {
+    final preserved = CollectionReconciler.preserveChangedAfter(
+      source,
+      requestMutationRevision,
+      current: _view.collections,
+      subjectRevisions: _subjectMutationRevisions,
+    );
+    final byId = {for (final item in preserved) item.subjectId: item};
+    for (final item in _view.collections) {
+      if (_optimisticSubjects.contains(item.subjectId)) {
+        byId[item.subjectId] = item;
+      }
+    }
+    return byId.values.toList();
+  }
 
   Future<List<UserCollection>> overlayPendingCollections(
     String username,
-    List<UserCollection> source,
-  ) async {
+    List<UserCollection> source, {
+    bool sort = true,
+  }) async {
     final snapshot = List<UserCollection>.from(source);
     List<PendingBangumiMutation> pending = const [];
     try {
       pending = await _syncStore.pendingFor(username, includeBlocked: true);
     } catch (_) {}
-    return CollectionReconciler.overlayCollections(snapshot, pending);
+    return CollectionReconciler.overlayCollections(
+      snapshot,
+      pending,
+      sort: sort,
+    );
   }
 
   @override
@@ -291,9 +398,16 @@ class CollectionEditor implements EpisodeCollectionReader {
         edited,
         afterRevision: _localMutationRevision,
       );
+      _requireEditAccount(generation, username);
+      final latest = {
+        for (final item in merged) item.episode.id: item,
+        for (final item
+            in _episodeSnapshots[subjectId] ?? <UserEpisodeCollection>[])
+          item.episode.id: item,
+      };
       await _snapshotCache.writeEpisodeCollections(
         subjectId,
-        merged,
+        latest.values.toList(),
         username: username,
       );
     } catch (_) {
@@ -363,7 +477,8 @@ class CollectionEditor implements EpisodeCollectionReader {
       try {
         await _snapshotCache.invalidateCollection(username, subjectId);
         if (mutation.kind != BangumiMutationKind.collection ||
-            mutation.payload['complete_episodes'] == true) {
+            mutation.payload['complete_episodes'] == true ||
+            ((mutation.payload['watched_through'] as num?)?.toInt() ?? 0) > 0) {
           await _snapshotCache.clearEpisodeCollections(
             subjectId,
             username: username,
@@ -380,6 +495,7 @@ class CollectionEditor implements EpisodeCollectionReader {
     required Map<String, dynamic> payload,
     void Function()? onSaved,
     bool deferSync = false,
+    int? reservedRevision,
   }) async {
     final generation = _authGeneration;
     final username = _account?.username;
@@ -401,13 +517,16 @@ class CollectionEditor implements EpisodeCollectionReader {
       if (_view.episodeUndo?.change.subjectId == subjectId) {
         _view = _view.copyWith(clearEpisodeUndo: true);
       }
-      _localMutationRevision++;
-      _subjectMutationRevisions[subjectId] = _localMutationRevision;
+      if (reservedRevision == null) {
+        _localMutationRevision++;
+        _subjectMutationRevisions[subjectId] = _localMutationRevision;
+      }
     }
-    await _refreshPendingCount(username);
-    if (!_isCurrentAuth(generation) || _account?.username != username) {
-      throw const BangumiApiException('登录状态已变化，修改已保存在原账号的本地队列中');
-    }
+    unawaited(
+      _refreshPendingCount(
+        username,
+      ).then<void>((_) {}, onError: (Object _, StackTrace _) {}),
+    );
     if (!deferSync) unawaited(syncPendingChanges());
     return username;
   }
@@ -423,46 +542,70 @@ class CollectionEditor implements EpisodeCollectionReader {
     return _editSubject(subjectId, (generation, username) async {
       final revision = _localMutationRevision;
       List<UserEpisodeCollection> episodes;
-      if (preferCachedReads?.call() == true) {
+      final memory = _episodeSnapshots[subjectId];
+      final savedAt = _episodeSnapshotTimes[subjectId];
+      final fresh =
+          savedAt != null &&
+          DateTime.now().difference(savedAt) < const Duration(minutes: 2);
+      if (memory != null &&
+          memory.any((item) => item.episode.type == 0) &&
+          (fresh || preferCachedReads?.call() == true)) {
+        episodes = List.of(memory);
+      } else if (preferCachedReads?.call() == true) {
         episodes = await readEpisodeSnapshot(subjectId) ?? const [];
-        if (episodes.isEmpty) {
+        if (!episodes.any((item) => item.episode.type == 0)) {
           return '该作品尚未缓存章节，请联网打开详情后再更新进度';
         }
       } else {
-        try {
-          // Online progress still reconciles edits made on other devices.
-          // The snapshot is also used by the all-types offline episode grid.
-          episodes = await _api.getEpisodeCollections(
-            subjectId,
-            episodeType: null,
-          );
-        } catch (_) {
-          episodes = await readEpisodeSnapshot(subjectId) ?? const [];
-          if (episodes.isEmpty) rethrow;
+        final cached = await readEpisodeSnapshot(subjectId);
+        final cachedAt = _episodeSnapshotTimes[subjectId];
+        if (!(memory != null && !fresh) &&
+            cached != null &&
+            cached.any((item) => item.episode.type == 0) &&
+            cachedAt != null &&
+            DateTime.now().difference(cachedAt) < const Duration(minutes: 2)) {
+          episodes = cached;
+        } else {
+          try {
+            episodes = await _api.getEpisodeCollections(
+              subjectId,
+              episodeType: null,
+            );
+            _requireEditAccount(generation, username);
+            _episodeSnapshotTimes[subjectId] = DateTime.now();
+            episodes = await applyPendingEpisodeChanges(
+              subjectId,
+              episodes,
+              afterRevision: revision,
+            );
+          } catch (_) {
+            _requireEditAccount(generation, username);
+            episodes = cached ?? const [];
+            if (episodes.isEmpty) rethrow;
+          }
         }
       }
       _requireEditAccount(generation, username);
-      episodes = await applyPendingEpisodeChanges(
+      episodes = [
+        for (final item in episodes)
+          _episodeChanges[item.episode.id] != null
+              ? item.copyWith(type: _episodeChanges[item.episode.id]!.type)
+              : item,
+      ];
+      _rememberEpisodes(
         subjectId,
         episodes,
-        afterRevision: revision,
+        _episodeSnapshotTimes[subjectId] ?? DateTime(1970),
+        replace: true,
       );
-      _requireEditAccount(generation, username);
       final target = BangumiSupport.nextUnwatchedMain(episodes);
       if (target == null) return '已经没有下一集了';
-      try {
-        await _snapshotCache.writeEpisodeCollections(
-          subjectId,
-          episodes,
-          username: username,
-        );
-      } catch (_) {}
       _requireEditAccount(generation, username);
       final watchedCount = BangumiSupport.watchedMainCountAfterMark(
         episodes,
         target.episode.id,
       );
-      return _saveEpisodeEdit(
+      final result = await _saveEpisodeEdit(
         subjectId: subjectId,
         episodeId: target.episode.id,
         type: 2,
@@ -474,6 +617,31 @@ class CollectionEditor implements EpisodeCollectionReader {
         username: username,
         onUndoReady: onUndoReady,
       );
+      _requireEditAccount(generation, username);
+      if (result == null) {
+        await _cacheSnapshot(subjectId, generation, username, () async {
+          final latest = _episodeSnapshots[subjectId];
+          if (latest != null) {
+            final cached = await _snapshotCache.readEpisodeCollections(
+              subjectId,
+              username: username,
+            );
+            _requireEditAccount(generation, username);
+            final combined = {
+              for (final item in cached ?? <UserEpisodeCollection>[])
+                if (item.episode.type != 0) item.episode.id: item,
+              for (final item in _episodeSnapshots[subjectId] ?? latest)
+                item.episode.id: item,
+            };
+            await _snapshotCache.writeEpisodeCollections(
+              subjectId,
+              combined.values.toList(),
+              username: username,
+            );
+          }
+        });
+      }
+      return result;
     });
   }
 
@@ -531,22 +699,18 @@ class CollectionEditor implements EpisodeCollectionReader {
     bool createUndo = true,
   }) async {
     _requireEditAccount(generation, username);
-    await _enqueueMutation(
-      kind: BangumiMutationKind.episode,
-      mutationKey: 'episode:$episodeId',
-      payload: {
-        'subject_id': subjectId,
-        'episode_id': episodeId,
-        'type': type,
-        'local_episode_status': ?nextCount,
-      },
-    );
-    _requireEditAccount(generation, username);
+    final beforeView = _view;
+    final beforeCollection = _view.collectionFor(subjectId);
+    final beforeChange = _episodeChanges[episodeId];
+    final beforeRevision = collectionMutationRevision(subjectId);
+    final beforeMemory = _episodeSnapshots[subjectId];
+    final revision = _beginMutation(subjectId);
+    var saved = false;
     final change = EpisodeEdit(
       subjectId: subjectId,
       episodeId: episodeId,
       type: type,
-      revision: _subjectMutationRevisions[subjectId]!,
+      revision: revision,
     );
     _episodeChanges[episodeId] = change;
     final current = _view.collectionFor(subjectId);
@@ -561,7 +725,9 @@ class CollectionEditor implements EpisodeCollectionReader {
             subjectTitle: current?.subject.displayName ?? '作品 $subjectId',
             episodeLabel: episode == null
                 ? '章节 $episodeId'
-                : '${BangumiSupport.episodeTypeLabel(episode.type)} 第 ${episode.number % 1 == 0 ? episode.number.toInt() : episode.number} 话',
+                : episode.type == 0
+                ? '本篇 ${episode.label}'
+                : episode.label,
           )
         : null;
     if (current != null && nextCount != null) {
@@ -572,20 +738,78 @@ class CollectionEditor implements EpisodeCollectionReader {
       episodeUndo: undo,
       clearEpisodeUndo: undo == null,
     );
-    await _persistEpisodeSnapshot(
-      subjectId,
-      username: username,
-      generation: generation,
-      episodeId: episodeId,
-      type: type,
-    );
-    _requireEditAccount(generation, username);
+    final remembered = _episodeSnapshots[subjectId];
+    if (remembered != null) {
+      _episodeSnapshots[subjectId] = [
+        for (final item in remembered)
+          item.episode.id == episodeId ? item.copyWith(type: type) : item,
+      ];
+    }
     try {
-      await _snapshotCache.writeCollections(username, _view.collections);
-    } catch (_) {}
-    _requireEditAccount(generation, username);
-    if (undo != null) onUndoReady?.call(undo);
-    return null;
+      await _enqueueMutation(
+        reservedRevision: revision,
+        onSaved: () => saved = true,
+        kind: BangumiMutationKind.episode,
+        mutationKey: 'episode:$episodeId',
+        payload: {
+          'subject_id': subjectId,
+          'episode_id': episodeId,
+          'type': type,
+          'activity_before': previousType,
+          'activity_undo': !createUndo,
+          'local_episode_status': ?nextCount,
+        },
+      );
+      _requireEditAccount(generation, username);
+      // Enqueue clears old undo; the new durable edit now owns the undo action.
+      _view = _view.copyWith(episodeUndo: undo, clearEpisodeUndo: undo == null);
+      if (undo != null) onUndoReady?.call(undo);
+      await _cacheSnapshot(subjectId, generation, username, () async {
+        await _persistEpisodeSnapshot(
+          subjectId,
+          username: username,
+          generation: generation,
+          episodeId: episodeId,
+          type: type,
+        );
+        _requireEditAccount(generation, username);
+        await _snapshotCache.writeCollections(username, _view.collections);
+      });
+      _requireEditAccount(generation, username);
+      return null;
+    } catch (_) {
+      if (!saved &&
+          _isCurrentAuth(generation) &&
+          _account?.username == username) {
+        _subjectMutationRevisions[subjectId] = beforeRevision;
+        if (beforeChange == null) {
+          _episodeChanges.remove(episodeId);
+        } else {
+          _episodeChanges[episodeId] = beforeChange;
+        }
+        if (beforeMemory != null) _episodeSnapshots[subjectId] = beforeMemory;
+        if (beforeCollection != null) _replaceCollection(beforeCollection);
+        final restoreUndo =
+            identical(_view.episodeUndo, undo) &&
+            identical(_view.lastEpisodeEdit, change);
+        final retainedUndo = restoreUndo
+            ? beforeView.episodeUndo
+            : _view.episodeUndo;
+        _view = _view.copyWith(
+          lastEpisodeEdit: EpisodeEdit(
+            subjectId: subjectId,
+            episodeId: episodeId,
+            type: previousType ?? 0,
+            revision: ++_localMutationRevision,
+          ),
+          episodeUndo: retainedUndo,
+          clearEpisodeUndo: retainedUndo == null,
+        );
+      }
+      rethrow;
+    } finally {
+      if (_isCurrentAuth(generation)) _optimisticSubjects.remove(subjectId);
+    }
   }
 
   Future<String?> undoEpisode(EpisodeUndo undo) =>
@@ -621,6 +845,7 @@ class CollectionEditor implements EpisodeCollectionReader {
     Subject subject,
     CollectionType type, {
     bool completeEpisodesWhenDone = true,
+    int? watchedThrough,
     int? rate,
     String? comment,
     List<String>? tags,
@@ -635,6 +860,10 @@ class CollectionEditor implements EpisodeCollectionReader {
     String? queueKey,
     bool deferSync = false,
   }) => _editSubject(subject.id, (generation, username) async {
+    UserCollection? beforeCollection;
+    int? beforeRevision;
+    var saved = false;
+    var optimistic = false;
     try {
       if (expectedAccount != null && !isCurrentBatchAccount(expectedAccount)) {
         return '登录状态已变化，未保存';
@@ -660,28 +889,97 @@ class CollectionEditor implements EpisodeCollectionReader {
           completeEpisodesWhenDone &&
           type == CollectionType.done &&
           subject.type.hasEpisodes;
-      var resolvedEpisodeStatus = nextEpisodeStatus;
+      final targetThrough =
+          !shouldCompleteEpisodes &&
+              watchedThrough != null &&
+              watchedThrough > 0 &&
+              subject.type.hasEpisodes
+          ? watchedThrough
+          : null;
+      var resolvedEpisodeStatus =
+          shouldCompleteEpisodes && subject.episodeCount > 0
+          ? subject.episodeCount
+          : targetThrough != null
+          ? (subject.episodeCount > 0
+                ? targetThrough.clamp(0, subject.episodeCount)
+                : targetThrough)
+          : nextEpisodeStatus;
+      beforeCollection = old;
+      beforeRevision = collectionMutationRevision(subject.id);
+      final revision = _beginMutation(subject.id);
+      optimistic = true;
+      final immediate = old != null
+          ? old.copyWith(
+              type: type,
+              rate: nextRate,
+              comment: nextComment,
+              tags: nextTags,
+              private: nextPrivate,
+              episodeStatus: resolvedEpisodeStatus,
+              volumeStatus: nextVolumeStatus,
+            )
+          : UserCollection(
+              subjectId: subject.id,
+              type: type,
+              rate: nextRate,
+              episodeStatus: resolvedEpisodeStatus,
+              volumeStatus: nextVolumeStatus,
+              updatedAt: DateTime.now(),
+              subject: subject,
+              comment: nextComment,
+              tags: nextTags,
+              private: nextPrivate,
+            );
+      if (old == null) {
+        _view = _view.copyWith(collections: [immediate, ..._view.collections]);
+      } else {
+        _replaceCollection(immediate);
+      }
       List<UserEpisodeCollection>? cachedEpisodes;
-      if (shouldCompleteEpisodes) {
+      if (shouldCompleteEpisodes || targetThrough != null) {
         try {
-          cachedEpisodes = await _snapshotCache.readEpisodeCollections(
-            subject.id,
-            username: username,
-          );
+          cachedEpisodes =
+              _episodeSnapshots[subject.id] ??
+              await _snapshotCache.readEpisodeCollections(
+                subject.id,
+                username: username,
+              );
         } catch (_) {}
-        if (cachedEpisodes != null && cachedEpisodes.isNotEmpty) {
-          resolvedEpisodeStatus = BangumiSupport.mainEpisodeCollections(
-            cachedEpisodes,
-          ).length;
-        } else if (subject.episodeCount > 0) {
-          resolvedEpisodeStatus = subject.episodeCount;
+        if (shouldCompleteEpisodes) {
+          if (cachedEpisodes != null && cachedEpisodes.isNotEmpty) {
+            resolvedEpisodeStatus = BangumiSupport.mainEpisodeCollections(
+              cachedEpisodes,
+            ).length;
+          } else if (subject.episodeCount > 0) {
+            resolvedEpisodeStatus = subject.episodeCount;
+          }
+        } else if (targetThrough != null) {
+          if (cachedEpisodes != null && cachedEpisodes.isNotEmpty) {
+            final mainTotal = BangumiSupport.mainEpisodeCollections(
+              cachedEpisodes,
+            ).length;
+            resolvedEpisodeStatus = mainTotal > 0
+                ? targetThrough.clamp(0, mainTotal)
+                : targetThrough;
+          } else if (subject.episodeCount > 0) {
+            resolvedEpisodeStatus = targetThrough.clamp(
+              0,
+              subject.episodeCount,
+            );
+          } else {
+            resolvedEpisodeStatus = targetThrough;
+          }
         }
       }
       _requireEditAccount(generation, username);
       await _enqueueMutation(
+        reservedRevision: revision,
         kind: BangumiMutationKind.collection,
         mutationKey: queueKey ?? 'collection:${subject.id}',
-        onSaved: onQueued,
+        onSaved: () {
+          saved = true;
+          onQueued?.call();
+        },
         deferSync: deferSync,
         payload: {
           'subject_id': subject.id,
@@ -696,27 +994,46 @@ class CollectionEditor implements EpisodeCollectionReader {
           'local_episode_status': resolvedEpisodeStatus,
           'volume_status': subject.type.hasVolumes ? nextVolumeStatus : null,
           'complete_episodes': shouldCompleteEpisodes,
+          'watched_through': ?targetThrough,
           'local_updated_at': DateTime.now().toIso8601String(),
         },
       );
       _requireEditAccount(generation, username);
-      if (shouldCompleteEpisodes && cachedEpisodes != null) {
-        for (final item in cachedEpisodes.where(
-          (item) => item.episode.type == 0,
-        )) {
-          _episodeChanges[item.episode.id] = EpisodeEdit(
+      Future<void> Function()? saveEpisodes;
+      if ((shouldCompleteEpisodes || targetThrough != null) &&
+          cachedEpisodes != null) {
+        final targetIds = shouldCompleteEpisodes
+            ? {
+                for (final item in cachedEpisodes)
+                  if (item.episode.type == 0) item.episode.id,
+              }
+            : {
+                for (final item in BangumiSupport.mainEpisodeCollections(
+                  cachedEpisodes,
+                ).take(targetThrough!))
+                  item.episode.id,
+              };
+        for (final episodeId in targetIds) {
+          _episodeChanges[episodeId] = EpisodeEdit(
             subjectId: subject.id,
-            episodeId: item.episode.id,
+            episodeId: episodeId,
             type: 2,
             revision: _subjectMutationRevisions[subject.id]!,
           );
         }
-        try {
-          await _snapshotCache.writeEpisodeCollections(subject.id, [
-            for (final item in cachedEpisodes)
-              if (item.episode.type == 0) item.copyWith(type: 2) else item,
-          ], username: username);
-        } catch (_) {}
+        final completed = [
+          for (final item in cachedEpisodes)
+            if (targetIds.contains(item.episode.id))
+              item.copyWith(type: 2)
+            else
+              item,
+        ];
+        _rememberEpisodes(subject.id, completed, DateTime.now());
+        saveEpisodes = () => _snapshotCache.writeEpisodeCollections(
+          subject.id,
+          completed,
+          username: username,
+        );
       }
       if (!_isCurrentAuth(generation) || _account?.username != username) {
         return '登录状态已变化，修改已保存在原账号的本地队列中';
@@ -727,7 +1044,7 @@ class CollectionEditor implements EpisodeCollectionReader {
           _replaceCollection(
             latest.copyWith(
               type: type,
-              episodeStatus: shouldCompleteEpisodes
+              episodeStatus: shouldCompleteEpisodes || targetThrough != null
                   ? resolvedEpisodeStatus
                   : null,
             ),
@@ -746,30 +1063,47 @@ class CollectionEditor implements EpisodeCollectionReader {
           );
         }
       } else {
-        _view = _view.copyWith(
-          collections: [
-            UserCollection(
-              subjectId: subject.id,
-              type: type,
-              rate: nextRate,
-              episodeStatus: resolvedEpisodeStatus,
-              volumeStatus: nextVolumeStatus,
-              updatedAt: DateTime.now(),
-              subject: subject,
-              comment: nextComment,
-              tags: nextTags,
-              private: nextPrivate,
-            ),
-            ..._view.collections,
-          ],
+        _replaceCollection(
+          UserCollection(
+            subjectId: subject.id,
+            type: type,
+            rate: nextRate,
+            episodeStatus: resolvedEpisodeStatus,
+            volumeStatus: nextVolumeStatus,
+            updatedAt: DateTime.now(),
+            subject: subject,
+            comment: nextComment,
+            tags: nextTags,
+            private: nextPrivate,
+          ),
         );
       }
-      try {
+      await _cacheSnapshot(subject.id, generation, username, () async {
+        if (saveEpisodes != null) await saveEpisodes();
+        _requireEditAccount(generation, username);
         await _snapshotCache.writeCollections(username, _view.collections);
-      } catch (_) {}
+      });
+      _requireEditAccount(generation, username);
       return null;
     } catch (error) {
+      if (optimistic &&
+          !saved &&
+          _isCurrentAuth(generation) &&
+          _account?.username == username) {
+        _subjectMutationRevisions[subject.id] = beforeRevision!;
+        if (beforeCollection != null) {
+          _replaceCollection(beforeCollection);
+        } else {
+          _view = _view.copyWith(
+            collections: _view.collections
+                .where((item) => item.subjectId != subject.id)
+                .toList(),
+          );
+        }
+      }
       return _messageFor(error);
+    } finally {
+      if (_isCurrentAuth(generation)) _optimisticSubjects.remove(subject.id);
     }
   });
 

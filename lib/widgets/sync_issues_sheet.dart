@@ -1,3 +1,4 @@
+import '../core/theme/anime_icon.dart';
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -194,7 +195,7 @@ class _SyncIssuesSheetState extends ConsumerState<SyncIssuesSheet> {
                   IconButton(
                     tooltip: '刷新列表',
                     onPressed: _loading || _retryingAll ? null : _load,
-                    icon: const Icon(Icons.refresh_rounded),
+                    icon: const AnimeIcon(Icons.refresh_rounded),
                   ),
                   const SizedBox(width: 4),
                   FilledButton.tonalIcon(
@@ -209,7 +210,7 @@ class _SyncIssuesSheetState extends ConsumerState<SyncIssuesSheet> {
                             dimension: 16,
                             child: CircularProgressIndicator(strokeWidth: 2),
                           )
-                        : const Icon(Icons.sync_rounded, size: 18),
+                        : const AnimeIcon(Icons.sync_rounded, size: 18),
                     label: const Text('全部重试'),
                   ),
                 ],
@@ -367,7 +368,7 @@ class _SyncIssuesEmptyState extends StatelessWidget {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(
+          AnimeIcon(
             icon,
             size: 42,
             color: Theme.of(context).colorScheme.onSurfaceVariant,

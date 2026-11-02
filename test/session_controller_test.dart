@@ -896,11 +896,56 @@ void main() {
     addTearDown(controller.dispose);
 
     await _waitFor(() => controller.state.phase == SessionPhase.signedIn);
+    cache.accessCheckUser = controller.state.user!.id;
     await controller.signOut();
 
     expect(controller.state.phase, SessionPhase.signedOut);
     expect(cache.lastUser, isNull);
+    expect(cache.accessCheckUser, isNull);
   });
+
+  test(
+    'a new login keeps the access check across restarts until passed',
+    () async {
+      final store = _MemoryTokenStore(config: null)
+        ..accessToken = null
+        ..refreshToken = null
+        ..expiresAt = null;
+      final cache = _MemorySnapshotCache();
+      SessionController start() => buildController(
+        store: store,
+        oauth: BangumiOAuth(),
+        snapshotCache: cache,
+      );
+
+      final first = start();
+      await _waitFor(() => first.state.phase == SessionPhase.signedOut);
+      expect(await first.signIn('personal-token'), isTrue);
+      final user = first.state.user!;
+      expect(first.state.requiresAccessCheck, isTrue);
+      expect(cache.accessCheckUser, user.id);
+      first.dispose();
+
+      // Quitting during the check resumes it instead of entering home.
+      final resumed = start();
+      await _waitFor(
+        () =>
+            resumed.state.phase == SessionPhase.signedIn &&
+            resumed.state.authActivity == AuthActivity.idle &&
+            !resumed.state.isRefreshing,
+      );
+      expect(resumed.state.requiresAccessCheck, isTrue);
+      await resumed.completeAccessCheck();
+      expect(resumed.state.requiresAccessCheck, isFalse);
+      expect(cache.accessCheckUser, isNull);
+      resumed.dispose();
+
+      final later = start();
+      addTearDown(later.dispose);
+      await _waitFor(() => later.state.phase == SessionPhase.signedIn);
+      expect(later.state.requiresAccessCheck, isFalse);
+    },
+  );
 
   test('network route switch keeps OAuth busy flags intact', () async {
     final oauth = _HangingAuthorizeOAuth();
@@ -2058,8 +2103,34 @@ class _FailingMeApi extends _FakeBangumiApi {
 
 class _MemorySnapshotCache extends SnapshotCache {
   BangumiUser? lastUser;
+  int? accessCheckUser;
+
+  @override
+  Future<bool> readAccessCheckPending(int userId) async =>
+      accessCheckUser == userId;
+
+  @override
+  Future<void> writeAccessCheckPending(int? userId) async {
+    accessCheckUser = userId;
+  }
+
   final Map<String, List<UserCollection>> collections = {};
   final Map<int, List<UserEpisodeCollection>> episodeCollections = {};
+
+  @override
+  Future<void> invalidateCollection(String username, int subjectId) async {
+    final key = username.trim().toLowerCase();
+    final current = collections[key];
+    if (current == null) return;
+    final retained = current
+        .where((item) => item.subjectId != subjectId)
+        .toList();
+    if (retained.isEmpty) {
+      collections.remove(key);
+    } else {
+      collections[key] = retained;
+    }
+  }
 
   @override
   Future<BangumiUser?> readLastUser() async => lastUser;

@@ -5,57 +5,56 @@ import 'package:mubangumi/models/community_models.dart';
 void main() {
   final parser = CommunityHtmlParser();
 
-  test('parses Rakuen topic previews and canonical web URL', () {
-    const html = '''
-      <ul>
-        <li id="item_group_468216" class="item_list">
-          <a class="avatar" title="Alice"><span class="avatarNeue"
-            style="background-image:url('//lain.bgm.tv/a.jpg')"></span></a>
-          <div class="inner">
-            <a href="/rakuen/topic/group/468216" class="title">测试话题</a>
-            <small class="grey">(+15)</small>
-            <span class="row"><a href="/group/test">测试小组</a>
-              <small class="time">...2m ago</small></span>
-          </div>
-        </li>
-      </ul>
-    ''';
+  test(
+    'classic subject heading, floor anchors and UTC+8 dates survive fallback',
+    () {
+      const topic = CommunityTopic(
+        kind: CommunityTopicKind.subject,
+        title: '分享讨论 #42',
+        url: '',
+        webUrl: 'https://bgm.tv/subject/topic/42',
+      );
+      final detail = parser.parseTopicDetail('''
+      <h1 class="nameSingle"><a href="/subject/9">作品</a></h1>
+      <h1 class="title">实际标题</h1>
+      <div class="postTopic" id="post_1">
+        <div class="post_actions re_info"><small>#1 - 2026-10-21 18:30</small></div>
+        <div class="topic_content">正文</div>
+      </div>
+      <div class="row_reply" id="post_2">
+        <div class="post_actions re_info"><a class="floor-anchor">#2</a> - 2026-10-21 18:31</div>
+        <div class="reply_content"><div class="message">回复</div></div>
+      </div>''', topic);
+      expect(detail.title, '实际标题');
+      expect(detail.sourceTitle, '作品');
+      expect(detail.sourceUrl, 'https://bgm.tv/subject/9');
+      expect(detail.posts.last.meta, '#2 · 2026-10-21 18:31');
+      expect(detail.posts.last.createdAt, DateTime.utc(2026, 10, 21, 10, 31));
+    },
+  );
 
-    final topics = parser.parseRakuen(html);
-
-    expect(topics, hasLength(1));
-    expect(topics.single.kind, CommunityTopicKind.group);
-    expect(topics.single.title, '测试话题');
-    expect(topics.single.author, 'Alice');
-    expect(topics.single.replyCount, 15);
-    expect(topics.single.avatarUrl, 'https://lain.bgm.tv/a.jpg');
-    expect(topics.single.webUrl, 'https://bgm.tv/group/topic/468216');
-    expect(topics.single.id, 468216);
-  });
-
-  test('parses latest topics and group cards', () {
-    const html = '''
-      <table class="topic_list"><tr>
-        <td><a href="/group/topic/12" class="l">一个话题</a>
-          <small class="grey">(+3)</small></td>
-        <td><a href="/group/demo">示例小组</a></td>
-        <td><a href="/user/alice">Alice</a></td>
-        <td><small>2026-8-6 12:00</small></td>
-      </tr></table>
-      <ul class="groupsSmall"><li>
-        <a href="/group/demo" class="avatar"><img src="//lain.bgm.tv/g.jpg"></a>
-        <div class="inner"><a href="/group/demo">示例小组</a>
-          <small class="feed">20 位成员</small></div>
-      </li></ul>
-    ''';
-
-    final landing = parser.parseGroupLanding(html);
-
-    expect(landing.topics.single.url, 'https://bgm.tv/rakuen/topic/group/12');
-    expect(landing.topics.single.id, 12);
-    expect(landing.topics.single.author, 'Alice');
-    expect(landing.groups.single.name, '示例小组');
-    expect(landing.groups.single.memberText, '20 位成员');
+  test('fallback retains nested OP replies and read-only rich markup', () {
+    const topic = CommunityTopic(
+      kind: CommunityTopicKind.group,
+      title: '旧标题',
+      url: '',
+      webUrl: 'https://bgm.tv/group/topic/42',
+    );
+    final detail = parser.parseTopicDetail('''
+      <h1><span><a href="/group/demo">小组</a> » 讨论</span><br>新标题</h1>
+      <div class="postTopic" id="post_1">
+        <div class="topic_content">开头<a href="/subject/9">条目</a><span style="background-color:#555; color:#555">结局</span></div>
+        <div class="sub_reply_bg" id="post_2">
+          <strong class="userName"><a href="/user/bob">Bob</a></strong>
+          <div class="cmt_sub_content">楼主下的回复</div>
+        </div>
+      </div>''', topic);
+    expect(detail.title, '新标题');
+    expect(detail.posts.map((p) => p.id), ['post_1', 'post_2']);
+    expect(detail.posts.first.htmlBody, contains('background-color:#555'));
+    expect(detail.posts.first.canEdit, isFalse);
+    expect(detail.posts.first.rawBody, isEmpty);
+    expect(detail.posts.last.isNested, isTrue);
   });
 
   test('parses original post, replies, nested replies and images', () {

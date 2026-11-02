@@ -81,6 +81,7 @@ def test_retry_exhaustion_raises(mock_server):
         client.get_json("/x")
     assert exc_info.value.status == 429
     assert exc_info.value.retries == 3  # max_retries = 3
+    assert not exc_info.value.is_permanent()
     assert client.stats.failed == 1
     assert client.stats.retries == 3
 
@@ -96,6 +97,15 @@ def test_404_no_retry_permanent(mock_server):
     assert client.stats.retries == 0
 
 
+@pytest.mark.parametrize("status", [400, 401, 403, 408, 429, 500, None])
+def test_recoverable_errors_do_not_permanently_exclude_subjects(status):
+    assert not HttpError(status, "request failed").is_permanent()
+
+
+def test_gone_subject_is_permanent():
+    assert HttpError(410, "gone").is_permanent()
+
+
 def test_invalid_json_raises(mock_server):
     mock_server.scenario = [(200, {}, b"<html>not json</html>")]
     client = _client(mock_server)
@@ -103,6 +113,7 @@ def test_invalid_json_raises(mock_server):
         client.get_json("/x")
     assert client.stats.retries == 0
     assert client.stats.failed == 1
+    assert client.stats.success == 0
 
 
 def test_failure_callback_records(mock_server):

@@ -1,3 +1,4 @@
+import '../core/theme/anime_icon.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import '../core/theme/app_tokens.dart';
@@ -15,7 +16,12 @@ abstract final class SocialChatStyle {
   static Color canvas(BuildContext context) => dark(context)
       ? _scheme(context).surfaceContainerLow
       : _scheme(context).surfaceContainer;
-  static Color accent(BuildContext context) => _scheme(context).primary;
+  static Color accent(BuildContext context) {
+    final primary = _scheme(context).primary;
+    return !dark(context) && primary == AppPalette.bangumiPink
+        ? AppPalette.roseInk
+        : primary;
+  }
   // A tint rather than primaryContainer keeps body text on its usual color.
   static Color ownBubble(BuildContext context) => Color.alphaBlend(
     accent(context).withValues(alpha: dark(context) ? .22 : .12),
@@ -57,7 +63,7 @@ class SocialSectionTabs extends StatelessWidget {
                         Badge(
                           isLabelVisible: index == 2 && unread > 0,
                           label: Text(unread > 99 ? '99+' : '$unread'),
-                          child: Icon(
+                          child: AnimeIcon(
                             icon,
                             size: 21,
                             color: index == selected

@@ -111,6 +111,8 @@ try {
     Assert-True ($fixture.Calls[1] -contains '--config-only' -and $fixture.Calls[1] -contains '--release' -and $fixture.Calls[1] -notcontains '--no-pub') 'Release plugin regeneration was skipped'
     Assert-True ($call -contains '--split-per-abi') 'APK must split architectures'
     Assert-True ($call -contains '--dart-define=GITEE_REPOSITORY=fixture/MuBangumi') 'Mirror configuration was not compiled into the application'
+    Assert-True ($call -contains '--dart-define=MUBANGUMI_FEEDBACK_URL=https://mubangumi-homepage.2844938982.workers.dev/api/feedback') 'Feedback endpoint missing from Flutter release'
+    Assert-True ($fixture.Calls[1] -contains '--dart-define=MUBANGUMI_FEEDBACK_URL=https://mubangumi-homepage.2844938982.workers.dev/api/feedback') 'Feedback endpoint missing from release plugin configuration'
     Assert-True ($call -contains '--tree-shake-icons') 'Icon trimming must be enabled'
     Assert-True ($call -contains '--build-name=2.2.0' -and $call -contains '--build-number=25') 'Version overrides lost'
     Assert-True (($call -join ' ') -notmatch 'fixture-secret') 'Credentials leaked into command arguments'
@@ -159,9 +161,11 @@ try {
     Invoke-FixtureBuild -Target apk -Shorebird -BuildNumber 25
     Assert-True ($fixture.Calls[-1] -contains '--artifact=apk') 'Shorebird APK artifact option lost'
     Assert-True ($fixture.Calls[-1] -notcontains '--split-per-abi') 'Existing Shorebird compilation changed'
+    Assert-True ($fixture.Calls[-1] -contains '--dart-define=MUBANGUMI_FEEDBACK_URL=https://mubangumi-homepage.2844938982.workers.dev/api/feedback') 'Feedback endpoint missing from Shorebird release'
     Invoke-FixtureBuild -Target apk -Patch -ReleaseVersion '2.2.0+24' -DryRun
     Assert-True ($fixture.Calls[-1] -contains '--release-version=2.2.0+24') 'Patch baseline lost'
     Assert-True ($fixture.Calls[-1] -contains '--dry-run') 'Patch dry run lost'
+    Assert-True ($fixture.Calls[-1] -contains '--dart-define=MUBANGUMI_FEEDBACK_URL=https://mubangumi-homepage.2844938982.workers.dev/api/feedback') 'Feedback endpoint missing from Shorebird patch'
     $rejected = $false
     try { Invoke-FixtureBuild -Target apk -Patch -ReleaseVersion '2.2.0+24' -BuildNumber 25 } catch { $rejected = $true }
     Assert-True $rejected 'Patch accepted a conflicting build version'

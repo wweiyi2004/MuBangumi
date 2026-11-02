@@ -3,6 +3,24 @@ import 'package:mubangumi/core/network/community_service.dart';
 import 'package:mubangumi/models/bangumi_models.dart';
 
 void main() {
+  test(
+    'rating standard deviation handles empty, uniform and concentrated votes',
+    () {
+      Subject subject(int total, Map<String, int> counts) => Subject.fromJson({
+        'id': 1,
+        'rating': {'total': total, 'count': counts},
+      });
+
+      expect(subject(0, {}).ratingStdDev, 0);
+      expect(subject(10, {'8': 10}).ratingStdDev, 0);
+      expect(subject(2, {'1': 1, '9': 1}).ratingStdDev, 4);
+      expect(
+        subject(1000000000, {'10': 999999999, '9': 1}).ratingStdDev,
+        closeTo(0.0000316227765858724, 1e-15),
+      );
+    },
+  );
+
   test('parses a real episode collection shape', () {
     final item = UserEpisodeCollection.fromJson({
       'type': 2,

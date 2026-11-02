@@ -1,12 +1,12 @@
 import 'dart:convert';
-import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as path;
 import 'package:sqflite/sqflite.dart';
-import 'package:sqflite_common_ffi/sqflite_ffi.dart' as ffi;
 
 import '../../models/schedule_models.dart';
+import 'serial_task_queue.dart';
+import 'sqlite_support.dart';
 
 /// Persists user-arranged seasonal schedules locally.
 class ScheduleStore {
@@ -19,22 +19,15 @@ class ScheduleStore {
 
   final String? databasePath;
 
-  Database? _database;
-  Future<void> _writes = Future.value();
-  Future<void> flushWrites() async => _writes;
-  Future<T> _write<T>(Future<T> Function() action) {
-    final next = _writes.then((_) => action());
-    _writes = next.then<void>((_) {}, onError: (Object _, StackTrace _) {});
-    return next;
-  }
+  final _connection = SqliteConnection();
+  final _writes = SerialTaskQueue();
+  Future<void> flushWrites() async => _writes.done;
+  Future<T> _write<T>(Future<T> Function() action) => _writes.run(action);
 
   Future<String> databaseForBackup() async {
-    await _writes;
+    await _writes.done;
     return (await _open()).path;
   }
-
-  Future<Database>? _opening;
-  static bool _ffiReady = false;
 
   Future<SeasonSchedule> load(SeasonKey season) async {
     final database = await _open();
@@ -173,58 +166,39 @@ class ScheduleStore {
 
   @visibleForTesting
   Future<void> close() async {
-    await _writes;
-    final database = _database;
-    _database = null;
-    await database?.close();
+    await _writes.done;
+    await _connection.close();
   }
 
-  Future<Database> _open() async {
-    final current = _database;
-    if (current != null) return current;
-    final opening = _opening;
-    if (opening != null) return opening;
-    final future = _createDatabase();
-    _opening = future;
-    try {
-      final database = await future;
-      _database = database;
-      return database;
-    } finally {
-      _opening = null;
-    }
-  }
+  Future<Database> _open() => _connection.open(_createDatabase);
 
   Future<Database> _createDatabase() async {
-    if (Platform.isWindows || Platform.isLinux) {
-      if (!_ffiReady) {
-        ffi.sqfliteFfiInit();
-        databaseFactory = ffi.databaseFactoryFfi;
-        _ffiReady = true;
-      }
-    }
+    final factory = sqliteFactory;
     final resolvedPath =
         databasePath ??
-        path.join(await getDatabasesPath(), 'mubangumi_schedule.sqlite');
-    return openDatabase(
+        path.join(
+          await factory.getDatabasesPath(),
+          'mubangumi_schedule.sqlite',
+        );
+    return factory.openDatabase(
       resolvedPath,
-      version: 2,
-      onConfigure: (db) async {
-        await db.rawQuery('PRAGMA journal_mode=DELETE');
-      },
-      onCreate: (database, _) async {
-        await database.execute('''
+      options: OpenDatabaseOptions(
+        version: 2,
+        onConfigure: configurePersonalDatabase,
+        onCreate: (database, _) async {
+          await database.execute('''
           CREATE TABLE season_schedule (
             season_key TEXT PRIMARY KEY NOT NULL,
             payload TEXT NOT NULL,
             updated_at INTEGER NOT NULL
           )
         ''');
-        await _createReminderIdsTable(database);
-      },
-      onUpgrade: (database, oldVersion, _) async {
-        if (oldVersion < 2) await _createReminderIdsTable(database);
-      },
+          await _createReminderIdsTable(database);
+        },
+        onUpgrade: (database, oldVersion, _) async {
+          if (oldVersion < 2) await _createReminderIdsTable(database);
+        },
+      ),
     );
   }
 

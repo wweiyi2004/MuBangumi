@@ -1,3 +1,4 @@
+import '../core/theme/anime_icon.dart';
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -64,7 +65,7 @@ class UpdateReadyDialog extends StatelessWidget {
     return AlertDialog(
       title: const Row(
         children: [
-          Icon(Icons.system_update_alt_rounded),
+          AnimeIcon(Icons.system_update_alt_rounded),
           SizedBox(width: 10),
           Expanded(child: Text('发现更新')),
         ],

@@ -1,3 +1,4 @@
+import '../../../core/theme/anime_icon.dart';
 import 'package:flutter/material.dart';
 import '../../../models/schedule_models.dart';
 
@@ -54,6 +55,8 @@ class ScheduleSeasonPicker extends StatelessWidget {
         children: [
           Expanded(
             child: DropdownButtonFormField<SeasonKey>(
+              borderRadius: BorderRadius.circular(16),
+              dropdownColor: Theme.of(context).colorScheme.surface,
               key: ValueKey('season-dropdown-${season.id}'),
               initialValue: season,
               isExpanded: true,
@@ -93,7 +96,7 @@ class ScheduleSeasonPicker extends StatelessWidget {
       child: Row(
         children: [
           ActionChip(
-            avatar: const Icon(Icons.add_rounded, size: 18),
+            avatar: const AnimeIcon(Icons.add_rounded, size: 18),
             label: const Text('新建表'),
             onPressed: onCreate,
           ),
@@ -108,7 +111,7 @@ class ScheduleSeasonPicker extends StatelessWidget {
           ],
           if (onDeleteCurrent != null) ...[
             ActionChip(
-              avatar: Icon(
+              avatar: AnimeIcon(
                 Icons.delete_outline_rounded,
                 size: 18,
                 color: Theme.of(context).colorScheme.error,
@@ -154,7 +157,7 @@ class ScheduleToolbar extends StatelessWidget {
         IconButton(
           tooltip: '返回',
           onPressed: () => Navigator.maybePop(context),
-          icon: const Icon(Icons.arrow_back_rounded),
+          icon: const AnimeIcon(Icons.arrow_back_rounded),
         ),
       Expanded(
         child: Text(
@@ -168,7 +171,7 @@ class ScheduleToolbar extends StatelessWidget {
         IconButton(
           tooltip: '导出图片',
           onPressed: onExport,
-          icon: const Icon(Icons.image_outlined),
+          icon: const AnimeIcon(Icons.image_outlined),
         ),
       IconButton(
         tooltip: '更新提醒',
@@ -176,7 +179,7 @@ class ScheduleToolbar extends StatelessWidget {
         icon: Badge(
           isLabelVisible: unread > 0,
           label: Text(unread > 99 ? '99+' : '$unread'),
-          child: const Icon(Icons.notifications_outlined),
+          child: const AnimeIcon(Icons.notifications_outlined),
         ),
       ),
       if (wide) ...[
@@ -188,12 +191,12 @@ class ScheduleToolbar extends StatelessWidget {
                   dimension: 22,
                   child: CircularProgressIndicator(strokeWidth: 2),
                 )
-              : const Icon(Icons.sync_rounded),
+              : const AnimeIcon(Icons.sync_rounded),
         ),
         IconButton(
           tooltip: '更新源 RSS',
           onPressed: onSources,
-          icon: const Icon(Icons.rss_feed_rounded),
+          icon: const AnimeIcon(Icons.rss_feed_rounded),
         ),
       ] else
         PopupMenuButton<String>(

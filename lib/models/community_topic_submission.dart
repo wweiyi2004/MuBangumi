@@ -15,6 +15,9 @@ class CommunitySubmissionRejected extends FormatException {
 /// Stored with the existing account/group draft, including across app restarts.
 /// Older plain-text drafts remain readable; no credentials are stored here.
 class CommunityTopicDraft {
+  CommunityTopicDraft({this.kind = 'group-topic'});
+  final String kind;
+  Set<String> baselineIds = {};
   DateTime? attemptedAt;
   int? confirmedId;
   bool get pending => attemptedAt != null;
@@ -25,11 +28,12 @@ class CommunityTopicDraft {
   }
 
   String encode(String body) => jsonEncode({
-    'mubangumi_draft': 'group-topic',
+    'mubangumi_draft': kind,
     'version': 1,
     'body': body,
     'attempted_at': attemptedAt?.toUtc().toIso8601String(),
     'confirmed_id': confirmedId,
+    'baseline_ids': baselineIds.toList(),
   });
 
   String restore(String encoded) {
@@ -40,7 +44,7 @@ class CommunityTopicDraft {
       clearAttempt();
       return encoded;
     }
-    if (value is! Map || value['mubangumi_draft'] != 'group-topic') {
+    if (value is! Map || value['mubangumi_draft'] != kind) {
       clearAttempt();
       return encoded;
     }
@@ -54,6 +58,10 @@ class CommunityTopicDraft {
     confirmedId = value['confirmed_id'] is int && value['confirmed_id'] > 0
         ? value['confirmed_id'] as int
         : null;
+    final ids = value['baseline_ids'];
+    if (ids is List && ids.every((id) => id is String)) {
+      baselineIds = Set<String>.from(ids);
+    }
     return value['body'] as String;
   }
 }

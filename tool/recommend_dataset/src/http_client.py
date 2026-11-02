@@ -51,8 +51,12 @@ class HttpError(Exception):
         self.response_head = response_head
 
     def is_permanent(self) -> bool:
-        """4xx (client errors) will never succeed on retry -> permanent."""
-        return self.status is not None and 400 <= self.status < 500
+        """Only unavailable resources should be excluded from later resumes.
+
+        Rate limits and authentication/permission errors can recover after the
+        current run; exhausting retries must not permanently remove a subject.
+        """
+        return self.status in (404, 410)
 
 
 class RateLimiter:
@@ -172,15 +176,16 @@ class BangumiHttpClient:
                 continue
 
             if 200 <= resp.status_code < 300:
-                self.stats.success += 1
                 try:
-                    return resp.json()
+                    data = resp.json()
                 except ValueError:
                     head = resp.text[:200]
                     self._mark_failure(url, params, resp.status_code,
                                        "response is not valid JSON", retries, head)
                     raise HttpError(resp.status_code, f"invalid JSON response for {path}",
                                     retries=retries, url=url, response_head=head)
+                self.stats.success += 1
+                return data
 
             if resp.status_code in RETRYABLE_STATUS:
                 if retries >= self._max_retries:

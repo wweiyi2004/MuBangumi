@@ -41,6 +41,7 @@ void main() {
       expect(notice.nativeTopic?.kind, expected.$1);
       expect(notice.nativeTopic?.url, expected.$2);
       expect(notice.nativeTopic?.webUrl, expected.$3);
+      expect(notice.nativeTopic?.targetPostId, 456);
     }
   });
 

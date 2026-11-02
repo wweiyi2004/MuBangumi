@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>MuBangumi · 系统架构概览</title>
+  <style>
+    :root{--paper:#f5f6f8;--ink:#192a3a;--muted:#526576;--line:#d6e0e7;--teal:#086c67;--soft:#eaf5f2;--blue:#285da0;--blue-soft:#eef4fc;--orange:#a44b17;--orange-soft:#fff3e9}
+    *{box-sizing:border-box}html{scroll-behavior:smooth;scroll-padding-top:84px}body{margin:0;background:var(--paper);color:var(--ink);font:15px/1.75 system-ui,-apple-system,"Segoe UI","Microsoft YaHei",sans-serif}a{color:var(--blue);text-underline-offset:4px}button,a{touch-action:manipulation}button:focus-visible,a:focus-visible{outline:3px solid var(--teal);outline-offset:4px}code{font:12px/1.7 Consolas,monospace;overflow-wrap:anywhere}p{margin:8px 0 0}h1,h2,h3{line-height:1.4;margin:0}h1{font-size:clamp(30px,5vw,48px);letter-spacing:-1.5px}h2{font-size:24px}h3{font-size:17px}.wrap{max-width:1140px;padding:0 30px;margin:auto}.topbar{position:sticky;top:0;z-index:5;background:rgba(245,246,248,.97);border-bottom:1px solid var(--line)}.bar{display:flex;align-items:center;justify-content:space-between;gap:20px;min-height:65px}.brand{font-weight:750;font-size:17px;letter-spacing:-.4px}.brand span{color:var(--teal)}nav{display:flex;gap:22px;align-items:center}nav a{font-size:13px;text-decoration:none;color:var(--muted)}button{font:inherit;font-size:13px;cursor:pointer;background:white;border:1px solid var(--line);padding:7px 13px;border-radius:7px;color:var(--ink)}.hero{padding:54px 0 32px}.eyebrow{font-size:12px;font-weight:700;letter-spacing:1.4px;color:var(--teal);margin-bottom:12px}.lead{font-size:19px;max-width:850px;margin-top:18px}.subtle{color:var(--muted);font-size:13px}.meta{display:flex;gap:10px 22px;flex-wrap:wrap;margin-top:22px}.meta span{font-size:12px;color:var(--muted)}.verdict{margin-top:28px;border-left:4px solid var(--teal);padding:15px 20px;background:var(--soft);border-radius:0 9px 9px 0}.verdict strong{color:var(--teal)}section{margin:24px 0 34px;scroll-margin-top:84px}.section-head{display:flex;align-items:baseline;gap:14px;margin-bottom:17px}.section-head .index{font-size:12px;color:var(--teal);font-weight:750;letter-spacing:1px}.panel{background:white;border:1px solid var(--line);border-radius:15px;padding:26px}.diagram-caption{color:var(--muted);font-size:13px;margin:0 0 20px}.system-grid{display:grid;grid-template-columns:minmax(0,1.12fr) 62px minmax(0,1fr);align-items:stretch}.client{border:1.5px solid #8ab7b1;border-radius:12px;overflow:hidden}.client-head{padding:17px 20px;background:var(--soft);border-bottom:1px solid #bad6d1}.client-head h3{color:var(--teal)}.client-head small{color:var(--muted)}.client-body{padding:18px}.node{border:1px solid var(--line);border-radius:8px;padding:13px 15px;background:#fff}.node strong{display:block;font-size:15px}.node p{font-size:13px;color:var(--muted);margin:3px 0 0}.primary-node{background:var(--blue-soft);border-color:#c8d8ed;text-align:center;padding:17px 12px}.inner-arrow{text-align:center;color:var(--teal);font-size:24px;line-height:1.5}.mini-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}.mini-grid .node{padding:12px}.mini-grid .node strong{font-size:13px}.mini-grid .node p{font-size:12px}.flows{display:flex;align-items:center;justify-content:center;color:var(--teal);font-size:28px}.flow-text{font-size:11px;line-height:1.4;color:var(--muted);text-align:center}.destinations{display:grid;gap:12px}.destination{border:1px solid var(--line);border-left:3px solid var(--blue);border-radius:8px;padding:13px 16px}.destination h3{font-size:15px}.destination p{font-size:13px;color:var(--muted);margin-top:4px}.destination .protocol{font-size:11px;font-weight:650;color:var(--blue);display:block;margin-bottom:2px}.destination.room{border-left-color:var(--teal);background:#f7fbfa}.destination.room .protocol{color:var(--teal)}.room-foot{margin-top:9px;padding-top:9px;border-top:1px solid var(--line);font-size:12px;color:var(--muted)}.room-foot span{display:block}.diagram-note{border-top:1px solid var(--line);padding-top:15px;margin-top:20px;font-size:13px;color:var(--muted)}.layer{display:grid;grid-template-columns:145px minmax(0,1fr) minmax(0,1.15fr);gap:20px;align-items:center;padding:17px 18px;border:1px solid var(--line);border-radius:9px}.layer-label{font-weight:700;font-size:15px}.layer-label small{display:block;font-weight:400;font-size:11px;color:var(--muted)}.layer p{font-size:13px;color:var(--muted);margin:0}.layer-path{font-size:12px;color:var(--blue)}.layer-arrow{text-align:center;line-height:1.4;font-size:21px;color:#7a8d9d}.layer.app-layer{background:var(--soft);border-color:#bad6d1}.layer.core-layer{background:var(--blue-soft);border-color:#c8d8ed}.exception{border:1px dashed #c18d62;background:var(--orange-soft);padding:13px 17px;border-radius:8px;margin-top:18px;font-size:13px}.exception strong{color:var(--orange)}.cards{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px}.card{background:white;border:1px solid var(--line);border-radius:12px;padding:20px}.card .num{font-size:11px;font-weight:700;color:var(--teal);margin-bottom:8px}.card p{font-size:13px;color:var(--muted)}.card code{display:block;margin-top:10px;color:var(--blue)}.rows{border:1px solid var(--line);border-radius:12px;overflow:hidden;background:white}.row{display:grid;grid-template-columns:68px minmax(0,1fr) minmax(0,1.2fr);gap:18px;align-items:start;padding:18px 22px}.row+.row{border-top:1px solid var(--line)}.row p{font-size:13px;color:var(--muted);margin-top:3px}.priority{font-size:12px;font-weight:650;color:var(--orange);padding-top:3px}.priority.medium{color:var(--blue)}.priority.low{color:var(--muted)}.row strong{font-size:14px}.scope{display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-top:18px}.scope p{font-size:13px;color:var(--muted)}.scope h3{font-size:15px}.verification{background:var(--ink);color:#fff;border-radius:14px;padding:24px 26px}.verification h2{font-size:20px}.check-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:20px;margin:20px 0}.metric strong{display:block;font-size:29px;line-height:1.25;color:#a7eadb}.metric span{font-size:12px;color:#d0dae2}.verification p{font-size:13px;color:#d0dae2}.verification a{color:#a7eadb}.foot{padding:0 0 34px;font-size:12px;color:var(--muted)}.source-links{display:flex;gap:10px 20px;flex-wrap:wrap;margin:10px 0 15px}.source-links a{font-size:12px}details{margin-top:18px;padding-top:14px;border-top:1px solid var(--line)}summary{cursor:pointer;font-size:13px;font-weight:650;min-height:32px}details p{font-size:13px;color:var(--muted)}
+    .scope code{display:inline;margin:0}
+    @media(max-width:760px){.wrap{padding:0 18px}.bar{gap:10px;min-height:60px}nav{gap:12px}nav a{font-size:12px}.hero{padding-top:32px}.lead{font-size:17px}.panel{padding:18px}.system-grid{grid-template-columns:1fr}.flows{padding:8px 0;gap:12px}.flows .arrow{display:inline-block;transform:rotate(90deg)}.flow-text{display:inline}.layer{grid-template-columns:1fr;gap:6px;padding:14px}.layer-label small{display:inline;margin-left:8px}.cards{grid-template-columns:1fr}.row{grid-template-columns:52px minmax(0,1fr);padding:16px;gap:8px 12px}.row>p{grid-column:2}.scope{grid-template-columns:1fr}.check-grid{gap:12px}.metric strong{font-size:25px}.section-head h2{font-size:21px}}
+    @media(max-width:450px){nav a{display:none}.mini-grid{grid-template-columns:1fr}.hero{padding-top:26px}.check-grid{grid-template-columns:1fr;gap:12px}.metric{display:flex;align-items:baseline;gap:12px}.metric strong{min-width:90px}.verification{padding:20px}.meta{gap:6px 16px}}
+    @media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}}
+    @media print{body{background:white;font-size:11px}.wrap{max-width:none;padding:0}.topbar{position:static;background:white}.topbar nav{display:none}.hero{padding:20px 0}h1{font-size:30px}.panel{padding:18px}section{margin:20px 0;break-inside:avoid}.cards{gap:10px}.card{padding:14px}.verification{background:white;color:var(--ink);border:1px solid var(--line)}.verification p,.metric span{color:var(--muted)}.metric strong,.verification a{color:var(--teal)}a{text-decoration:none}.foot{padding-bottom:0}.system-grid{grid-template-columns:minmax(0,1.12fr) 48px minmax(0,1fr)}.flows .arrow{transform:none}.source-links{gap:8px 16px}details{display:none}}
+  </style>
+</head>
+<body>
+  <header class="topbar"><div class="wrap bar"><div class="brand">MuBangumi <span>/ 架构概览</span></div><nav aria-label="页面导航"><a href="#system">系统框图</a><a href="#layers">客户端分层</a><a href="#refactor">重构重点</a><button type="button" onclick="window.print()">打印 / 保存 PDF</button></nav></div></header>
+  <main class="wrap">
+    <div class="hero">
+      <div class="eyebrow">CURRENT ARCHITECTURE · 2026.10.22</div>
+      <h1>一个客户端，<br>两条业务服务路径。</h1>
+      <p class="lead">Flutter + Riverpod 驱动的模块化客户端。追番、收藏与社区直接访问 Bangumi；番键会使用可在客户端内托管、也可独立部署的 Dart 服务端。</p>
+      <div class="meta"><span>Android · iOS · Windows</span><span>分层架构 + 按功能组织</span><span>依据当前工作区，包含既有未提交改动</span></div>
+      <div class="verdict"><strong>架构判断：</strong>现有基础可以继续演进。优先整理社区服务与时间线状态管理，逐步拆分职责过多的模块。</div>
+    </div>
+
+    <section id="system" aria-labelledby="system-title">
+      <div class="section-head"><span class="index">01 / SYSTEM</span><h2 id="system-title">系统整体框图</h2></div>
+      <div class="panel">
+        <p class="diagram-caption">箭头表示业务通信方向；右侧列出主要服务边界，省略底层请求细节。</p>
+        <div class="system-grid" role="group" aria-label="Flutter 客户端访问 Bangumi、补充数据服务和番键会服务端；番键会还支持浏览器参与。">
+          <div class="client">
+            <div class="client-head"><h3>MuBangumi 客户端</h3><small>Flutter · Android / iOS / Windows</small></div>
+            <div class="client-body">
+              <div class="node primary-node"><strong>收藏 · 追番 · 社区 · 私信 · 统计</strong><p>页面交互与业务状态</p></div>
+              <div class="inner-arrow" aria-hidden="true">↓</div>
+              <div class="mini-grid">
+                <div class="node"><strong>状态与业务逻辑</strong><p>Riverpod、应用控制器、领域规则</p></div>
+                <div class="node"><strong>网络与会话</strong><p>HTTP、HTML 解析、请求保护</p></div>
+                <div class="node"><strong>本地持久化</strong><p>SQLite、快照、草稿、离线修改队列</p></div>
+                <div class="node"><strong>平台能力</strong><p>WebView、通知、文件、分享</p></div>
+              </div>
+            </div>
+          </div>
+          <div class="flows"><div><div class="arrow" aria-hidden="true">↔</div><div class="flow-text">业务请求<br>与响应</div></div></div>
+          <div class="destinations">
+            <div class="destination"><span class="protocol">HTTP API</span><h3>Bangumi API / P1</h3><p>条目、收藏、章节及部分社区能力。</p></div>
+            <div class="destination"><span class="protocol">WEBSITE / HTML</span><h3>Bangumi 网站</h3><p>网站登录、私信及部分社区能力；使用独立的网站会话。</p></div>
+            <div class="destination"><span class="protocol">SUPPLEMENTARY DATA</span><h3>补充数据服务</h3><p>Netaba、萌娘百科、RSS 等。</p></div>
+            <div class="destination room"><span class="protocol">HTTP / WEBSOCKET</span><h3>番键会 Dart 服务端</h3><p>运行方式：客户端内独立 Isolate 托管，或独立进程部署。</p><div class="room-foot"><span>服务端 ↔ SQLite：活动、评分、评论等数据</span><span>浏览器参与端 ↔ 服务端：HTTP / WebSocket</span></div></div>
+          </div>
+        </div>
+        <div class="diagram-note">普通客户端功能直接连接外部服务。番键会拥有独立的服务协议、活动数据与参与身份。</div>
+      </div>
+    </section>
+
+    <section id="layers" aria-labelledby="layers-title">
+      <div class="section-head"><span class="index">02 / CLIENT</span><h2 id="layers-title">客户端内部：分层已建立，迁移仍在进行</h2></div>
+      <div class="panel">
+        <p class="diagram-caption">这是主要职责分层，向下箭头表示主要调用方向。当前部分页面和状态控制器会直接调用基础设施。</p>
+        <div class="layer"><div class="layer-label">入口与表现层<small>交互、展示、导航</small></div><div class="layer-path"><code>main.dart · app.dart · navigation/<br>screens/ · widgets/<br>features/*/presentation/</code></div><p>组合页面、接收操作、观察状态，连接平台生命周期。</p></div>
+        <div class="layer-arrow" aria-hidden="true">↓</div>
+        <div class="layer"><div class="layer-label">状态与依赖装配<small>应用运行状态</small></div><div class="layer-path"><code>state/ · Riverpod Providers<br>SessionController 等</code></div><p>提供依赖、管理会话、协调控制器；部分业务状态仍集中在这一层。</p></div>
+        <div class="layer-arrow" aria-hidden="true">↓</div>
+        <div class="layer app-layer"><div class="layer-label">应用层<small>独立业务流程</small></div><div class="layer-path"><code>features/*/application/</code></div><p>收藏编辑与加载、离线同步、发现查询、详情区块请求等；调用领域规则、网络与存储。</p></div>
+        <div class="layer-arrow" aria-hidden="true">↙ &nbsp; ↘</div>
+        <div class="cards">
+          <div class="card"><div class="num">DOMAIN</div><h3>领域规则</h3><p>收藏合并、查询条件等独立规则。</p><code>features/*/domain/</code></div>
+          <div class="card"><div class="num">INFRASTRUCTURE</div><h3>基础设施</h3><p>网络服务、认证、SQLite、缓存与同步队列。</p><code>core/network/ · auth/ · storage/</code></div>
+          <div class="card"><div class="num">SHARED</div><h3>公共能力与模型</h3><p>共享数据结构、主题、提醒、分享、更新与桌面组件，供相关层调用。</p><code>models/ · core/theme/<br>core/notifications/ · sharing/ …</code></div>
+        </div>
+        <div class="exception"><strong>当前存在的跨层调用：</strong>部分页面直接访问 CommunityService 等服务，并自行管理请求与界面状态。时间线页面就是优先抽离控制器的对象。</div>
+        <details><summary>为什么称为“混合结构”？</summary><p>顶层仍保留 screens、state、widgets 等按技术职责划分的目录；features 内又按收藏、社区、私信等功能组织 application、domain、presentation。已有应用逻辑拆分，但各功能的迁移程度不同。Riverpod 用于状态订阅与依赖提供，一些控制器通过 ChangeNotifier 或回调发布结果。</p></details>
+      </div>
+    </section>
+
+    <section aria-labelledby="identity-title">
+      <div class="section-head"><span class="index">03 / BOUNDARIES</span><h2 id="identity-title">三个独立的身份边界</h2></div>
+      <div class="cards">
+        <div class="card"><div class="num">API IDENTITY</div><h3>API 凭据</h3><p>OAuth / Access Token，供相应 API 请求使用；维护令牌续期与账号归属。</p></div>
+        <div class="card"><div class="num">WEBSITE IDENTITY</div><h3>网站会话</h3><p>Cookie、WebView 与网站身份校验，支撑网站专属能力。</p></div>
+        <div class="card"><div class="num">ROOM IDENTITY</div><h3>番键会凭据</h3><p>独立的活动参与和管理凭据，服务于番键会协议。</p></div>
+      </div>
+      <p class="subtle">重构时保持明确的账号归属：切换账号后丢弃旧响应；社区 P1 写入复用 CommunityWriteClient；结果不确定的私信 POST 不自动重放。</p>
+    </section>
+
+    <section id="refactor" aria-labelledby="refactor-title">
+      <div class="section-head"><span class="index">04 / EVOLUTION</span><h2 id="refactor-title">重构重点：先拆职责，再调整目录</h2></div>
+      <div class="rows">
+        <div class="row"><div class="priority">优先</div><div><strong>社区服务 · 2,487 行</strong><p>CommunityService 汇集多类社区业务、缓存和账号保护。</p></div><p>先抽离时间线读取逻辑，再按小组、日志、目录等职责拆分；保留共享身份上下文与写入客户端。</p></div>
+        <div class="row"><div class="priority">优先</div><div><strong>时间线页面 · 945 行</strong><p>页面 State 管理分页、定时刷新、回复、点赞与删除。</p></div><p>提取独立控制器。页面处理展示与生命周期信号，控制器处理请求顺序和状态变化。</p></div>
+        <div class="row"><div class="priority medium">随后</div><div><strong>收藏编辑器 · 1,124 行</strong><p>章节读取、缓存、编辑、撤销和失败恢复集中。</p></div><p>逐步分离读取与编辑流程，保留统一的账号校验、条目串行队列和修订号。</p></div>
+        <div class="row"><div class="priority low">随功能</div><div><strong>大型界面文件</strong><p>收藏统计、发现页、番键会页面。</p></div><p>结合实际修改提取独立展示区块；统计计算与发现请求已经有独立模块。</p></div>
+      </div>
+      <div class="scope">
+        <div class="card"><h3>首轮建议范围</h3><p>社区时间线的数据访问与状态管理，并补齐架构检查对 features/*/presentation 和 domain 依赖的规则。用账号切换、旧响应、分页和失败恢复测试验证行为一致。</p></div>
+        <div class="card"><h3>仓库内的其他模块</h3><p><code>website/</code>：项目官网。<br><code>tool/recommend_dataset/</code> 与 <code>tool/semantic_retrieval/</code>：研究工具，未作为客户端推理能力交付。<br><code>native-android/</code>：冻结原型。</p></div>
+      </div>
+    </section>
+
+    <section class="verification" aria-labelledby="verification-title">
+      <h2 id="verification-title">本轮审查的验证基线</h2>
+      <div class="check-grid"><div class="metric"><strong>22 / 22</strong><span>Quick 检查通过</span></div><div class="metric"><strong>1,924</strong><span>Flutter 测试通过</span></div><div class="metric"><strong>43</strong><span>服务端测试通过</span></div></div>
+      <p>2026-10-22 执行 tool/verify_all.ps1 -Mode Quick。包含静态分析、测试、网站、Python 与工程脚本检查；架构检查未发现 import/export 环。</p>
+      <p>验证边界：未执行 Full 构建、设备、云端或真实账号验收。上述结果属于此次审查记录，不随后续源码变更自动更新。网站安全检查按仓库已验证补丁规则通过，不代表原始 npm 审计零告警。</p>
+      <p><a href="../../.dart_tool/verification/20261022-080132-ae5fd07a/results.json">查看本机验证记录 ↗</a></p>
+    </section>
+    <footer class="foot">
+      <strong>代码依据</strong>
+      <div class="source-links"><a href="../../lib/main.dart">应用启动</a><a href="../../lib/state/service_providers.dart">服务装配</a><a href="../../lib/state/session_controller.dart">会话协调</a><a href="../../lib/core/network/community_service.dart">社区服务</a><a href="../../lib/core/network/community_write_client.dart">共享写入客户端</a><a href="../../lib/features/collection/application/collection_editor.dart">收藏编辑</a><a href="../../lib/features/anime_appreciation/room_host.dart">番键会托管</a><a href="../../tool/verify_architecture.py">架构检查</a></div>
+      <p>架构与行数基于 2026-10-22 当前工作区。此页为独立离线 HTML；源码和验证记录链接需保留项目目录才能访问。</p>
+    </footer>
+  </main>
+</body>
+</html>

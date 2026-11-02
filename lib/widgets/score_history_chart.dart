@@ -1,3 +1,7 @@
+import 'chart_viewport.dart';
+import 'score_comparison_chart.dart';
+import 'image_share_sheet.dart';
+import '../core/theme/anime_icon.dart';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
@@ -56,6 +60,7 @@ class ScoreHistoryChart extends StatelessWidget {
     this.reverseY = false,
     this.valueLabel,
     this.emptyLabel = '暂无数据',
+    this.interactive = true,
   });
 
   final List<NetabaChartPoint> points;
@@ -64,6 +69,7 @@ class ScoreHistoryChart extends StatelessWidget {
   final bool reverseY;
   final String Function(double value)? valueLabel;
   final String emptyLabel;
+  final bool interactive;
 
   @override
   Widget build(BuildContext context) {
@@ -86,53 +92,71 @@ class ScoreHistoryChart extends StatelessWidget {
     final maxV = points.map((p) => p.value).reduce(math.max);
     final label = valueLabel ?? (v) => v.toStringAsFixed(v >= 100 ? 0 : 2);
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        SizedBox(
-          height: height,
-          child: CustomPaint(
-            painter: _LineChartPainter(
-              points: points,
-              lineColor: lineColor,
-              fillColor: lineColor.withValues(alpha: 0.14),
-              gridColor: scheme.outlineVariant.withValues(alpha: 0.55),
-              labelColor: scheme.onSurfaceVariant,
-              showDots: false,
-              showGrid: true,
-              showLabels: true,
-              reverseY: reverseY,
-              valueLabel: label,
-              strokeWidth: 2.2,
-            ),
-          ),
-        ),
-        const SizedBox(height: 8),
-        Row(
+    return ChartViewport(
+      enabled: interactive,
+      resetKey: (points, reverseY),
+      height: height,
+      plotInsets: const EdgeInsets.fromLTRB(36, 8, 6, 6),
+      builder: (context, viewport) {
+        final duration =
+            last.at.millisecondsSinceEpoch - first.at.millisecondsSinceEpoch;
+        final start = DateTime.fromMillisecondsSinceEpoch(
+          (first.at.millisecondsSinceEpoch + duration * viewport.left).round(),
+        );
+        final end = DateTime.fromMillisecondsSinceEpoch(
+          (first.at.millisecondsSinceEpoch + duration * viewport.right).round(),
+        );
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Text(
-              _formatDate(first.at),
-              style: Theme.of(
-                context,
-              ).textTheme.labelSmall?.copyWith(color: scheme.onSurfaceVariant),
+            SizedBox(
+              height: height,
+              child: CustomPaint(
+                painter: _LineChartPainter(
+                  points: points,
+                  viewport: viewport,
+                  lineColor: lineColor,
+                  fillColor: lineColor.withValues(alpha: 0.14),
+                  gridColor: scheme.outlineVariant.withValues(alpha: 0.55),
+                  labelColor: scheme.onSurfaceVariant,
+                  showDots: false,
+                  showGrid: true,
+                  showLabels: true,
+                  reverseY: reverseY,
+                  valueLabel: label,
+                  strokeWidth: 2.2,
+                ),
+              ),
             ),
-            const Spacer(),
-            Text(
-              '${label(minV)} – ${label(maxV)}',
-              style: Theme.of(
-                context,
-              ).textTheme.labelSmall?.copyWith(color: scheme.onSurfaceVariant),
-            ),
-            const Spacer(),
-            Text(
-              _formatDate(last.at),
-              style: Theme.of(
-                context,
-              ).textTheme.labelSmall?.copyWith(color: scheme.onSurfaceVariant),
+            const SizedBox(height: 8),
+            Wrap(
+              alignment: WrapAlignment.spaceBetween,
+              spacing: 12,
+              runSpacing: 4,
+              children: [
+                Text(
+                  _formatDate(start),
+                  style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                    color: scheme.onSurfaceVariant,
+                  ),
+                ),
+                Text(
+                  '全期 ${label(minV)} – ${label(maxV)}',
+                  style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                    color: scheme.onSurfaceVariant,
+                  ),
+                ),
+                Text(
+                  _formatDate(end),
+                  style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                    color: scheme.onSurfaceVariant,
+                  ),
+                ),
+              ],
             ),
           ],
-        ),
-      ],
+        );
+      },
     );
   }
 }
@@ -145,6 +169,7 @@ class ScoreHistoryPanel extends StatefulWidget {
     required this.history,
     required this.onRetry,
     this.subjectId,
+    this.subjectTitle,
     this.compact = false,
     this.initiallyExpanded = true,
   });
@@ -154,6 +179,7 @@ class ScoreHistoryPanel extends StatefulWidget {
   final NetabaSubjectHistory? history;
   final VoidCallback onRetry;
   final int? subjectId;
+  final String? subjectTitle;
   final bool compact;
   final bool initiallyExpanded;
 
@@ -198,6 +224,13 @@ class _ScoreHistoryPanelState extends State<ScoreHistoryPanel> {
                       ),
                     ),
                   ),
+                  if (history != null &&
+                      history.scoreSeries(maxPoints: 0).isNotEmpty)
+                    IconButton(
+                      tooltip: '分享此番评分走势',
+                      icon: const AnimeIcon(Icons.ios_share_rounded, size: 20),
+                      onPressed: () => _shareScore(context, history),
+                    ),
                   if (widget.loading)
                     const Padding(
                       padding: EdgeInsets.only(right: 8),
@@ -211,7 +244,10 @@ class _ScoreHistoryPanelState extends State<ScoreHistoryPanel> {
                       onPressed: widget.subjectId == null
                           ? null
                           : () => _openNetaba(widget.subjectId!),
-                      icon: const Icon(Icons.open_in_new_rounded, size: 16),
+                      icon: const AnimeIcon(
+                        Icons.open_in_new_rounded,
+                        size: 16,
+                      ),
                       label: const Text('netaba.re'),
                       style: TextButton.styleFrom(
                         visualDensity: VisualDensity.compact,
@@ -219,7 +255,7 @@ class _ScoreHistoryPanelState extends State<ScoreHistoryPanel> {
                       ),
                     ),
                   if (compact && hasBody)
-                    Icon(
+                    AnimeIcon(
                       _expanded
                           ? Icons.expand_less_rounded
                           : Icons.expand_more_rounded,
@@ -254,7 +290,7 @@ class _ScoreHistoryPanelState extends State<ScoreHistoryPanel> {
                 const SizedBox(height: 8),
                 OutlinedButton.icon(
                   onPressed: widget.onRetry,
-                  icon: const Icon(Icons.refresh_rounded),
+                  icon: const AnimeIcon(Icons.refresh_rounded),
                   label: const Text('重试'),
                 ),
               ] else if (widget.loading && history == null) ...[
@@ -264,7 +300,7 @@ class _ScoreHistoryPanelState extends State<ScoreHistoryPanel> {
               ] else if (history == null || history.history.isEmpty) ...[
                 const SizedBox(height: 16),
                 Text(
-                  '暂无历史记录',
+                  '数据源暂无历史记录，收藏状态不影响历史收录',
                   style: TextStyle(color: scheme.onSurfaceVariant),
                 ),
               ] else ...[
@@ -340,18 +376,28 @@ class _ScoreHistoryPanelState extends State<ScoreHistoryPanel> {
                   height: compact ? 148 : 180,
                   reverseY: _metric == NetabaHistoryMetric.rank,
                   valueLabel: _metric == NetabaHistoryMetric.score
-                      ? (v) => v.toStringAsFixed(2)
+                      ? (v) => v.toStringAsFixed(3)
                       : (v) => v >= 1000
                             ? '${(v / 1000).toStringAsFixed(1)}k'
                             : v.toStringAsFixed(0),
                   emptyLabel: '该维度暂无足够历史点',
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  '双指或滚轮缩放 · 拖动平移',
+                  style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                    color: scheme.onSurfaceVariant,
+                  ),
                 ),
                 if (compact && widget.subjectId != null)
                   Align(
                     alignment: Alignment.centerRight,
                     child: TextButton.icon(
                       onPressed: () => _openNetaba(widget.subjectId!),
-                      icon: const Icon(Icons.open_in_new_rounded, size: 16),
+                      icon: const AnimeIcon(
+                        Icons.open_in_new_rounded,
+                        size: 16,
+                      ),
                       label: const Text('在 netaba.re 查看'),
                       style: TextButton.styleFrom(
                         visualDensity: VisualDensity.compact,
@@ -362,6 +408,39 @@ class _ScoreHistoryPanelState extends State<ScoreHistoryPanel> {
             ],
           ],
         ),
+      ),
+    );
+  }
+
+  Future<void> _shareScore(BuildContext context, NetabaSubjectHistory history) {
+    final title =
+        widget.subjectTitle ??
+        (history.subject.nameCn.isNotEmpty
+            ? history.subject.nameCn
+            : history.subject.name);
+    final lines = [
+      ScoreComparisonLine(
+        title,
+        history.scoreSeries(maxPoints: 0),
+        _metricColor(NetabaHistoryMetric.score),
+      ),
+    ];
+    return showImageShareSheet(
+      context,
+      title: '$title · 评分走势',
+      filename: 'MuBangumi-score-${widget.subjectId ?? 'subject'}.png',
+      subtitle: '数据来源：netaba.re · 实际历史评分及关键节点',
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          ScoreComparisonChart(
+            lines: lines,
+            markKeyPoints: true,
+            interactive: false,
+          ),
+          ScoreChartKeyPoints(lines: lines),
+        ],
       ),
     );
   }
@@ -482,7 +561,7 @@ class _DeltaChip extends StatelessWidget {
         displayOverride ??
         '$label ${value > 0 ? '+' : ''}${value.toStringAsFixed(precision)}$suffix';
     return Chip(
-      avatar: Icon(
+      avatar: AnimeIcon(
         neutral
             ? Icons.remove_rounded
             : positive
@@ -511,8 +590,10 @@ class _LineChartPainter extends CustomPainter {
     this.reverseY = false,
     this.strokeWidth = 2,
     this.valueLabel,
+    this.viewport = const Rect.fromLTWH(0, 0, 1, 1),
   });
 
+  final Rect viewport;
   final List<NetabaChartPoint> points;
   final Color lineColor;
   final Color fillColor;
@@ -552,8 +633,17 @@ class _LineChartPainter extends CustomPainter {
     minV -= pad;
     maxV += pad;
 
-    final minT = points.first.at.millisecondsSinceEpoch.toDouble();
-    final maxT = points.last.at.millisecondsSinceEpoch.toDouble();
+    final fullMin = minV, fullMax = maxV;
+    minV = reverseY
+        ? fullMin + (fullMax - fullMin) * viewport.top
+        : fullMax - (fullMax - fullMin) * viewport.bottom;
+    maxV = reverseY
+        ? fullMin + (fullMax - fullMin) * viewport.bottom
+        : fullMax - (fullMax - fullMin) * viewport.top;
+    final fullStart = points.first.at.millisecondsSinceEpoch.toDouble();
+    final fullEnd = points.last.at.millisecondsSinceEpoch.toDouble();
+    final minT = fullStart + (fullEnd - fullStart) * viewport.left;
+    final maxT = fullStart + (fullEnd - fullStart) * viewport.right;
     final tSpan = (maxT - minT).abs() < 1 ? 1.0 : (maxT - minT);
 
     Offset mapPoint(NetabaChartPoint p) {
@@ -583,7 +673,7 @@ class _LineChartPainter extends CustomPainter {
 
     if (showLabels && labelColor != null) {
       final labels = reverseY
-          ? [maxV, (maxV + minV) / 2, minV]
+          ? [minV, (maxV + minV) / 2, maxV]
           : [maxV, (maxV + minV) / 2, minV];
       final tp = TextPainter(textDirection: TextDirection.ltr);
       for (var i = 0; i < labels.length; i++) {
@@ -600,6 +690,8 @@ class _LineChartPainter extends CustomPainter {
       }
     }
 
+    canvas.save();
+    canvas.clipRect(chart.inflate(2));
     final path = Path();
     final fill = Path();
     for (var i = 0; i < points.length; i++) {
@@ -638,11 +730,13 @@ class _LineChartPainter extends CustomPainter {
         canvas.drawCircle(mapPoint(p), 2.2, dot);
       }
     }
+    canvas.restore();
   }
 
   @override
   bool shouldRepaint(covariant _LineChartPainter oldDelegate) {
-    return oldDelegate.points != points ||
+    return oldDelegate.viewport != viewport ||
+        oldDelegate.points != points ||
         oldDelegate.lineColor != lineColor ||
         oldDelegate.reverseY != reverseY ||
         oldDelegate.showLabels != showLabels;
@@ -662,7 +756,7 @@ Color _metricColor(NetabaHistoryMetric metric) => switch (metric) {
   NetabaHistoryMetric.rank => const Color(0xFF5B8DEF),
   NetabaHistoryMetric.watching => const Color(0xFF2E9E6B),
   NetabaHistoryMetric.collect => const Color(0xFF8B6CEF),
-  NetabaHistoryMetric.rated => const Color(0xFFE95383),
+  NetabaHistoryMetric.rated => const Color(0xFFF09199),
 };
 
 String _rankDeltaText(int rankDelta) {

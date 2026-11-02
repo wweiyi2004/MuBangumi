@@ -54,11 +54,37 @@ function Invoke-MuNpm {
     }
     $previousPath = $env:PATH
     $previousBrowserCache = $env:PLAYWRIGHT_BROWSERS_PATH
+    $shimDirectory = $null
     try {
         $env:PATH = (Split-Path $node -Parent) + [IO.Path]::PathSeparator + $previousPath
+        if ($IsWindows) {
+            # Installed npm.cmd prefers its adjacent global node.exe over PATH.
+            # Keep recursive npm/npx lifecycle calls on the pinned runtime too.
+            $shimDirectory = Join-Path $script:MuRoot ('.dart_tool/npm-shims/' + [guid]::NewGuid().ToString('N'))
+            New-Item -ItemType Directory -Path $shimDirectory -Force | Out-Null
+            foreach ($entry in @('npm', 'npx')) {
+                $entryCli = Join-Path (Split-Path $cli -Parent) ($entry + '-cli.js')
+                if (-not (Test-Path -LiteralPath $entryCli)) { throw "Missing $entry CLI: $entryCli" }
+                $nodeArgument = $node.Replace('%', '%%')
+                $cliArgument = $entryCli.Replace('%', '%%')
+                $shim = "@echo off`r`nsetlocal DisableDelayedExpansion`r`n`"$nodeArgument`" `"$cliArgument`" %*`r`nexit /b %errorlevel%`r`n"
+                Set-Content -LiteralPath (Join-Path $shimDirectory ($entry + '.cmd')) -Value $shim -Encoding utf8NoBOM
+            }
+            $env:PATH = $shimDirectory + [IO.Path]::PathSeparator + $env:PATH
+        }
         if (-not $env:PLAYWRIGHT_BROWSERS_PATH) { $env:PLAYWRIGHT_BROWSERS_PATH = Join-Path $script:MuRoot '.dart_tool/playwright' }
         & $node $cli @Arguments
-    } finally { $env:PATH = $previousPath; $env:PLAYWRIGHT_BROWSERS_PATH = $previousBrowserCache }
+    } finally {
+        $env:PATH = $previousPath
+        $env:PLAYWRIGHT_BROWSERS_PATH = $previousBrowserCache
+        if ($shimDirectory) {
+            foreach ($entry in @('npm', 'npx')) {
+                $shimFile = Join-Path $shimDirectory ($entry + '.cmd')
+                if (Test-Path -LiteralPath $shimFile) { Remove-Item -LiteralPath $shimFile -Force }
+            }
+            Remove-Item -LiteralPath $shimDirectory -Force
+        }
+    }
 }
 function Get-MuPython {
     param([ValidateSet('recommend_dataset','semantic_retrieval','release_mirror')][string]$Project)

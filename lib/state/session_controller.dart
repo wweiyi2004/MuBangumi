@@ -318,6 +318,7 @@ class SessionController extends StateNotifier<SessionState>
         lastUser.username,
         snapshot ?? const [],
       );
+      final requiresAccessCheck = await _readAccessCheckPending(lastUser.id);
       if (!_isCurrentAuth(generation)) return false;
       _credentials.setAccessToken(token);
       _community.setCurrentUsername(
@@ -328,6 +329,7 @@ class SessionController extends StateNotifier<SessionState>
       state = SessionState(
         phase: SessionPhase.signedIn,
         user: lastUser,
+        requiresAccessCheck: requiresAccessCheck,
         collections: cached,
         collectionCoverage: snapshot is CollectionSnapshot
             ? snapshot.coverage.withCount(cached.length)
@@ -570,6 +572,22 @@ class SessionController extends StateNotifier<SessionState>
         snapshot ?? const [],
       );
       if (!_isCurrentAuth(generation)) return false;
+      // Only an interactive login starts the access check; restores resume an
+      // unfinished one, so quitting the app cannot skip it.
+      final requiresAccessCheck = persist && !alreadyRestored
+          ? true
+          : await _readAccessCheckPending(user.id);
+      if (persist && !alreadyRestored) {
+        try {
+          await _credentials.writeCurrent(
+            generation,
+            () => _snapshotCache.writeAccessCheckPending(user.id),
+          );
+        } catch (_) {
+          // The check still runs for this login; only restart resumption fails.
+        }
+      }
+      if (!_isCurrentAuth(generation)) return false;
       _community.setCurrentUsername(
         user.username,
         nickname: user.nickname,
@@ -583,6 +601,7 @@ class SessionController extends StateNotifier<SessionState>
         isLoadingCollections: true,
         isRefreshing: cached.isEmpty,
         isPreparingHome: !alreadyRestored && cached.isEmpty,
+        requiresAccessCheck: requiresAccessCheck,
         isUsingCachedCollections: cached.isNotEmpty,
         collectionsSavedAt: alreadyRestored
             ? state.collectionsSavedAt
@@ -641,6 +660,30 @@ class SessionController extends StateNotifier<SessionState>
       }
       return false;
     }
+  }
+
+  Future<bool> _readAccessCheckPending(int userId) async {
+    try {
+      return await _snapshotCache.readAccessCheckPending(userId);
+    } catch (_) {
+      // An unreadable marker must not lock a restored account out of home.
+      return false;
+    }
+  }
+
+  /// The first-login access check passed; later launches go straight home.
+  Future<void> completeAccessCheck() async {
+    final user = state.user;
+    if (!mounted ||
+        state.phase != SessionPhase.signedIn ||
+        !state.requiresAccessCheck ||
+        user == null) {
+      return;
+    }
+    state = state.copyWith(requiresAccessCheck: false);
+    try {
+      await _snapshotCache.writeAccessCheckPending(null);
+    } catch (_) {}
   }
 
   /// Leave the bounded first-screen wait; collection loading continues.
@@ -741,6 +784,19 @@ class SessionController extends StateNotifier<SessionState>
     UserCollection collection, {
     void Function(EpisodeUndo)? onUndoReady,
   }) => _collectionEditor.markNextEpisode(collection, onUndoReady: onUndoReady);
+  Future<Map<String, int>> episodeActivityDays() async {
+    final owner = state.user?.username;
+    final generation = _authGeneration;
+    if (owner == null) return const {};
+    final days = await _syncStore.episodeActivityDays(owner);
+    if (!mounted ||
+        generation != _authGeneration ||
+        state.user?.username != owner) {
+      return const {};
+    }
+    return days;
+  }
+
   Future<String?> setEpisode({
     required int subjectId,
     required int episodeId,
@@ -766,6 +822,7 @@ class SessionController extends StateNotifier<SessionState>
     Subject subject,
     CollectionType type, {
     bool completeEpisodesWhenDone = true,
+    int? watchedThrough,
     int? rate,
     String? comment,
     List<String>? tags,
@@ -783,6 +840,7 @@ class SessionController extends StateNotifier<SessionState>
     subject,
     type,
     completeEpisodesWhenDone: completeEpisodesWhenDone,
+    watchedThrough: watchedThrough,
     rate: rate,
     comment: comment,
     tags: tags,
@@ -830,6 +888,7 @@ class SessionController extends StateNotifier<SessionState>
         _tokenStore.clear,
         _websiteSessionStore.clear,
         _snapshotCache.clearLastUser,
+        () => _snapshotCache.writeAccessCheckPending(null),
         if (previousUsername != null)
           () => _snapshotCache.clearUserScope(previousUsername),
         _community.clearAccountCache,

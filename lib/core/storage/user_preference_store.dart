@@ -1,8 +1,7 @@
-import 'dart:io';
-
 import 'package:path/path.dart' as path;
 import 'package:sqflite/sqflite.dart';
-import 'package:sqflite_common_ffi/sqflite_ffi.dart' as ffi;
+import 'serial_task_queue.dart';
+import 'sqlite_support.dart';
 
 class LocalUserPreference {
   const LocalUserPreference({
@@ -40,21 +39,14 @@ class UserPreferenceStore implements UserPreferenceRepository {
 
   static final shared = UserPreferenceStore._();
 
-  Database? _database;
-  Future<void> _writes = Future.value();
-  Future<T> _write<T>(Future<T> Function() action) {
-    final next = _writes.then((_) => action());
-    _writes = next.then<void>((_) {}, onError: (Object _, StackTrace _) {});
-    return next;
-  }
+  final _connection = SqliteConnection();
+  final _writes = SerialTaskQueue();
+  Future<T> _write<T>(Future<T> Function() action) => _writes.run(action);
 
   Future<String> databaseForBackup() async {
-    await _writes;
+    await _writes.done;
     return (await _open()).path;
   }
-
-  Future<Database>? _opening;
-  static bool _ffiReady = false;
 
   @override
   Future<List<LocalUserPreference>> loadAll() async {
@@ -90,44 +82,22 @@ class UserPreferenceStore implements UserPreferenceRepository {
   });
 
   Future<void> close() async {
-    await _writes;
-    await _database?.close();
-    _database = null;
+    await _writes.done;
+    await _connection.close();
   }
 
-  Future<Database> _open() async {
-    final current = _database;
-    if (current != null) return current;
-    final opening = _opening;
-    if (opening != null) return opening;
-    final future = _createDatabase();
-    _opening = future;
-    try {
-      final database = await future;
-      _database = database;
-      return database;
-    } finally {
-      _opening = null;
-    }
-  }
+  Future<Database> _open() => _connection.open(_createDatabase);
 
   Future<Database> _createDatabase() async {
-    if (Platform.isWindows || Platform.isLinux) {
-      if (!_ffiReady) {
-        ffi.sqfliteFfiInit();
-        databaseFactory = ffi.databaseFactoryFfi;
-        _ffiReady = true;
-      }
-    }
-    final root = await getDatabasesPath();
-    return openDatabase(
+    final factory = sqliteFactory;
+    final root = await factory.getDatabasesPath();
+    return factory.openDatabase(
       databasePath ?? path.join(root, 'mubangumi_user_preferences.sqlite'),
-      version: 1,
-      onConfigure: (db) async {
-        await db.rawQuery('PRAGMA journal_mode=DELETE');
-      },
-      onCreate: (database, _) async {
-        await database.execute('''
+      options: OpenDatabaseOptions(
+        version: 1,
+        onConfigure: configurePersonalDatabase,
+        onCreate: (database, _) async {
+          await database.execute('''
           CREATE TABLE user_preference (
             username TEXT PRIMARY KEY NOT NULL,
             note TEXT NOT NULL DEFAULT '',
@@ -135,7 +105,8 @@ class UserPreferenceStore implements UserPreferenceRepository {
             updated_at INTEGER NOT NULL
           )
         ''');
-      },
+        },
+      ),
     );
   }
 }

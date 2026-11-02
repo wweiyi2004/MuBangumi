@@ -1,3 +1,4 @@
+import '../../core/theme/anime_icon.dart';
 import 'dart:io';
 import 'dart:math' as math;
 import 'package:cached_network_image/cached_network_image.dart';
@@ -275,6 +276,8 @@ class _TierPrintPageState extends State<TierPrintPage> {
                       ),
                       _field(
                         DropdownButtonFormField<int>(
+                          borderRadius: BorderRadius.circular(16),
+                          dropdownColor: Theme.of(context).colorScheme.surface,
                           initialValue: _quarter ?? 0,
                           isExpanded: true,
                           decoration: const InputDecoration(
@@ -309,7 +312,7 @@ class _TierPrintPageState extends State<TierPrintPage> {
                       ),
                       FilledButton.icon(
                         onPressed: _busy ? null : _load,
-                        icon: const Icon(Icons.download_outlined),
+                        icon: const AnimeIcon(Icons.download_outlined),
                         label: const Text('读取全部条目'),
                       ),
                     ],
@@ -366,6 +369,8 @@ class _TierPrintPageState extends State<TierPrintPage> {
                               : (value) => setState(() => _tvOnly = value),
                         ),
                         DropdownButton<TierPrintSort>(
+                          borderRadius: BorderRadius.circular(16),
+                          dropdownColor: Theme.of(context).colorScheme.surface,
                           value: _sort,
                           items: [
                             for (final order in TierPrintSort.values)
@@ -407,6 +412,10 @@ class _TierPrintPageState extends State<TierPrintPage> {
                       children: [
                         _field(
                           DropdownButtonFormField<TierPrintPaper>(
+                            borderRadius: BorderRadius.circular(16),
+                            dropdownColor: Theme.of(
+                              context,
+                            ).colorScheme.surface,
                             key: const ValueKey('tier-cover-paper'),
                             initialValue: _paper,
                             decoration: const InputDecoration(
@@ -432,6 +441,10 @@ class _TierPrintPageState extends State<TierPrintPage> {
                         ),
                         _field(
                           DropdownButtonFormField<TierPrintPaper>(
+                            borderRadius: BorderRadius.circular(16),
+                            dropdownColor: Theme.of(
+                              context,
+                            ).colorScheme.surface,
                             key: const ValueKey('tier-board-paper'),
                             initialValue: _boardPaper,
                             decoration: const InputDecoration(
@@ -466,6 +479,10 @@ class _TierPrintPageState extends State<TierPrintPage> {
                         ),
                         _field(
                           DropdownButtonFormField<TierPrintCard>(
+                            borderRadius: BorderRadius.circular(16),
+                            dropdownColor: Theme.of(
+                              context,
+                            ).colorScheme.surface,
                             key: ValueKey(
                               '${_paper.name}-${_boardPaper.name}-${_card.name}',
                             ),
@@ -556,6 +573,10 @@ class _TierPrintPageState extends State<TierPrintPage> {
                       children: [
                         _field(
                           DropdownButtonFormField<TierPrintPart>(
+                            borderRadius: BorderRadius.circular(16),
+                            dropdownColor: Theme.of(
+                              context,
+                            ).colorScheme.surface,
                             initialValue: _part,
                             isExpanded: true,
                             decoration: const InputDecoration(
@@ -582,7 +603,7 @@ class _TierPrintPageState extends State<TierPrintPage> {
                                   !_periodMatches
                               ? null
                               : _export,
-                          icon: const Icon(Icons.picture_as_pdf_outlined),
+                          icon: const AnimeIcon(Icons.picture_as_pdf_outlined),
                           label: const Text('导出打印 PDF'),
                         ),
                       ],
@@ -630,12 +651,14 @@ class _TierPrintPageState extends State<TierPrintPage> {
                         children: [
                           Expanded(
                             child: entry.coverUrl.isEmpty
-                                ? const Icon(Icons.image_not_supported_outlined)
+                                ? const AnimeIcon(
+                                    Icons.image_not_supported_outlined,
+                                  )
                                 : CachedNetworkImage(
                                     imageUrl: entry.coverUrl,
                                     fit: BoxFit.contain,
                                     memCacheWidth: 200,
-                                    errorWidget: (_, _, _) => const Icon(
+                                    errorWidget: (_, _, _) => const AnimeIcon(
                                       Icons.image_not_supported_outlined,
                                     ),
                                   ),

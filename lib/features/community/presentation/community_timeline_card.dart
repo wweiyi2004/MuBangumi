@@ -1,5 +1,8 @@
+import '../../../widgets/bounded_image.dart';
+import '../../../core/theme/anime_icon.dart';
 import 'community_post_actions.dart';
-import 'package:cached_network_image/cached_network_image.dart';
+import '../../../widgets/content_share_sheet.dart';
+import '../../../core/sharing/share_content.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/cupertino.dart';
 
@@ -104,27 +107,24 @@ class CommunityTimelineCard extends StatelessWidget {
                   ],
                 ),
               ),
-              if (onDelete != null || onOpenUser != null)
-                PopupMenuButton<String>(
-                  tooltip: '更多动态操作',
-                  icon: const Icon(Icons.more_horiz),
-                  onSelected: (action) {
-                    if (action == 'delete') onDelete?.call();
-                    if (action == 'profile') onOpenUser?.call(item.user);
-                  },
-                  itemBuilder: (_) => [
-                    if (onOpenUser != null)
-                      const PopupMenuItem(
-                        value: 'profile',
-                        child: Text('查看主页'),
-                      ),
-                    if (onDelete != null)
-                      const PopupMenuItem(
-                        value: 'delete',
-                        child: Text('删除这条动态'),
-                      ),
-                  ],
-                ),
+              PopupMenuButton<String>(
+                tooltip: '更多动态操作',
+                icon: const AnimeIcon(Icons.more_horiz),
+                onSelected: (action) {
+                  if (action == 'share') {
+                    showContentShareSheet(context, ShareContent.timeline(item));
+                  }
+                  if (action == 'delete') onDelete?.call();
+                  if (action == 'profile') onOpenUser?.call(item.user);
+                },
+                itemBuilder: (_) => [
+                  const PopupMenuItem(value: 'share', child: Text('分享动态')),
+                  if (onOpenUser != null)
+                    const PopupMenuItem(value: 'profile', child: Text('查看主页')),
+                  if (onDelete != null)
+                    const PopupMenuItem(value: 'delete', child: Text('删除这条动态')),
+                ],
+              ),
             ],
           ),
           if (item.content.isNotEmpty || item.rawContent.isNotEmpty) ...[
@@ -175,7 +175,10 @@ class CommunityTimelineCard extends StatelessWidget {
                         foregroundColor: colors.onSurface,
                         padding: const EdgeInsets.symmetric(horizontal: 10),
                       ),
-                      icon: const Icon(CupertinoIcons.chat_bubble, size: 24),
+                      icon: const AnimeIcon(
+                        CupertinoIcons.chat_bubble,
+                        size: 24,
+                      ),
                       label: Text(
                         '${item.replyCount}',
                         style: const TextStyle(fontSize: 13),
@@ -187,7 +190,7 @@ class CommunityTimelineCard extends StatelessWidget {
                 : IconButton(
                     tooltip: '回复这条动态',
                     onPressed: onReply,
-                    icon: const Icon(CupertinoIcons.chat_bubble, size: 24),
+                    icon: const AnimeIcon(CupertinoIcons.chat_bubble, size: 24),
                   ),
             reactions: item.reactions,
             currentUsername: currentUsername,
@@ -348,7 +351,7 @@ class _TimelineTargetsState extends State<_TimelineTargets> {
                       ),
                     ),
                     if (widget.onOpen != null)
-                      const Icon(Icons.chevron_right, size: 18),
+                      const AnimeIcon(Icons.chevron_right, size: 18),
                   ],
                 ),
               ),
@@ -429,7 +432,7 @@ class _TimelineProgressPanel extends StatelessWidget {
                     ),
                   ),
                   if (onOpenSubject != null)
-                    const Icon(Icons.chevron_right_rounded),
+                    const AnimeIcon(Icons.chevron_right_rounded),
                 ],
               ),
               const SizedBox(height: 9),
@@ -624,7 +627,7 @@ class _TimelineReplyView extends StatelessWidget {
                 alignment: Alignment.centerRight,
                 child: TextButton.icon(
                   onPressed: () => onReply!(reply, parent),
-                  icon: const Icon(Icons.reply_rounded, size: 16),
+                  icon: const AnimeIcon(Icons.reply_rounded, size: 16),
                   label: const Text('回复'),
                 ),
               ),
@@ -676,11 +679,11 @@ class _TimelineCover extends StatelessWidget {
       child: ColoredBox(
         color: Theme.of(context).colorScheme.onSurface.withValues(alpha: .06),
         child: imageUrl.isEmpty
-            ? Icon(icon, size: 26)
-            : CachedNetworkImage(
+            ? AnimeIcon(icon, size: 26)
+            : BoundedNetworkImage(
                 imageUrl: BangumiEndpoints.imageUrl(imageUrl),
                 fit: BoxFit.cover,
-                errorWidget: (_, _, _) => Icon(icon, size: 26),
+                errorWidget: (_, _, _) => AnimeIcon(icon, size: 26),
               ),
       ),
     ),
@@ -708,7 +711,7 @@ class _TimelineImages extends StatelessWidget {
           for (final url in urls)
             ClipRRect(
               borderRadius: BorderRadius.circular(8),
-              child: CachedNetworkImage(
+              child: BoundedNetworkImage(
                 imageUrl: BangumiEndpoints.imageUrl(url),
                 width: tile,
                 height: columns == 1 ? tile * .75 : tile,
@@ -716,7 +719,7 @@ class _TimelineImages extends StatelessWidget {
                 errorWidget: (_, _, _) => SizedBox(
                   width: tile,
                   height: columns == 1 ? tile * .75 : tile,
-                  child: const Icon(Icons.broken_image_outlined),
+                  child: const AnimeIcon(Icons.broken_image_outlined),
                 ),
               ),
             ),

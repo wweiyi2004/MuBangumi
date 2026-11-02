@@ -1,3 +1,4 @@
+import '../../../core/theme/anime_icon.dart';
 import 'dart:async';
 import 'package:flutter/material.dart';
 import '../../../core/external_link.dart';
@@ -36,7 +37,7 @@ class SubjectMoegirlPanel extends StatelessWidget {
         if (!attempted && !loading)
           OutlinedButton.icon(
             onPressed: onLoad,
-            icon: const Icon(Icons.auto_stories_outlined),
+            icon: const AnimeIcon(Icons.auto_stories_outlined),
             label: const Text('从萌娘百科补充'),
           )
         else
@@ -82,7 +83,7 @@ class SubjectMoegirlPanel extends StatelessWidget {
                         children: [
                           FilledButton.tonalIcon(
                             onPressed: onOpen,
-                            icon: const Icon(Icons.article_outlined),
+                            icon: const AnimeIcon(Icons.article_outlined),
                             label: Text(
                               entry!.sections.isEmpty
                                   ? '阅读全文'
@@ -99,7 +100,7 @@ class SubjectMoegirlPanel extends StatelessWidget {
                             onPressed: () => unawaited(
                               launchExternalLink(Uri.tryParse(entry!.url)),
                             ),
-                            icon: const Icon(Icons.open_in_new_rounded),
+                            icon: const AnimeIcon(Icons.open_in_new_rounded),
                             label: const Text('查看原文'),
                           ),
                         ],
@@ -124,12 +125,12 @@ class SubjectMoegirlPanel extends StatelessWidget {
                         children: [
                           OutlinedButton.icon(
                             onPressed: onLoad,
-                            icon: const Icon(Icons.refresh_rounded),
+                            icon: const AnimeIcon(Icons.refresh_rounded),
                             label: const Text('重试'),
                           ),
                           TextButton.icon(
                             onPressed: onSearch,
-                            icon: const Icon(Icons.search_rounded),
+                            icon: const AnimeIcon(Icons.search_rounded),
                             label: const Text('手动搜索'),
                           ),
                         ],

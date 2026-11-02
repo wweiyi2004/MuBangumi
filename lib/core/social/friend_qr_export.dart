@@ -5,9 +5,9 @@ import 'dart:ui' as ui;
 import 'package:flutter/rendering.dart';
 import 'package:flutter/widgets.dart';
 import 'package:path/path.dart' as p;
-import 'package:path_provider/path_provider.dart';
 
 import '../format/date_format.dart';
+import '../sharing/export_files.dart';
 
 class FriendQrExporter {
   FriendQrExporter._();
@@ -18,7 +18,7 @@ class FriendQrExporter {
     Directory? directory,
     bool group = false,
   }) async {
-    final dir = directory ?? await exportDirectory();
+    final dir = directory ?? await ExportFiles.directory();
     await dir.create(recursive: true);
     final now = DateTime.now();
     final stamp = formatFileStamp(now);
@@ -34,21 +34,6 @@ class FriendQrExporter {
     );
     await file.writeAsBytes(bytes, flush: true);
     return file;
-  }
-
-  static Future<Directory> exportDirectory() async {
-    if (Platform.isAndroid || Platform.isIOS) {
-      final docs = await getApplicationDocumentsDirectory();
-      return Directory(p.join(docs.path, 'exports'));
-    }
-    try {
-      final downloads = await getDownloadsDirectory();
-      if (downloads != null) {
-        return Directory(p.join(downloads.path, 'MuBangumi'));
-      }
-    } catch (_) {}
-    final docs = await getApplicationDocumentsDirectory();
-    return Directory(p.join(docs.path, 'MuBangumi', 'exports'));
   }
 
   static Future<Uint8List> captureBoundary(
@@ -74,17 +59,5 @@ class FriendQrExporter {
     } finally {
       image.dispose();
     }
-  }
-
-  static Future<void> revealInFileManager(String filePath) async {
-    try {
-      if (Platform.isWindows) {
-        await Process.run('explorer', ['/select,', filePath]);
-      } else if (Platform.isMacOS) {
-        await Process.run('open', ['-R', filePath]);
-      } else if (Platform.isLinux) {
-        await Process.run('xdg-open', [p.dirname(filePath)]);
-      }
-    } catch (_) {}
   }
 }

@@ -1,3 +1,4 @@
+import '../../../core/theme/anime_icon.dart';
 import '../../../state/service_providers.dart';
 import 'dart:async';
 import 'package:flutter/material.dart';
@@ -150,16 +151,9 @@ class _PmComposeScreenState extends ConsumerState<PmComposeScreen> {
     try {
       if (!await editing!.flush()) return;
       if (!mounted || _sessionChanged) return;
-      if (_params == null || _preparedRecipient != user) await _prepare();
-      if (!mounted || _sessionChanged || _recipient != user) return;
-      final params = _params;
-      if (params == null || _preparedRecipient != user) return;
       final queue = ref.read(pmSendQueueProvider(_service));
       if (queue.supported) {
-        final command = await queue.enqueue(
-          draft,
-          receiver: params.msgReceivers,
-        );
+        final command = await queue.enqueue(draft, receiver: user);
         if (command == null || !mounted || _sessionChanged) return;
         editing.allowPop();
         ScaffoldMessenger.of(
@@ -170,6 +164,10 @@ class _PmComposeScreenState extends ConsumerState<PmComposeScreen> {
         });
         return;
       }
+      if (_params == null || _preparedRecipient != user) await _prepare();
+      if (!mounted || _sessionChanged || _recipient != user) return;
+      final params = _params;
+      if (params == null || _preparedRecipient != user) return;
       await _service.compose(params: params, title: title, body: body);
       final cleared = await draft.markSent();
       if (!mounted || _sessionChanged || !cleared) return;
@@ -237,7 +235,10 @@ class _PmComposeScreenState extends ConsumerState<PmComposeScreen> {
         if (mounted && _sessionChanged) setState(() => _sessionChanged = false);
       },
       onRestored: () {
-        if (_to.text.trim().isNotEmpty) unawaited(_prepare());
+        if (_to.text.trim().isNotEmpty &&
+            !ref.read(pmSendQueueProvider(_service)).supported) {
+          unawaited(_prepare());
+        }
       },
       builder: (context, editing) {
         _draftEditing = editing;
@@ -250,14 +251,14 @@ class _PmComposeScreenState extends ConsumerState<PmComposeScreen> {
                 onPressed: !editing.ready || _sending || _choosingDraft
                     ? null
                     : _chooseDraft,
-                icon: const Icon(Icons.drafts_outlined),
+                icon: const AnimeIcon(Icons.drafts_outlined),
               ),
               IconButton(
                 tooltip: '新建草稿',
                 onPressed: !editing.canStartNew || _sending || _choosingDraft
                     ? null
                     : editing.newCompose,
-                icon: const Icon(Icons.note_add_outlined),
+                icon: const AnimeIcon(Icons.note_add_outlined),
               ),
             ],
           ),
@@ -288,7 +289,10 @@ class _PmComposeScreenState extends ConsumerState<PmComposeScreen> {
                         color: scheme.primary.withValues(alpha: .16),
                         borderRadius: AppRadius.medium,
                       ),
-                      child: Icon(Icons.mail_rounded, color: scheme.primary),
+                      child: AnimeIcon(
+                        Icons.mail_rounded,
+                        color: scheme.primary,
+                      ),
                     ),
                     const SizedBox(width: 12),
                     Expanded(
@@ -314,7 +318,7 @@ class _PmComposeScreenState extends ConsumerState<PmComposeScreen> {
                 decoration: InputDecoration(
                   labelText: '收件人',
                   hintText: '用户名或 UID',
-                  prefixIcon: const Icon(Icons.person_outline_rounded),
+                  prefixIcon: const AnimeIcon(Icons.person_outline_rounded),
                   suffixIcon: IconButton(
                     tooltip: '校验收件人',
                     onPressed:
@@ -329,7 +333,7 @@ class _PmComposeScreenState extends ConsumerState<PmComposeScreen> {
                             dimension: 18,
                             child: CircularProgressIndicator(strokeWidth: 2),
                           )
-                        : const Icon(Icons.person_search_rounded),
+                        : const AnimeIcon(Icons.person_search_rounded),
                   ),
                 ),
                 onSubmitted: (_) => _prepare(),
@@ -344,7 +348,7 @@ class _PmComposeScreenState extends ConsumerState<PmComposeScreen> {
                     editing.ready,
                 decoration: const InputDecoration(
                   labelText: '标题',
-                  prefixIcon: Icon(Icons.title_rounded),
+                  prefixIcon: AnimeIcon(Icons.title_rounded),
                 ),
               ),
               const SizedBox(height: 12),
@@ -362,7 +366,7 @@ class _PmComposeScreenState extends ConsumerState<PmComposeScreen> {
                   alignLabelWithHint: true,
                   prefixIcon: Padding(
                     padding: EdgeInsets.only(bottom: 120),
-                    child: Icon(Icons.notes_rounded),
+                    child: AnimeIcon(Icons.notes_rounded),
                   ),
                 ),
               ),
@@ -386,7 +390,7 @@ class _PmComposeScreenState extends ConsumerState<PmComposeScreen> {
                   ),
                   child: Row(
                     children: [
-                      Icon(
+                      AnimeIcon(
                         Icons.check_circle_rounded,
                         color: scheme.primary,
                         size: 18,

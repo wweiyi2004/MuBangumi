@@ -8,6 +8,68 @@ import 'package:mubangumi/models/schedule_models.dart';
 import 'package:mubangumi/state/schedule_controller.dart';
 
 void main() {
+  for (final weekday in <int?>[null, 1]) {
+    for (final batch in [false, true]) {
+      test(
+        'append after deletion keeps day $weekday order (batch=$batch)',
+        () async {
+          final season = SeasonKey.current();
+          final store = _FakeScheduleStore({
+            season.id: SeasonSchedule(
+              season: season,
+              items: [
+                for (var id = 1; id <= 5; id++)
+                  ScheduleItem(
+                    subjectId: id,
+                    name: 'Subject $id',
+                    nameCn: '',
+                    imageUrl: '',
+                    weekday: weekday,
+                    sortOrder: id - 1,
+                  ),
+              ],
+            ),
+          });
+          final controller = ScheduleController(store);
+          addTearDown(controller.dispose);
+          await _waitFor(() => !controller.state.loading);
+          for (var id = 1; id <= 3; id++) {
+            await controller.removeSubject(id);
+          }
+          Subject subject(int id) => Subject(
+            id: id,
+            name: 'Subject $id',
+            nameCn: '',
+            imageUrl: '',
+            summary: '',
+            episodeCount: 12,
+            score: 0,
+            rank: 0,
+            date: '',
+          );
+          if (batch) {
+            final result = await controller.addBatchToSeason(
+              [subject(6), subject(7)],
+              season,
+              weekday: weekday,
+              allowed: () => true,
+            );
+            expect(result.added, {6, 7});
+          } else {
+            await controller.addSubject(subject(6), weekday: weekday);
+          }
+          await controller.load(season);
+          final schedule = controller.state.schedule;
+          final items = weekday == null
+              ? schedule.unscheduled
+              : schedule.itemsOn(weekday);
+          expect(items.map((item) => item.subjectId), [4, 5, 6, if (batch) 7]);
+          expect(items.take(2).map((item) => item.sortOrder), [3, 4]);
+        },
+      );
+    }
+  }
+
   test(
     'quarter batch keeps existing entries and per-day order, failure is retryable',
     () async {

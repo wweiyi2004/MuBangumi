@@ -1,3 +1,4 @@
+import '../core/theme/anime_icon.dart';
 import 'package:flutter/material.dart';
 
 /// Thumb-reachable actions stay visible while reading a long subject page.
@@ -46,7 +47,7 @@ class MobileSubjectActions extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(icon, size: 22),
+            AnimeIcon(icon, size: 22),
             const SizedBox(height: 4),
             Text(label, textAlign: TextAlign.center),
           ],

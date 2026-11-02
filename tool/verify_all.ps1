@@ -65,9 +65,9 @@ try {
             }
             # Integration tests build a separate entry point into the same Debug
             # output. Restore normal application artifacts after all smoke runs.
-            if ($IsWindows) { Check 'windows-build' { Invoke-MuFlutter -Arguments @('build','windows','--debug','--no-pub') } }
-            Check 'android-build' { Invoke-MuFlutter -Arguments @('build','apk','--debug','--no-pub','--target-platform','android-arm64') }
-            if ($IsMacOS) { Check 'ios-build' { Invoke-MuFlutter -Arguments @('build','ios','--simulator','--debug','--no-codesign','--no-pub') } }
+            if ($IsWindows) { Check 'windows-build' { Invoke-MuFlutter -Arguments @('build','windows','--debug','--no-pub','--dart-define=MUBANGUMI_FEEDBACK_URL=https://mubangumi-homepage.2844938982.workers.dev/api/feedback') } }
+            Check 'android-build' { Invoke-MuFlutter -Arguments @('build','apk','--debug','--no-pub','--target-platform','android-arm64','--dart-define=MUBANGUMI_FEEDBACK_URL=https://mubangumi-homepage.2844938982.workers.dev/api/feedback') }
+            if ($IsMacOS) { Check 'ios-build' { Invoke-MuFlutter -Arguments @('build','ios','--simulator','--debug','--no-codesign','--no-pub','--dart-define=MUBANGUMI_FEEDBACK_URL=https://mubangumi-homepage.2844938982.workers.dev/api/feedback') } }
             else { $deferred.Add('iOS simulator build not run: requires macOS; CI configuration is not execution evidence') }
             $deferred.Add('Real-account acceptance, native file exchange, reminders and update installation are separate manual checks; automated smoke does not certify them')
         }
@@ -96,7 +96,8 @@ try {
     }
     if ($Areas -contains 'tools') {
         Check 'architecture' { python tool/verify_architecture.py --self-test }
-        foreach ($name in @('windows_package_safety','release_build','workspace_cleanup')) {
+        Check 'turnstile-bridge' { & (Get-MuNode) tool/tests/turnstile_bridge_test.cjs }
+        foreach ($name in @('toolchain_npm','windows_package_safety','release_build','workspace_cleanup')) {
             if (-not $IsWindows -and $name -eq 'workspace_cleanup') { continue }
             Check $name { & pwsh -NoProfile -File "tool/tests/${name}_test.ps1" }
         }

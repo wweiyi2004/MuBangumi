@@ -69,6 +69,7 @@ $versionArguments = @()
 if ($BuildName) { $versionArguments += "--build-name=$BuildName" }
 if ($BuildNumber) { $versionArguments += "--build-number=$BuildNumber" }
 if ($GiteeRepository) { $versionArguments += "--dart-define=GITEE_REPOSITORY=$GiteeRepository" }
+$versionArguments += '--dart-define=MUBANGUMI_FEEDBACK_URL=https://mubangumi-homepage.2844938982.workers.dev/api/feedback'
 
 if (-not (Test-Path -LiteralPath $oauthConfigPath -PathType Leaf)) {
     throw @"

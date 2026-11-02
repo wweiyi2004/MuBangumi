@@ -1,3 +1,4 @@
+import '../../core/theme/anime_icon.dart';
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:banjian_server/banjian_server.dart';
@@ -180,12 +181,12 @@ class _RoomCommentsBrowserState extends State<RoomCommentsBrowser> {
             IconButton(
               tooltip: '刷新评论',
               onPressed: _busy ? null : _load,
-              icon: const Icon(Icons.refresh),
+              icon: const AnimeIcon(Icons.refresh),
             ),
             IconButton(
               tooltip: '关闭',
               onPressed: () => Navigator.pop(context),
-              icon: const Icon(Icons.close),
+              icon: const AnimeIcon(Icons.close),
             ),
           ],
         ),
@@ -198,7 +199,7 @@ class _RoomCommentsBrowserState extends State<RoomCommentsBrowser> {
             itemBuilder: (context, i) {
               final c = _page!.comments[i];
               return ListTile(
-                leading: const Icon(Icons.person_outline),
+                leading: const AnimeIcon(Icons.person_outline),
                 title: Text(c.mine ? '我 · 匿名短评' : '匿名短评'),
                 subtitle: Text('${c.text}${c.hidden ? '（已隐藏）' : ''}'),
                 trailing: widget.onModerate == null

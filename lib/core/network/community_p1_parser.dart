@@ -213,7 +213,7 @@ class CommunityP1Parser {
     for (var floor = 0; floor < replies.length; floor++) {
       final reply = _map(replies[floor]);
       if (reply == null) continue;
-      posts.add(_parsePost(reply, floor: floor, isOriginal: floor == 0));
+      posts.add(_parsePost(reply, floor: floor + 1, isOriginal: floor == 0));
       final nested = _list(reply['replies']);
       for (var index = 0; index < nested.length; index++) {
         final child = _map(nested[index]);
@@ -221,7 +221,7 @@ class CommunityP1Parser {
         posts.add(
           _parsePost(
             child,
-            floor: floor,
+            floor: floor + 1,
             nestedFloor: index + 1,
             isNested: true,
           ),
@@ -324,14 +324,7 @@ class CommunityP1Parser {
         if (_absolute(match.group(1)).isNotEmpty) _absolute(match.group(1)),
     }.toList();
     final createdAt = _dateTime(json['createdAt']);
-    final floorText = isOriginal
-        ? ''
-        : nestedFloor == null
-        ? '#$floor'
-        // OP is unnumbered; nested replies under the OP use 楼主-n.
-        : floor == 0
-        ? '楼主-$nestedFloor'
-        : '#$floor-$nestedFloor';
+    final floorText = nestedFloor == null ? '#$floor' : '#$floor-$nestedFloor';
     final meta = [
       if (floorText.isNotEmpty) floorText,
       if (createdAt != null) _formatDateTime(createdAt),
@@ -360,6 +353,7 @@ class CommunityP1Parser {
                 .toString(),
       avatarUrl: _string(avatar?['small']),
       meta: meta,
+      createdAt: createdAt,
       images: images,
       isOriginal: isOriginal,
       isNested: isNested,

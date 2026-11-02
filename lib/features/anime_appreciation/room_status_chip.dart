@@ -1,3 +1,4 @@
+import '../../core/theme/anime_icon.dart';
 import 'package:flutter/material.dart';
 import '../../core/theme/app_tokens.dart';
 
@@ -37,7 +38,7 @@ class RoomStatusChip extends StatelessWidget {
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.circle, size: 7, color: tone),
+            AnimeIcon(Icons.circle, size: 7, color: tone),
             const SizedBox(width: 6),
             Text(
               label(status, ended: ended),

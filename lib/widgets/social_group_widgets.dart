@@ -1,3 +1,4 @@
+import '../core/theme/anime_icon.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import '../models/community_models.dart';
@@ -53,7 +54,7 @@ class GroupConversationTile extends StatelessWidget {
             ),
           ),
           const SizedBox(width: 10),
-          Icon(
+          AnimeIcon(
             CupertinoIcons.chevron_right,
             size: 15,
             color: Theme.of(context).colorScheme.outline,

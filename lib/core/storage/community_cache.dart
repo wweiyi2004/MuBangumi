@@ -1,25 +1,33 @@
 import 'dart:convert';
 import 'dart:async';
 import 'dart:io';
+import 'package:flutter/foundation.dart';
 
 import 'package:path/path.dart' as path;
 import 'package:path_provider/path_provider.dart';
 import 'package:sqflite/sqflite.dart';
-import 'package:sqflite_common_ffi/sqflite_ffi.dart' as ffi;
+import 'sqlite_support.dart';
+import 'serial_task_queue.dart';
+
+Map<String, dynamic>? _decodeCacheMap(String source) {
+  final value = jsonDecode(source);
+  return value is Map ? Map<String, dynamic>.from(value) : null;
+}
+
+String _encodeCacheMap(Map<String, dynamic> value) => jsonEncode(value);
 
 class CommunityCache {
-  CommunityCache._();
+  CommunityCache._() : _connection = SqliteConnection();
 
   CommunityCache.test({required Database connection, DateTime Function()? now})
-    : _database = connection {
+    : _connection = SqliteConnection(connection: connection) {
     _now = now ?? DateTime.now;
   }
 
   static final shared = CommunityCache._();
 
-  Database? _database;
-  Future<Database>? _opening;
-  static bool _ffiReady = false;
+  final SqliteConnection _connection;
+  final _writes = SerialTaskQueue();
   DateTime Function() _now = DateTime.now;
   DateTime? _lastPruned;
   int _writesSincePrune = 0;
@@ -28,39 +36,73 @@ class CommunityCache {
   static const maxEntries = 2000;
   static const maxPayloadBytes = 64 * 1024 * 1024;
 
-  Future<Map<String, dynamic>?> readJson(String key) async {
+  Future<Map<String, dynamic>?> readJson(String key) =>
+      readDecoded(key, _decodeCacheMap);
+
+  /// Decode a whole payload in one worker, including typed model construction.
+  Future<T?> readDecoded<T>(String key, T? Function(String) decode) async {
     try {
+      await _writes.done;
       final database = await _open();
-      final rows = await database.query(
-        'community_cache',
-        columns: const ['payload'],
-        where: 'cache_key = ?',
-        whereArgs: [key],
-        limit: 1,
-      );
-      if (rows.isEmpty) return null;
-      try {
-        final decoded = jsonDecode(rows.first['payload']! as String);
-        return decoded is Map ? Map<String, dynamic>.from(decoded) : null;
-      } on FormatException {
-        await remove(key);
-        return null;
-      }
+      final payload = await _readPayload(database, key);
+      if (payload == null) return null;
+      return payload.length >= 64 * 1024
+          ? await compute(decode, payload, debugLabel: 'cache.decode')
+          : decode(payload);
     } catch (_) {
       return null;
     }
+  }
+
+  Future<String?> _readPayload(Database database, String key) async {
+    final rows = await database.query(
+      'community_cache',
+      columns: const ['payload'],
+      where: 'cache_key = ?',
+      whereArgs: [key],
+      limit: 1,
+    );
+    return rows.isEmpty ? null : rows.first['payload'] as String;
   }
 
   Future<void> writeJson(
     String key,
     Map<String, dynamic> value, {
     bool accountScoped = false,
-  }) async {
+  }) => updateEncoded(key, (_) async {
+    final large = value.values.any(
+      (entry) =>
+          entry is List && entry.length >= 100 ||
+          entry is Map && entry.length >= 100 ||
+          entry is String && entry.length >= 64 * 1024,
+    );
+    return large ? compute(_encodeCacheMap, value) : _encodeCacheMap(value);
+  }, accountScoped: accountScoped);
+
+  /// Reserve write order before any asynchronous encoding. Logout/removal is
+  /// queued behind prior writes so their workers cannot recreate cleared data.
+  Future<void> updateEncoded(
+    String key,
+    Future<String?> Function(String?) update, {
+    bool readExisting = false,
+    bool accountScoped = false,
+  }) => _writes.run(() async {
     try {
       final database = await _open();
+      final previous = readExisting ? await _readPayload(database, key) : null;
+      final payload = await update(previous);
+      if (readExisting && payload == previous) return;
+      if (payload == null) {
+        await database.delete(
+          'community_cache',
+          where: 'cache_key = ?',
+          whereArgs: [key],
+        );
+        return;
+      }
       await database.insert('community_cache', {
         'cache_key': key,
-        'payload': jsonEncode(value),
+        'payload': payload,
         'updated_at': _now().millisecondsSinceEpoch,
         'account_scoped': accountScoped ? 1 : 0,
       }, conflictAlgorithm: ConflictAlgorithm.replace);
@@ -69,9 +111,9 @@ class CommunityCache {
     } catch (_) {
       // Cache is best-effort; network success must not depend on it.
     }
-  }
+  });
 
-  Future<void> remove(String key) async {
+  Future<void> remove(String key) => _writes.run(() async {
     try {
       final database = await _open();
       await database.delete(
@@ -80,9 +122,9 @@ class CommunityCache {
         whereArgs: [key],
       );
     } catch (_) {}
-  }
+  });
 
-  Future<void> removePrefix(String prefix) async {
+  Future<void> removePrefix(String prefix) => _writes.run(() async {
     try {
       final database = await _open();
       await database.delete(
@@ -93,9 +135,9 @@ class CommunityCache {
     } catch (_) {
       /* Disposable cache cleanup must not invalidate credential cleanup. */
     }
-  }
+  });
 
-  Future<void> clearAccountData() async {
+  Future<void> clearAccountData() => _writes.run(() async {
     try {
       final database = await _open();
       await database.delete(
@@ -104,10 +146,13 @@ class CommunityCache {
         whereArgs: [1],
       );
     } catch (_) {}
-  }
+  });
 
   /// Removes only disposable cache rows. SQLite reuses the freed pages.
-  Future<void> prune() async => _pruneIfNeeded(await _open(), force: true);
+  Future<void> prune() async {
+    await _writes.done;
+    await _pruneIfNeeded(await _open(), force: true);
+  }
 
   Future<void> _pruneIfNeeded(Database database, {bool force = false}) {
     final pending = _pruning;
@@ -176,48 +221,28 @@ class CommunityCache {
     return operation;
   }
 
-  Future<Database> _open() async {
-    final current = _database;
-    if (current != null) return current;
-    final opening = _opening;
-    if (opening != null) return opening;
-    final future = _createDatabase();
-    _opening = future;
-    try {
-      final database = await future;
-      _database = database;
-      unawaited(_pruneIfNeeded(database));
-      return database;
-    } finally {
-      _opening = null;
-    }
-  }
+  Future<Database> _open() => _connection.open(_createDatabase);
 
   Future<Database> _createDatabase() async {
-    if (Platform.isWindows || Platform.isLinux) {
-      if (!_ffiReady) {
-        ffi.sqfliteFfiInit();
-        databaseFactory = ffi.databaseFactoryFfi;
-        _ffiReady = true;
-      }
-    }
+    final factory = sqliteFactory;
     // Android / iOS use the sqflite plugin factory from package:sqflite.
     // Never reopen a cache shipped next to an old Windows executable. This is
     // disposable data; personal schedules, drafts and pending writes live in
     // separate stores and are deliberately not migrated or removed here.
     final root = Platform.isWindows
         ? path.join((await getApplicationSupportDirectory()).path, 'cache-v2')
-        : await getDatabasesPath();
+        : await factory.getDatabasesPath();
     final databasePath = path.join(root, 'mubangumi.sqlite');
-    return openDatabase(
+    final database = await factory.openDatabase(
       databasePath,
-      version: 3,
-      onUpgrade: (database, oldVersion, newVersion) async {
-        if (oldVersion < 2) await discardLegacyAccountCache(database);
-        if (oldVersion < 3) await discardUnscopedCommunitySnapshots(database);
-      },
-      onCreate: (database, _) async {
-        await database.execute('''
+      options: OpenDatabaseOptions(
+        version: 3,
+        onUpgrade: (database, oldVersion, newVersion) async {
+          if (oldVersion < 2) await discardLegacyAccountCache(database);
+          if (oldVersion < 3) await discardUnscopedCommunitySnapshots(database);
+        },
+        onCreate: (database, _) async {
+          await database.execute('''
           CREATE TABLE community_cache (
             cache_key TEXT PRIMARY KEY NOT NULL,
             payload TEXT NOT NULL,
@@ -225,8 +250,11 @@ class CommunityCache {
             account_scoped INTEGER NOT NULL DEFAULT 0
           )
         ''');
-      },
+        },
+      ),
     );
+    unawaited(_pruneIfNeeded(database));
+    return database;
   }
 }
 

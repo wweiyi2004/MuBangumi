@@ -23,6 +23,7 @@ class PmDraftController extends ChangeNotifier {
   bool _abandoned = false;
   Timer? _timer;
   Future<void> _operations = Future.value();
+  final _enqueues = <int, Future<PmSendCommand?>>{};
 
   bool get ready => !loading && _loaded;
   bool _loaded = false;
@@ -166,8 +167,10 @@ class PmDraftController extends ChangeNotifier {
     _timer?.cancel();
     final snapshot = data;
     final edit = _edit;
+    // Repeated submissions of the captured edit share its local commit.
+    final pending = _enqueues[edit];
+    if (pending != null) return pending;
     saving = true;
-    _notify();
     final operation = _operations.then<PmSendCommand?>((_) async {
       try {
         final result = await (store as PmOutboxRepository).enqueueDraft(
@@ -199,7 +202,12 @@ class PmDraftController extends ChangeNotifier {
       }
     });
     _operations = operation.then<void>((_) {});
-    return operation;
+    final tracked = operation.whenComplete(() {
+      _enqueues.remove(edit);
+    });
+    _enqueues[edit] = tracked;
+    _notify();
+    return tracked;
   }
 
   void abandonPendingEdits() {

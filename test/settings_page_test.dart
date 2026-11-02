@@ -72,6 +72,8 @@ void main() {
         '网络与更新',
         'Bangumi 网络线路',
         '检查更新',
+        '帮助与反馈',
+        '意见反馈',
         '账号',
         'Bangumi 账号',
         '打开 Bangumi 个人主页',
@@ -119,6 +121,10 @@ void main() {
           image.dispose();
         });
       }
+      await tester.scrollUntilVisible(find.text('意见反馈'), 80);
+      await tester.tap(find.text('意见反馈'));
+      await tester.pumpAndSettle();
+      expect(find.text('说清楚具体页面、操作或期待的效果即可。'), findsOneWidget);
       debugDefaultTargetPlatformOverride = null;
     });
   }

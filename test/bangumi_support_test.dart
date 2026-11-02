@@ -3,6 +3,39 @@ import 'package:mubangumi/core/network/bangumi_support.dart';
 import 'package:mubangumi/models/bangumi_models.dart';
 
 void main() {
+  test(
+    'legacy comments without avatars retain decoded text and a stable real ID',
+    () {
+      final comments = BangumiSupport.parseSubjectCommentsHtml(
+        '''
+      <div class="item" id="item_12"><a class="l" href="/user/alice">A &amp; B</a>
+        <span class="starlight stars8"></span><div class="comment">第一行<br>第二行 &lt;3</div></div>''',
+      );
+      expect(comments.single.id, 12);
+      expect(comments.single.userName, 'A & B');
+      expect(comments.single.comment, '第一行\n第二行 <3');
+      expect(comments.single.rate, 8);
+    },
+  );
+
+  test('text-only comments never invent IDs that collide between pages', () {
+    final comments = BangumiSupport.parseSubjectCommentsHtml(
+      '<div class="text"><p>第一条</p></div><div class="text"><p>第二条</p></div>',
+    );
+    expect(comments.map((comment) => comment.id), [0, 0]);
+  });
+
+  test(
+    'unrecognized rows in a comment container are errors rather than no comments',
+    () {
+      expect(
+        () => BangumiSupport.parseSubjectCommentsHtml(
+          '<div id="comment_box"><div class="item"><p>结构已变化</p></div></div>',
+        ),
+        throwsFormatException,
+      );
+    },
+  );
   test('pageQuery continues beyond first page', () {
     expect(BangumiSupport.pageQuery(limit: 24, offset: 0), {
       'limit': 24,
@@ -383,6 +416,42 @@ void main() {
     expect(comments.first.comment, contains('不错'));
     expect(comments.first.rate, 8);
   });
+
+  test(
+    'current website comment rows retain identities, scores, entities and line breaks',
+    () {
+      final comments = BangumiSupport.parseSubjectCommentsHtml('''
+      <div id="comment_box"><div class="item clearit" data-item-user="alice">
+        <span class="avatarNeue" style="background-image:url('//lain.bgm.tv/a.jpg')"></span>
+        <div class="text"><a href="/user/alice" class="l">A &amp; B</a>
+          <span class="starlight stars7"></span>
+          <p class="comment">第一行 &lt;3<br>第二行<img class="smile" alt="(bgm38)"></p>
+          <div class="likes_grid" id="likes_grid_123"></div>
+        </div></div></div>''');
+      expect(comments, hasLength(1));
+      expect(comments.single.id, 123);
+      expect(comments.single.userName, 'A & B');
+      expect(comments.single.profileUsername, 'alice');
+      expect(comments.single.rate, 7);
+      expect(comments.single.comment, '第一行 <3\n第二行(bgm38)');
+    },
+  );
+
+  test(
+    'empty comment layout differs from an HTTP 200 challenge or error page',
+    () {
+      expect(
+        BangumiSupport.parseSubjectCommentsHtml('<div id="comment_box"></div>'),
+        isEmpty,
+      );
+      expect(
+        () => BangumiSupport.parseSubjectCommentsHtml(
+          '<html><title>Just a moment</title></html>',
+        ),
+        throwsFormatException,
+      );
+    },
+  );
 
   test('parseSubjectCommentsHtml captures profile username', () {
     const html = '''

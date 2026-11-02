@@ -1,3 +1,4 @@
+import '../../../core/theme/anime_icon.dart';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import '../../../models/bangumi_models.dart';
@@ -130,7 +131,7 @@ class _DeleteDropZone extends StatelessWidget {
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  Icon(
+                  AnimeIcon(
                     Icons.delete_outline_rounded,
                     color: active ? scheme.error : scheme.onSurfaceVariant,
                   ),
@@ -347,7 +348,7 @@ class _CourseTable extends StatelessWidget {
                       SizedBox(
                         width: indexWidth,
                         height: headerHeight,
-                        child: Icon(
+                        child: AnimeIcon(
                           Icons.grid_on_rounded,
                           size: dense ? 12 : 16,
                           color: scheme.onSurfaceVariant,

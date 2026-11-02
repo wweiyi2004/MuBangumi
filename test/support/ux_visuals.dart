@@ -22,6 +22,15 @@ Future<ThemeData> uxTheme(WidgetTester tester, {required bool dark}) async {
     )..addFont(rootBundle.load('fonts/MaterialIcons-Regular.otf'))).load();
   });
   return theme.copyWith(
+    popupMenuTheme: theme.popupMenuTheme.copyWith(
+      textStyle: theme.popupMenuTheme.textStyle?.copyWith(fontFamily: 'UxFont'),
+      labelTextStyle: WidgetStateProperty.resolveWith(
+        (states) =>
+            (theme.popupMenuTheme.labelTextStyle?.resolve(states) ??
+                    const TextStyle())
+                .copyWith(fontFamily: 'UxFont'),
+      ),
+    ),
     textTheme: theme.textTheme.apply(fontFamily: 'UxFont'),
     filledButtonTheme: FilledButtonThemeData(
       style: theme.filledButtonTheme.style?.copyWith(

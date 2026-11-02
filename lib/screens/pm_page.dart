@@ -1,3 +1,6 @@
+import '../features/pm/presentation/pm_send_queue_view.dart';
+import '../features/pm/presentation/pm_queue_action.dart';
+import '../core/theme/anime_icon.dart';
 import '../state/service_providers.dart';
 import 'dart:async';
 import 'package:flutter/material.dart';
@@ -10,7 +13,6 @@ import '../models/bangumi_models.dart';
 import '../state/pm_contacts_controller.dart';
 import '../state/pm_send_queue_controller.dart';
 import '../models/pm_send_command.dart';
-import '../features/pm/presentation/pm_send_queue_view.dart';
 import '../core/layout/app_layout.dart';
 import '../core/network/pm_service.dart';
 import '../state/website_session_controller.dart';
@@ -161,7 +163,7 @@ class _PmPageState extends ConsumerState<PmPage> {
 
   Future<void> _bootstrap() async {
     unawaited(_contacts.attachAccount(ref.read(sessionProvider).user?.id));
-    unawaited(_contacts.syncHistory());
+    unawaited(_contacts.syncHistory(foreground: true));
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) unawaited(_resumePendingCompose());
     });
@@ -180,8 +182,11 @@ class _PmPageState extends ConsumerState<PmPage> {
     }
   }
 
-  Future<void> _refreshMailboxes() =>
-      _contacts.refresh(includeFriends: false, supersede: true);
+  Future<void> _refreshMailboxes() => _contacts.refresh(
+    includeFriends: false,
+    supersede: true,
+    foreground: false,
+  );
 
   Future<void> _openContact(PmContact person) async {
     if (_openingContactKey != null || _switching) return;
@@ -309,7 +314,7 @@ class _PmPageState extends ConsumerState<PmPage> {
     final website = ref.watch(websiteSessionProvider);
     final phone = AppLayout.isPhone(context);
     final contacts = _contacts;
-    final sendQueue = ref.watch(pmSendQueueProvider(_service));
+    final queue = ref.watch(pmSendQueueProvider(_service));
     final unread = _inbox.items.where((e) => e.isUnread).length;
 
     return LayoutBuilder(
@@ -325,13 +330,13 @@ class _PmPageState extends ConsumerState<PmPage> {
                 onChanged: (_) => setState(() {}),
                 decoration: InputDecoration(
                   hintText: '搜索好友昵称或用户名',
-                  prefixIcon: const Icon(Icons.search_rounded),
+                  prefixIcon: const AnimeIcon(Icons.search_rounded),
                   suffixIcon: _search.text.isEmpty
                       ? null
                       : IconButton(
                           tooltip: '清除搜索',
                           onPressed: () => setState(_search.clear),
-                          icon: const Icon(Icons.close_rounded),
+                          icon: const AnimeIcon(Icons.close_rounded),
                         ),
                   isDense: true,
                   filled: true,
@@ -343,26 +348,18 @@ class _PmPageState extends ConsumerState<PmPage> {
                 ),
               ),
             ),
-            if (sendQueue.supported)
-              Align(
-                alignment: Alignment.centerLeft,
-                child: TextButton.icon(
-                  onPressed: () => Navigator.of(context).push(
-                    MaterialPageRoute<void>(
-                      builder: (_) => PmSendQueueScreen(service: _service),
-                    ),
-                  ),
-                  icon: const Icon(Icons.outbox_outlined, size: 18),
-                  label: Text(
-                    sendQueue.pendingCount > 0
-                        ? '发送队列 · ${sendQueue.pendingCount}'
-                        : '发送队列',
-                  ),
-                ),
-              ),
             Expanded(
               child: PmContactsView(
                 contacts: contacts,
+                pending: queue.entries
+                    .where((entry) => entry.compose && !entry.finished)
+                    .toList(),
+                onOpenQueue: () => Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => PmSendQueueScreen(service: _service),
+                  ),
+                ),
+                onOpenWebsite: _openWebFallback,
                 authMessage: website.isSynced
                     ? null
                     : website.message ?? website.statusLabel,
@@ -380,7 +377,7 @@ class _PmPageState extends ConsumerState<PmPage> {
                   width: double.infinity,
                   child: FilledButton.tonalIcon(
                     onPressed: _openCompose,
-                    icon: const Icon(Icons.edit_square),
+                    icon: const AnimeIcon(Icons.edit_square),
                     style: FilledButton.styleFrom(
                       backgroundColor: SocialChatStyle.accent(
                         context,
@@ -423,17 +420,18 @@ class _PmPageState extends ConsumerState<PmPage> {
                     ],
                   ),
                   actions: [
+                    PmQueueAction(service: _service),
                     IconButton(
                       tooltip: '刷新',
                       onPressed: contacts.busy
                           ? null
                           : () => contacts.refresh(forceFriends: true),
-                      icon: const Icon(Icons.refresh_rounded),
+                      icon: const AnimeIcon(Icons.refresh_rounded),
                     ),
                     IconButton(
                       tooltip: website.isSynced ? '账号验证状态' : '补充账号验证',
                       onPressed: _syncWebsiteLogin,
-                      icon: Icon(
+                      icon: AnimeIcon(
                         website.isSynced
                             ? Icons.verified_user_rounded
                             : Icons.shield_outlined,
@@ -443,7 +441,7 @@ class _PmPageState extends ConsumerState<PmPage> {
                     IconButton(
                       tooltip: '网页版',
                       onPressed: _openWebFallback,
-                      icon: const Icon(Icons.open_in_new_rounded),
+                      icon: const AnimeIcon(Icons.open_in_new_rounded),
                     ),
                     const SizedBox(width: 4),
                   ],
@@ -454,7 +452,7 @@ class _PmPageState extends ConsumerState<PmPage> {
                   onPressed: _openCompose,
                   elevation: 2,
                   tooltip: '发起私聊',
-                  child: const Icon(CupertinoIcons.square_pencil),
+                  child: const AnimeIcon(CupertinoIcons.square_pencil),
                 ),
           body: Row(
             children: [
@@ -484,7 +482,7 @@ class _PmPageState extends ConsumerState<PmPage> {
                             child: Column(
                               mainAxisSize: MainAxisSize.min,
                               children: [
-                                Icon(
+                                AnimeIcon(
                                   Icons.forum_outlined,
                                   size: 56,
                                   color: scheme.outline,
@@ -534,6 +532,7 @@ class _PmPageState extends ConsumerState<PmPage> {
                             Expanded(
                               child: PmConversationScreen(
                                 key: _chatKey,
+                                showQueueAction: !widget.embedded,
                                 service: _service,
                                 conversationId: selection.id,
                                 title: selection.title,

@@ -39,7 +39,9 @@ dependencies:
   dio: ^5.11.0
   connectivity_plus: ^7.3.1
   crypto: ^3.0.7
+  cryptography: 2.8.1
   flutter_riverpod: ^2.6.1
+  flutter_svg: 2.3.0
   flutter_secure_storage: ^10.3.1
   cached_network_image: ^3.4.1
   url_launcher: ^6.3.2
@@ -95,6 +97,8 @@ flutter:
   # included with your application, so that you can use the icons in
   # the material Icons class.
   assets:
+    - assets/icons/
+    - assets/licenses/
     - assets/fonts/TierPrintSans-Regular.ttf
     - assets/fonts/TierPrintHangul-Regular.ttf
     - assets/fonts/OFL.txt

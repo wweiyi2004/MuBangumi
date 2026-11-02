@@ -1,3 +1,5 @@
+import 'content_loading.dart';
+import '../core/theme/anime_icon.dart';
 import 'package:flutter/material.dart';
 
 class CommunityRefreshStatus extends StatelessWidget {
@@ -7,19 +9,30 @@ class CommunityRefreshStatus extends StatelessWidget {
     required this.error,
     required this.onRetry,
     this.message = '刷新失败，已保留当前内容',
+    this.loadingMessage = '显示已有内容，正在更新',
+    this.operation,
   });
   final bool loading;
   final String? error;
   final VoidCallback onRetry;
   final String message;
+  final String loadingMessage;
+  final Object? operation;
 
   @override
   Widget build(BuildContext context) {
-    if (loading) return const LinearProgressIndicator(minHeight: 2);
+    if (loading) {
+      return LoadingStatus(
+        active: true,
+        message: loadingMessage,
+        operation: operation,
+        onRetry: onRetry,
+      );
+    }
     if (error == null) return const SizedBox(height: 2);
     return Row(
       children: [
-        const Icon(Icons.cloud_off_rounded, size: 18),
+        const AnimeIcon(Icons.cloud_off_rounded, size: 18),
         const SizedBox(width: 8),
         Expanded(child: Text(message)),
         TextButton(onPressed: onRetry, child: const Text('重试')),
@@ -53,7 +66,7 @@ class CommunityLoadMoreFooter extends StatelessWidget {
           : error != null
           ? TextButton.icon(
               onPressed: onLoad,
-              icon: const Icon(Icons.refresh_rounded),
+              icon: const AnimeIcon(Icons.refresh_rounded),
               label: const Text('加载失败，点击重试'),
             )
           : hasMore

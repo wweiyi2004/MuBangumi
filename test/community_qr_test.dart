@@ -1,3 +1,4 @@
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:mubangumi/navigation/app_destination.dart';
 import 'package:mubangumi/navigation/app_router.dart';
 import 'dart:typed_data';
@@ -16,6 +17,50 @@ import 'package:mubangumi/widgets/group_qr_sheet.dart';
 import 'package:mubangumi/screens/community_group_screen.dart';
 
 void main() {
+  for (final url in [
+    'https://bgm.tv/subject/42',
+    'https://bgm.tv/user/alice/timeline/status/64',
+    'https://bgm.tv/user/alice/timeline?until=65',
+  ]) {
+    testWidgets(
+      'scanned content opens an owned native destination without writes: $url',
+      (tester) async {
+        final service = _Service();
+        SharedLinkRoute? opened;
+        await tester.pumpWidget(
+          AppRouteScope(
+            resolve: (route) {
+              opened = route as SharedLinkRoute;
+              return Scaffold(appBar: AppBar(title: const Text('分享内容')));
+            },
+            child: MaterialApp(
+              builder: (_, child) => ProviderScope(child: child!),
+              home: Scaffold(
+                body: Builder(
+                  builder: (context) => TextButton(
+                    onPressed: () => scanAndAddFriend(
+                      context,
+                      myUsername: 'alice',
+                      service: service,
+                      reader: (_) async => url,
+                    ),
+                    child: const Text('扫一扫'),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+        await tester.tap(find.text('扫一扫'));
+        await tester.pumpAndSettle();
+        expect(opened?.link.url, url);
+        expect(service.previews, 0);
+        expect(service.friendWrites, 0);
+        await tester.pageBack();
+        await tester.pumpAndSettle();
+      },
+    );
+  }
   testWidgets('account change invalidates a private group detail response', (
     tester,
   ) async {
@@ -24,6 +69,7 @@ void main() {
       AppRouteScope(
         resolve: AppRouter.resolve,
         child: MaterialApp(
+          builder: (_, child) => ProviderScope(child: child!),
           home: CommunityGroupScreen(
             group: _Service.group,
             service: service,
@@ -122,6 +168,7 @@ void main() {
         AppRouteScope(
           resolve: AppRouter.resolve,
           child: MaterialApp(
+            builder: (_, child) => ProviderScope(child: child!),
             home: Scaffold(
               body: Builder(
                 builder: (context) => TextButton(
@@ -156,6 +203,7 @@ void main() {
         AppRouteScope(
           resolve: AppRouter.resolve,
           child: MaterialApp(
+            builder: (_, child) => ProviderScope(child: child!),
             home: Scaffold(
               body: Builder(
                 builder: (context) => TextButton(

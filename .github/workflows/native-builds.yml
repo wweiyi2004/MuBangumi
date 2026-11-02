@@ -18,9 +18,9 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - {platform: android, os: ubuntu-latest, command: 'flutter build apk --debug --no-pub --target-platform android-arm64'}
-          - {platform: windows, os: windows-latest, command: 'flutter build windows --debug --no-pub'}
-          - {platform: ios, os: macos-latest, command: 'flutter build ios --simulator --debug --no-codesign --no-pub'}
+          - {platform: android, os: ubuntu-latest, command: 'flutter build apk --debug --no-pub --target-platform android-arm64 --dart-define=MUBANGUMI_FEEDBACK_URL=https://mubangumi-homepage.2844938982.workers.dev/api/feedback'}
+          - {platform: windows, os: windows-latest, command: 'flutter build windows --debug --no-pub --dart-define=MUBANGUMI_FEEDBACK_URL=https://mubangumi-homepage.2844938982.workers.dev/api/feedback'}
+          - {platform: ios, os: macos-latest, command: 'flutter build ios --simulator --debug --no-codesign --no-pub --dart-define=MUBANGUMI_FEEDBACK_URL=https://mubangumi-homepage.2844938982.workers.dev/api/feedback'}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 45
     steps:

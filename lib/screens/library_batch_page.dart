@@ -1,3 +1,4 @@
+import '../core/theme/anime_icon.dart';
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -261,6 +262,10 @@ class _LibraryBatchPageState extends ConsumerState<LibraryBatchPage> {
                                 SizedBox(
                                   width: 150,
                                   child: DropdownButtonFormField<int>(
+                                    borderRadius: BorderRadius.circular(16),
+                                    dropdownColor: Theme.of(
+                                      context,
+                                    ).colorScheme.surface,
                                     initialValue: _season.year,
                                     isExpanded: true,
                                     decoration: const InputDecoration(
@@ -292,6 +297,10 @@ class _LibraryBatchPageState extends ConsumerState<LibraryBatchPage> {
                                 SizedBox(
                                   width: 150,
                                   child: DropdownButtonFormField<int>(
+                                    borderRadius: BorderRadius.circular(16),
+                                    dropdownColor: Theme.of(
+                                      context,
+                                    ).colorScheme.surface,
                                     initialValue: _season.quarter,
                                     isExpanded: true,
                                     decoration: const InputDecoration(
@@ -322,6 +331,10 @@ class _LibraryBatchPageState extends ConsumerState<LibraryBatchPage> {
                             ),
                             const SizedBox(height: 12),
                             DropdownButtonFormField<int>(
+                              borderRadius: BorderRadius.circular(16),
+                              dropdownColor: Theme.of(
+                                context,
+                              ).colorScheme.surface,
                               initialValue: _weekday ?? 0,
                               decoration: const InputDecoration(
                                 labelText: '加入位置',
@@ -439,15 +452,17 @@ class _LibraryBatchPageState extends ConsumerState<LibraryBatchPage> {
                                       LibraryBatchStatus.failed => '保存失败',
                                     },
                               ),
-                              leading: Icon(switch (outcomes[item.id]!.status) {
-                                LibraryBatchStatus.saved =>
-                                  Icons.check_circle_outline,
-                                LibraryBatchStatus.failed =>
-                                  Icons.error_outline,
-                                LibraryBatchStatus.processing =>
-                                  Icons.hourglass_top,
-                                _ => Icons.remove_circle_outline,
-                              }),
+                              leading: AnimeIcon(
+                                switch (outcomes[item.id]!.status) {
+                                  LibraryBatchStatus.saved =>
+                                    Icons.check_circle_outline,
+                                  LibraryBatchStatus.failed =>
+                                    Icons.error_outline,
+                                  LibraryBatchStatus.processing =>
+                                    Icons.hourglass_top,
+                                  _ => Icons.remove_circle_outline,
+                                },
+                              ),
                             ),
                         ],
                       ],

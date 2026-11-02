@@ -49,6 +49,34 @@ void main() {
     expect(isPlausibleTurnstileToken('0.${'a' * 80}'), isTrue);
   });
 
+  test('layout helper does not call the challenge API', () {
+    expect(turnstileLayoutScript.contains('turnstile.render'), isFalse);
+    expect(turnstileLayoutScript.contains('turnstileCallback'), isFalse);
+    expect(turnstileLayoutScript.contains('getResponse'), isFalse);
+    expect(turnstileLayoutScript.contains('postMessage'), isFalse);
+    expect(turnstileLayoutScript.contains('width=device-width'), isTrue);
+  });
+
+  test(
+    'custom-scheme handoff is not treated as a failed verification page',
+    () {
+      expect(isTurnstileDocumentFailure(null), isTrue);
+      expect(isTurnstileDocumentFailure(''), isTrue);
+      expect(
+        isTurnstileDocumentFailure('https://next.bgm.tv/p1/turnstile'),
+        isTrue,
+      );
+      expect(
+        isTurnstileDocumentFailure(
+          'bangumi://mubangumi/turnstile?token=verified-token',
+        ),
+        isFalse,
+      );
+      expect(isTurnstileDocumentFailure('about:srcdoc'), isFalse);
+      expect(isTurnstileDocumentFailure('about:blank'), isFalse);
+    },
+  );
+
   test('rejects unrelated and incomplete callbacks', () {
     expect(
       parseTurnstileCallbackToken(

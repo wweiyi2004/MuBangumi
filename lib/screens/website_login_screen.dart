@@ -1,3 +1,4 @@
+import '../core/theme/anime_icon.dart';
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -98,13 +99,13 @@ class _WebsiteLoginScreenState extends ConsumerState<WebsiteLoginScreen> {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                const Icon(Icons.error_outline_rounded, size: 48),
+                const AnimeIcon(Icons.error_outline_rounded, size: 48),
                 const SizedBox(height: 16),
                 Text(error, textAlign: TextAlign.center),
                 const SizedBox(height: 16),
                 FilledButton.icon(
                   onPressed: _loadSeedCookies,
-                  icon: const Icon(Icons.refresh_rounded),
+                  icon: const AnimeIcon(Icons.refresh_rounded),
                   label: const Text('重试'),
                 ),
               ],

@@ -1,3 +1,4 @@
+import '../core/theme/anime_icon.dart';
 import '../state/service_providers.dart';
 import 'dart:async';
 import 'package:flutter/material.dart';
@@ -161,7 +162,7 @@ class _MonoCollectionButtonState extends State<MonoCollectionButton> {
             dimension: 18,
             child: CircularProgressIndicator(strokeWidth: 2),
           )
-        : Icon(
+        : AnimeIcon(
             _error != null
                 ? Icons.refresh_rounded
                 : _value?.collected == true

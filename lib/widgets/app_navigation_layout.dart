@@ -1,3 +1,4 @@
+import '../core/theme/anime_icon.dart';
 import 'package:flutter/material.dart';
 import '../widgets/brand_mark.dart';
 import '../core/layout/app_layout.dart';
@@ -49,7 +50,7 @@ class AppNavigationLayout extends StatelessWidget {
   Widget build(BuildContext context) {
     final desktop = AppLayout.isDesktop(context);
     Widget icon(int i, bool selected) {
-      final child = Icon(
+      final child = AnimeIcon(
         selected ? destinations[i].selected : destinations[i].icon,
       );
       return i == 3 && unreadCount > 0
@@ -169,7 +170,7 @@ class _DesktopNavigation extends StatelessWidget {
                                 label: Text(
                                   unreadCount > 99 ? '99+' : '$unreadCount',
                                 ),
-                                child: Icon(
+                                child: AnimeIcon(
                                   index == i
                                       ? AppNavigationLayout
                                             .destinations[i]
@@ -179,7 +180,7 @@ class _DesktopNavigation extends StatelessWidget {
                                             .icon,
                                 ),
                               )
-                            : Icon(
+                            : AnimeIcon(
                                 index == i
                                     ? AppNavigationLayout
                                           .destinations[i]
@@ -200,12 +201,15 @@ class _DesktopNavigation extends StatelessWidget {
                       shape: RoundedRectangleBorder(
                         borderRadius: AppRadius.small,
                       ),
-                      leading: const Icon(Icons.calendar_month_outlined),
+                      leading: const AnimeIcon(Icons.calendar_month_outlined),
                       title: const Text(
                         '新番表',
                         style: TextStyle(fontWeight: FontWeight.w500),
                       ),
-                      trailing: const Icon(Icons.open_in_new_rounded, size: 17),
+                      trailing: const AnimeIcon(
+                        Icons.open_in_new_rounded,
+                        size: 17,
+                      ),
                       onTap: onOpenSchedule,
                     ),
                   ),

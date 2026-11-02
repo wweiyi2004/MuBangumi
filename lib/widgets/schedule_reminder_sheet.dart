@@ -1,3 +1,4 @@
+import '../core/theme/anime_icon.dart';
 import 'package:flutter/foundation.dart';
 
 import '../core/notifications/schedule_reminder_service.dart';
@@ -88,7 +89,7 @@ class _ScheduleReminderSheetState
                 onChanged: _saving || !scheduled
                     ? null
                     : (value) => setState(() => _enabled = value),
-                secondary: Icon(
+                secondary: AnimeIcon(
                   _enabled && scheduled
                       ? Icons.notifications_active_rounded
                       : Icons.notifications_none_rounded,
@@ -99,10 +100,10 @@ class _ScheduleReminderSheetState
               ListTile(
                 contentPadding: EdgeInsets.zero,
                 enabled: _enabled && scheduled && !_saving,
-                leading: const Icon(Icons.schedule_rounded),
+                leading: const AnimeIcon(Icons.schedule_rounded),
                 title: const Text('提醒时间'),
                 subtitle: Text('$day ${_time.format(context)}'),
-                trailing: const Icon(Icons.chevron_right_rounded),
+                trailing: const AnimeIcon(Icons.chevron_right_rounded),
                 onTap: () async {
                   final selected = await showTimePicker(
                     context: context,
@@ -152,7 +153,7 @@ class _ScheduleReminderSheetState
                             dimension: 16,
                             child: CircularProgressIndicator(strokeWidth: 2),
                           )
-                        : const Icon(Icons.check_rounded),
+                        : const AnimeIcon(Icons.check_rounded),
                     label: Text(_saving ? '保存中…' : '保存'),
                   ),
                 ],

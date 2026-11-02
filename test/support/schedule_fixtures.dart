@@ -41,6 +41,11 @@ class MemoryScheduleReminders implements ScheduleReminderGateway {
 class ScheduleRssStore extends RssStore {
   ScheduleRssStore() : super.test();
   @override
+  Future<void> updateSourceAfterFetch(
+    RssSource source, {
+    required List<RssBinding> bindings,
+  }) async {}
+  @override
   Future<List<RssSource>> listSources() async => [];
   @override
   Future<List<RssBinding>> listBindings({

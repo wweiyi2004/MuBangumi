@@ -1,3 +1,4 @@
+import '../core/theme/anime_icon.dart';
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -151,7 +152,7 @@ class _BackgroundSettingsSheet extends ConsumerWidget {
                             dimension: 18,
                             child: CircularProgressIndicator(strokeWidth: 2),
                           )
-                        : const Icon(Icons.photo_library_outlined),
+                        : const AnimeIcon(Icons.photo_library_outlined),
                     label: Text(
                       settings.busy
                           ? '正在处理图片…'
@@ -165,7 +166,7 @@ class _BackgroundSettingsSheet extends ConsumerWidget {
                   const SizedBox(width: 10),
                   OutlinedButton.icon(
                     onPressed: editable ? controller.clearImage : null,
-                    icon: const Icon(Icons.hide_image_outlined),
+                    icon: const AnimeIcon(Icons.hide_image_outlined),
                     label: const Text('清除'),
                   ),
                 ],
@@ -249,7 +250,7 @@ class _BackgroundSettingsSheet extends ConsumerWidget {
                   alignment: Alignment.centerRight,
                   child: TextButton.icon(
                     onPressed: active ? controller.resetAdjustments : null,
-                    icon: const Icon(Icons.restore_rounded),
+                    icon: const AnimeIcon(Icons.restore_rounded),
                     label: const Text('恢复推荐参数'),
                   ),
                 ),

@@ -430,14 +430,15 @@ void main() {
     expect(detail.posts[0].images, ['https://lain.bgm.tv/a.jpg']);
     expect(detail.posts[1].isNested, isTrue);
     expect(detail.posts[1].body, '楼主楼下的嵌套回复');
-    expect(detail.posts[1].meta, startsWith('楼主-1 · '));
+    expect(detail.posts[0].meta, startsWith('#1 · '));
+    expect(detail.posts[1].meta, startsWith('#1-1 · '));
     expect(detail.posts[2].body, '回复正文');
-    expect(detail.posts[2].meta, startsWith('#1 · '));
+    expect(detail.posts[2].meta, startsWith('#2 · '));
     expect(detail.posts[2].reactions.single.value, 54);
     expect(detail.posts[2].reactions.single.count, 2);
     expect(detail.posts[2].reactions.single.isSelectedBy('ALICE'), isTrue);
     expect(detail.posts[3].isNested, isTrue);
-    expect(detail.posts[3].meta, startsWith('#1-1 · '));
+    expect(detail.posts[3].meta, startsWith('#2-1 · '));
     expect(detail.posts[3].body, '（该回复已被删除或不可见）');
   });
 

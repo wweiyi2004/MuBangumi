@@ -16,6 +16,7 @@ class SessionState {
     this.hasPendingVerification = false,
     this.canRetrySignOut = false,
     this.isPreparingHome = false,
+    this.requiresAccessCheck = false,
     this.user,
     this.collections = const [],
     this.isRefreshing = false,
@@ -42,6 +43,9 @@ class SessionState {
   final bool hasPendingVerification;
   final bool canRetrySignOut;
   final bool isPreparingHome;
+
+  /// A new login stays on the access check until API and website both pass.
+  final bool requiresAccessCheck;
   bool get isAuthenticating =>
       authActivity == AuthActivity.authorizing ||
       authActivity == AuthActivity.verifying;
@@ -77,6 +81,7 @@ class SessionState {
     bool? hasPendingVerification,
     bool? canRetrySignOut,
     bool? isPreparingHome,
+    bool? requiresAccessCheck,
     BangumiUser? user,
     List<UserCollection>? collections,
     bool? isRefreshing,
@@ -104,6 +109,7 @@ class SessionState {
         hasPendingVerification ?? this.hasPendingVerification,
     canRetrySignOut: canRetrySignOut ?? this.canRetrySignOut,
     isPreparingHome: isPreparingHome ?? this.isPreparingHome,
+    requiresAccessCheck: requiresAccessCheck ?? this.requiresAccessCheck,
     user: clearUser ? null : user ?? this.user,
     episodeUndo: clearEpisodeUndo ? null : episodeUndo ?? this.episodeUndo,
     lastEpisodeEdit: lastEpisodeEdit ?? this.lastEpisodeEdit,

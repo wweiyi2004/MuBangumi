@@ -1,11 +1,10 @@
-import 'dart:io';
-
 import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as path;
 import 'package:sqflite/sqflite.dart';
-import 'package:sqflite_common_ffi/sqflite_ffi.dart' as ffi;
 
 import '../../models/rss_models.dart';
+import 'serial_task_queue.dart';
+import 'sqlite_support.dart';
 
 /// Local persistence for RSS sources, bindings, and matched items.
 class RssStore {
@@ -17,22 +16,15 @@ class RssStore {
 
   static final shared = RssStore._();
 
-  Database? _database;
-  Future<void> _writes = Future.value();
-  Future<void> flushWrites() async => _writes;
-  Future<T> _write<T>(Future<T> Function() action) {
-    final next = _writes.then((_) => action());
-    _writes = next.then<void>((_) {}, onError: (Object _, StackTrace _) {});
-    return next;
-  }
+  final _connection = SqliteConnection();
+  final _writes = SerialTaskQueue();
+  Future<void> flushWrites() async => _writes.done;
+  Future<T> _write<T>(Future<T> Function() action) => _writes.run(action);
 
   Future<String> databaseForBackup() async {
-    await _writes;
+    await _writes.done;
     return (await _open()).path;
   }
-
-  Future<Database>? _opening;
-  static bool _ffiReady = false;
 
   Future<List<RssSource>> listSources() async {
     final db = await _open();
@@ -89,17 +81,71 @@ class RssStore {
 
   Future<RssBinding> upsertBinding(RssBinding binding) => _write(() async {
     final db = await _open();
-    if (binding.id == 0) {
-      final id = await db.insert('rss_bindings', binding.toRow());
-      return binding.copyWith(id: id);
-    }
-    await db.update(
-      'rss_bindings',
-      binding.toRow()..remove('id'),
-      where: 'id = ?',
-      whereArgs: [binding.id],
-    );
-    return binding;
+    return db.transaction((txn) async {
+      final RssBinding saved;
+      if (binding.id == 0) {
+        final id = await txn.insert('rss_bindings', binding.toRow());
+        saved = binding.copyWith(id: id);
+      } else {
+        await txn.update(
+          'rss_bindings',
+          binding.toRow()..remove('id'),
+          where: 'id = ?',
+          whereArgs: [binding.id],
+        );
+        saved = binding;
+      }
+      // Only matching entries are retained locally, so changed rules need a
+      // full feed even when the server's content has not changed.
+      await txn.update(
+        'rss_sources',
+        {'etag': '', 'last_modified': '', 'last_fetch_at': null},
+        where: 'id = ?',
+        whereArgs: [binding.sourceId],
+      );
+      return saved;
+    });
+  });
+
+  /// A response using old rules must not restore validators after a rule edit.
+  Future<void> updateSourceAfterFetch(
+    RssSource source, {
+    required List<RssBinding> bindings,
+  }) => _write(() async {
+    final db = await _open();
+    await db.transaction((txn) async {
+      final current = (await txn.query(
+        'rss_bindings',
+        where: 'source_id = ? AND enabled = 1',
+        whereArgs: [source.id],
+        orderBy: 'id ASC',
+      )).map(RssBinding.fromRow).toList();
+      if (current.length != bindings.length ||
+          !current.every(
+            (rule) => bindings.any(
+              (before) =>
+                  before.id == rule.id &&
+                  before.subjectId == rule.subjectId &&
+                  before.subjectName == rule.subjectName &&
+                  before.matchKeywords == rule.matchKeywords &&
+                  before.excludeKeywords == rule.excludeKeywords &&
+                  before.enabled == rule.enabled,
+            ),
+          )) {
+        return;
+      }
+      await txn.update(
+        'rss_sources',
+        {
+          'etag': source.etag,
+          'last_modified': source.lastModified,
+          'last_fetch_at': source.lastFetchAt?.millisecondsSinceEpoch,
+          'last_error': source.lastError,
+        },
+        where: 'id = ?',
+        whereArgs: [source.id],
+      );
+    });
   });
 
   Future<void> deleteBinding(int bindingId) => _write(() async {
@@ -234,46 +280,24 @@ class RssStore {
   });
 
   Future<void> close() async {
-    await _writes;
-    await _database?.close();
-    _database = null;
+    await _writes.done;
+    await _connection.close();
   }
 
-  Future<Database> _open() async {
-    final current = _database;
-    if (current != null) return current;
-    final opening = _opening;
-    if (opening != null) return opening;
-    final future = _createDatabase();
-    _opening = future;
-    try {
-      final database = await future;
-      _database = database;
-      return database;
-    } finally {
-      _opening = null;
-    }
-  }
+  Future<Database> _open() => _connection.open(_createDatabase);
 
   Future<Database> _createDatabase() async {
-    if (Platform.isWindows || Platform.isLinux) {
-      if (!_ffiReady) {
-        ffi.sqfliteFfiInit();
-        databaseFactory = ffi.databaseFactoryFfi;
-        _ffiReady = true;
-      }
-    }
-    final root = await getDatabasesPath();
+    final factory = sqliteFactory;
+    final root = await factory.getDatabasesPath();
     final resolvedPath =
         databasePath ?? path.join(root, 'mubangumi_rss.sqlite');
-    return openDatabase(
+    return factory.openDatabase(
       resolvedPath,
-      version: 1,
-      onConfigure: (db) async {
-        await db.rawQuery('PRAGMA journal_mode=DELETE');
-      },
-      onCreate: (database, _) async {
-        await database.execute('''
+      options: OpenDatabaseOptions(
+        version: 1,
+        onConfigure: configurePersonalDatabase,
+        onCreate: (database, _) async {
+          await database.execute('''
           CREATE TABLE rss_sources (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             name TEXT NOT NULL,
@@ -286,7 +310,7 @@ class RssStore {
             created_at INTEGER NOT NULL
           )
         ''');
-        await database.execute('''
+          await database.execute('''
           CREATE TABLE rss_bindings (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             source_id INTEGER NOT NULL,
@@ -300,7 +324,7 @@ class RssStore {
             UNIQUE(source_id, subject_id)
           )
         ''');
-        await database.execute('''
+          await database.execute('''
           CREATE TABLE rss_items (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             source_id INTEGER NOT NULL,
@@ -314,10 +338,11 @@ class RssStore {
             UNIQUE(source_id, guid)
           )
         ''');
-        await database.execute(
-          'CREATE INDEX idx_rss_items_subject ON rss_items(subject_id, read)',
-        );
-      },
+          await database.execute(
+            'CREATE INDEX idx_rss_items_subject ON rss_items(subject_id, read)',
+          );
+        },
+      ),
     );
   }
 }

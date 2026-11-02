@@ -1,5 +1,6 @@
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../core/feedback/feedback_service.dart';
 import '../core/network/community_service.dart';
 import '../core/network/pm_service.dart';
 import 'website_session_controller.dart';
@@ -19,6 +20,11 @@ final pmServiceProvider = Provider<PmService>((ref) {
     diagnostics: ref.watch(accountDiagnosticsProvider),
     sessionStore: ref.watch(websiteSessionStoreProvider),
   );
+  ref.onDispose(service.dispose);
+  return service;
+});
+final feedbackServiceProvider = Provider<FeedbackService>((ref) {
+  final service = FeedbackService();
   ref.onDispose(service.dispose);
   return service;
 });

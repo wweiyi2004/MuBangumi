@@ -1,3 +1,4 @@
+import '../core/theme/anime_icon.dart';
 import 'package:flutter/material.dart';
 import '../models/bangumi_models.dart';
 import 'subject_widgets.dart';
@@ -92,20 +93,26 @@ class ContinueWatchingTile extends StatelessWidget {
                                       strokeWidth: 2,
                                     ),
                                   )
-                                : const Icon(Icons.add_task_rounded, size: 18),
+                                : const AnimeIcon(
+                                    Icons.add_task_rounded,
+                                    size: 18,
+                                  ),
                             label: const Text('看完下一集'),
                           ),
                         if (onEpisodes != null)
                           IconButton(
                             onPressed: busy ? null : onEpisodes,
                             tooltip: '选择集数',
-                            icon: const Icon(Icons.grid_view_rounded, size: 19),
+                            icon: const AnimeIcon(
+                              Icons.grid_view_rounded,
+                              size: 19,
+                            ),
                           ),
                         if (onPin != null)
                           IconButton(
                             onPressed: onPin,
                             tooltip: pinned ? '取消置顶' : '置顶到首页',
-                            icon: Icon(
+                            icon: AnimeIcon(
                               pinned
                                   ? Icons.push_pin_rounded
                                   : Icons.push_pin_outlined,

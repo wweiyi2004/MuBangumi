@@ -79,6 +79,7 @@ tool/recommend_dataset/baseline_artifacts/
 
 
 # Developer environment and portable runtime state
+**/.dev.vars
 .env
 .env.*
 !.env.example

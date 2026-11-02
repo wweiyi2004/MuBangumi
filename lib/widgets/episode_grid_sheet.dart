@@ -1,3 +1,4 @@
+import '../core/theme/anime_icon.dart';
 import 'package:flutter/material.dart';
 import 'readable_subject_title.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -196,7 +197,7 @@ class _EpisodeGridPanelState extends ConsumerState<_EpisodeGridPanel> {
                 IconButton(
                   tooltip: '关闭',
                   onPressed: () => Navigator.pop(context, _changed),
-                  icon: const Icon(Icons.close_rounded),
+                  icon: const AnimeIcon(Icons.close_rounded),
                 ),
               ],
             ),
@@ -267,7 +268,7 @@ class _EpisodeGridPanelState extends ConsumerState<_EpisodeGridPanel> {
         message: _error!,
         action: FilledButton.tonalIcon(
           onPressed: _sameAccount ? _load : null,
-          icon: const Icon(Icons.refresh_rounded),
+          icon: const AnimeIcon(Icons.refresh_rounded),
           label: const Text('重试'),
         ),
       );
@@ -309,7 +310,7 @@ class _EpisodeGridPanelState extends ConsumerState<_EpisodeGridPanel> {
     final type = await showDialog<int>(
       context: context,
       builder: (context) => SimpleDialog(
-        title: Text('第 ${_number(item.episode.number)} 话'),
+        title: Text(item.episode.label),
         children: [
           _statusOption(
             context,
@@ -350,9 +351,9 @@ class _EpisodeGridPanelState extends ConsumerState<_EpisodeGridPanel> {
   ) => SimpleDialogOption(
     onPressed: () => Navigator.pop(context, value),
     child: ListTile(
-      leading: Icon(icon),
+      leading: AnimeIcon(icon),
       title: Text(label),
-      trailing: current == value ? const Icon(Icons.check_rounded) : null,
+      trailing: current == value ? const AnimeIcon(Icons.check_rounded) : null,
     ),
   );
 
@@ -393,9 +394,6 @@ class _EpisodeGridPanelState extends ConsumerState<_EpisodeGridPanel> {
       showEpisodeUndoMessage(context, controller, undo!);
     }
   }
-
-  String _number(double value) =>
-      value % 1 == 0 ? value.toInt().toString() : value.toStringAsFixed(1);
 }
 
 class _EpisodeCell extends StatelessWidget {
@@ -428,9 +426,7 @@ class _EpisodeCell extends StatelessWidget {
       ),
       _ => (colors.surface, colors.onSurface, colors.outlineVariant),
     };
-    final number = item.episode.number % 1 == 0
-        ? item.episode.number.toInt().toString()
-        : item.episode.number.toStringAsFixed(1);
+    final number = item.episode.gridLabel;
     return Tooltip(
       message: item.episode.displayName,
       child: Material(

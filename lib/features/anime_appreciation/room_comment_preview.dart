@@ -1,3 +1,4 @@
+import '../../core/theme/anime_icon.dart';
 import 'package:flutter/material.dart';
 import '../../core/theme/app_tokens.dart';
 
@@ -103,7 +104,7 @@ class RoomCommentPreview extends StatelessWidget {
               padding: const EdgeInsets.only(bottom: 8),
               child: Row(
                 children: [
-                  Icon(
+                  AnimeIcon(
                     Icons.lock_outline_rounded,
                     size: 16,
                     color: colors.onSurfaceVariant,

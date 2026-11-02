@@ -1,3 +1,4 @@
+import '../core/theme/anime_icon.dart';
 import 'package:flutter/material.dart';
 import '../core/recommend/fan_recommend_engine.dart';
 import 'readable_subject_title.dart';
@@ -120,13 +121,13 @@ class RecommendationTicket extends StatelessWidget {
                 TextButton(onPressed: onHide, child: const Text('不感兴趣')),
                 FilledButton.tonalIcon(
                   onPressed: onWish,
-                  icon: const Icon(Icons.bookmark_add_outlined, size: 17),
+                  icon: const AnimeIcon(Icons.bookmark_add_outlined, size: 17),
                   label: const Text('加入想看'),
                 ),
                 IconButton(
                   tooltip: '查看作品',
                   onPressed: onTap,
-                  icon: const Icon(Icons.arrow_forward_rounded, size: 19),
+                  icon: const AnimeIcon(Icons.arrow_forward_rounded, size: 19),
                 ),
               ],
             ),

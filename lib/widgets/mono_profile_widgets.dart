@@ -1,3 +1,4 @@
+import '../core/theme/anime_icon.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 
@@ -43,7 +44,7 @@ class MonoProfileHeader extends StatelessWidget {
                 child: imageUrl.isEmpty
                     ? ColoredBox(
                         color: scheme.surfaceContainerHighest,
-                        child: Icon(fallbackIcon, size: 40),
+                        child: AnimeIcon(fallbackIcon, size: 40),
                       )
                     : CachedNetworkImage(
                         imageUrl: BangumiEndpoints.imageUrl(imageUrl),
@@ -52,7 +53,7 @@ class MonoProfileHeader extends StatelessWidget {
                         memCacheHeight: (imageHeight * 2).round(),
                         errorWidget: (_, _, _) => ColoredBox(
                           color: scheme.surfaceContainerHighest,
-                          child: const Icon(Icons.broken_image_outlined),
+                          child: const AnimeIcon(Icons.broken_image_outlined),
                         ),
                       ),
               ),
@@ -112,7 +113,7 @@ class MonoThumb extends StatelessWidget {
     final child = url.isEmpty
         ? ColoredBox(
             color: scheme.surfaceContainerHighest,
-            child: Icon(
+            child: AnimeIcon(
               round ? roundFallbackIcon : Icons.movie_filter_outlined,
               size: 20,
             ),
@@ -124,7 +125,7 @@ class MonoThumb extends StatelessWidget {
             memCacheHeight: 96,
             errorWidget: (_, _, _) => ColoredBox(
               color: scheme.surfaceContainerHighest,
-              child: const Icon(Icons.broken_image_outlined, size: 18),
+              child: const AnimeIcon(Icons.broken_image_outlined, size: 18),
             ),
           );
     if (round) {

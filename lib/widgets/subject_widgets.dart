@@ -1,3 +1,4 @@
+import '../core/theme/anime_icon.dart';
 import 'dart:math' as math;
 
 import 'package:cached_network_image/cached_network_image.dart';
@@ -39,7 +40,7 @@ class SubjectCover extends StatelessWidget {
             (constraints.hasBoundedHeight ? constraints.maxHeight : null);
         int? pixels(double? logical) =>
             logical != null && logical.isFinite && logical > 0
-            ? (logical * dpr).round().clamp(1, 4096)
+            ? (logical * dpr).round().clamp(1, 2048)
             : null;
         final cacheWidth = pixels(displayWidth);
         final cacheHeight = pixels(displayHeight);
@@ -52,7 +53,7 @@ class SubjectCover extends StatelessWidget {
                     width: width,
                     height: height,
                     child: const Center(
-                      child: Icon(Icons.movie_filter_outlined, size: 34),
+                      child: AnimeIcon(Icons.movie_filter_outlined, size: 34),
                     ),
                   )
                 : CachedNetworkImage(
@@ -81,7 +82,7 @@ class SubjectCover extends StatelessWidget {
                       width: width,
                       height: height,
                       child: const Center(
-                        child: Icon(Icons.broken_image_outlined),
+                        child: AnimeIcon(Icons.broken_image_outlined),
                       ),
                     ),
                   ),
@@ -117,7 +118,11 @@ class SubjectTypeBadge extends StatelessWidget {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(subjectTypeIcon(type), size: 13, color: scheme.onSurfaceVariant),
+          AnimeIcon(
+            subjectTypeIcon(type),
+            size: 13,
+            color: scheme.onSurfaceVariant,
+          ),
           const SizedBox(width: 3),
           Text(
             type.label,
@@ -275,7 +280,7 @@ class SubjectPosterCard extends StatelessWidget {
                                     color: Colors.white,
                                   ),
                                 )
-                              : const Icon(Icons.add_rounded, size: 21),
+                              : const AnimeIcon(Icons.add_rounded, size: 21),
                         ),
                       ),
                     if (progress != null)
@@ -335,7 +340,10 @@ class SubjectPosterCard extends StatelessWidget {
                             ),
                             padding: EdgeInsets.zero,
                             onPressed: busy ? null : onEpisodeGrid,
-                            icon: const Icon(Icons.grid_view_rounded, size: 17),
+                            icon: const AnimeIcon(
+                              Icons.grid_view_rounded,
+                              size: 17,
+                            ),
                           ),
                       ],
                     ),
@@ -372,7 +380,7 @@ class _PosterBadge extends StatelessWidget {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, size: 12, color: iconColor),
+          AnimeIcon(icon, size: 12, color: iconColor),
           const SizedBox(width: 3),
           Text(
             label,
@@ -554,7 +562,7 @@ class SubjectTile extends StatelessWidget {
                               ),
                             ),
                             if (subject.score > 0) ...[
-                              const Icon(
+                              const AnimeIcon(
                                 Icons.star_rounded,
                                 color: Color(0xFFF3A646),
                                 size: 16,
@@ -593,7 +601,7 @@ class SubjectTile extends StatelessWidget {
                         Row(
                           children: [
                             if (subject.score > 0) ...[
-                              const Icon(
+                              const AnimeIcon(
                                 Icons.star_rounded,
                                 color: Color(0xFFF3A646),
                                 size: 17,
@@ -652,7 +660,7 @@ class SubjectTile extends StatelessWidget {
                           tooltip: '点格子',
                           visualDensity: VisualDensity.compact,
                           onPressed: busy ? null : onEpisodeGrid,
-                          icon: Icon(
+                          icon: AnimeIcon(
                             Icons.grid_view_rounded,
                             size: narrow ? 16 : 18,
                           ),
@@ -670,7 +678,10 @@ class SubjectTile extends StatelessWidget {
                                     strokeWidth: 2,
                                   ),
                                 )
-                              : Icon(Icons.add_rounded, size: narrow ? 16 : 18),
+                              : AnimeIcon(
+                                  Icons.add_rounded,
+                                  size: narrow ? 16 : 18,
+                                ),
                         ),
                       ],
                     ],
@@ -782,7 +793,11 @@ class EmptyState extends StatelessWidget {
           if (scene != null)
             ProjectionIllustration(scene: scene!)
           else
-            Icon(icon, size: 46, color: Theme.of(context).colorScheme.outline),
+            AnimeIcon(
+              icon,
+              size: 46,
+              color: Theme.of(context).colorScheme.outline,
+            ),
           SizedBox(height: scene == null ? 14 : 4),
           Text(
             title,

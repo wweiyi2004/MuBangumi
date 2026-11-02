@@ -1,3 +1,4 @@
+import '../../../core/theme/anime_icon.dart';
 import 'package:flutter/material.dart';
 import '../../../models/bangumi_models.dart';
 
@@ -83,7 +84,7 @@ class _EpisodeGridState extends State<SubjectEpisodeGrid> {
                                   fontWeight: FontWeight.w700,
                                 ),
                               ),
-                              child: Text(_episodeNumber(episode.number)),
+                              child: Text(episode.gridLabel),
                             )
                           : OutlinedButton(
                               onPressed:
@@ -101,7 +102,7 @@ class _EpisodeGridState extends State<SubjectEpisodeGrid> {
                                   fontWeight: FontWeight.w600,
                                 ),
                               ),
-                              child: Text(_episodeNumber(episode.number)),
+                              child: Text(episode.gridLabel),
                             ),
                     ),
                   ),
@@ -117,7 +118,7 @@ class _EpisodeGridState extends State<SubjectEpisodeGrid> {
                         ? next
                         : widget.episodes.length;
                   }),
-                  icon: const Icon(Icons.expand_more_rounded),
+                  icon: const AnimeIcon(Icons.expand_more_rounded),
                   label: Text(
                     '继续显示（$visibleCount / ${widget.episodes.length}）',
                   ),
@@ -129,7 +130,4 @@ class _EpisodeGridState extends State<SubjectEpisodeGrid> {
       },
     );
   }
-
-  String _episodeNumber(double value) =>
-      value % 1 == 0 ? value.toInt().toString() : value.toStringAsFixed(1);
 }

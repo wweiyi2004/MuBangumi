@@ -1,3 +1,6 @@
+import 'pm_queue_action.dart';
+import '../../../widgets/content_loading.dart';
+import '../../../core/theme/anime_icon.dart';
 import '../../../state/service_providers.dart';
 import 'dart:async';
 import 'package:flutter/material.dart';
@@ -25,8 +28,10 @@ class PmConversationScreen extends ConsumerStatefulWidget {
     this.service,
     this.onClose,
     this.onMessagesChanged,
+    this.showQueueAction = true,
   });
 
+  final bool showQueueAction;
   final String conversationId;
   final String title;
   final String peerName;
@@ -314,7 +319,7 @@ class PmConversationScreenState extends ConsumerState<PmConversationScreen> {
                 : IconButton(
                     tooltip: '返回会话列表',
                     onPressed: widget.onClose,
-                    icon: const Icon(Icons.arrow_back_rounded),
+                    icon: const AnimeIcon(Icons.arrow_back_rounded),
                   ),
             title: Row(
               children: [
@@ -354,10 +359,11 @@ class PmConversationScreenState extends ConsumerState<PmConversationScreen> {
               ],
             ),
             actions: [
+              if (widget.showQueueAction) PmQueueAction(service: _service),
               IconButton(
                 tooltip: '刷新',
                 onPressed: _loading || _sessionChanged ? null : _load,
-                icon: const Icon(Icons.refresh_rounded),
+                icon: const AnimeIcon(Icons.refresh_rounded),
               ),
             ],
           ),
@@ -416,21 +422,33 @@ class PmConversationScreenState extends ConsumerState<PmConversationScreen> {
                           color: SocialChatStyle.canvas(context),
                         ),
                         child: _loading && detail == null
-                            ? const Center(
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2.4,
-                                ),
+                            ? Column(
+                                children: [
+                                  LoadingStatus(
+                                    active: true,
+                                    operation: _requestId,
+                                    message: '正在读取会话',
+                                    onRetry: _load,
+                                  ),
+                                  const ContentSkeleton(),
+                                ],
                               )
                             : Stack(
                                 children: [
                                   Positioned.fill(child: _messageList(detail)),
                                   if (_loading)
-                                    const Positioned(
+                                    Positioned(
                                       top: 0,
                                       left: 0,
                                       right: 0,
-                                      child: LinearProgressIndicator(
-                                        minHeight: 2,
+                                      child: ColoredBox(
+                                        color: SocialChatStyle.canvas(context),
+                                        child: LoadingStatus(
+                                          active: true,
+                                          operation: _requestId,
+                                          message: '正在更新会话',
+                                          onRetry: _load,
+                                        ),
                                       ),
                                     ),
                                   if (_showLatest)
@@ -445,7 +463,7 @@ class PmConversationScreenState extends ConsumerState<PmConversationScreen> {
                                           ),
                                           curve: Curves.easeOut,
                                         ),
-                                        icon: const Icon(
+                                        icon: const AnimeIcon(
                                           Icons.arrow_downward_rounded,
                                           size: 18,
                                         ),

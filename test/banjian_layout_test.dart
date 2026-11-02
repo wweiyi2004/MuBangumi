@@ -289,8 +289,10 @@ void main() {
       }
       if (variant == 'participant-rerouted') {
         final picture = tester.widget<Image>(find.byType(Image).first);
+        final resized = picture.image as ResizeImage;
+        expect(resized.width, lessThanOrEqualTo(2048));
         expect(
-          (picture.image as NetworkImage).url,
+          (resized.imageProvider as NetworkImage).url,
           startsWith('http://10.1.2.3:43928/cover/'),
         );
       }

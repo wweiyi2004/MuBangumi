@@ -1,3 +1,4 @@
+import '../../../core/theme/anime_icon.dart';
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -17,7 +18,12 @@ Future<void> showScheduleSearchSheet(BuildContext context) =>
       useSafeArea: true,
       showDragHandle: true,
       constraints: const BoxConstraints(maxWidth: 720),
-      builder: (_) => const ScheduleSearchSheet(),
+      builder: (context) => Padding(
+        padding: EdgeInsets.only(
+          bottom: MediaQuery.viewInsetsOf(context).bottom,
+        ),
+        child: const ScheduleSearchSheet(),
+      ),
     );
 
 class ScheduleSearchSheet extends ConsumerStatefulWidget {
@@ -95,15 +101,16 @@ class _ScheduleSearchSheetState extends ConsumerState<ScheduleSearchSheet> {
                 hintText: _search.type == SubjectType.anime
                     ? '搜索动画名，例如：迷宫饭'
                     : '搜索${_search.type.label}',
-                prefixIcon: const Icon(Icons.search_rounded),
+                prefixIcon: const AnimeIcon(Icons.search_rounded),
                 suffixIcon: _controller.text.isEmpty
                     ? null
                     : IconButton(
+                        tooltip: '清空搜索',
                         onPressed: () {
                           _controller.clear();
                           _search.changeQuery('');
                         },
-                        icon: const Icon(Icons.close_rounded),
+                        icon: const AnimeIcon(Icons.close_rounded),
                       ),
               ),
             ),
@@ -178,26 +185,35 @@ class _ScheduleSearchSheetState extends ConsumerState<ScheduleSearchSheet> {
             child: _search.loading
                 ? const Center(child: CircularProgressIndicator())
                 : _search.error != null
-                ? EmptyState(
-                    icon: Icons.cloud_off_outlined,
-                    title: '搜索失败',
-                    message: _search.error!,
-                    action: FilledButton.tonal(
-                      onPressed: _search.submit,
-                      child: const Text('重试'),
+                ? SingleChildScrollView(
+                    controller: scrollController,
+                    child: EmptyState(
+                      icon: Icons.cloud_off_outlined,
+                      title: '搜索失败',
+                      message: _search.error!,
+                      action: FilledButton.tonal(
+                        onPressed: _search.submit,
+                        child: const Text('重试'),
+                      ),
                     ),
                   )
                 : _controller.text.trim().isEmpty
-                ? const EmptyState(
-                    icon: Icons.search_rounded,
-                    title: '搜索作品加入课表',
-                    message: '默认按当前官方放送日安排；未收录的放入待安排，也可以手动选择星期。',
+                ? SingleChildScrollView(
+                    controller: scrollController,
+                    child: const EmptyState(
+                      icon: Icons.search_rounded,
+                      title: '搜索作品加入课表',
+                      message: '默认按当前官方放送日安排；未收录的放入待安排，也可以手动选择星期。',
+                    ),
                   )
                 : _search.results.isEmpty
-                ? const EmptyState(
-                    icon: Icons.search_off_rounded,
-                    title: '没有搜索结果',
-                    message: '试试更短的关键词，或切换动画/三次元。',
+                ? SingleChildScrollView(
+                    controller: scrollController,
+                    child: const EmptyState(
+                      icon: Icons.search_off_rounded,
+                      title: '没有搜索结果',
+                      message: '试试更短的关键词，或切换动画/三次元。',
+                    ),
                   )
                 : ListView.separated(
                     controller: scrollController,
@@ -248,7 +264,10 @@ class _ScheduleSearchSheetState extends ConsumerState<ScheduleSearchSheet> {
                                 onPressed: waiting
                                     ? null
                                     : () => unawaited(_add(subject)),
-                                icon: const Icon(Icons.add_rounded, size: 18),
+                                icon: const AnimeIcon(
+                                  Icons.add_rounded,
+                                  size: 18,
+                                ),
                                 label: Text(
                                   waiting
                                       ? '查询中'

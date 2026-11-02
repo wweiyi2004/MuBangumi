@@ -1,3 +1,4 @@
+import '../core/theme/anime_icon.dart';
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -82,7 +83,7 @@ class _UpdateCheckHostState extends ConsumerState<UpdateCheckHost>
                     ),
                     IconButton(
                       tooltip: '稍后提醒',
-                      icon: const Icon(Icons.close, size: 18),
+                      icon: const AnimeIcon(Icons.close, size: 18),
                       onPressed: () async {
                         final controller = ref.read(
                           updateControllerProvider.notifier,

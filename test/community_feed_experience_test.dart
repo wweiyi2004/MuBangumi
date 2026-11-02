@@ -1,3 +1,4 @@
+import 'support/api_timeline_fixture.dart';
 import 'package:mubangumi/navigation/app_destination.dart';
 import 'package:mubangumi/navigation/app_router.dart';
 import 'dart:async';
@@ -358,7 +359,7 @@ const _group = CommunityGroup(
   url: 'https://bgm.tv/group/test',
 );
 
-class _Service extends CommunityService {
+class _Service extends CommunityService with ApiTimelineFixture {
   _Service() : super.test();
   Completer<CommunityPageResult<CommunityTopic>?>? topicCache;
   Completer<CommunityGroupDetail?>? groupCache;

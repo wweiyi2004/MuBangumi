@@ -128,6 +128,11 @@ class _Tokens extends TokenStore {
 class _Queue extends BangumiSyncStore {
   final items = <String, PendingBangumiMutation>{};
   int sequence = 0;
+
+  @override
+  Future<Map<String, int>> episodeActivityDays(String username) async =>
+      const {};
+
   @override
   Future<void> enqueue({
     required String username,
