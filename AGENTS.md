@@ -39,11 +39,12 @@
 
    `config/oauth.local.json` and Android release signing must already be configured through their ignored local files; never print or copy their secret values into logs. `-AllowDirty` is permitted only for a local, non-publication ordinary build. Direct Flutter build/run commands must pass the same `MUBANGUMI_FEEDBACK_URL` dart-define used by `tool/build_release.ps1`; do not create a second feedback endpoint configuration.
 
-4. For a Windows local package, build first, then package and independently verify the archive.
+4. For a Windows distribution package, first produce a clean, verified ordinary build and locate its `provenance.json`, then package and independently verify the archive. Local unverified or `-AllowDirty` builds are not publication candidates.
 
    ```powershell
-   ./tool/package_windows_release.ps1 -Version <x.y.z>
-   ./tool/verify_windows_package.ps1 -ArchivePath <dist/MuBangumi-x.y.z-windows-x64.zip>
+   ./tool/package_windows_release.ps1 -Version <x.y.z> -BuildNumber <N> `
+     -ProvenanceManifest <windows-provenance.json>
+   ./tool/verify_windows_package.ps1 -ArchivePath <dist/MuBangumi-x.y.z-buildN-windows-x64.zip>
    ```
 
 A successful build or dry-run is not publication. Do not commit, push, upload release assets, create a Shorebird release, or push a patch unless the maintainer has requested that specific action.
@@ -87,8 +88,20 @@ A successful build or dry-run is not publication. Do not commit, push, upload re
      -AcceptanceReport <windows-acceptance.json>
    ```
 
-   Use `-Target appbundle` for an AAB. Add `-DryRun` to a Shorebird command for a non-uploading build check. Build each version once and distribute the same bytes through every mirror.
-5. Package Windows and stage assets using the update system's names:
+   Use `-Target appbundle` for an AAB. Add `-DryRun` to a Shorebird command for a non-uploading build check. Build each version once and distribute the same bytes through every mirror. After a real Shorebird release, verify the server release ID and record its receipt before calling the baseline verified:
+
+   ```powershell
+   python tool/release_provenance.py release-receipt --root . `
+     --manifest <shorebird-release-provenance.json> `
+     --release-id <real-server-id> --version <x.y.z+N>
+   ```
+
+5. Package Windows with its exact build provenance and stage assets using the update system's names:
+
+   ```powershell
+   ./tool/package_windows_release.ps1 -Version <x.y.z> -BuildNumber <N> `
+     -ProvenanceManifest <windows-provenance.json>
+   ```
 
    ```text
    MuBangumi-x.y.z-buildN-android.apk
@@ -98,7 +111,7 @@ A successful build or dry-run is not publication. Do not commit, push, upload re
    MuBangumi-x.y.z-buildN-windows-x64.zip
    ```
 
-   `package_windows_release.ps1` initially writes `MuBangumi-x.y.z-windows-x64.zip`; rename the verified distribution copy to include `-buildN` before publication. Keep original build outputs, hashes, and provenance associated with the renamed file.
+   The packaging script writes the final Windows filename directly and adds the ZIP to the same provenance record. Keep original build outputs, hashes, and provenance associated with every distributed file.
 6. Verify final artifact version/build, Android signature and upgrade path, Windows ZIP contents and clean-directory startup, expected feedback configuration, and SHA-256 for every asset. Test the actual final packages, not only a Debug build. Back up `release-symbols/` and provenance privately; never attach symbols, OAuth files, signing keys, databases, WebView profiles, or local logs to the public release.
 7. Create a GitHub Draft Release with all assets and release notes, ensure every downloadable asset has a SHA-256 digest, then publish it only after the draft is complete. Let the Gitee workflow mirror that same release, or use the explicit maintainer-controlled entry point:
 

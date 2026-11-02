@@ -12,8 +12,8 @@ test("exports a GitHub Pages-ready homepage", async () => {
   assert.match(html, /看完下一集/);
   assert.match(html, /每日追番/);
   assert.match(html, /参考与致谢/);
-  assert.match(html, /MuBangumi-2\.5\.0-build4034-android\.apk/);
-  assert.match(html, /MuBangumi-2\.5\.0-build4034-windows-x64\.zip/);
+  assert.match(html, /MuBangumi-2\.5\.1-build4035-android\.apk/);
+  assert.match(html, /MuBangumi-2\.5\.1-build4035-windows-x64\.zip/);
   assert.match(html, /id="faq"/);
   assert.match(html, /https:\/\/wweiyi2004\.github\.io\/MuBangumi\//);
   assert.match(html, /\/MuBangumi\/_next\/static\//);

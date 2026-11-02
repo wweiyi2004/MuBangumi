@@ -63,7 +63,7 @@ const questions = [
   },
   {
     title: "已有旧版，怎样升级？",
-    answer: "应用内更新会下载并校验新版本。Android 2.4.2 沿用上一版签名，构建号升至 4032，可尝试覆盖安装；请先备份重要的本地设置。Windows 请解压到新的空目录，不要覆盖混有旧程序数据的目录。实际设备的覆盖安装和通知送达仍需验收。",
+    answer: "应用内更新会下载并校验新版本。Android 2.5.1 沿用上一版签名，构建号升至 4035，可尝试覆盖安装；请先备份重要的本地设置。Windows 请解压到新的空目录，不要覆盖混有旧程序数据的目录。实际设备的覆盖安装和通知送达仍需验收。",
   },
   {
     title: "哪些内容能同步，哪些留在设备上？",
@@ -79,7 +79,7 @@ const questions = [
   },
   {
     title: "本版有热补丁吗？在哪里反馈问题？",
-    answer: "2.4.2 提供 Android 和 Windows 整包更新，不提供本版 Shorebird 热补丁。请在 GitHub Issues 写明系统、软件版本和复现步骤；不要公开 Token、Cookie、私信内容或完整个人数据库。",
+    answer: "2.5.1 提供 Android 和 Windows 整包更新，不提供本版 Shorebird 热补丁。可在应用「我的 → 设置 → 帮助与反馈 → 意见反馈」直接提交问题或建议，无需 GitHub 账号；不要发送 Token、Cookie、私信内容或完整个人数据库。",
   },
 ] as const;
 
@@ -375,7 +375,7 @@ export default function Home() {
             {giteeReleasesUrl && <><a href={giteeReleasesUrl} target="_blank" rel="noreferrer">国内镜像（可能延迟）</a><span aria-hidden="true">·</span></>}
             <a href={currentRelease.url} target="_blank" rel="noreferrer">SHA-256 校验和与来源记录</a>
             <span aria-hidden="true">·</span>
-            <span>2.4.2 为整包更新</span>
+            <span>2.5.1 为整包更新</span>
           </p>
         </section>
 
