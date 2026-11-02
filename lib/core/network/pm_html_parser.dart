@@ -123,8 +123,10 @@ class PmHtmlParser {
     return document.querySelector('.pm-conversation-list') != null ||
         document.querySelector('table.topic_list') != null ||
         (_signedInUser(document) != null &&
-            document.querySelector('a[href="/pm/inbox.chii"]') != null &&
-            document.querySelector('a[href="/pm/outbox.chii"]') != null);
+            (document.querySelector('#pm_main') != null ||
+                (document.querySelector('a[href="/pm/inbox.chii"]') != null &&
+                    document.querySelector('a[href="/pm/outbox.chii"]') !=
+                        null)));
   }
 
   List<PmConversation> parseConversationList(String source) {

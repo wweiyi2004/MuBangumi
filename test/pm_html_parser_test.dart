@@ -85,6 +85,19 @@ void main() {
     expect(list.first.avatarUrl, contains('lain.bgm.tv'));
   });
 
+  test('recognizes an empty signed-in legacy mailbox', () {
+    const html = '''
+<div id="headerNeue2"><div><div class="idBadgerNeue">
+  <a class="avatar" href="/user/alice">Alice</a>
+</div></div></div>
+<div id="pm_sidebar"><a href="/pm/inbox.chii">收件箱</a></div>
+<div id="pm_main"><p>没有短信</p></div>
+''';
+    expect(parser.parseConversationList(html), isEmpty);
+    expect(parser.hasMailboxLayout(html), isTrue);
+    expect(parser.hasMailboxLayout('<div id="pm_main">错误页面</div>'), isFalse);
+  });
+
   test('parses conversation detail messages and form', () {
     const html = '''
 <div class="pm-chat-panel">

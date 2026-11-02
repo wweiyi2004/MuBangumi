@@ -93,6 +93,7 @@ class WatchedIntakeWorkspace extends StatelessWidget {
     required this.actions,
     required this.save,
     required this.onReview,
+    required this.onSearch,
     this.notice,
   });
 
@@ -100,7 +101,7 @@ class WatchedIntakeWorkspace extends StatelessWidget {
   final int remaining, kept;
   final bool enriching;
   final String? notice;
-  final VoidCallback? onReview;
+  final VoidCallback? onReview, onSearch;
 
   @override
   Widget build(BuildContext context) {
@@ -145,6 +146,12 @@ class WatchedIntakeWorkspace extends StatelessWidget {
               ),
             ),
           ],
+        );
+        final search = FilledButton.tonalIcon(
+          onPressed: onSearch,
+          icon: const AnimeIcon(Icons.search_rounded, size: 20),
+          label: const Text('按片名搜索，直接加入'),
+          style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(44)),
         );
         final progress = Row(
           children: [
@@ -232,7 +239,9 @@ class WatchedIntakeWorkspace extends StatelessWidget {
                         crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
                           header,
-                          const SizedBox(height: 24),
+                          const SizedBox(height: 16),
+                          search,
+                          const SizedBox(height: 16),
                           Text(
                             '整部看完，或只看到某一集，都可以记下来。没印象的先跳过，误点也能撤销。',
                             style: TextStyle(
@@ -268,7 +277,9 @@ class WatchedIntakeWorkspace extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               header,
-              const SizedBox(height: 12),
+              const SizedBox(height: 8),
+              search,
+              const SizedBox(height: 8),
               Expanded(
                 child: Center(
                   child: ConstrainedBox(

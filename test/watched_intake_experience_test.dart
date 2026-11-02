@@ -28,6 +28,7 @@ Future<void> _show(
   WidgetTester tester, {
   Future<List<Subject>> Function()? load,
   Future<List<RelatedSubject>> Function(int)? related,
+  Future<List<Subject>> Function(String keyword)? search,
   WatchedCatalog? catalog,
   BatchTestSession? session,
   double width = 390,
@@ -61,6 +62,7 @@ Future<void> _show(
               ? (load ?? () async => [_subject(1), _subject(2)])
               : null,
           loadRelated: related ?? (_) async => [],
+          searchSubjects: search,
           clock: () => DateTime(2026, 10, 14),
         ),
       ),
@@ -526,6 +528,122 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('进入补录'), findsOneWidget);
       expect(find.text('搬进看过的番'), findsNothing);
+    },
+  );
+
+  testWidgets('search adds finished and partial titles to the same batch', (
+    tester,
+  ) async {
+    final session = BatchTestSession(BatchTestApi([]), MemoryBatchQueue());
+    await _show(
+      tester,
+      session: session,
+      search: (keyword) async => [
+        _subject(30, title: '搜索到的完整动画'),
+        _subject(31, title: '只看到一半的动画'),
+      ],
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('按片名搜索，直接加入'));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const ValueKey('watched-search-field')),
+      '旧番',
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('watched-search-add-30')));
+    await tester.pumpAndSettle();
+    expect(find.text('已加入本次清单'), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('watched-search-progress-31')));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextFormField), '7');
+    await tester.tap(find.text('应用话数'));
+    await tester.pumpAndSettle();
+    await tester.binding.handlePopRoute();
+    await tester.pumpAndSettle();
+    expect(find.text('同步 2 部'), findsOneWidget);
+    expect(session.state.collections, isEmpty);
+    await tester.tap(find.text('核对清单'));
+    await tester.pumpAndSettle();
+    expect(find.text('搜索到的完整动画'), findsOneWidget);
+    expect(find.text('看到第 7 话'), findsOneWidget);
+    await tester.binding.handlePopRoute();
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('同步 2 部'));
+    await tester.pumpAndSettle();
+    expect(session.state.collectionFor(30)?.type, CollectionType.done);
+    expect(session.state.collectionFor(31)?.type, CollectionType.doing);
+    expect(session.state.collectionFor(31)?.episodeStatus, 7);
+  });
+
+  testWidgets('search distinguishes existing collection and selected titles', (
+    tester,
+  ) async {
+    final session = BatchTestSession(
+      BatchTestApi([batchFixtureCollection(30, type: SubjectType.anime)]),
+      MemoryBatchQueue(),
+    );
+    await _show(
+      tester,
+      session: session,
+      search: (keyword) async => [_subject(30), _subject(31)],
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('按片名搜索，直接加入'));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const ValueKey('watched-search-field')),
+      '作品',
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('已在收藏中'), findsOneWidget);
+    expect(find.byKey(const ValueKey('watched-search-add-30')), findsNothing);
+    await tester.tap(find.byKey(const ValueKey('watched-search-add-31')));
+    await tester.pumpAndSettle();
+    expect(find.text('已加入本次清单'), findsOneWidget);
+    expect(find.byKey(const ValueKey('watched-search-add-31')), findsNothing);
+    await tester.binding.handlePopRoute();
+    await tester.pumpAndSettle();
+    expect(find.text('同步 1 部'), findsOneWidget);
+  });
+
+  testWidgets(
+    'search retries failures and account change closes stale results',
+    (tester) async {
+      var requests = 0;
+      final session = BatchTestSession(BatchTestApi([]), MemoryBatchQueue());
+      await _show(
+        tester,
+        session: session,
+        search: (keyword) async {
+          requests++;
+          if (requests == 1) throw StateError('offline');
+          return [_subject(30), _subject(31)];
+        },
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('按片名搜索，直接加入'));
+      await tester.pumpAndSettle();
+      await tester.enterText(
+        find.byKey(const ValueKey('watched-search-field')),
+        '旧番',
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('搜索暂时失败，请检查网络后重试'), findsOneWidget);
+      await tester.tap(find.text('重试'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('watched-search-add-30')));
+      await tester.pumpAndSettle();
+      await tester.tap(
+        find.byKey(const ValueKey('watched-search-progress-31')),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('记到看到的那一集'), findsOneWidget);
+      session.switchUser(2);
+      await tester.pumpAndSettle();
+      expect(find.text('记到看到的那一集'), findsNothing);
+      expect(find.byKey(const ValueKey('watched-search-field')), findsNothing);
+      expect(find.text('同步 0 部'), findsOneWidget);
     },
   );
 

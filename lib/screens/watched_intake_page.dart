@@ -7,6 +7,7 @@ import '../core/network/bangumi_support.dart';
 import '../core/onboarding/watched_guess.dart';
 import '../core/theme/anime_icon.dart';
 import '../state/watched_catalog_provider.dart';
+import '../widgets/watched_intake_search_sheet.dart';
 import '../widgets/watched_intake_workspace.dart';
 import '../models/bangumi_models.dart';
 import '../navigation/app_destination.dart';
@@ -19,11 +20,13 @@ class WatchedIntakePage extends ConsumerStatefulWidget {
     super.key,
     this.loadDeck,
     this.loadRelated,
+    this.searchSubjects,
     this.clock,
   });
 
   final Future<List<Subject>> Function()? loadDeck;
   final Future<List<RelatedSubject>> Function(int subjectId)? loadRelated;
+  final Future<List<Subject>> Function(String keyword)? searchSubjects;
   final DateTime Function()? clock;
 
   @override
@@ -95,12 +98,20 @@ class _WatchedIntakePageState extends ConsumerState<WatchedIntakePage>
   }
 
   void _resetForAccountChange() {
-    final overlay = _overlayContext;
-    if (overlay != null &&
-        overlay.mounted &&
-        ModalRoute.of(overlay)?.isCurrent == true) {
+    void dismissOverlay() {
+      final overlay = _overlayContext;
+      if (overlay == null ||
+          !overlay.mounted ||
+          ModalRoute.of(overlay)?.isCurrent != true) {
+        return;
+      }
       Navigator.pop(overlay);
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && _overlayContext != overlay) dismissOverlay();
+      });
     }
+
+    dismissOverlay();
     _overlayContext = null;
     _loadGeneration++;
     _motion.reset();
@@ -158,6 +169,11 @@ class _WatchedIntakePageState extends ConsumerState<WatchedIntakePage>
           title: const Text('搬进看过的番'),
           actions: [
             IconButton(
+              tooltip: '按片名搜索',
+              onPressed: busy ? null : _openSearch,
+              icon: const AnimeIcon(Icons.search_rounded),
+            ),
+            IconButton(
               tooltip: '撤销上一张',
               onPressed: _history.isEmpty || busy ? null : _undoLast,
               icon: const AnimeIcon(Icons.undo_rounded),
@@ -193,6 +209,7 @@ class _WatchedIntakePageState extends ConsumerState<WatchedIntakePage>
               ),
             ),
             onReview: _kept.isEmpty || busy ? null : _review,
+            onSearch: busy ? null : _openSearch,
           ),
         ),
       ),
@@ -438,6 +455,62 @@ class _WatchedIntakePageState extends ConsumerState<WatchedIntakePage>
         _notice = '部分候选未能加载，可以先挑选已有的番';
       }
     });
+  }
+
+  Future<void> _openSearch() async {
+    if (_saving || _fly != _Fly.none) return;
+    final generation = _loadGeneration;
+    await showWatchedIntakeSearchSheet(
+      context: context,
+      search: (keyword) async {
+        if (!mounted || generation != _loadGeneration) return const [];
+        final results = widget.searchSubjects == null
+            ? await ref
+                  .read(bangumiApiProvider)
+                  .searchSubjects(keyword, limit: 20)
+            : await widget.searchSubjects!(keyword);
+        if (!mounted || generation != _loadGeneration) return const [];
+        return results;
+      },
+      isCollected: (id) => ref
+          .read(sessionProvider)
+          .collections
+          .any((collection) => collection.subjectId == id),
+      isSelected: (id) => _kept.any((card) => card.candidate.id == id),
+      onAdd: (subject, {int? through}) {
+        if (generation == _loadGeneration) {
+          _addFromSearch(subject, through: through);
+        }
+      },
+      onOverlay: (context) {
+        if (generation == _loadGeneration) {
+          _overlayContext = context;
+          return;
+        }
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (context.mounted && ModalRoute.of(context)?.isCurrent == true) {
+            Navigator.pop(context);
+          }
+        });
+      },
+    );
+    if (generation == _loadGeneration) _overlayContext = null;
+  }
+
+  void _addFromSearch(Subject subject, {int? through}) {
+    if (_saving ||
+        subject.type != SubjectType.anime ||
+        _ranker.owns(subject.id) ||
+        _kept.any((card) => card.candidate.id == subject.id)) {
+      return;
+    }
+    final item = WatchedCandidate.fromSubject(subject);
+    _ranker.accept(item);
+    _kept.add(_KeptCard(item, through: through));
+    _history.add((guess: WatchedGuess(item, '按片名搜索'), kept: true));
+    if (_current?.candidate.id == subject.id) _current = _drawNext();
+    setState(() {});
+    unawaited(_pullRelated(item.id, _loadGeneration));
   }
 
   Future<void> _keep(WatchedGuess guess, {int? through}) async {

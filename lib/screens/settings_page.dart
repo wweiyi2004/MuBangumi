@@ -131,7 +131,7 @@ class SettingsPage extends ConsumerWidget {
                 ListTile(
                   leading: const AnimeIcon(Icons.style_rounded),
                   title: const Text('搬进看过的番'),
-                  subtitle: const Text('一张张猜你看过，收下后再同步'),
+                  subtitle: const Text('按片名搜索或一张张猜，核对后再同步'),
                   trailing: const AnimeIcon(Icons.chevron_right_rounded),
                   onTap: () => Navigator.of(context).push(
                     MaterialPageRoute<void>(

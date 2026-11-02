@@ -332,6 +332,27 @@ void main() {
     },
   );
 
+  test(
+    'an empty legacy mailbox is accepted without dropping authentication',
+    () async {
+      final adapter = _Adapter(
+        (_, _) => _response('''
+<div id="headerNeue2"><div><div class="idBadgerNeue">
+  <a class="avatar" href="/user/alice">Alice</a>
+</div></div></div>
+<div id="pm_sidebar"></div><div id="pm_main"></div>
+'''),
+      );
+      final service = PmService(
+        sessionStore: _Store(),
+        dio: Dio()..httpClientAdapter = adapter,
+      );
+      addTearDown(service.dispose);
+      expect(await service.loadInbox(), isEmpty);
+      expect(await service.loadOutbox(), isEmpty);
+    },
+  );
+
   test('an HTTP 200 error page is not an empty mailbox', () async {
     final adapter = _Adapter(
       (_, _) => _response(
