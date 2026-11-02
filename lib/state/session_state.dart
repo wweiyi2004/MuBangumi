@@ -32,6 +32,7 @@ class SessionState {
     this.message,
     this.episodeUndo,
     this.lastEpisodeEdit,
+    this.episodeActivityRevision = 0,
   });
 
   final SessionPhase phase;
@@ -66,6 +67,7 @@ class SessionState {
   final String? message;
   final EpisodeUndo? episodeUndo;
   final EpisodeEdit? lastEpisodeEdit;
+  final int episodeActivityRevision;
 
   UserCollection? collectionFor(int subjectId) {
     for (final collection in collections) {
@@ -101,6 +103,7 @@ class SessionState {
     EpisodeUndo? episodeUndo,
     bool clearEpisodeUndo = false,
     EpisodeEdit? lastEpisodeEdit,
+    int? episodeActivityRevision,
   }) => SessionState(
     phase: phase ?? this.phase,
     authActivity: authActivity ?? this.authActivity,
@@ -113,6 +116,8 @@ class SessionState {
     user: clearUser ? null : user ?? this.user,
     episodeUndo: clearEpisodeUndo ? null : episodeUndo ?? this.episodeUndo,
     lastEpisodeEdit: lastEpisodeEdit ?? this.lastEpisodeEdit,
+    episodeActivityRevision:
+        episodeActivityRevision ?? this.episodeActivityRevision,
     collections: collections ?? this.collections,
     collectionCoverage:
         collectionCoverage ??

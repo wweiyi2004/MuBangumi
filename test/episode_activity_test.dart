@@ -8,8 +8,43 @@ import 'package:mubangumi/models/bangumi_models.dart';
 import 'package:mubangumi/widgets/episode_activity_heatmap.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'support/ux_visuals.dart';
+import 'support/pm_fixtures.dart';
+import 'package:mubangumi/state/session_controller.dart';
+
+class _ActivitySession extends PmTestSession {
+  Map<String, int> days = {'2026-10-20': 1};
+  @override
+  Future<Map<String, int>> episodeActivityDays() async => Map.of(days);
+  void updateActivity(Map<String, int> value) {
+    days = value;
+    state = state.copyWith(
+      episodeActivityRevision: state.episodeActivityRevision + 1,
+    );
+  }
+}
 
 void main() {
+  test(
+    'activity consumer refreshes after durable bulk changes without a single-episode edit',
+    () async {
+      final session = _ActivitySession();
+      final container = ProviderContainer(
+        overrides: [sessionProvider.overrideWith((_) => session)],
+      );
+      final listener = container.listen(episodeActivityProvider, (_, _) {});
+      addTearDown(() {
+        listener.close();
+        container.dispose();
+      });
+      expect(await container.read(episodeActivityProvider.future), {
+        '2026-10-20': 1,
+      });
+      session.updateActivity({'2026-10-21': 3});
+      expect(await container.read(episodeActivityProvider.future), {
+        '2026-10-21': 3,
+      });
+    },
+  );
   test(
     'specials use their real sort ordinal and never invent episode zero',
     () {

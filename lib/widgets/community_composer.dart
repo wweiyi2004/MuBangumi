@@ -15,6 +15,7 @@ import 'community_rich_content.dart';
 import 'draft_status.dart';
 import 'blog_composer_page.dart';
 import '../state/community_submission_controller.dart';
+import '../core/platform/window_close.dart';
 
 typedef CommunitySubmit =
     Future<void> Function(String title, String content, String token);
@@ -78,6 +79,7 @@ Future<bool> showCommunityComposer(
   String initialTitle = '',
   String initialContent = '',
   bool requireVerification = true,
+  bool protectSubmission = true,
   String submitLabel = '发送',
   CommunityBlogDraft? blogDraft,
   CommunityTopicDraft? topicDraft,
@@ -100,6 +102,7 @@ Future<bool> showCommunityComposer(
     initialTitle: initialTitle,
     initialContent: initialContent,
     requireVerification: requireVerification,
+    protectSubmission: protectSubmission,
     submitLabel: submitLabel,
     blogDraft: blogDraft,
     topicDraft: topicDraft,
@@ -141,6 +144,7 @@ class _CommunityComposerDialog extends StatefulWidget {
     required this.initialTitle,
     required this.initialContent,
     required this.requireVerification,
+    required this.protectSubmission,
     required this.submitLabel,
     this.blogDraft,
     this.topicDraft,
@@ -154,6 +158,7 @@ class _CommunityComposerDialog extends StatefulWidget {
   final String initialTitle;
   final String initialContent;
   final bool requireVerification;
+  final bool protectSubmission;
   final String submitLabel;
   final CommunityBlogDraft? blogDraft;
   final CommunityTopicDraft? topicDraft;
@@ -185,6 +190,11 @@ class _CommunityComposerDialogState extends State<_CommunityComposerDialog> {
     text: widget.draft?.content ?? widget.initialContent,
   );
   String _lastBlogMetadata = '';
+  late final CommunityTopicDraft? _submission =
+      widget.topicDraft ??
+      (widget.draftKey == null || !widget.protectSubmission
+          ? null
+          : CommunityTopicDraft(kind: 'community-write'));
   bool _sent = false;
   bool _preview = false;
   bool _submitting = false;
@@ -206,14 +216,15 @@ class _CommunityComposerDialogState extends State<_CommunityComposerDialog> {
   String _lastContent = '';
   Timer? _saveTimer;
   late final AppLifecycleListener _lifecycle;
+  late final VoidCallback _unregisterClose;
 
   bool get _locked => _submitting || _restoring || _closing;
-  bool get _pending => widget.topicDraft?.pending == true;
+  bool get _pending => _submission?.pending == true;
   bool get _editable =>
       !_locked && !_pending && (widget.draftKey == null || _loadedDraft);
   String _encodeContent(String value) {
     final body = widget.blogDraft?.encode(value) ?? value;
-    return widget.topicDraft?.encode(body) ?? body;
+    return _submission?.encode(body) ?? body;
   }
 
   String _message(Object error) => error is FormatException
@@ -223,6 +234,7 @@ class _CommunityComposerDialogState extends State<_CommunityComposerDialog> {
   @override
   void initState() {
     super.initState();
+    _unregisterClose = WindowCloseCoordinator.register(_saveDraft);
     _restoring = widget.draftKey != null;
     _lastTitle = _titleController.text;
     _lastContent = _contentController.text;
@@ -244,8 +256,7 @@ class _CommunityComposerDialogState extends State<_CommunityComposerDialog> {
       if (!mounted) return;
       _storedRevision = slot.revision;
       if (draft != null) {
-        final encoded =
-            widget.topicDraft?.restore(draft.content) ?? draft.content;
+        final encoded = _submission?.restore(draft.content) ?? draft.content;
         final body = widget.blogDraft?.restore(encoded) ?? encoded;
         _titleController.text = draft.title;
         _contentController.text = body;
@@ -389,7 +400,7 @@ class _CommunityComposerDialogState extends State<_CommunityComposerDialog> {
         });
         return;
       }
-      if (widget.topicDraft case final submission?) {
+      if (_submission case final submission?) {
         submission.attemptedAt = DateTime.now().toUtc();
         submission.confirmedId = null;
         _dirty = true;
@@ -400,7 +411,7 @@ class _CommunityComposerDialogState extends State<_CommunityComposerDialog> {
         }
         _checkAccount();
       }
-      if (widget.onAccepted != null && widget.topicDraft != null) {
+      if (widget.onAccepted != null && _submission != null) {
         _handoff(token?.trim() ?? '');
         return;
       }
@@ -415,7 +426,7 @@ class _CommunityComposerDialogState extends State<_CommunityComposerDialog> {
       if (_pending &&
           (error is CommunitySubmissionRejected ||
               error is WebsiteAccessException)) {
-        widget.topicDraft!.clearAttempt();
+        _submission!.clearAttempt();
         _dirty = true;
         _draftRevision++;
         await _saveDraft();
@@ -433,7 +444,7 @@ class _CommunityComposerDialogState extends State<_CommunityComposerDialog> {
   void _handoff(String token) {
     final title = _titleController.text.trim();
     final content = _contentController.text.trim();
-    final submission = widget.topicDraft!;
+    final submission = _submission!;
     final blog = widget.blogDraft;
     final store = widget.draftStore;
     final key = widget.draftKey;
@@ -486,7 +497,7 @@ class _CommunityComposerDialogState extends State<_CommunityComposerDialog> {
   Future<void> _finishSent() async {
     // Keep the receipt in the draft before clearing it, so a failed cleanup
     // or restart does not turn a confirmed publication back into editable text.
-    if (widget.topicDraft?.confirmedId != null) {
+    if (_submission?.confirmedId != null) {
       _dirty = true;
       _draftRevision++;
       await _saveDraft();
@@ -529,12 +540,12 @@ class _CommunityComposerDialogState extends State<_CommunityComposerDialog> {
       final found = await widget.confirmSubmission!(
         _titleController.text.trim(),
         _contentController.text.trim(),
-        widget.topicDraft?.attemptedAt,
+        _submission?.attemptedAt,
       );
       if (!mounted) return;
       _checkAccount();
       if (found) {
-        widget.topicDraft?.attemptedAt ??= DateTime.now().toUtc();
+        _submission?.attemptedAt ??= DateTime.now().toUtc();
         await _finishSent();
       } else {
         setState(() => _error = '暂未找到可确认的帖子，可能有延迟或正在审核；这不代表发布失败，请稍后再次核对或查看官网。');
@@ -577,7 +588,7 @@ class _CommunityComposerDialogState extends State<_CommunityComposerDialog> {
       setState(() => _error = '账号已变化，请返回原账号后继续核对');
       return;
     }
-    widget.topicDraft!.clearAttempt();
+    _submission!.clearAttempt();
     setState(() {
       _dirty = true;
       _draftRevision++;
@@ -621,6 +632,7 @@ class _CommunityComposerDialogState extends State<_CommunityComposerDialog> {
 
   @override
   void dispose() {
+    _unregisterClose();
     _saveTimer?.cancel();
     _lifecycle.dispose();
     if (!_sent && _dirty && _loadedDraft && widget.draftKey != null) {
@@ -901,7 +913,9 @@ class _CommunityComposerDialogState extends State<_CommunityComposerDialog> {
                 onPressed: _locked
                     ? null
                     : _pending
-                    ? _confirmSubmission
+                    ? (widget.confirmSubmission == null
+                          ? null
+                          : _confirmSubmission)
                     : _canSubmit
                     ? _submit
                     : null,

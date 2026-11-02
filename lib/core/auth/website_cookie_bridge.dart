@@ -10,6 +10,7 @@ import 'package:webview_flutter_windows/webview_flutter_windows.dart'
     as windows;
 
 import 'website_session.dart';
+import 'auth_cleanup_marker.dart';
 
 /// Platform helpers to capture / inject Bangumi website cookies for WebViews.
 class WebsiteCookieBridge {
@@ -19,19 +20,50 @@ class WebsiteCookieBridge {
   static const bgmHost = 'bgm.tv';
   static const _cookieOrigins = [bgmOrigin];
   static const _androidCookies = MethodChannel('mubangumi/website_cookies');
+  static const _appleCookies = MethodChannel('mubangumi/apple_website_cookies');
 
   static Future<void>? _cookieWrites;
   static Future<void>? _pendingCleanup;
   static bool _cleanupFailed = false;
+  static bool _cleanupRunning = false;
+  static int _testEpoch = 0;
+  static Future<void> Function()? _testCleanup;
   static bool get cleanupNeedsRetry => _cleanupFailed;
+  static Future<void>? get pendingCleanup => _pendingCleanup;
+  static void requireCleanup() {
+    _cleanupFailed = true;
+  }
+
+  @visibleForTesting
+  static void resetForTests() {
+    _testEpoch++;
+    _cookieWrites = null;
+    _pendingCleanup = null;
+    _cleanupFailed = false;
+    _cleanupRunning = false;
+    _testCleanup = null;
+  }
+
+  @visibleForTesting
+  static void setCleanupForTests(Future<void> Function()? cleanup) {
+    _testCleanup = cleanup;
+  }
 
   static Future<void> waitForPendingCleanup() async {
+    final marker = await AuthCleanupMarker.current();
+    if ((marker.websitePending || _cleanupFailed) && !_cleanupRunning) {
+      if (marker.websiteStorePending) await WebsiteSessionStore().clear();
+      await clearBgmCookies(strict: true);
+    }
     try {
       await _pendingCleanup?.timeout(const Duration(seconds: 8));
     } catch (_) {
       throw StateError('上次网页会话清理尚未完成，请重试清理后登录');
     }
     if (_cleanupFailed) throw StateError('上次网页会话清理失败，请重试清理后登录');
+    if ((await AuthCleanupMarker.current()).websitePending) {
+      throw StateError('网页登录清理尚未完成，请重试清理后登录');
+    }
   }
 
   static Future<void> _writeCookies(Future<void> Function() action) {
@@ -51,22 +83,46 @@ class WebsiteCookieBridge {
 
   /// Logout stays responsive; subsequent injection must wait for the cleanup.
   static Future<void> clearBgmCookies({bool strict = false}) async {
+    final epoch = _testEpoch;
+    final testCleanup = _testCleanup;
+    final String nonce;
+    try {
+      nonce = await AuthCleanupMarker.beginWebsiteCleanup();
+    } catch (_) {
+      _cleanupFailed = true;
+      rethrow;
+    }
+    if (epoch != _testEpoch) return;
     final cleanup = _writeCookies(() async {
       try {
-        if (Platform.isWindows) {
+        if (testCleanup != null) {
+          await testCleanup();
+        } else if (Platform.isWindows) {
           await _clearWindowsCookies();
         } else if (Platform.isAndroid) {
           await _androidCookieManager().clearCookies();
         } else if (Platform.isIOS || Platform.isMacOS) {
           await mobile.WebViewCookieManager().clearCookies();
         }
-        _cleanupFailed = false;
+        await AuthCleanupMarker.completeWebsiteCookies(nonce);
+        if (epoch == _testEpoch) _cleanupFailed = false;
       } catch (_) {
-        _cleanupFailed = true;
+        if (epoch == _testEpoch) _cleanupFailed = true;
         rethrow;
       }
     });
     _pendingCleanup = cleanup;
+    _cleanupRunning = true;
+    void settled() {
+      if (identical(_pendingCleanup, cleanup)) _cleanupRunning = false;
+    }
+
+    unawaited(
+      cleanup.then<void>(
+        (_) => settled(),
+        onError: (Object _, StackTrace _) => settled(),
+      ),
+    );
     if (Platform.isWindows && !strict) {
       runDetachedBestEffort(() => cleanup);
       return;
@@ -130,61 +186,78 @@ class WebsiteCookieBridge {
   }
 
   /// Inject stored cookies into a mobile WebView cookie jar before navigation.
-  static Future<void> injectMobile(
-    List<WebsiteCookie> cookies,
-  ) => _writeCookies(() async {
-    if (cookies.isEmpty) return;
+  static Future<void> injectMobile(List<WebsiteCookie> cookies) async {
     if (!(Platform.isAndroid || Platform.isIOS || Platform.isMacOS)) return;
-    try {
-      if (Platform.isAndroid) {
-        await injectAndroidCookies(cookies);
-        return;
-      }
-      // iOS / macOS: common cookie manager setCookie (HttpOnly may be limited).
-      final manager = mobile.WebViewCookieManager();
-      for (final cookie in cookies.where((cookie) => !cookie.isExpired)) {
-        await manager.setCookie(
-          WebViewCookie(
-            name: cookie.name,
-            value: cookie.value,
-            domain: _normalizedDomain(cookie.domain),
-            path: cookie.path.isEmpty ? '/' : cookie.path,
-          ),
+    final epoch = _testEpoch;
+    await waitForPendingCleanup();
+    if (epoch != _testEpoch) return;
+    await _writeCookies(() async {
+      if (epoch != _testEpoch) return;
+      if (_cleanupFailed) throw StateError('上次网页会话清理失败，请重试清理后登录');
+      if (cookies.isEmpty) return;
+      if (!(Platform.isAndroid || Platform.isIOS || Platform.isMacOS)) return;
+      try {
+        if (Platform.isAndroid) {
+          await injectAndroidCookies(cookies);
+          return;
+        }
+        if (Platform.isIOS) {
+          await injectAppleCookies(cookies);
+          return;
+        }
+        // iOS / macOS: common cookie manager setCookie (HttpOnly may be limited).
+        final manager = mobile.WebViewCookieManager();
+        for (final cookie in cookies.where((cookie) => !cookie.isExpired)) {
+          await manager.setCookie(
+            WebViewCookie(
+              name: cookie.name,
+              value: cookie.value,
+              domain: _normalizedDomain(cookie.domain),
+              path: cookie.path.isEmpty ? '/' : cookie.path,
+            ),
+          );
+        }
+      } catch (error, stack) {
+        debugPrint(
+          'WebsiteCookieBridge.injectMobile failed: ${error.runtimeType}\n$stack',
         );
       }
-    } catch (error, stack) {
-      debugPrint(
-        'WebsiteCookieBridge.injectMobile failed: ${error.runtimeType}\n$stack',
-      );
-    }
-  });
+    });
+  }
 
   /// Inject stored cookies into a Windows WebView2 controller.
   static Future<void> injectWindows(
     windows.WebviewController controller,
     List<WebsiteCookie> cookies,
-  ) => _writeCookies(() async {
-    if (cookies.isEmpty) return;
-    try {
-      for (final cookie in cookies.where((cookie) => !cookie.isExpired)) {
-        await controller.setCookie(
-          windows.WebviewCookie(
-            name: cookie.name,
-            value: cookie.value,
-            domain: _normalizedDomain(cookie.domain),
-            path: cookie.path.isEmpty ? '/' : cookie.path,
-            expires: cookie.expiresAt,
-            isSecure: cookie.isSecure,
-            isHttpOnly: cookie.isHttpOnly,
-          ),
+  ) async {
+    final epoch = _testEpoch;
+    await waitForPendingCleanup();
+    if (epoch != _testEpoch) return;
+    await _writeCookies(() async {
+      if (epoch != _testEpoch) return;
+      if (_cleanupFailed) throw StateError('上次网页会话清理失败，请重试清理后登录');
+      if (cookies.isEmpty) return;
+      try {
+        for (final cookie in cookies.where((cookie) => !cookie.isExpired)) {
+          await controller.setCookie(
+            windows.WebviewCookie(
+              name: cookie.name,
+              value: cookie.value,
+              domain: _normalizedDomain(cookie.domain),
+              path: cookie.path.isEmpty ? '/' : cookie.path,
+              expires: cookie.expiresAt,
+              isSecure: cookie.isSecure,
+              isHttpOnly: cookie.isHttpOnly,
+            ),
+          );
+        }
+      } catch (error, stack) {
+        debugPrint(
+          'WebsiteCookieBridge.injectWindows failed: ${error.runtimeType}\n$stack',
         );
       }
-    } catch (error, stack) {
-      debugPrint(
-        'WebsiteCookieBridge.injectWindows failed: ${error.runtimeType}\n$stack',
-      );
-    }
-  });
+    });
+  }
 
   /// Read cookies from the active platform WebView session.
   static Future<List<WebsiteCookie>> capture({
@@ -197,6 +270,9 @@ class WebsiteCookieBridge {
     }
     if (Platform.isAndroid) {
       return captureAndroidCookies();
+    }
+    if (Platform.isIOS) {
+      return captureAppleCookies();
     }
     if (Platform.isIOS || Platform.isMacOS) {
       try {
@@ -264,6 +340,28 @@ class WebsiteCookieBridge {
 
   @visibleForTesting
   static Future<void> injectAndroidCookies(List<WebsiteCookie> cookies) async {
+    await _injectCookieHeaders(cookies, _androidCookies);
+  }
+
+  @visibleForTesting
+  static Future<void> injectAppleCookies(List<WebsiteCookie> cookies) =>
+      _injectCookieHeaders(cookies, _appleCookies);
+
+  @visibleForTesting
+  static Future<List<WebsiteCookie>> captureAppleCookies() async {
+    final raw = await _appleCookies
+        .invokeMethod<List<dynamic>>('readBgmCookies')
+        .timeout(const Duration(seconds: 8));
+    return [
+      for (final row in raw ?? [])
+        if (row is Map) WebsiteCookie.fromJson(Map<String, dynamic>.from(row)),
+    ];
+  }
+
+  static Future<void> _injectCookieHeaders(
+    List<WebsiteCookie> cookies,
+    MethodChannel channel,
+  ) async {
     for (final cookie in cookies.where((c) => !c.isExpired)) {
       final domain = cookie.domain.toLowerCase();
       final path = cookie.path.isEmpty ? '/' : cookie.path;
@@ -279,7 +377,7 @@ class WebsiteCookieBridge {
           '${cookie.isSecure ? '; Secure' : ''}'
           '${cookie.isHttpOnly ? '; HttpOnly' : ''}'
           '${cookie.expiresAt == null ? '' : '; Expires=${HttpDate.format(cookie.expiresAt!.toUtc())}'}';
-      await _androidCookies
+      await channel
           .invokeMethod<void>('setBgmCookie', {'header': header})
           .timeout(const Duration(seconds: 8));
     }

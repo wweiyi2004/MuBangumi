@@ -262,10 +262,11 @@ class RoomHost extends ChangeNotifier {
         );
       }
       password = newSecret(12);
-      _receive = ReceivePort();
+      final receive = _receive = ReceivePort();
       final ready = Completer<int>();
-      _stopped = Completer<void>();
-      _receive!.listen((data) {
+      final stopped = _stopped = Completer<void>();
+      receive.listen((data) {
+        if (!identical(_receive, receive)) return;
         if (data is SendPort) _control = data;
         if (data is int && !ready.isCompleted) ready.complete(data);
         if (data is String && !ready.isCompleted) {
@@ -275,11 +276,16 @@ class RoomHost extends ChangeNotifier {
           if (!ready.isCompleted) {
             ready.completeError(const RoomError(500, '活动服务启动失败'));
           }
-          if (!_stopped!.isCompleted) _stopped!.complete();
+          if (!stopped.isCompleted) stopped.complete();
+          receive.close();
+          _receive = null;
+          _control = null;
+          _isolate = null;
           if (running) {
             running = false;
             error = '活动服务已停止，已确认数据保留';
             _poll?.cancel();
+            if (Platform.isAndroid) unawaited(_stopForegroundService());
             _notify();
           }
         }
@@ -312,12 +318,28 @@ class RoomHost extends ChangeNotifier {
           : e.toString();
       _isolate?.kill(priority: Isolate.immediate);
       _isolate = null;
+      _receive?.close();
+      _receive = null;
+      _control = null;
+      _stopped = null;
+      api = null;
+      base = null;
+      password = null;
       running = false;
-      if (Platform.isAndroid) await _channel.invokeMethod<void>('stop');
+      await _stopForegroundService();
       rethrow;
     } finally {
       busy = false;
       _notify();
+    }
+  }
+
+  Future<void> _stopForegroundService() async {
+    if (!Platform.isAndroid) return;
+    try {
+      await _channel.invokeMethod<void>('stop');
+    } catch (_) {
+      debugPrint('Banjian foreground service cleanup needs retry');
     }
   }
 

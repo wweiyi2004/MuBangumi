@@ -25,6 +25,7 @@ sdk/
 & git -C $testRoot -c user.name=Fixture -c user.email=fixture@example.test commit --quiet -m fixture
 # Only synthetic credentials are used; the real workspace configuration is never read.
 '{"BGM_CLIENT_ID":"fixture-id","BGM_CLIENT_SECRET":"fixture-secret"}' | Set-Content -LiteralPath (Join-Path $testRoot 'config\oauth.local.json') -Encoding utf8
+'shorebird @args' | Set-Content (Join-Path $testRoot 'config\shorebird.ps1') -Encoding utf8
 $fixture = @{ Calls = [Collections.Generic.List[object]]::new(); OmitAbi = ''; OmitSymbols = $false; FailBuild = $false; DriftLock = $false }
 $passed = 0
 
@@ -97,11 +98,11 @@ function Invoke-FixtureBuild {
         }
     }
     $verification = Join-Path $testRoot 'config\verification.json'
-    @{passed=$true;mode='Full';createdUtc=[DateTime]::UtcNow.ToString('o');source=$source;checks=@(@('flutter-analyze','flutter-tests','architecture','repository-privacy','provenance-tests','android-build','windows-build') | ForEach-Object {@{name=$_;status='passed'}})} | ConvertTo-Json -Depth 8 | Set-Content $verification
+    @{passed=$true;mode='Full';areas=@('flutter','server','website','python','tools');createdUtc=[DateTime]::UtcNow.ToString('o');source=$source;checks=@(@('flutter-analyze','flutter-tests','architecture','repository-privacy','provenance-tests','android-build','windows-build','server-analyze','server-tests','server-bundle','browser-protocol','website-check','website-audit','website-browser','dataset-tests','semantic-tests','mirror-tests','toolchain-files','toolchain_npm','windows_package_safety','release_build','repository-privacy-tests') | ForEach-Object {@{name=$_;status='passed'}})} | ConvertTo-Json -Depth 8 | Set-Content $verification
     $acceptance = Join-Path $testRoot 'config\acceptance.json'
     $cases=@{}; foreach($case in @('oauth_login','saved_session','session_expiry','website_challenge','network_recovery','foreground_resume','account_switch','pm_delivery','group_write')){$cases[$case]='passed'}
     @{platform=$platform;version=$(if($baseline){$baseline}else{"$versionName+$number"});source_fingerprint=$source.fingerprint;completedUtc=[DateTime]::UtcNow.ToString('o');evidence='synthetic test only';cases=$cases} | ConvertTo-Json -Depth 5 | Set-Content $acceptance
-    & (Join-Path $testRoot 'tool\build_release.ps1') @args -VerificationReport $verification -AcceptanceReport $acceptance
+    & (Join-Path $testRoot 'tool\build_release.ps1') @args -ShorebirdCli (Join-Path $testRoot 'config\shorebird.ps1') -VerificationReport $verification -AcceptanceReport $acceptance
 }
 
 try {
@@ -158,14 +159,21 @@ try {
     $fixture.FailBuild = $false
     $passed++
 
+    $shorebirdCallStart = $fixture.Calls.Count
     Invoke-FixtureBuild -Target apk -Shorebird -BuildNumber 25
+    Assert-True ($fixture.Calls[$shorebirdCallStart] -contains '--enforce-lockfile') 'Shorebird release must enforce the dependency lock'
+    Assert-True ($fixture.Calls[$shorebirdCallStart + 1] -contains '--config-only' -and $fixture.Calls[$shorebirdCallStart + 1] -contains '--release') 'Shorebird release reused Debug plugin registration'
     Assert-True ($fixture.Calls[-1] -contains '--artifact=apk') 'Shorebird APK artifact option lost'
+    Assert-True (@($fixture.Calls[-1] | Where-Object { $_ -like '--split-debug-info=*' }).Count -eq 0) 'Android baseline compilation options changed'
     Assert-True ($fixture.Calls[-1] -notcontains '--split-per-abi') 'Existing Shorebird compilation changed'
     Assert-True ($fixture.Calls[-1] -contains '--dart-define=MUBANGUMI_FEEDBACK_URL=https://mubangumi-homepage.2844938982.workers.dev/api/feedback') 'Feedback endpoint missing from Shorebird release'
     Invoke-FixtureBuild -Target apk -Patch -ReleaseVersion '2.2.0+24' -DryRun
     Assert-True ($fixture.Calls[-1] -contains '--release-version=2.2.0+24') 'Patch baseline lost'
     Assert-True ($fixture.Calls[-1] -contains '--dry-run') 'Patch dry run lost'
     Assert-True ($fixture.Calls[-1] -contains '--dart-define=MUBANGUMI_FEEDBACK_URL=https://mubangumi-homepage.2844938982.workers.dev/api/feedback') 'Feedback endpoint missing from Shorebird patch'
+    Assert-True (@($fixture.Calls[-1] | Where-Object { $_ -like '--split-debug-info=*' }).Count -eq 0) 'Existing patch compilation options changed'
+    Invoke-FixtureBuild -Target windows -Shorebird -DryRun
+    Assert-True (@($fixture.Calls[-1] | Where-Object { $_ -like '--split-debug-info=*' }).Count -eq 1) 'New Windows Shorebird baseline must separate debugging information'
     $rejected = $false
     try { Invoke-FixtureBuild -Target apk -Patch -ReleaseVersion '2.2.0+24' -BuildNumber 25 } catch { $rejected = $true }
     Assert-True $rejected 'Patch accepted a conflicting build version'

@@ -161,6 +161,19 @@ class PmSendQueueController extends ChangeNotifier {
     accountChanged();
     await _ready;
     if (currentUser()?.id != draft.data.ownerId) throw const PmAuthException();
+    final epoch = _epoch;
+    if (int.tryParse(receiver.trim()) == null) {
+      final resolve = resolveRecipient;
+      if (resolve == null) throw const PmException('请先联网核对收件人，再加入发送队列');
+      final id = await resolve(receiver.trim());
+      if (id <= 0) throw const PmException('无法识别收件人，请重新选择');
+      if (_disposed ||
+          epoch != _epoch ||
+          currentUser()?.id != draft.data.ownerId) {
+        throw const PmAuthException('账号已变化，消息尚未加入发送队列');
+      }
+      receiver = '$id';
+    }
     final command = await draft.enqueue(receiver: receiver, related: related);
     if (command != null) {
       // The transaction is the acknowledgement. A later list refresh must not
@@ -197,6 +210,28 @@ class PmSendQueueController extends ChangeNotifier {
         final user = currentUser();
         if (user == null || user.id != _owner) break;
         final epoch = _epoch;
+        // An uncertain legacy compose must block replies to the same UID too.
+        // This only resolves public identity; it never retries a private POST.
+        final bindings = repository;
+        if (bindings is PmRecipientBindings) {
+          for (final old in await repository!.outboxFor(user.id)) {
+            if (old.finished || int.tryParse(old.targetKey) != null) continue;
+            final resolve = resolveRecipient;
+            if (resolve == null) throw const PmException('请联网核对旧发送任务的收件人');
+            final id = await resolve(old.receiver);
+            if (_disposed || epoch != _epoch || currentUser()?.id != user.id) {
+              return;
+            }
+            await (bindings as PmRecipientBindings).bindRecipient(
+              user.id,
+              old.id,
+              id,
+            );
+          }
+        }
+        if (_disposed || epoch != _epoch || currentUser()?.id != user.id) {
+          return;
+        }
         final command = await repository!.claimNext(user.id);
         if (command == null) break;
         var submitted = false;

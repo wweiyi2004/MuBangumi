@@ -39,6 +39,11 @@ class Response:
 
 
 class MirrorTests(unittest.TestCase):
+    def test_asset_build_must_match_the_release_tag(self):
+        wrong_name = NAME.replace('build4029','build4028')
+        wrong = ASSET | {'name':wrong_name,'browser_download_url':ASSET['browser_download_url'].replace(NAME,wrong_name)}
+        with self.assertRaisesRegex(ValueError,'build does not match'):
+            mirror.select_assets(RELEASE | {'assets':[wrong]})
     @patch.dict(mirror.os.environ, {"GITEE_TOKEN": "test-token"})
     def test_oversized_apk_is_not_downloaded_or_uploaded_and_windows_is_published(self):
         apk = ASSET | {"name": "MuBangumi-2.3.1-build4029-android.apk",

@@ -26,6 +26,7 @@ class PmSendCommand {
     this.error,
     this.sequence = 0,
     this.attempt = 0,
+    this.canonicalTarget,
   });
   final String id, receiver, title, body, conversationId, threadId, related;
   final int ownerId, baseline, sequence, attempt;
@@ -33,7 +34,8 @@ class PmSendCommand {
   final DateTime createdAt;
   final PmSendStatus status;
   final String? error;
-  String get targetKey => receiver.trim().toLowerCase();
+  final String? canonicalTarget;
+  String get targetKey => canonicalTarget ?? receiver.trim().toLowerCase();
   bool get finished =>
       status == PmSendStatus.sent || status == PmSendStatus.cancelled;
   String get label => switch (status) {
@@ -68,6 +70,7 @@ class PmSendCommand {
     error: error,
     sequence: sequence ?? this.sequence,
     attempt: attempt ?? this.attempt,
+    canonicalTarget: canonicalTarget,
   );
   Map<String, dynamic> toJson() => {
     'compose': compose,
@@ -97,5 +100,6 @@ class PmSendCommand {
     error: row['error'] as String?,
     sequence: row['sequence']! as int,
     attempt: row['attempt'] as int? ?? 0,
+    canonicalTarget: row['target_key'] as String?,
   );
 }

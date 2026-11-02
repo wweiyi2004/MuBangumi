@@ -66,6 +66,7 @@ class _CollectionStatsPageState extends State<CollectionStatsPage> {
   int _annualSection = 0;
   int? _month;
   int? _year;
+  int? _selectedYear;
   CollectionMemoryOrder _order = CollectionMemoryOrder.highest;
   bool _exporting = false;
   bool _choosingExport = false;
@@ -89,6 +90,7 @@ class _CollectionStatsPageState extends State<CollectionStatsPage> {
       _filtered = const [];
       _statistics = CollectionStatistics([]);
       _year = null;
+      _selectedYear = null;
       _review = null;
     }
     if (oldWidget.collections != widget.collections ||
@@ -102,7 +104,7 @@ class _CollectionStatsPageState extends State<CollectionStatsPage> {
     final input = (
       collections: widget.collections,
       type: _subjectType,
-      year: _year,
+      year: _selectedYear,
       currentYear: DateTime.now().year,
     );
     _summaryError = null;
@@ -422,6 +424,7 @@ class _CollectionStatsPageState extends State<CollectionStatsPage> {
                           if (year == null) return;
                           setState(() {
                             _year = year;
+                            _selectedYear = year;
                             _month = null;
                             _recompute();
                           });

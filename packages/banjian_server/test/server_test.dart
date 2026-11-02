@@ -53,8 +53,9 @@ void main() {
     Json? body,
     String token = '',
     String? origin,
+    String? host,
   }) async {
-    final client = HttpClient();
+    final client = HttpClient()..findProxy = (_) => 'DIRECT';
     try {
       final req = await client.openUrl(
         body == null ? 'GET' : 'POST',
@@ -63,6 +64,7 @@ void main() {
       req.headers.contentType = ContentType.json;
       if (token.isNotEmpty) req.headers.set('Authorization', 'Bearer $token');
       if (origin != null) req.headers.set('Origin', origin);
+      if (host != null) req.headers.set('Host', host);
       if (body != null) req.write(jsonEncode(body));
       final res = await req.close();
       final text = await utf8.decodeStream(res);
@@ -224,6 +226,22 @@ void main() {
       403,
     );
     expect((await request('/api/health', origin: base.origin)).status, 200);
+    expect(
+      (await request(
+        '/api/health',
+        host: 'localhost:${base.port}',
+        origin: 'http://localhost:${base.port}',
+      )).status,
+      200,
+    );
+    expect(
+      (await request(
+        '/api/health',
+        host: 'rebind.example:${base.port}',
+        origin: 'http://rebind.example:${base.port}',
+      )).status,
+      403,
+    );
   });
   test(
     'discovery proves the invitation without disclosing the secret or member data',

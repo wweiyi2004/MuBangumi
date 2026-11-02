@@ -19,6 +19,7 @@ class HomeGreetingClock extends StatefulWidget {
 class _HomeGreetingClockState extends State<HomeGreetingClock> {
   late DateTime _time;
   Timer? _timer;
+  bool _visible = true;
   late final AppLifecycleListener _lifecycle;
   DateTime _now() => widget.now?.call() ?? DateTime.now();
   @override
@@ -35,6 +36,7 @@ class _HomeGreetingClockState extends State<HomeGreetingClock> {
 
   void _schedule() {
     _timer?.cancel();
+    if (!_visible) return;
     _timer = Timer(
       Duration(milliseconds: 60000 - (_time.second * 1000 + _time.millisecond)),
       _refresh,
@@ -42,9 +44,22 @@ class _HomeGreetingClockState extends State<HomeGreetingClock> {
   }
 
   void _refresh() {
-    if (!mounted) return;
+    if (!mounted || !_visible) return;
     setState(() => _time = _now());
     _schedule();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final visible = TickerMode.valuesOf(context).enabled;
+    if (_visible == visible) return;
+    _visible = visible;
+    if (visible) {
+      _refresh();
+    } else {
+      _timer?.cancel();
+    }
   }
 
   @override

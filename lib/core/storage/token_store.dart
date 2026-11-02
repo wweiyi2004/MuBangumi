@@ -4,6 +4,7 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 import '../../models/bangumi_models.dart';
 import '../auth/bangumi_oauth.dart';
+import '../auth/auth_cleanup_marker.dart';
 import '../network/bangumi_endpoints.dart';
 
 class TokenStore {
@@ -16,7 +17,12 @@ class TokenStore {
   static const _networkRouteKey = 'bangumi_network_route';
   static const _storage = FlutterSecureStorage();
 
-  Future<Map<String, dynamic>?> _readSession() async {
+  Future<Map<String, dynamic>?> _readSession({
+    bool allowClearedConfig = false,
+  }) async {
+    if (!allowClearedConfig && (await AuthCleanupMarker.current()).apiPending) {
+      return {};
+    }
     final raw = await _storage.read(key: _sessionKey);
     if (raw == null) return null;
     final decoded = jsonDecode(raw);
@@ -87,6 +93,7 @@ class TokenStore {
     OAuthConfig? config,
     BangumiUser? verifiedUser,
   }) async {
+    final cleanup = token == null ? null : await AuthCleanupMarker.current();
     await _storage.write(
       key: _sessionKey,
       value: jsonEncode({
@@ -98,6 +105,7 @@ class TokenStore {
         if (verifiedUser != null) 'verified_user': verifiedUser.toJson(),
       }),
     );
+    if (token != null) await AuthCleanupMarker.completeApi(cleanup?.apiNonce);
   }
 
   /// Only identity stored alongside this exact credential may restore an
@@ -144,7 +152,7 @@ class TokenStore {
   }
 
   Future<OAuthConfig?> readOAuthConfig() async {
-    final session = await _readSession();
+    final session = await _readSession(allowClearedConfig: true);
     if (session != null) {
       final id = session['client_id'] as String?;
       final secret = session['client_secret'] as String?;

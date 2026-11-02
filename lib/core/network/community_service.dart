@@ -521,6 +521,7 @@ class CommunityService {
       await _persistentCache.removePrefix(_cachePrefix(owner));
     }
     _cacheOwners.clear();
+    await _persistentCache.clearAccountData();
     _friendsCache.clear();
   }
 
@@ -1044,6 +1045,94 @@ class CommunityService {
     _jsonCache.removeWhere((key) => key.contains('/topics'));
   }
 
+  /// Read-back never interprets an absent match as permission to post again.
+  Future<int?> findSubmittedSubjectTopic({
+    required int subjectId,
+    required String title,
+    required String content,
+    required DateTime? attemptedAt,
+  }) async {
+    _requireAuthentication();
+    final identity = _identityRevision;
+    final username = _requireCurrentUsername().toLowerCase();
+    final moment = attemptedAt?.toUtc() ?? DateTime.now().toUtc();
+    final lower = attemptedAt == null
+        ? moment.subtract(const Duration(hours: 24))
+        : moment.subtract(const Duration(seconds: 5));
+    final upper = moment.add(const Duration(minutes: 5));
+    final page = await _getJson(
+      '/subjects/$subjectId/topics',
+      query: {'limit': 100},
+      refresh: true,
+    );
+    _checkIdentity(identity);
+    final rows = page['data'];
+    if (rows is! List) throw const FormatException('暂时无法核对讨论列表');
+    final matches = <int>{};
+    var inspected = 0;
+    for (final row in rows.whereType<Map>()) {
+      if (row['title'] != title.trim()) continue;
+      final id = parseCreatedCommunityTopicId(row);
+      if (id == null || ++inspected > 5) continue;
+      final detail = await _getJson('/subjects/-/topics/$id', refresh: true);
+      _checkIdentity(identity);
+      final seconds = detail['createdAt'];
+      final created = seconds is num
+          ? DateTime.fromMillisecondsSinceEpoch(
+              (seconds * 1000).round(),
+              isUtc: true,
+            )
+          : null;
+      final posts = detail['replies'];
+      final original = posts is List
+          ? posts.whereType<Map>().firstOrNull
+          : null;
+      final creator = original?['creator'];
+      if (detail['title'] == title.trim() &&
+          created != null &&
+          !created.isBefore(lower) &&
+          !created.isAfter(upper) &&
+          creator is Map &&
+          creator['username']?.toString().toLowerCase() == username &&
+          original?['content']?.toString().replaceAll('\r\n', '\n').trim() ==
+              content.replaceAll('\r\n', '\n').trim()) {
+        matches.add(id);
+      }
+    }
+    return matches.length == 1 ? matches.single : null;
+  }
+
+  Future<int?> findSubmittedTimeline({
+    required String content,
+    required DateTime? attemptedAt,
+  }) async {
+    _requireAuthentication();
+    final identity = _identityRevision;
+    final username = _requireCurrentUsername();
+    final page = await loadFreshTimelinePage(
+      CommunityTimelineMode.me,
+      username: username,
+      refresh: true,
+    );
+    _checkIdentity(identity);
+    final moment = attemptedAt?.toUtc() ?? DateTime.now().toUtc();
+    final lower = attemptedAt == null
+        ? moment.subtract(const Duration(hours: 24))
+        : moment.subtract(const Duration(seconds: 5));
+    final upper = moment.add(const Duration(minutes: 5));
+    final matches = page.items
+        .where(
+          (item) =>
+              item.user.username.toLowerCase() == username.toLowerCase() &&
+              !item.createdAt.toUtc().isBefore(lower) &&
+              !item.createdAt.toUtc().isAfter(upper) &&
+              item.content.replaceAll('\r\n', '\n').trim() ==
+                  content.replaceAll('\r\n', '\n').trim(),
+        )
+        .toList();
+    return matches.length == 1 ? matches.single.id : null;
+  }
+
   bool canManagePost(CommunityTopic topic, CommunityPost post) {
     final username = _currentUsername;
     final author = Uri.tryParse(post.userUrl)?.pathSegments;
@@ -1182,27 +1271,33 @@ class CommunityService {
 
   Future<List<CommunityTimelineItem>?> readCachedTimeline(
     CommunityTimelineMode mode,
+  ) async => (await _readCachedTimelinePage(mode))?.items;
+
+  Future<CommunityTimelinePageResult?> readCachedTimelinePage(
+    CommunityTimelineMode mode,
+  ) => _readCachedTimelinePage(mode);
+
+  Future<CommunityTimelinePageResult?> _readCachedTimelinePage(
+    CommunityTimelineMode mode,
   ) async {
     final json = await _readSnapshot('timeline:${mode.name}');
     final website = json?['html'];
     if (website is String) {
       try {
-        return CommunityTimelineHtmlParser()
-            .parse(
-              website,
-              page: 1,
-              owner: mode == CommunityTimelineMode.me
-                  ? _timelineOwner(_requireCurrentUsername())
-                  : null,
-            )
-            .items;
+        return CommunityTimelineHtmlParser().parse(
+          website,
+          page: 1,
+          owner: mode == CommunityTimelineMode.me
+              ? _timelineOwner(_requireCurrentUsername())
+              : null,
+        );
       } catch (_) {
         return null;
       }
     }
     final data = json?['data'];
     if (data is! List) return null;
-    return decodeCachedTimeline(mode, data);
+    return CommunityTimelinePageResult.api(decodeCachedTimeline(mode, data));
   }
 
   CommunityUser _timelineOwner(String owner) => CommunityUser(

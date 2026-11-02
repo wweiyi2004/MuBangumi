@@ -1,4 +1,5 @@
 import '../core/sharing/export_files.dart';
+import '../core/sharing/image_export.dart';
 import 'bounded_image.dart';
 import 'brand_qr.dart';
 import '../core/theme/anime_icon.dart';
@@ -48,6 +49,26 @@ class _FriendQrSheetState extends State<_FriendQrSheet> {
     final file = await _exportPng();
     if (file == null || !mounted) return;
     final path = file.path;
+    if (Platform.isAndroid || Platform.isIOS) {
+      try {
+        final message = await ImageExport.save(
+          await file.readAsBytes(),
+          path.split(Platform.pathSeparator).last,
+        );
+        if (mounted && message != null) {
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(SnackBar(content: Text(message)));
+        }
+      } catch (_) {
+        if (mounted) {
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(const SnackBar(content: Text('保存到相册失败，请重试')));
+        }
+      }
+      return;
+    }
     ScaffoldMessenger.of(context)
       ..hideCurrentSnackBar()
       ..showSnackBar(
@@ -64,9 +85,14 @@ class _FriendQrSheetState extends State<_FriendQrSheet> {
   Future<void> _share() async {
     final file = await _exportPng();
     if (file == null || !mounted) return;
-    await Share.shareXFiles([
-      XFile(file.path, mimeType: 'image/png'),
-    ], text: '用 MuBangumi 扫描添加 @${widget.user.username}');
+    final box = context.findRenderObject() as RenderBox?;
+    await Share.shareXFiles(
+      [XFile(file.path, mimeType: 'image/png')],
+      text: '用 MuBangumi 扫描添加 @${widget.user.username}',
+      sharePositionOrigin: box == null
+          ? null
+          : box.localToGlobal(Offset.zero) & box.size,
+    );
   }
 
   Future<File?> _exportPng() async {

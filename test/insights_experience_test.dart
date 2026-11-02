@@ -353,6 +353,12 @@ void main() {
       await _show(tester, _stats(), size: const Size(1100, 1100));
       await tester.tap(find.text('年度回顾'));
       await tester.pumpAndSettle();
+      // Explicitly keep this year while changing type. Without a user choice,
+      // the default follows the latest year containing records.
+      await tester.tap(find.byType(DropdownButton<int>));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('2026 年').last);
+      await tester.pumpAndSettle();
       await tester.tap(find.widgetWithText(ChoiceChip, '书籍'));
       await tester.pumpAndSettle();
       expect(find.text('这一年，暂时还没有可回顾的记录。'), findsOneWidget);

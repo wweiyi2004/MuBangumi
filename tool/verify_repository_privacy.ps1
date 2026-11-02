@@ -11,6 +11,7 @@ try {
         $privatePath =
             $name -match '(?i)(^|/)(\.dart_tool|EBWebView|[^/]*\.WebView2)/' -or
             $name -match '(?i)(^|/)(oauth\.local\.json|key\.properties|local\.properties|Cookies(?:-.*)?|Login Data(?:-.*)?|Local State)$' -or
+            $name -match '(?i)(^|/)(bangumi_credentials_[^/]+\.json|website_session(?:_[^/]+)?\.json|session\.json|cleanup-state\.json|gitee_credentials(?:_[^/]+)?\.json)$' -or
             ($name -match '(?i)(^|/)\.env(?:\..*)?$' -and $name -notmatch '(?i)\.example$') -or
             $name -match '(?i)\.(sqlite|sqlite3|db)(?:[-.].*)?$' -or
             $name -match '(?i)\.(jks|keystore|p12|pfx|pem|key)$' -or
@@ -39,6 +40,13 @@ try {
                 }
                 if ($content -match '(?:gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{30,}|AKIA[A-Z0-9]{16}|-----BEGIN (?:RSA |OPENSSH |EC )?PRIVATE KEY-----)') {
                     $violations += "$name (credential signature)"
+                }
+                $credentialValues = [regex]::Matches($content, '(?i)"(?:access_token|refresh_token|client_secret|GITEE_TOKEN|BGM_CLIENT_SECRET)"\s*:\s*"([A-Za-z0-9_+/=-]{24,})"')
+                foreach ($candidate in $credentialValues) {
+                    if ($candidate.Groups[1].Value -notmatch '(?i)^(?:synthetic|fixture|example|sample|test[-_]|replace|your[-_])') {
+                        $violations += "$name (account credential value)"
+                        break
+                    }
                 }
             }
         }

@@ -1,0 +1,15 @@
+{
+  "schema": 1,
+  "runtimes": [
+    {
+      "name": "flutter_windows.dll",
+      "flutterVersion": "3.44.7",
+      "frameworkRevision": "309dd6573a9fe716410489284cd325a34b950375",
+      "engineRevision": "e1eaecbcac6d9a32cb5590c646e21cf21252cf19",
+      "sha256": "0177c65f93ce210580d8855ee69a4a46b36df97a7ac52c1f4ae1b731a812beee",
+      "source": "https://download.shorebird.dev/flutter_infra_release/flutter/e1eaecbcac6d9a32cb5590c646e21cf21252cf19/windows-x64-release/windows-x64-flutter.zip",
+      "publicCiUser": "runneradmin",
+      "publicCiRegistry": ".cargo/registry/src/"
+    }
+  ]
+}

@@ -1,4 +1,5 @@
 import 'package:mubangumi/navigation/app_destination.dart';
+import 'dart:typed_data';
 import 'package:mubangumi/navigation/app_router.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -27,6 +28,50 @@ SeasonSchedule _sampleSchedule() => SeasonSchedule(
 );
 
 void main() {
+  testWidgets(
+    'poster keeps the thirteenth scheduled item and respects the texture cap',
+    (tester) async {
+      tester.view.physicalSize = const Size(1600, 900);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      final key = GlobalKey();
+      final schedule = SeasonSchedule(
+        season: const SeasonKey(year: 2026, quarter: 2),
+        items: [
+          for (var id = 1; id <= 13; id++)
+            ScheduleItem(
+              subjectId: id,
+              name: 'unique-title-$id',
+              nameCn: '',
+              imageUrl: '',
+              weekday: DateTime.monday,
+            ),
+        ],
+      );
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: SingleChildScrollView(
+              child: RepaintBoundary(
+                key: key,
+                child: ScheduleExportPoster(schedule: schedule, width: 1600),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+      expect(find.text('unique-title-13'), findsOneWidget);
+      expect(find.textContaining('共 13 部'), findsOneWidget);
+      final bytes = (await tester.runAsync(
+        () => ScheduleImageExporter.captureBoundary(key, pixelRatio: 3),
+      ))!;
+      expect(bytes, isNotEmpty);
+      final header = ByteData.sublistView(bytes);
+      expect(header.getUint32(16, Endian.big), lessThanOrEqualTo(4096));
+      expect(header.getUint32(20, Endian.big), lessThanOrEqualTo(4096));
+    },
+  );
   testWidgets('schedule export poster builds week grid for season items', (
     tester,
   ) async {

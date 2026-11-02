@@ -24,7 +24,13 @@ class CommunityCache {
     _now = now ?? DateTime.now;
   }
 
-  static final shared = CommunityCache._();
+  static final _shared = CommunityCache._();
+  static CommunityCache? _testShared;
+  static CommunityCache get shared => _testShared ?? _shared;
+  @visibleForTesting
+  static void useForTests(CommunityCache? cache) {
+    _testShared = cache;
+  }
 
   final SqliteConnection _connection;
   final _writes = SerialTaskQueue();

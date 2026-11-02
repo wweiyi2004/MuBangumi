@@ -191,7 +191,12 @@ GithubReleaseAsset? selectReleaseAsset(
             Uri.parse(a.url).pathSegments[4] == release.tagName &&
             a.name.toLowerCase().startsWith(
               'mubangumi-${release.version.toLowerCase()}-',
-            ),
+            ) &&
+            (release.buildNumber == null ||
+                RegExp(
+                  '-build${release.buildNumber}-',
+                  caseSensitive: false,
+                ).hasMatch(a.name)),
       )
       .toList();
   if (platform == 'windows') {

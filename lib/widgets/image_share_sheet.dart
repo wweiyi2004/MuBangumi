@@ -13,6 +13,7 @@ Future<void> showImageShareSheet(
   required Widget child,
   String subtitle = '',
   double width = 960,
+  List<ImageProvider> images = const [],
 }) => showModalBottomSheet<void>(
   context: context,
   isScrollControlled: true,
@@ -27,6 +28,7 @@ Future<void> showImageShareSheet(
     filename: filename,
     subtitle: subtitle,
     width: width,
+    images: images,
     child: child,
   ),
 );
@@ -39,10 +41,12 @@ class ImageShareSheet extends StatefulWidget {
     required this.child,
     this.subtitle = '',
     this.width = 960,
+    this.images = const [],
   });
   final String title, filename, subtitle;
   final double width;
   final Widget child;
+  final List<ImageProvider> images;
   @override
   State<ImageShareSheet> createState() => _ImageShareSheetState();
 }
@@ -62,13 +66,22 @@ class _ImageShareSheetState extends State<ImageShareSheet> {
       _error = null;
     });
     try {
+      var failed = false;
+      await Future.wait([
+        for (final provider in widget.images)
+          precacheImage(provider, context, onError: (_, _) => failed = true),
+      ]).timeout(
+        const Duration(seconds: 15),
+        onTimeout: () => throw StateError('封面加载超时，请检查网络后重试'),
+      );
+      if (failed) throw StateError('部分封面未加载成功，请稍后重试');
       await WidgetsBinding.instance.endOfFrame;
       if (!mounted) return;
       final bytes = await FriendQrExporter.captureBoundary(
         _boundary,
         pixelRatio: math.min(
           2,
-          4096 /
+          4095 /
               math.max(
                 (_boundary.currentContext!.findRenderObject() as RenderBox)
                     .size

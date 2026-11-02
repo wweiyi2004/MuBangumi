@@ -486,6 +486,7 @@ class CommunityTimelinePageResult {
     this.nextUntil,
     this.notice,
     this.websiteLoginRequired = false,
+    this.isWebsite = false,
   });
 
   factory CommunityTimelinePageResult.api(
@@ -503,6 +504,7 @@ class CommunityTimelinePageResult {
   final int? nextPage;
   final int? nextUntil;
   final String? notice;
+  final bool isWebsite;
 
   /// The fallback is stale because the website session needs the user's
   /// action, not because of a transient read failure.
@@ -520,6 +522,7 @@ class CommunityTimelineItem {
     this.rawContent = '',
     this.imageUrls = const [],
     this.replyCount = 0,
+    this.canLoadReplies = false,
     this.sourceName = '',
     this.sourceUrl = '',
     this.isStatus = false,
@@ -535,6 +538,7 @@ class CommunityTimelineItem {
   final String rawContent;
   final List<String> imageUrls;
   final int replyCount;
+  final bool canLoadReplies;
   final DateTime createdAt;
   final String sourceName;
   final String sourceUrl;
@@ -556,6 +560,7 @@ class CommunityTimelineItem {
     rawContent: rawContent,
     imageUrls: imageUrls,
     replyCount: replyCount ?? this.replyCount,
+    canLoadReplies: canLoadReplies,
     sourceName: sourceName,
     sourceUrl: sourceUrl,
     isStatus: isStatus,

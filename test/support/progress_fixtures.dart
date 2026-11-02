@@ -126,6 +126,12 @@ class _Tokens extends TokenStore {
 }
 
 class _Queue extends BangumiSyncStore {
+  @override
+  Future<bool> recordBulkActivity(
+    PendingBangumiMutation mutation,
+    List<Map<String, int>> episodes,
+  ) async => false;
+
   final items = <String, PendingBangumiMutation>{};
   int sequence = 0;
 

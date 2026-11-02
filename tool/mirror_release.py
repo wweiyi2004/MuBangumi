@@ -42,6 +42,7 @@ def select_assets(release: dict) -> list[dict]:
     if release.get("draft") or release.get("prerelease"):
         raise ValueError("Only published stable releases can be mirrored")
     version = tag.removeprefix("v").split("+")[0]
+    tag_build = tag.split("+", 1)[1] if "+" in tag else None
     selected = []
     for asset in release.get("assets", []):
         name = asset.get("name", "")
@@ -49,6 +50,8 @@ def select_assets(release: dict) -> list[dict]:
             rf"MuBangumi-{re.escape(version)}-build\d+-(?:windows-x64\.zip|android(?:-(?:arm64-v8a|armeabi-v7a|x86_64))?\.apk)", name
         ):
             continue
+        if tag_build is not None and re.search(r"-build(\d+)-", name)[1] != tag_build:
+            raise ValueError(f"Artifact build does not match release tag: {name}")
         url = urlsplit(asset.get("browser_download_url", ""))
         expected = f"/{GITHUB_REPOSITORY}/releases/download/{tag}/{name}"
         if (url.scheme != "https" or url.netloc != "github.com" or

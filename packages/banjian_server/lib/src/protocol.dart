@@ -73,6 +73,13 @@ class RoomInvite {
   String get identityKey => digest('banjian:$eventId:$secret');
   bool sameRoom(RoomInvite? other) =>
       other?.eventId == eventId && other?.secret == secret;
+
+  /// Rotating an invitation does not rotate an existing participant. Reuse is
+  /// restricted to the same verified server origin, never just a matching ID.
+  bool sameServiceEvent(RoomInvite? other) =>
+      other != null &&
+      other.eventId == eventId &&
+      other.base.origin == base.origin;
   List<Uri> get candidates =>
       [
         base,

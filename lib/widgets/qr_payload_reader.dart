@@ -26,13 +26,26 @@ Future<String?> readBangumiQrPayload(BuildContext context) async {
 }
 
 Future<String?> _readQrFromPickedImage(BuildContext context) async {
+  try {
+    return await _readPickedImage(context);
+  } catch (_) {
+    if (context.mounted) showAppMessage(context, '无法读取二维码图片，请换一张图片后重试');
+    return null;
+  }
+}
+
+Future<String?> _readPickedImage(BuildContext context) async {
   final picked = await FilePicker.platform.pickFiles(
     type: FileType.image,
     allowMultiple: false,
-    withData: true,
+    withData: false,
   );
   if (picked == null || picked.files.isEmpty) return null;
   final file = picked.files.single;
+  if (file.size > 20 * 1024 * 1024) {
+    if (context.mounted) showAppMessage(context, '请选择小于 20 MB 的二维码图片');
+    return null;
+  }
   var bytes = file.bytes;
   if (bytes == null && file.path != null) {
     bytes = await File(file.path!).readAsBytes();

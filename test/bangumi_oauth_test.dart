@@ -7,6 +7,35 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:mubangumi/core/auth/bangumi_oauth.dart';
 
 void main() {
+  test(
+    'unrelated loopback callback cannot consume the real authorization',
+    () async {
+      final adapter = _TokenAdapter();
+      final oauth = BangumiOAuth(dio: Dio()..httpClientAdapter = adapter);
+      final tokens = await oauth.authorize(
+        const OAuthConfig(clientId: 'client', clientSecret: 'secret'),
+        launchAuthorization: (uri, callback) async {
+          final client = HttpClient();
+          try {
+            final request = await client.getUrl(
+              Uri.parse(
+                '${OAuthConfig.redirectUri}?code=untrusted&state=wrong',
+              ),
+            );
+            final response = await request.close();
+            expect(response.statusCode, HttpStatus.badRequest);
+            await response.drain<void>();
+            expect(adapter.calls, 0);
+          } finally {
+            client.close(force: true);
+          }
+          return _sendCallback(uri, callback);
+        },
+      );
+      expect(tokens.accessToken, 'verified-token');
+      expect(adapter.calls, 1);
+    },
+  );
   group('OAuth callback validation', () {
     test('returns the authorization code for a matching state', () {
       final callback = Uri.parse(

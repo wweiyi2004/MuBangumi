@@ -11,6 +11,53 @@ import 'package:mubangumi/widgets/profile_home_layout.dart';
 import 'package:mubangumi/widgets/retained_tab_stack.dart';
 
 void main() {
+  for (final cacheFirst in [true, false]) {
+    testWidgets(
+      'website cache survives fallback and keeps page cursor: cache first=$cacheFirst',
+      (tester) async {
+        final service = _CachedWebsiteService();
+        await tester.pumpWidget(
+          ProviderScope(
+            child: MaterialApp(
+              home: Scaffold(
+                body: CommunityTimelinePage(
+                  service: service,
+                  showModeSelector: false,
+                ),
+              ),
+            ),
+          ),
+        );
+        await tester.pump();
+        final cached = CommunityTimelinePageResult(
+          isWebsite: true,
+          items: [for (var id = 1000; id > 980; id--) _item(id)],
+          nextPage: 2,
+        );
+        final fallback = CommunityTimelinePageResult.api([
+          _item(10),
+        ], notice: '当前内容可能滞后');
+        if (cacheFirst) {
+          service.cached.complete(cached);
+          await tester.pump();
+          service.first.complete(fallback);
+        } else {
+          service.first.complete(fallback);
+          await tester.pump();
+          service.cached.complete(cached);
+        }
+        await tester.pumpAndSettle();
+        expect(find.text('动态 1000'), findsOneWidget);
+        expect(find.text('动态 10'), findsNothing);
+        await tester.drag(find.byType(ListView).first, const Offset(0, -6000));
+        await tester.pumpAndSettle();
+        expect(service.pages, contains(2));
+        expect(service.untils, everyElement(isNull));
+        await tester.pumpWidget(const SizedBox.shrink());
+        service.dispose();
+      },
+    );
+  }
   for (final mode in CommunityTimelineMode.values) {
     testWidgets('${mode.name} refreshes retained tabs and bypasses cache', (
       tester,
@@ -317,6 +364,31 @@ Future<void> _show(WidgetTester tester, CommunityService service) async {
     ),
   );
   await tester.pumpAndSettle();
+}
+
+class _CachedWebsiteService extends _WebsiteService {
+  final cached = Completer<CommunityTimelinePageResult?>();
+  final first = Completer<CommunityTimelinePageResult>();
+  @override
+  Future<CommunityTimelinePageResult?> readCachedTimelinePage(
+    CommunityTimelineMode mode,
+  ) => cached.future;
+  @override
+  Future<CommunityTimelinePageResult> loadFreshTimelinePage(
+    CommunityTimelineMode mode, {
+    String? username,
+    int? until,
+    int? websitePage,
+    bool refresh = false,
+  }) => websitePage == null && until == null
+      ? first.future
+      : super.loadFreshTimelinePage(
+          mode,
+          username: username,
+          until: until,
+          websitePage: websitePage,
+          refresh: refresh,
+        );
 }
 
 class _WebsiteService extends _TimelineService {

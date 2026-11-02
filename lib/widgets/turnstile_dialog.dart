@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import '../core/auth/website_navigation.dart';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
@@ -378,6 +379,15 @@ class _TurnstileViewState extends State<TurnstileView> {
     if (_consumeCallback(url)) {
       final controller = _windowsController;
       if (controller != null) unawaited(controller.stop());
+      return;
+    }
+    final uri = Uri.tryParse(url);
+    if (uri == null || !isTurnstileNavigation(uri)) {
+      final controller = _windowsController;
+      if (controller != null) {
+        unawaited(controller.stop().catchError((Object _) {}));
+      }
+      _setError('验证页面跳转到不受信任的地址，请重试');
     }
   }
 
@@ -403,6 +413,11 @@ class _TurnstileViewState extends State<TurnstileView> {
         mobile.NavigationDelegate(
           onNavigationRequest: (request) {
             if (_consumeCallback(request.url)) {
+              return mobile.NavigationDecision.prevent;
+            }
+            final uri = Uri.tryParse(request.url);
+            if (uri == null || !isTurnstileNavigation(uri)) {
+              _setError('验证页面跳转到不受信任的地址，请重试');
               return mobile.NavigationDecision.prevent;
             }
             return mobile.NavigationDecision.navigate;

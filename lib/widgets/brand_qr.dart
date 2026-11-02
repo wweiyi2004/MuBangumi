@@ -27,7 +27,7 @@ class BrandQr extends StatelessWidget {
       width: size,
       height: size,
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: backgroundColor ?? Colors.white,
         borderRadius: BorderRadius.circular(size >= 180 ? 20 : 12),
         border: Border.all(
           color: BrandColors.of(context).withValues(alpha: .5),
@@ -39,18 +39,22 @@ class BrandQr extends StatelessWidget {
         child: QrImageView(
           data: data,
           size: size,
-          backgroundColor: Colors.white,
+          backgroundColor: backgroundColor ?? Colors.white,
           errorCorrectionLevel: size < 180
               ? QrErrorCorrectLevel.M
               : QrErrorCorrectLevel.H,
-          padding: EdgeInsets.all(size >= 180 ? 18 : 12),
-          eyeStyle: const QrEyeStyle(eyeShape: QrEyeShape.square, color: ink),
-          dataModuleStyle: QrDataModuleStyle(
-            dataModuleShape: size >= 180
-                ? QrDataModuleShape.circle
-                : QrDataModuleShape.square,
-            color: ink,
-          ),
+          padding: padding ?? EdgeInsets.all(size >= 180 ? 18 : 12),
+          eyeStyle:
+              eyeStyle ??
+              const QrEyeStyle(eyeShape: QrEyeShape.square, color: ink),
+          dataModuleStyle:
+              dataModuleStyle ??
+              QrDataModuleStyle(
+                dataModuleShape: size >= 180
+                    ? QrDataModuleShape.circle
+                    : QrDataModuleShape.square,
+                color: ink,
+              ),
         ),
       ),
     ),

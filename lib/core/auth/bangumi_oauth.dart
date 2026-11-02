@@ -174,7 +174,7 @@ class BangumiOAuth {
     try {
       final callback =
           Future.any([
-            _waitForCallback(server),
+            _waitForCallback(server, expectedState: state),
             cancel.future,
             embeddedRedirect.future,
           ]).timeout(
@@ -341,10 +341,21 @@ class BangumiOAuth {
     throw const BangumiOAuthException('连接 Bangumi 授权服务器失败');
   }
 
-  Future<Uri> _waitForCallback(HttpServer server) async {
+  Future<Uri> _waitForCallback(
+    HttpServer server, {
+    required String expectedState,
+  }) async {
     await for (final request in server) {
       if (request.uri.path != '/oauth/callback') {
         request.response.statusCode = HttpStatus.notFound;
+        await request.response.close();
+        continue;
+      }
+      if (request.method != 'GET' ||
+          request.uri.queryParameters['state'] != expectedState ||
+          (request.uri.queryParameters['code']?.isNotEmpty != true &&
+              request.uri.queryParameters['error']?.isNotEmpty != true)) {
+        request.response.statusCode = HttpStatus.badRequest;
         await request.response.close();
         continue;
       }

@@ -1,3 +1,4 @@
+import '../core/auth/website_navigation.dart';
 import '../core/theme/anime_icon.dart';
 import 'dart:async';
 import 'dart:io';
@@ -481,16 +482,7 @@ class _BrowserSnapshot {
 /// Community content can link anywhere, and embedding arbitrary third-party
 /// pages in-app invites phishing, so only Bangumi's own domains stay embedded.
 @visibleForTesting
-bool isBangumiCommunityHost(Uri uri) {
-  if (!uri.isScheme('http') && !uri.isScheme('https')) return false;
-  final host = uri.host.toLowerCase();
-  return host == 'bgm.tv' ||
-      host.endsWith('.bgm.tv') ||
-      host == 'bangumi.tv' ||
-      host.endsWith('.bangumi.tv') ||
-      host == 'chii.in' ||
-      host.endsWith('.chii.in');
-}
+bool isBangumiCommunityHost(Uri uri) => isBangumiWebsiteNavigation(uri);
 
 /// Intermediate WebView documents that are not community-controlled links.
 @visibleForTesting
@@ -535,6 +527,8 @@ class _CommunityBrowserState extends ConsumerState<_CommunityBrowser> {
   bool _canGoBack = false;
   bool _canGoForward = false;
   bool _initializing = false;
+  bool _handingOff = false;
+  bool _navigationFailed = false;
   final _closed = Completer<void>();
 
   Future<void> _waitForBrowser(Future<void> operation, {int seconds = 10}) =>
@@ -601,8 +595,12 @@ class _CommunityBrowserState extends ConsumerState<_CommunityBrowser> {
         controller.loadingState.listen((state) {
           if (!mounted) return;
           _loading = state == windows.LoadingState.loading;
+          if (_loading) _navigationFailed = false;
           _notify();
           if (state == windows.LoadingState.navigationCompleted) {
+            if (!_handingOff && !_navigationFailed && _error != null) {
+              setState(() => _error = null);
+            }
             widget.onPageFinished?.call();
           }
         }),
@@ -612,7 +610,13 @@ class _CommunityBrowserState extends ConsumerState<_CommunityBrowser> {
           _notify();
         }),
         controller.onLoadError.listen((error) {
-          if (!mounted) return;
+          if (!mounted ||
+              _handingOff ||
+              error == windows.WebErrorStatus.operationCanceled ||
+              error == windows.WebErrorStatus.connectionAborted) {
+            return;
+          }
+          _navigationFailed = true;
           setState(() => _error = '页面加载失败，请检查网络后重试');
         }),
       ]);
@@ -678,6 +682,7 @@ class _CommunityBrowserState extends ConsumerState<_CommunityBrowser> {
   Future<void> _detachWindowsNavigation(String url) async {
     final controller = _windowsController;
     if (controller == null) return;
+    _handingOff = true;
     try {
       await controller.stop();
     } catch (_) {
@@ -690,6 +695,7 @@ class _CommunityBrowserState extends ConsumerState<_CommunityBrowser> {
       } catch (_) {}
     }
     await launchExternalLink(Uri.tryParse(url));
+    _handingOff = false;
   }
 
   Future<void> _initializeMobile() async {

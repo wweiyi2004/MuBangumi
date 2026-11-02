@@ -53,7 +53,8 @@ void main() {
       await tester.runAsync(() async {
         final deadline = DateTime.now().add(const Duration(seconds: 10));
         while (picker.bytes == null ||
-            (result == 'save' && find.textContaining('已保存：').evaluate().isEmpty)) {
+            (result == 'save' &&
+                find.textContaining('已保存：').evaluate().isEmpty)) {
           if (DateTime.now().isAfter(deadline)) {
             throw TimeoutException('PNG save was not called');
           }

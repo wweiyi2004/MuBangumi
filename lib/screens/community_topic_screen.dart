@@ -457,6 +457,7 @@ class _CommunityTopicScreenState extends ConsumerState<CommunityTopicScreen> {
       initialTitle: _detail?.title ?? widget.topic.title,
       initialContent: post.rawBody,
       requireVerification: false,
+      protectSubmission: false,
       submitLabel: '保存',
       isAccountCurrent: () =>
           _service.currentUsername == account && _service.isAuthenticated,

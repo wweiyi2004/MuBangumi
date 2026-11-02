@@ -37,8 +37,8 @@ flutter::EncodableMap FlutterWindow::ReadAppearance() {
   };
 }
 
-FlutterWindow::FlutterWindow(const flutter::DartProject& project)
-    : project_(project) {}
+FlutterWindow::FlutterWindow(const flutter::DartProject& project, bool show_window)
+    : project_(project), show_window_(show_window) {}
 
 FlutterWindow::~FlutterWindow() {}
 
@@ -58,6 +58,24 @@ bool FlutterWindow::OnCreate() {
     return false;
   }
   RegisterPlugins(flutter_controller_->engine());
+  lifecycle_channel_ = std::make_unique<flutter::MethodChannel<flutter::EncodableValue>>(
+      flutter_controller_->engine()->messenger(), "mubangumi/window_lifecycle",
+      &flutter::StandardMethodCodec::GetInstance());
+  lifecycle_channel_->SetMethodCallHandler([this](const auto& call, auto result) {
+    if (call.method_name() == "ready") {
+      dart_ready_ = true;
+    } else if (call.method_name() == "closeReady" && close_pending_) {
+      close_allowed_ = true;
+      PostMessage(GetHandle(), WM_CLOSE, 0, 0);
+    } else if (call.method_name() == "closeFailed" && close_pending_) {
+      close_pending_ = false;
+      MessageBoxW(GetHandle(), L"\u672c\u5730\u8bb0\u5f55\u5c1a\u672a\u4fdd\u5b58\uff0c\u8bf7\u91cd\u8bd5\u540e\u518d\u5173\u95ed\u3002", L"MuBangumi", MB_OK | MB_ICONWARNING);
+    } else {
+      result->NotImplemented();
+      return;
+    }
+    result->Success();
+  });
   appearance_channel_ = std::make_unique<flutter::MethodChannel<flutter::EncodableValue>>(
       flutter_controller_->engine()->messenger(), "mubangumi/system_appearance",
       &flutter::StandardMethodCodec::GetInstance());
@@ -76,7 +94,7 @@ bool FlutterWindow::OnCreate() {
   SetChildContent(flutter_controller_->view()->GetNativeWindow());
 
   flutter_controller_->engine()->SetNextFrameCallback([&]() {
-    this->Show();
+    if (show_window_) this->Show();
   });
 
   // Flutter can complete the first frame before the "show window" callback is
@@ -98,6 +116,7 @@ void FlutterWindow::OnDestroy() {
     power_notification_ = nullptr;
   }
   appearance_channel_ = nullptr;
+  lifecycle_channel_ = nullptr;
   if (flutter_controller_) {
     flutter_controller_ = nullptr;
   }
@@ -109,6 +128,13 @@ LRESULT
 FlutterWindow::MessageHandler(HWND hwnd, UINT const message,
                               WPARAM const wparam,
                               LPARAM const lparam) noexcept {
+  if (message == WM_CLOSE && dart_ready_ && !close_allowed_ && lifecycle_channel_) {
+    if (!close_pending_) {
+      close_pending_ = true;
+      lifecycle_channel_->InvokeMethod("prepareToClose", nullptr);
+    }
+    return 0;
+  }
   if (appearance_channel_ && (message == kAppearanceChanged ||
       message == WM_SETTINGCHANGE || message == WM_SYSCOLORCHANGE ||
       message == WM_POWERBROADCAST)) {

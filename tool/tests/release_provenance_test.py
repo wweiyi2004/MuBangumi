@@ -2,6 +2,7 @@ import importlib.util
 import json
 from pathlib import Path
 import subprocess
+import sys
 import tempfile
 import unittest
 from datetime import datetime, timezone
@@ -27,8 +28,8 @@ class ProvenanceTests(unittest.TestCase):
     def records(self):
         source=provenance.identity(self.root)
         verification=self.root/'config/verification.json'
-        verification.write_text(json.dumps({'passed':True,'mode':'Full','createdUtc':datetime.now(timezone.utc).isoformat(),'source':source,'checks':[
-          {'name':x,'status':'passed'} for x in ['flutter-analyze','flutter-tests','architecture','repository-privacy','provenance-tests','android-build']]}))
+        verification.write_text(json.dumps({'passed':True,'mode':'Full','areas':['flutter','server','website','python','tools'],'createdUtc':datetime.now(timezone.utc).isoformat(),'source':source,'checks':[
+          {'name':x,'status':'passed'} for x in ['flutter-analyze','flutter-tests','architecture','repository-privacy','provenance-tests','android-build','server-analyze','server-tests','server-bundle','browser-protocol','website-check','website-audit','website-browser','dataset-tests','semantic-tests','mirror-tests','toolchain-files','toolchain_npm','windows_package_safety','release_build','repository-privacy-tests']]}))
         acceptance=self.root/'config/acceptance.json'
         acceptance.write_text(json.dumps({'platform':'android','version':'2.3.1+4029','source_fingerprint':source['fingerprint'],
           'completedUtc':datetime.now(timezone.utc).isoformat(),'evidence':'synthetic fixture only','cases':dict.fromkeys(provenance.CASES,'passed')}))
@@ -72,6 +73,36 @@ class ProvenanceTests(unittest.TestCase):
     def test_dotnet_round_trip_timestamp_is_accepted(self):
         text=datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%S.%f')+'7Z'
         provenance.require_recent(text,'PowerShell fixture')
+    def test_partial_areas_or_missing_server_checks_are_not_full_release_evidence(self):
+        verification, _ = self.records()
+        source = provenance.identity(self.root)
+        value = json.loads(verification.read_text())
+        value['areas'] = ['flutter', 'tools']
+        verification.write_text(json.dumps(value))
+        with self.assertRaisesRegex(ValueError, 'every verification area'):
+            provenance.validate_verification(verification, source, 'apk')
+        value['areas'] = ['flutter','server','website','python','tools']
+        value['checks'] = [row for row in value['checks'] if row['name'] != 'server-tests']
+        verification.write_text(json.dumps(value))
+        with self.assertRaisesRegex(ValueError, 'missing required'):
+            provenance.validate_verification(verification, source, 'apk')
+    def test_new_release_cannot_use_an_old_acceptance_baseline(self):
+        with self.assertRaisesRegex(ValueError, 'Only patches'):
+            self.create(baseline='2.0.0+1')
+    def test_release_receipt_records_only_the_matching_completed_release(self):
+        verification, acceptance = self.records()
+        provenance.write_json(self.manifest, self.create(kind='shorebird-release', verification=verification, acceptance=acceptance))
+        artifact = self.root/'build/app.apk'; artifact.parent.mkdir(); artifact.write_bytes(b'synthetic artifact')
+        provenance.finish(self.root, self.manifest, [artifact], [])
+        self.assertEqual(provenance.read_json(self.manifest)['status'], 'awaiting-release-receipt')
+        with self.assertRaises(ValueError): provenance.record_release_receipt(self.root, self.manifest, '123', '2.0.0+1')
+        provenance.record_release_receipt(self.root, self.manifest, '123', '2.3.1+4029')
+        self.assertEqual(provenance.read_json(self.manifest)['publication']['releaseId'], '123')
+    def test_empty_required_suite_fails_on_all_python_versions(self):
+        empty = self.root/'empty'; empty.mkdir()
+        runner = Path(__file__).resolve().parents[1]/'run_unittests.py'
+        result = subprocess.run([sys.executable,str(runner),'--start',str(empty),'--pattern','missing_test.py'],capture_output=True)
+        self.assertEqual(result.returncode, 5)
     def test_same_version_with_a_different_engine_is_rejected(self):
         (self.root/'tool/toolchain.json').write_text('{"flutter":"3.44.7","flutterEngineRevision":"official"}')
         with self.assertRaisesRegex(ValueError,'engine'):

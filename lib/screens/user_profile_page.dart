@@ -45,6 +45,8 @@ class _UserProfilePageState extends ConsumerState<UserProfilePage> {
   bool _loadingProfile = true;
   bool _loadingCollections = true;
   bool _loadingTimeline = true;
+  String? _timelineNotice;
+  String? _timelineError;
   bool _friendBusy = false;
   bool? _isFriend;
   String? _error;
@@ -75,7 +77,10 @@ class _UserProfilePageState extends ConsumerState<UserProfilePage> {
   }
 
   Future<void> _loadTimeline() async {
-    setState(() => _loadingTimeline = true);
+    setState(() {
+      _loadingTimeline = true;
+      _timelineError = null;
+    });
     try {
       // P1 user timelines can lag days behind the website.
       final page = await _community.loadFreshTimelinePage(
@@ -107,12 +112,13 @@ class _UserProfilePageState extends ConsumerState<UserProfilePage> {
       ];
       setState(() {
         _timeline = items;
+        _timelineNotice = page.notice;
         _loadingTimeline = false;
       });
-    } catch (_) {
+    } catch (error) {
       if (!mounted) return;
       setState(() {
-        _timeline = const [];
+        _timelineError = '动态加载失败，请重试';
         _loadingTimeline = false;
       });
     }
@@ -513,7 +519,10 @@ class _UserProfilePageState extends ConsumerState<UserProfilePage> {
                         ),
                       ),
                     ],
-                    if (_loadingTimeline || _timeline.isNotEmpty) ...[
+                    if (_loadingTimeline ||
+                        _timeline.isNotEmpty ||
+                        _timelineError != null ||
+                        _timelineNotice != null) ...[
                       const SizedBox(height: 14),
                       Text(
                         '最近动态',
@@ -521,6 +530,17 @@ class _UserProfilePageState extends ConsumerState<UserProfilePage> {
                             ?.copyWith(fontWeight: FontWeight.w800),
                       ),
                       const SizedBox(height: 8),
+                      if (_timelineNotice != null) Text(_timelineNotice!),
+                      if (_timelineError != null)
+                        Row(
+                          children: [
+                            Expanded(child: Text(_timelineError!)),
+                            TextButton(
+                              onPressed: _loadTimeline,
+                              child: const Text('重试'),
+                            ),
+                          ],
+                        ),
                       if (_loadingTimeline)
                         const Padding(
                           padding: EdgeInsets.symmetric(vertical: 12),

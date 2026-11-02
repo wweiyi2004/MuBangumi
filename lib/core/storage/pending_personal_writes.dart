@@ -29,4 +29,10 @@ class PendingPersonalWrites {
       await Future.wait(pending);
     }
   }
+
+  static Future<void> drainAll() async {
+    while (_pending.isNotEmpty) {
+      await Future.wait([for (final pending in _pending.values) ...pending]);
+    }
+  }
 }

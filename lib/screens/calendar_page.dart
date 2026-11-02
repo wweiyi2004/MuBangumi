@@ -79,6 +79,16 @@ class _CalendarPageState extends ConsumerState<CalendarPage> {
                     context,
                     title: '${day.weekdayLabel} · 每日放送',
                     filename: 'MuBangumi-broadcast-${day.weekday}.png',
+                    images: [
+                      for (final subject in day.subjects)
+                        if (subject.imageUrl.isNotEmpty)
+                          SubjectCover.imageProvider(
+                            subject,
+                            width: 60,
+                            height: 84,
+                            pixelRatio: MediaQuery.devicePixelRatioOf(context),
+                          ),
+                    ],
                     subtitle: '数据来源：Bangumi 每日放送 · 共 ${day.subjects.length} 部',
                     child: DailyBroadcastPoster(
                       subjects: List.unmodifiable(day.subjects),

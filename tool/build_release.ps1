@@ -12,6 +12,8 @@ param(
 
     [string]$FlutterVersion,
 
+    [string]$ShorebirdCli,
+
     [ValidatePattern('^\d+\.\d+\.\d+$')]
     [string]$BuildName,
 
@@ -30,6 +32,9 @@ $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'toolchain.ps1')
 if ($UniversalApk -and ($Target -ne 'apk' -or $Patch)) {
     throw '-UniversalApk requires a full APK build.'
+}
+if (-not $Patch -and $ReleaseVersion) {
+    throw '-ReleaseVersion is only valid for a patch; a new release must use its actual version for acceptance.'
 }
 if (-not $FlutterVersion) { $FlutterVersion = $script:MuVersions.flutter }
 if (-not $Patch -and $FlutterVersion -ne $script:MuVersions.flutter) { throw 'FlutterVersion 必须与 tool/toolchain.json 保持一致。' }
@@ -119,8 +124,33 @@ try {
     & python @provenanceArguments
     if ($LASTEXITCODE) { throw '发布前检查未通过，尚未运行构建或上传；请查看上方具体原因。' }
     if ($Shorebird) {
-        if (-not (Get-Command shorebird -ErrorAction SilentlyContinue)) {
+        if (-not $ShorebirdCli) {
+            $shorebirdApplication = Get-Command shorebird -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+            if ($shorebirdApplication) { $ShorebirdCli = $shorebirdApplication.Source }
+        }
+        if (-not $ShorebirdCli -or -not (Test-Path -LiteralPath $ShorebirdCli -PathType Leaf)) {
             throw '未找到 Shorebird CLI，请先安装并完成 shorebird login。'
+        }
+        if (-not $Patch) {
+            # Full verification restores Debug plugin metadata. A new release
+            # must regenerate Release registrants before Shorebird's --no-pub
+            # build, so integration_test is never registered in the APK.
+            $lockedDependencies = @{}
+            foreach ($lock in @('pubspec.lock', 'packages/banjian_server/pubspec.lock')) {
+                if (Test-Path -LiteralPath $lock) {
+                    $lockedDependencies[$lock] = (Get-FileHash -LiteralPath $lock -Algorithm SHA256).Hash
+                }
+            }
+            Invoke-MuFlutter -Arguments @('pub', 'get', '--enforce-lockfile')
+            if ($LASTEXITCODE) { throw 'Locked Shorebird dependency preparation failed.' }
+            $configurationTarget = if ($Target -eq 'appbundle') { 'apk' } else { $Target }
+            Invoke-MuFlutter -Arguments (@('build', $configurationTarget, '--release', '--config-only') + $versionArguments)
+            if ($LASTEXITCODE) { throw 'Shorebird Release plugin configuration failed.' }
+            foreach ($lock in $lockedDependencies.Keys) {
+                if ((Get-FileHash -LiteralPath $lock -Algorithm SHA256).Hash -ne $lockedDependencies[$lock]) {
+                    throw "Dependency lock changed while preparing Shorebird Release plugins: $lock"
+                }
+            }
         }
         $platform = if ($Target -eq 'windows') { 'windows' } else { 'android' }
         $arguments = if ($Patch) {
@@ -130,6 +160,11 @@ try {
         }
         if (-not $Patch -and $Target -eq 'apk') {
             $arguments += '--artifact=apk'
+        }
+        if (-not $Patch -and $Target -eq 'windows') {
+            $symbolDirectory = Join-Path $repositoryRoot ('release-symbols\shorebird-' + $Target + '-' + [guid]::NewGuid().ToString('N'))
+            New-Item -ItemType Directory -Path $symbolDirectory | Out-Null
+            $arguments += "--split-debug-info=$symbolDirectory"
         }
         if ($DryRun) {
             $arguments += '--dry-run'
@@ -143,7 +178,7 @@ try {
         # Keep existing Shorebird base/patch compilation options compatible.
         $arguments += @('--', '--no-pub', "--dart-define-from-file=$oauthConfigPath") + $versionArguments
         Write-Host "使用本地 OAuth 配置构建 Shorebird $platform（不会打印密钥）"
-        & shorebird @arguments
+        & $ShorebirdCli @arguments
     } else {
         if ($DryRun) {
             throw '-DryRun 仅适用于 Shorebird 构建。'
@@ -246,6 +281,9 @@ try {
     & python @finishArguments
     if ($LASTEXITCODE) { throw '构建来源或产物记录校验失败。' }
     Write-Host "来源与校验记录：$provenanceFile"
+    if ($Shorebird -and -not $Patch -and -not $DryRun) {
+        Write-Warning 'CLI 已完成；尚需核对远端 release ID，并用 release_provenance.py release-receipt 保存真实回执。'
+    }
 } catch {
     $buildFailure = $_
     if ($provenanceFile -and (Test-Path -LiteralPath $provenanceFile)) {

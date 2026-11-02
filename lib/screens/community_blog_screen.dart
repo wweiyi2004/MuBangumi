@@ -73,6 +73,7 @@ Future<bool> showBlogEditor(
           },
     submitLabel: original == null ? '发布' : '保存',
     requireVerification: original == null,
+    protectSubmission: original == null,
     tokenProvider: tokenProvider,
     draftKey: communityDraftKey(service.currentUsername, [
       'blog-v1',

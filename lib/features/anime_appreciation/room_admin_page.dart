@@ -639,6 +639,11 @@ class _RoomAdminPageState extends ConsumerState<RoomAdminPage> {
   Widget _comments(Json? e, Json? r) => ListView(
     physics: const AlwaysScrollableScrollPhysics(),
     children: [
+      if (r?['commentsMore'] == true && e != null)
+        TextButton(
+          onPressed: () => _details('wall', roundId: r!['id']),
+          child: Text('查看全部 ${r?['commentsTotal'] ?? ''} 条短评'),
+        ),
       if (r == null || (r['comments'] as List).isEmpty)
         const Padding(padding: EdgeInsets.all(24), child: Text('等待大家的匿名短评…')),
       for (final c in ((r?['comments'] as List?) ?? []).reversed)

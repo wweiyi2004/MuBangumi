@@ -13,6 +13,42 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   test(
+    'Apple native bridge preserves Secure, HttpOnly and expiry attributes',
+    () async {
+      const channel = MethodChannel('mubangumi/apple_website_cookies');
+      final messenger =
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+      final headers = <String>[];
+      messenger.setMockMethodCallHandler(channel, (call) async {
+        if (call.method == 'readBgmCookies') {
+          return [
+            {
+              'name': 'chii_auth',
+              'value': 'synthetic_cookie',
+              'domain': '.bgm.tv',
+              'path': '/',
+              'secure': true,
+              'http_only': true,
+              'expires_at': '2099-01-01T00:00:00Z',
+            },
+          ];
+        }
+        if (call.method == 'setBgmCookie') {
+          headers.add((call.arguments as Map)['header'] as String);
+        }
+        return null;
+      });
+      addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
+      final cookies = await WebsiteCookieBridge.captureAppleCookies();
+      expect(cookies.single.isHttpOnly, true);
+      expect(cookies.single.isSecure, true);
+      await WebsiteCookieBridge.injectAppleCookies(cookies);
+      expect(headers.single, contains('; Secure; HttpOnly; Expires='));
+      expect(headers.single, contains('2099'));
+    },
+  );
+
+  test(
     'Android raw cookies preserve equals and encoded bytes through restore',
     () async {
       const channel = MethodChannel('mubangumi/website_cookies');
@@ -123,6 +159,7 @@ void main() {
         messenger.setMockMethodCallHandler(MethodChannel('$prefix/$id'), null);
       }
     });
+    WebsiteCookieBridge.setCleanupForTests(null);
     await WebsiteCookieBridge.clearBgmCookies();
     await pumpEventQueue();
     final controller = windows.WebviewController();
@@ -153,6 +190,7 @@ void main() {
       debugPrint = (message, {wrapWidth}) => lines.add(message ?? '');
       addTearDown(() => debugPrint = previous);
 
+      WebsiteCookieBridge.setCleanupForTests(null);
       await WebsiteCookieBridge.clearBgmCookies();
       await pumpEventQueue();
 
